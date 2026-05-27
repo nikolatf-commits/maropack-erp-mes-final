@@ -1,0 +1,224 @@
+/* ============================================================================
+   MAROPACK FAZA 2 - UI STRUKTURA I MAGACIN PRO POLISH
+   Ne dira poslovnu logiku. Samo stabilizuje izgled, spacing, kartice, tabele.
+   ============================================================================ */
+:root{
+  --mp2-bg:#f3f6fb;
+  --mp2-panel:#ffffff;
+  --mp2-panel-soft:#f8fafc;
+  --mp2-border:#dde7f3;
+  --mp2-text:#0f172a;
+  --mp2-muted:#64748b;
+  --mp2-blue:#2563eb;
+  --mp2-blue-dark:#1d4ed8;
+  --mp2-green:#059669;
+  --mp2-amber:#d97706;
+  --mp2-red:#dc2626;
+  --mp2-shadow:0 18px 45px rgba(15,23,42,.08);
+  --mp2-shadow-soft:0 10px 24px rgba(15,23,42,.06);
+  --mp2-radius:18px;
+}
+
+/* App shell: bolji desktop izgled bez menjanja React logike */
+body{background:var(--mp2-bg)!important;}
+#root{background:var(--mp2-bg)!important;}
+
+/* Pro page spacing */
+.magacin-pro-page{
+  max-width:1600px;
+  margin:0 auto;
+  padding-bottom:32px;
+}
+
+.magacin-hero{
+  margin-top:2px!important;
+  margin-bottom:20px!important;
+}
+
+.magacin-kpi-grid{
+  grid-template-columns:repeat(4,minmax(160px,1fr))!important;
+}
+
+.magacin-kpi-card{
+  min-height:106px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+}
+
+.magacin-panel{
+  border-radius:24px!important;
+  border:1px solid var(--mp2-border)!important;
+  box-shadow:var(--mp2-shadow)!important;
+}
+
+.magacin-panel-head{
+  gap:12px!important;
+  padding:18px 20px!important;
+}
+
+.magacin-filter-control{
+  min-width:150px!important;
+  height:42px!important;
+}
+
+.magacin-view-toggle{
+  height:40px!important;
+  min-width:92px!important;
+}
+
+/* Magacin kartice rolni - da izgledaju kao profesionalne warehouse kartice */
+.warehouse-roll-grid{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fill,minmax(310px,1fr))!important;
+  gap:12px!important;
+  margin-top:10px!important;
+}
+
+.warehouse-roll-card{
+  background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)!important;
+  border:1px solid #e2e8f0!important;
+  border-radius:18px!important;
+  padding:14px!important;
+  box-shadow:0 8px 22px rgba(15,23,42,.055)!important;
+  cursor:pointer!important;
+  transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease!important;
+}
+.warehouse-roll-card:hover{
+  transform:translateY(-2px)!important;
+  border-color:#bfdbfe!important;
+  box-shadow:0 14px 34px rgba(37,99,235,.13)!important;
+}
+.warehouse-roll-top{
+  display:flex!important;
+  align-items:center!important;
+  gap:10px!important;
+  margin-bottom:12px!important;
+}
+.warehouse-roll-code{
+  font-size:14px!important;
+  font-weight:950!important;
+  color:#1d4ed8!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  max-width:180px!important;
+}
+.warehouse-roll-meta{
+  color:#64748b!important;
+  font-size:11px!important;
+  font-weight:750!important;
+  margin-top:2px!important;
+}
+.warehouse-roll-stats{
+  display:grid!important;
+  grid-template-columns:repeat(3,1fr)!important;
+  gap:8px!important;
+  margin-bottom:10px!important;
+}
+.warehouse-roll-stat{
+  background:#f8fafc!important;
+  border:1px solid #e2e8f0!important;
+  border-radius:14px!important;
+  padding:9px 8px!important;
+  text-align:center!important;
+}
+.warehouse-roll-stat b{
+  display:block!important;
+  color:#0f172a!important;
+  font-size:13px!important;
+  font-weight:950!important;
+}
+.warehouse-roll-stat span{
+  display:block!important;
+  color:#64748b!important;
+  font-size:10px!important;
+  font-weight:850!important;
+  text-transform:uppercase!important;
+  letter-spacing:.04em!important;
+}
+.warehouse-roll-footer{
+  display:flex!important;
+  gap:8px!important;
+  flex-wrap:wrap!important;
+  margin-top:10px!important;
+}
+.warehouse-mini-badge{
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:5px!important;
+  background:#f1f5f9!important;
+  border:1px solid #e2e8f0!important;
+  color:#475569!important;
+  border-radius:999px!important;
+  padding:5px 8px!important;
+  font-size:10.5px!important;
+  font-weight:850!important;
+}
+
+.status-badge{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:999px!important;
+  padding:5px 9px!important;
+  font-size:10.5px!important;
+  font-weight:950!important;
+  white-space:nowrap!important;
+}
+.status-badge.ok{background:#dcfce7!important;color:#166534!important;border:1px solid #bbf7d0!important;}
+.status-badge.warn{background:#fef3c7!important;color:#92400e!important;border:1px solid #fde68a!important;}
+.status-badge.info{background:#dbeafe!important;color:#1e40af!important;border:1px solid #bfdbfe!important;}
+.status-badge.muted{background:#f1f5f9!important;color:#64748b!important;border:1px solid #e2e8f0!important;}
+
+/* Width rows: sprečava zbijanje na manjim ekranima */
+.width-row{
+  grid-template-columns:120px minmax(320px,1fr) 160px!important;
+}
+
+/* Tabele: čitljivije i stabilnije */
+.magacin-table th,
+.magacin-table td{
+  vertical-align:middle!important;
+}
+.magacin-table tbody tr:nth-child(even) td{
+  background:#fbfdff!important;
+}
+.magacin-table tbody tr:hover td{
+  background:#eff6ff!important;
+}
+
+/* Forme: ravniji i profesionalniji izgled */
+.magacin-pro-page input,
+.magacin-pro-page select,
+.magacin-pro-page textarea{
+  box-shadow:0 1px 0 rgba(15,23,42,.03)!important;
+}
+.magacin-pro-page input:focus,
+.magacin-pro-page select:focus,
+.magacin-pro-page textarea:focus{
+  border-color:#2563eb!important;
+  box-shadow:0 0 0 4px rgba(37,99,235,.13)!important;
+}
+
+/* Dugmad bez prejakog skakanja u magacinu */
+.magacin-pro-page button:hover{
+  transform:translateY(-1px)!important;
+}
+
+@media (max-width:1200px){
+  .magacin-kpi-grid{grid-template-columns:repeat(2,minmax(160px,1fr))!important;}
+  .width-row{grid-template-columns:1fr!important;}
+  .roll-total{text-align:left!important;}
+}
+@media (max-width:760px){
+  .magacin-pro-page{padding:0 2px 24px 2px!important;}
+  .magacin-hero{border-radius:18px!important;padding:18px!important;}
+  .magacin-hero-title{font-size:22px!important;}
+  .magacin-tabs{justify-content:flex-start!important;margin-top:14px!important;}
+  .magacin-kpi-grid{grid-template-columns:1fr!important;}
+  .magacin-panel-head{align-items:stretch!important;}
+  .magacin-panel-title{width:100%!important;}
+  .magacin-filter-control,.magacin-view-toggle{width:100%!important;min-width:0!important;}
+  .warehouse-roll-grid{grid-template-columns:1fr!important;}
+}

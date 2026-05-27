@@ -1,0 +1,32 @@
+PRO PDF DIZAJN - UPUTSTVO
+
+1) Instaliraj pakete:
+npm install jspdf qrcode
+
+2) U src napravi folder:
+src/utils/
+
+3) Kopiraj fajlove:
+src/utils/qr.js
+src/utils/pdfPonuda.js
+src/utils/pdfNalog.js
+
+4) Zameni PonudePRO.jsx ovim iz ZIP-a.
+
+5) PregledNalogaPRO.jsx:
+- dodaj import:
+import { napraviPDFNalog } from "./utils/pdfNalog";
+
+- dodaj dugme koje poziva:
+napraviPDFNalog(aktivni)
+
+Primer je u fajlu PregledNalogaPRO_PATCH.txt
+
+6) Pokreni:
+npm run dev
+
+Dobijaš:
+- PRO PDF ponudu sa QR kodom
+- PRO PDF nalog sa QR kodom
+- tabele materijala/strukture
+- potpisi i kontrola proizvodnje

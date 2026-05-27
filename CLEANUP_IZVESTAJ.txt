@@ -1,0 +1,39 @@
+MAROPACK V52 CLEAN SYSTEM - IZVESTAJ
+
+Uradjeno:
+1. Izbacena je stara baza proizvoda iz glavnog menija.
+2. Baza proizvoda je sredjena u jedan jasan meni:
+   - Lista proizvoda po kupcima
+   - Baza proizvoda PRO
+   - Template Engine
+   - Baza materijala
+3. Uklonjen je render stare stranice page === "baza" iz App.jsx.
+4. Uklonjen je dupli AUTH render za AuditLog/UserManagement.
+5. Uklonjen je stari Magacin-UNIFIED / Magacin-FINAL iz glavnog App.jsx jer se sada koristi RolneWarehouseEngine.
+6. Uklonjeni su nepotrebni stari README/TXT patch fajlovi iz root foldera.
+7. Uklonjeni su dupli/stari source fajlovi koji nisu vise povezani u aplikaciji:
+   - src/Magacin-FINAL.jsx
+   - src/Magacin-UNIFIED-FINAL.jsx
+   - src/BazaMaterijalaPRO.jsx
+   - src/ProductTemplatePRO.jsx
+   - src/ManagerDashboard.jsx
+   - src/Dashboard.jsx
+8. Zadrzani su aktivni moduli:
+   - ListaProizvodaKupci.jsx
+   - ProductMasterPRO.jsx
+   - ProductTemplateEngineV20.jsx
+   - MaterialMasterPRO.jsx
+   - RolneWarehouseEngine.jsx
+   - KalkulatorMaticnihRolni.jsx
+   - PlanerRezanjaIzMagacina.jsx
+   - AnalizaPotrosnjeMaterijala.jsx
+   - MPTPRollOrientation.jsx
+9. Proveren je production build.
+
+Napomena:
+- node_modules nije ukljucen u ZIP. Posle raspakivanja pokrenuti:
+  npm install --legacy-peer-deps
+  npm run dev
+
+Glavni tok sistema:
+Baza proizvoda -> Kalkulacije -> Ponude -> Glavni nalozi -> Magacin -> Plan rezanja -> Proizvodnja -> Analiza potrosnje.

@@ -1,0 +1,67 @@
+MAROPACK V52 FULL SYSTEM - IZVESTAJ IZMENA
+
+CILJ:
+Sistem je povezan u profesionalan ERP/MES tok:
+Baza proizvoda -> Kalkulacija -> Ponuda -> Nalog -> Magacin -> Planer rezanja -> Prihvati plan -> Skidanje metraze -> QR ostatak -> Analiza potrosnje.
+
+URADJENO:
+1) Supabase fallback
+- Aplikacija vise ne puca ako .env nije podesen.
+- Ako nema VITE_SUPABASE_URL i VITE_SUPABASE_ANON_KEY, radi lokalni demo rezim preko localStorage.
+- Kada se unesu pravi Supabase podaci, automatski radi online rezim.
+
+2) Centralni workflow servis
+Dodat fajl:
+src/services/warehouseWorkflow.js
+
+Sadrzi:
+- normalizaciju rolni iz razlicitih struktura
+- parsiranje zahteva za rezanje
+- algoritam izbora rolni
+- prihvatanje plana
+- skidanje metraze
+- kreiranje ostatka rolne
+- zapis plana rezanja
+- zapis analize potrosnje
+- localStorage fallback
+
+3) Planer rezanja iz magacina
+Fajl:
+src/PlanerRezanjaIzMagacina.jsx
+
+Dodat profesionalni tok:
+- Prihvati plan sada stvarno menja stanje u db/localStorage
+- skida potrosenu metrazu sa rolni
+- kreira novu rolnu za ostatak kada je ostatak koristan
+- priprema QR etiketu za ostatak
+- cuva plan u planovi_rezanja
+- cuva zapis u analiza_potrosnje
+
+4) App povezivanje
+Fajl:
+src/App.jsx
+
+- PlanerRezanjaIzMagacina dobija setDb
+- RolneWarehouseEngine dobija setDb
+- Supabase realtime se ne aktivira u lokalnom demo rezimu
+
+5) Full sistem logika
+Sistem sada moze da radi i bez Supabase konfiguracije za test:
+- podaci se cuvaju u localStorage
+- plan rezanja menja stanje rolni
+- ostatak rolne ostaje u magacinu
+- istorija potrosnje se upisuje lokalno
+
+STA DALJE TREBA DOGRADITI U SUPABASE:
+- tabelu planovi_rezanja
+- tabelu analiza_potrosnje
+- RLS politike za sve role
+- RPC funkciju za prihvatanje plana na serveru
+
+KOMANDE:
+npm install --legacy-peer-deps
+npm run dev
+npm run build
+
+NAPOMENA:
+node_modules i dist nisu potrebni za GitHub/Vercel ZIP. Vercel ih sam generise.

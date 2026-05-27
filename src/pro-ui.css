@@ -1,0 +1,128 @@
+/* MAROPACK PRO UI PATCH - centralni vizuelni sistem bez diranja poslovne logike */
+:root{
+  --mp-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --mp-bg:#f5f7fb;
+  --mp-surface:#ffffff;
+  --mp-surface-2:#f8fafc;
+  --mp-border:#dbe3ef;
+  --mp-border-soft:#e8eef7;
+  --mp-text:#0f172a;
+  --mp-muted:#64748b;
+  --mp-muted-2:#94a3b8;
+  --mp-primary:#2563eb;
+  --mp-primary-dark:#1d4ed8;
+  --mp-green:#059669;
+  --mp-red:#dc2626;
+  --mp-shadow:0 14px 35px rgba(15,23,42,.08);
+  --mp-shadow-soft:0 8px 20px rgba(15,23,42,.06);
+  --mp-radius:16px;
+}
+
+*{box-sizing:border-box}
+html,body,#root{min-height:100%;margin:0;font-family:var(--mp-font)!important;background:var(--mp-bg)!important;color:var(--mp-text)!important;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+body{font-size:14px;line-height:1.45;}
+
+/* Tipografija */
+h1,h2,h3,h4{font-family:var(--mp-font)!important;color:var(--mp-text)!important;letter-spacing:-.025em!important;line-height:1.15!important;}
+h1{font-size:30px!important;font-weight:850!important;}
+h2{font-size:24px!important;font-weight:820!important;}
+h3{font-size:18px!important;font-weight:780!important;}
+h4{font-size:15px!important;font-weight:760!important;}
+p,span,div,label,td,th,input,select,textarea,button{font-family:var(--mp-font)!important;}
+label,[style*="text-transform: uppercase"]{letter-spacing:.055em!important;}
+
+/* Glavni layout */
+#root > div{background:var(--mp-bg)!important;}
+nav::-webkit-scrollbar, div::-webkit-scrollbar{width:8px;height:8px}
+nav::-webkit-scrollbar-thumb, div::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
+nav::-webkit-scrollbar-track, div::-webkit-scrollbar-track{background:transparent}
+
+/* Sidebar pro izgled */
+#root > div > div:first-child{
+  width:272px!important;
+  background:linear-gradient(180deg,#07111f 0%,#0f172a 45%,#101827 100%)!important;
+  border-right:1px solid rgba(148,163,184,.18)!important;
+  box-shadow:18px 0 35px rgba(15,23,42,.10)!important;
+}
+#root > div > div:first-child nav{padding:14px 12px!important;}
+#root > div > div:first-child nav > div > div:first-child{
+  min-height:42px!important;
+  border-radius:12px!important;
+  border:1px solid rgba(148,163,184,.14)!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03)!important;
+}
+#root > div > div:first-child nav span{font-weight:700!important;}
+#root > div > div:first-child nav div[style*="padding-left: 28px"]{padding-left:14px!important;}
+#root > div > div:first-child nav div[style*="padding: 8px 12px"]{
+  border-radius:10px!important;
+  min-height:36px!important;
+  font-size:12.5px!important;
+}
+
+/* Content */
+#root > div > div:nth-child(3), #root > div > div:nth-child(2){
+  background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)!important;
+}
+#root > div > div[style*="padding: 22px"]{padding:24px 28px!important;}
+
+/* Kartice / paneli */
+[style*="background: #fff"],[style*="background: \"#fff\""],[style*="background:#fff"],[style*="background: white"],[style*="background: \"white\""]{
+  border-color:var(--mp-border-soft)!important;
+  border-radius:var(--mp-radius)!important;
+  box-shadow:var(--mp-shadow-soft)!important;
+}
+[style*="borderRadius: 12"],[style*="borderRadius: 10"],[style*="border-radius: 12"],[style*="border-radius: 10"]{border-radius:var(--mp-radius)!important;}
+
+/* Forme */
+input,select,textarea{
+  min-height:38px!important;
+  border:1px solid var(--mp-border)!important;
+  border-radius:10px!important;
+  background:#fff!important;
+  color:var(--mp-text)!important;
+  font-size:13.5px!important;
+  outline:none!important;
+  transition:border-color .15s ease, box-shadow .15s ease, background .15s ease!important;
+}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--mp-primary)!important;
+  box-shadow:0 0 0 4px rgba(37,99,235,.12)!important;
+}
+textarea{line-height:1.45!important;padding-top:10px!important;}
+
+/* Dugmad */
+button{
+  border-radius:10px!important;
+  font-weight:750!important;
+  letter-spacing:-.01em!important;
+  transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease!important;
+}
+button:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.10)!important;}
+button:active{transform:translateY(0);}
+button:disabled{opacity:.55!important;cursor:not-allowed!important;transform:none!important;box-shadow:none!important;}
+
+/* Tabele */
+table{border-collapse:separate!important;border-spacing:0!important;width:100%;font-size:13px!important;}
+th{
+  background:#f1f5f9!important;
+  color:#334155!important;
+  font-size:11px!important;
+  text-transform:uppercase!important;
+  letter-spacing:.055em!important;
+  font-weight:800!important;
+  border-bottom:1px solid var(--mp-border)!important;
+}
+td{border-bottom:1px solid #eef2f7!important;color:#1e293b!important;}
+tr:hover td{background:#f8fafc!important;}
+
+/* Badge / statusi */
+[style*="borderRadius: 6"],[style*="border-radius: 6"]{border-radius:999px!important;}
+
+/* Manje agresivan emoji izgled */
+button span:first-child, nav span:first-child{filter:saturate(.9);}
+
+/* Print/A4 ne diramo previše */
+@media print{
+  body,#root{background:#fff!important;}
+  button,nav{box-shadow:none!important;}
+}

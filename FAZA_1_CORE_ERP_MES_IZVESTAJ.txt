@@ -1,0 +1,52 @@
+MAROPACK V52 — FAZA 1 CORE ERP/MES
+
+Ubačeno u sistem:
+
+1) Centralni statusi naloga
+- Kreiran
+- Priprema
+- Materijal rezervisan
+- Spreman za štampu
+- Štampa
+- Kaširanje
+- Rezanje
+- Sečenje
+- Kontrola kvaliteta
+- Završen
+- Isporučen
+
+2) Centralna baza mašina
+- 10 rezača
+- 15 mašina za kese
+- 2 mašine za špulne
+- 1 kaširka
+- Kartica svake mašine za unos karakteristika
+- Max/min širina, max prečnik, hilzna, brzina, setup vreme, mogućnosti, status
+
+3) Mašine + Plan proizvodnje PRO
+- Novi modul povezan u meniju: Proizvodnja → Mašine + Plan proizvodnje PRO
+- Drag & drop raspored naloga sa mašine na mašinu
+- Kompatibilnost naloga i mašine
+- Upozorenje ako mašina ne može nalog
+- Opterećenje mašine po smeni
+- Traceability log pomeranja naloga
+
+4) Core ERP/MES servis
+- src/services/erpMesCore.js
+- Default mašine
+- Statusi
+- Demo nalozi
+- Čuvanje mašina
+- Čuvanje plana
+- Traceability log
+- Lokalni demo režim + Supabase fallback
+
+5) Supabase SQL dopuna
+- masine
+- proizvodni_plan
+- nalog_status_history
+- traceability_log
+- qr_entities
+
+Napomena:
+Ovo je FAZA 1 temelj. Sledeća faza treba da poveže ovaj scheduler sa stvarnim nalozima, pravim radnicima, QR skenerom i automatskim MES start/stop praćenjem.

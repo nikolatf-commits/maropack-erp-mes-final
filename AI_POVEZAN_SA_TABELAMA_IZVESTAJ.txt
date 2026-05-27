@@ -1,0 +1,58 @@
+MAROPACK V52 — AI POVEZAN SA SVIM TABELAMA
+
+Urađeno:
+1. Dodat centralni AI Data Hub:
+   src/services/aiDataHub.js
+
+2. AI sada čita ključne tabele:
+   - proizvodi
+   - product_templates
+   - materijali
+   - rolne / magacin
+   - ponude
+   - kalkulacije_folije
+   - kalkulacije_kese
+   - kalkulacije_spulne
+   - nalozi
+   - master_nalozi
+   - nalozi_materijal
+   - operacije_naloga
+   - faze_proizvodnje
+   - production_sessions
+   - mobile_production_sessions
+   - planovi_rezanja
+   - planovi_secenja
+   - potrosnja_materijala
+   - analiza_potrosnje_materijala
+   - masine
+   - radnici
+   - kontrola_kvaliteta
+   - audit_log
+
+3. AI Chat Assistant je zamenjen profesionalnim centralnim panelom:
+   - KPI podaci iz sistema
+   - status povezanih tabela
+   - magacin po materijalu
+   - brza pitanja
+   - osvežavanje podataka
+   - Gemini prompt sa kompletnim kontekstom sistema
+
+4. Dodat fallback:
+   - ako neka tabela ne postoji, AI se ne ruši
+   - ako nema Supabase .env, radi lokalni demo režim
+   - ako nema Gemini API key, jasno prikaže šta fali
+
+5. Dodat SQL za ai_interakcije:
+   - čuva pitanje
+   - čuva odgovor
+   - čuva summary sistema u trenutku pitanja
+
+Potrebno za rad AI:
+.env mora imati:
+VITE_GEMINI_API_KEY=...
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+
+Pokretanje:
+npm install --legacy-peer-deps
+npm run dev
