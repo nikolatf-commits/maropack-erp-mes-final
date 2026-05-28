@@ -3,6 +3,7 @@
   "private": true,
   "version": "2.1.0-final-production-ready",
   "type": "module",
+"packageManager": "pnpm@10.34.1",
   "scripts": {
     "start": "vite --host 0.0.0.0",
     "dev": "vite --host 0.0.0.0",
