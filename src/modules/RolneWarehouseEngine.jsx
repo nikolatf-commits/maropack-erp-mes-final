@@ -355,14 +355,35 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const [popisRoll, setPopisRoll] = useState(null);
   const [popisForm, setPopisForm] = useState({ duzina: "", kg: "", lokacija: "" });
 
-  function reload() {
+  async function reload() {
     const mats = ensureMaterials().map(normalizeMaterial);
     safeWrite(LS_MATERIJALI, mats);
     setMaterijali(mats);
+
+    let supabaseRolls = [];
+    try {
+      if (!supabase?.__localDemo) {
+        const { data, error } = await supabase
+          .from("magacin")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        supabaseRolls = (data || []).map(mapDbRollToEngine);
+      }
+    } catch (e) {
+      console.error("Učitavanje rolni iz Supabase magacin nije uspelo:", e);
+      msg?.("Ne mogu da učitam stanje rolni iz Supabase: " + (e?.message || e), "err");
+    }
+
     const localRolls = safeRead(LS_ROLNE, []).map(mapDbRollToEngine);
     const dbRolls = Array.isArray(db?.rolne) ? db.rolne.map(mapDbRollToEngine) : [];
-    const mergedRolls = [...dbRolls, ...localRolls].filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
+
+    const mergedRolls = [...supabaseRolls, ...dbRolls, ...localRolls]
+      .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
+
     setRolne(mergedRolls);
+    safeWrite(LS_ROLNE, mergedRolls);
     setHistory(safeRead(LS_HISTORY, []));
     if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
   }
