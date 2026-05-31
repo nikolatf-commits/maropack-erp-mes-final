@@ -1530,7 +1530,7 @@ function MobilniRadnikPonBr({ ponBr }) {
 // ============================================
 function MainAppContent() {
     // ✅ AUTH HOOK - dobija user info
-    const { user, userProfile, signOut, isAdmin, isManager, canEdit } = useAuth();
+    const { user, userProfile, signOut, isAdmin, isManager, isMagacioner, canEdit } = useAuth();
 
     // ✅ PROFESIONALNI NALOZI
     // Jedan glavni prikaz naloga: PregledNalogaPRO. Nema više paralelnog starog print layout-a.
@@ -1556,7 +1556,14 @@ function MainAppContent() {
     // -----------------------------------------------------
 
     const [page, setPage] = useState("dashboard_pro");
-    const [openGroups, setOpenGroups] = useState(['dashboard']); // ✅ ACCORDION STATE
+    const [openGroups, setOpenGroups] = useState(['dashboard']);
+
+    useEffect(function () {
+        if (isMagacioner) {
+            setPage("rolne_engine");
+            setOpenGroups(["magacin"]);
+        }
+    }, [isMagacioner]); // ✅ ACCORDION STATE
     const [db, setDb] = useState({ proizvodi: [], ponude: [], nalozi: [], master_nalozi: [], rolne: [], masine: [], radnici: [], production_sessions: [], qc_zapisnici: [] });
     const [notif, setNotif] = useState(null);
     const [lIme, setLIme] = useState("");
@@ -1882,7 +1889,7 @@ function MainAppContent() {
 
     // ✅ FINAL CLEAN ACCORDION NAVIGATION STRUCTURE
     // Navigacija je izdvojena u src/config/navigation.js da App.jsx ne drži meni u sebi.
-    const navGroups = getNavGroups(isAdmin);
+    const navGroups = getNavGroups(isAdmin, userProfile?.uloga);
 
     function toggleGroup(groupKey) {
         if (openGroups.includes(groupKey)) {
@@ -2041,7 +2048,8 @@ function MainAppContent() {
                             </div>
                             <div style={{ fontSize: 11, color: "#64748b" }}>
                                 {userProfile?.uloga === 'admin' ? '👑 Admin' :
-                                    userProfile?.uloga === 'manager' ? '⭐ Manager' : '👷 User'}
+                                    userProfile?.uloga === 'manager' ? '⭐ Manager' :
+                                    userProfile?.uloga === 'magacioner' ? '🏪 Magacioner' : '👷 User'}
                             </div>
                         </div>
                     </div>

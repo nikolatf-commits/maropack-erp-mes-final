@@ -87,8 +87,10 @@ export function AuthProvider({ children }) {
     setUserProfile(null);
   }
 
-  const isAdmin = userProfile?.uloga === 'admin';
-  const isManager = userProfile?.uloga === 'manager' || isAdmin;
+  const userRole = userProfile?.uloga || null;
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole === 'manager' || isAdmin;
+  const isMagacioner = userRole === 'magacioner';
 
   function canEdit(resource) {
     if (isAdmin || isManager) return true;
@@ -103,6 +105,8 @@ export function AuthProvider({ children }) {
     signOut,
     isAdmin,
     isManager,
+    isMagacioner,
+    userRole,
     canEdit,
   };
 

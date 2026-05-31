@@ -355,6 +355,9 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const [popisQr, setPopisQr] = useState("");
   const [popisRoll, setPopisRoll] = useState(null);
   const [popisForm, setPopisForm] = useState({ duzina: "", kg: "", lokacija: "" });
+  const [povratQr, setPovratQr] = useState("");
+  const [povratRoll, setPovratRoll] = useState(null);
+  const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
 
   async function reload() {
     const mats = ensureMaterials().map(normalizeMaterial);
@@ -587,6 +590,56 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
   }
   function createReservationRequest() { safeWrite(LS_PENDING_RESERVATION, req); msg?.("Zahtev za izbor rolni je sačuvan. Kasnije ga povezujemo direktno sa master nalogom."); }
+
+  function coreEffectiveDiameter(hilzna) {
+    return hilzna === "FI152" ? 180 : 100;
+  }
+
+  function estimateMetersFromDiameter(roll, outerDiameterMm, hilzna) {
+    const D = number(outerDiameterMm);
+    const d = coreEffectiveDiameter(hilzna);
+    const thicknessMm = Math.max(number(roll?.debljina || roll?.deb || 0) / 1000, 0.001);
+    if (!D || D <= d) return 0;
+    return Math.max(0, Math.round((Math.PI * (D * D - d * d)) / (4 * thicknessMm) / 1000));
+  }
+
+  function estimateKgForMeters(roll, meters) {
+    const sirina = number(roll?.sirina || 0);
+    const gsm = number(roll?.gsm || (number(roll?.debljina || roll?.deb || 0) * 0.91));
+    if (!sirina || !meters || !gsm) return number(roll?.kg || roll?.kg_neto || 0);
+    return Math.round((sirina * meters * gsm / 1000000) * 100) / 100;
+  }
+
+  function findPovratRoll() {
+    const q = String(povratQr || "").trim();
+    if (!q) { msg?.("Skeniraj ili unesi QR broj rolne", "err"); return; }
+    const found = rolne.find((r) => r.qr === q || r.br_rolne === q || rollQrPayload(r) === q);
+    if (!found) { msg?.("Rolna nije pronađena u magacinu", "err"); return; }
+    setPovratRoll(found);
+    setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
+  }
+
+  async function confirmReturnToWarehouse() {
+    if (!povratRoll) { msg?.("Prvo pronađi rolnu", "err"); return; }
+    const meters = estimateMetersFromDiameter(povratRoll, povratForm.spoljasnjiPrecnik, povratForm.hilzna);
+    if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
+    const kg = estimateKgForMeters(povratRoll, meters);
+    const updated = { ...povratRoll, duzina: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: povratForm.lokacija || povratRoll.lokacija || "Magacin", datum_poslednje_promene: now(), napomena: povratForm.napomena || "Povrat u magacin" };
+    try {
+      if (!supabase?.__localDemo && povratRoll.id) {
+        await supabase.from("magacin").update({ metraza_ost: meters, kg_neto: kg, status: "Na stanju", lokacija: updated.lokacija, napomena: updated.napomena, updated_at: new Date().toISOString() }).eq("id", povratRoll.id);
+      }
+    } catch (e) {
+      console.error(e);
+      msg?.("Supabase update povrata nije uspeo: " + (e?.message || e), "err");
+    }
+    const next = rolne.map((x) => (x.qr === povratRoll.qr ? updated : x));
+    const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${povratForm.hilzna} (${coreEffectiveDiameter(povratForm.hilzna)} mm), spoljašnji prečnik ${povratForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
+    safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
+    msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
+    setPovratRoll(updated);
+  }
+
   function toggleSelected(qr) { setSelectedRolls((prev) => prev.includes(qr) ? prev.filter((x) => x !== qr) : [...prev, qr]); }
   function selectAllFiltered() { setSelectedRolls((prev) => Array.from(new Set([...prev, ...filteredRolls.map((r) => r.qr)]))); }
   function clearSelection() { setSelectedRolls([]); }
@@ -813,6 +866,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
         <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
         <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
         <button onClick={() => setActiveTab("popis")} style={tabBtn("popis")}>📲 QR popis</button>
+        <button onClick={() => setActiveTab("povrat")} style={tabBtn("povrat")}>↩️ Povrat u magacin</button>
         <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
         <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>
         <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
@@ -927,6 +981,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
 
 
       {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }} />}
+      {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }} />}
       {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
       {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 80).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
     </div>
@@ -1065,6 +1120,38 @@ function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial
       </div>
     </div>
   </div>;
+}
+
+
+function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }) {
+  const meters = povratRoll ? estimateMetersFromDiameter(povratRoll, povratForm.spoljasnjiPrecnik, povratForm.hilzna) : 0;
+  const kg = povratRoll ? estimateKgForMeters(povratRoll, meters) : 0;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 430px) 1fr", gap: 16 }}>
+      <div style={card}>
+        <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>↩️ Povrat u magacin</div>
+        <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Skeniraj QR rolnu, izaberi hilznu i unesi spoljašnji prečnik. Sistem računa preostalu metražu.</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          <label><span style={lbl}>QR / broj rolne</span><input style={input} value={povratQr} onChange={(e) => setPovratQr(e.target.value)} placeholder="Skeniraj QR ili unesi broj rolne" /></label>
+          <button onClick={findPovratRoll} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Pronađi rolnu</button>
+          <label><span style={lbl}>Hilzna</span><select style={input} value={povratForm.hilzna} onChange={(e) => setPovratForm({ ...povratForm, hilzna: e.target.value })}><option value="FI76">FI 76 — računa se 100 mm</option><option value="FI152">FI 152 — računa se 180 mm</option></select></label>
+          <label><span style={lbl}>Spoljašnji prečnik rolne mm</span><input style={input} type="number" value={povratForm.spoljasnjiPrecnik} onChange={(e) => setPovratForm({ ...povratForm, spoljasnjiPrecnik: e.target.value })} placeholder="npr. 420" /></label>
+          <label><span style={lbl}>Lokacija povrata</span><input style={input} value={povratForm.lokacija} onChange={(e) => setPovratForm({ ...povratForm, lokacija: e.target.value })} /></label>
+          <label><span style={lbl}>Napomena</span><input style={input} value={povratForm.napomena} onChange={(e) => setPovratForm({ ...povratForm, napomena: e.target.value })} /></label>
+          <button onClick={confirmReturnToWarehouse} disabled={!povratRoll} style={{ ...btn, background: povratRoll ? "#059669" : "#cbd5e1", color: "#fff", padding: 12 }}>Potvrdi povrat i štampaj novu etiketu</button>
+        </div>
+      </div>
+      <div style={card}>
+        <div style={{ fontWeight: 950, marginBottom: 12 }}>Obračun povrata</div>
+        {!povratRoll ? <div style={{ color: "#64748b" }}>Nema izabrane rolne.</div> : <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(150px,1fr))", gap: 10 }}>
+          {[["Rolna", povratRoll.qr], ["Materijal", `${povratRoll.vrsta || "—"} · ${povratRoll.komercijalnaOznaka || ""}`], ["Debljina", `${povratRoll.debljina || "—"} µ`], ["Širina", `${povratRoll.sirina || "—"} mm`], ["Izračunato m", `${fmt(meters,0)} m`], ["Izračunato kg", `${fmt(kg,2)} kg`]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
+        </div>}
+        <div style={{ marginTop: 14, padding: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, color: "#92400e", fontSize: 13 }}>
+          Formula koristi spoljašnji prečnik, efektivni prečnik hilzne i debljinu materijala. FI 76 se računa kao 100 mm, FI 152 kao 180 mm.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PredlogTab({ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }) {

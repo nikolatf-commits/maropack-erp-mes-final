@@ -1,7 +1,19 @@
 // Centralna konfiguracija menija.
 // Ovde menjamo meni, a App.jsx samo renderuje grupe i stavke.
 
-export function getNavGroups(isAdmin) {
+export function getNavGroups(isAdmin, userRole) {
+    if (userRole === 'magacioner') {
+        return [
+            {
+                key: 'magacin',
+                label: 'Magacin',
+                icon: '🏪',
+                items: [
+                    { k: 'rolne_engine', l: 'Magacin Materijala i Rolni PRO', i: '🏪' }
+                ]
+            }
+        ];
+    }
     return [
         {
             key: 'dashboard',
