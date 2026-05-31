@@ -44,6 +44,7 @@ function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-$
 function number(v) { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; }
 function round2(v) { return Math.round(number(v) * 100) / 100; }
 function fmt(v, dec = 2) { return number(v).toLocaleString("sr-RS", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+function formatDateLabel(v) { if (!v) return ""; const d = new Date(v); if (Number.isNaN(d.getTime())) return String(v); return d.toLocaleDateString("sr-RS"); }
 function calcGsm(m) {
   const gsm = number(m?.gsm);
   if (gsm > 0) return round2(gsm);
@@ -268,7 +269,7 @@ function RollLabel({ roll, className = "roll-label-print" }) {
           <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: .4 }}>MAROPACK</div>
           <div style={{ fontSize: 9, fontWeight: 800 }}>ETIKETA ROLNE / QR TRACEABILITY</div>
         </div>
-        <div style={{ fontSize: 10, fontWeight: 900, textTransform: "uppercase", color: statusColor(roll.status) }}>{roll.status || "Na stanju"}</div>
+        <div style={{ fontSize: 9, fontWeight: 900, textTransform: "uppercase" }}>100 × 140 mm</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "34mm 1fr", gap: 5, marginTop: 5 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -286,8 +287,7 @@ function RollLabel({ roll, className = "roll-label-print" }) {
         <tbody>
           <tr><td style={tdh}>DEB.</td><td style={td}>{roll.debljina || "—"} µ</td><td style={tdh}>ŠIRINA</td><td style={td}>{roll.sirina} mm</td></tr>
           <tr><td style={tdh}>METRAŽA</td><td style={td}>{fmt(roll.duzina, 0)} m</td><td style={tdh}>KG</td><td style={td}>{fmt(roll.kg, 2)}</td></tr>
-          <tr><td style={tdh}>LOT</td><td style={td}>{roll.lot || "—"}</td><td style={tdh}>LOK.</td><td style={td}>{roll.lokacija || "—"}</td></tr>
-          <tr><td style={tdh}>DAT. PROIZ.</td><td style={td}>{roll.datum_proizvodnje || "—"}</td><td style={tdh}>DAT. ULAZA</td><td style={td}>{roll.datum_ulaza || roll.datum || "—"}</td></tr>
+          <tr><td style={tdh}>LOT</td><td style={td}>{roll.lot || "—"}</td><td style={tdh}>DAT. PROIZ.</td><td style={td}>{formatDateLabel(roll.datum_proizvodnje) || "—"}</td></tr>
         </tbody>
       </table>
       {roll.parent_qr && <div style={{ marginTop: 4, fontSize: 9 }}><b>Parent rolna:</b> {roll.parent_qr}</div>}
@@ -729,7 +729,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
           <div className="roll-label-print-root"><RollLabel roll={labelRoll} /></div>
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ fontWeight: 900 }}>Preview podaci za proveru pre štampe</div>
-            {[`QR: ${labelRoll.qr}`, `Materijal: ${labelRoll.vrsta} · ${labelRoll.komercijalnaOznaka || labelRoll.materijal}`, `Dimenzije: ${labelRoll.sirina} mm · ${fmt(labelRoll.duzina,0)} m · ${fmt(labelRoll.kg,2)} kg`, `Lot/Lokacija: ${labelRoll.lot || "—"} / ${labelRoll.lokacija || "—"}`].map((x) => <div key={x} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>{x}</div>)}
+            {[`QR: ${labelRoll.qr}`, `Materijal: ${labelRoll.vrsta} · ${labelRoll.komercijalnaOznaka || labelRoll.materijal}`, `Dimenzije: ${labelRoll.sirina} mm · ${fmt(labelRoll.duzina,0)} m · ${fmt(labelRoll.kg,2)} kg`, `LOT: ${labelRoll.lot || "—"}`].map((x) => <div key={x} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>{x}</div>)}
           </div>
         </div>
       </div>
@@ -848,7 +848,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
               </thead>
               <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{r.datum_proizvodnje || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{r.status}</span></td>
+                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{r.status}</span></td>
                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "dostupna")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Dostupna</button></div></td>
               </tr>)}</tbody>
             </table>
@@ -885,7 +885,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
       <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-        <tbody>{packingRows.map((r, i) => <tr key={i}><td style={cell}>{r.vrsta || "—"}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{r.oznaka_materijala || r.komercijalnaOznaka || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina || "—"}</td><td style={cell}>{r.duzina || "—"}</td><td style={cell}>{r.kg || "—"}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija || "—"}</td><td style={cell}>{r.datum || "—"}</td><td style={cell}>{r.datum_proizvodnje || "—"}</td></tr>)}</tbody>
+        <tbody>{packingRows.map((r, i) => <tr key={i}><td style={cell}>{r.vrsta || "—"}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{r.oznaka_materijala || r.komercijalnaOznaka || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina || "—"}</td><td style={cell}>{r.duzina || "—"}</td><td style={cell}>{r.kg || "—"}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija || "—"}</td><td style={cell}>{r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td></tr>)}</tbody>
       </table></div>
       {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
     </div>

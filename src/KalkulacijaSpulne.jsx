@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
+import { buildMaterijaliStruktura } from './data/materialMaster.js';
 import { supabase } from './supabase.js';
 import { useAuth } from './auth/AuthProvider';
 
@@ -170,6 +171,7 @@ export default function KalkulacijaSpulne() {
     // ===================== SAČUVAJ KALKULACIJU =====================
     async function sacuvajKalkulaciju() {
         try {
+            const materijali_struktura = buildMaterijaliStruktura([{ material: materijal, vrsta: materijal, gsm: tezinaGM2, sirina, idealna_sirina: sirina, cena: cenaM2, metara: duzina }], sirina);
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
                 tip: 'spulna',
                 type: 'spulna',
@@ -184,7 +186,8 @@ export default function KalkulacijaSpulne() {
                     maxMetara: duzina,
                     layers: [{ material: materijal, vrsta: materijal, gsm: tezinaGM2, sirina, cena: cenaM2, metara: duzina }]
                 },
-                materijali: [{ material: materijal, vrsta: materijal, gsm: tezinaGM2, sirina, cena: cenaM2, metara: duzina }],
+                materijali: materijali_struktura,
+                materijali_struktura,
                 rezultati: rez,
                 created_at: new Date().toISOString()
             }));
@@ -200,6 +203,7 @@ export default function KalkulacijaSpulne() {
                 marza: Number(marza),
                 kolicina: Number(kolicina),
                 rezultati: rez,
+                materijali_struktura,
                 tip_jezgra: '',
                 precnik_jezgra: 0,
                 napomena: '',

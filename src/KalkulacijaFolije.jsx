@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
+import { buildMaterijaliStruktura } from './data/materialMaster.js';
 import { supabase } from "./supabase.js";
 import { useAuth } from "./auth/AuthProvider";
 
@@ -563,6 +564,7 @@ export default function KalkulacijaFolijeSmart() {
         }
 
         try {
+            const materijali_struktura = buildMaterijaliStruktura(materijali, sirina);
             localStorage.setItem("maropack_pending_nalog", JSON.stringify({
                 tip: "folija",
                 type: "folija",
@@ -576,13 +578,16 @@ export default function KalkulacijaFolijeSmart() {
                     finalRoll: { smerOdmotavanja: "", hilzna: "", precnik: "", duzina: metraza }
                 },
                 materijali,
+                materijali_struktura,
                 rezultati,
                 created_at: new Date().toISOString()
             }));
             const { error } = await supabase.from('kalkulacije_folije').insert([{
                 naziv, kupac, sirina, metraza, nalog, skart,
                 marza: rezultati?.izracunataMarza,
-                materijali, lepak, lak, kasiranje,
+                materijali,
+                materijali_struktura,
+                lepak, lak, kasiranje,
                 stampa_cena: stampaCena,
                 lakiranje_cena: lakiranjeCena,
                 transport, pakovanje, dorada,

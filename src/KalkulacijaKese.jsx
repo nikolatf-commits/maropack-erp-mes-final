@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
+import { buildMaterijaliStruktura } from './data/materialMaster.js';
 import { supabase } from './supabase.js';
 import { useAuth } from './auth/AuthProvider';
 
@@ -392,6 +393,7 @@ export default function KalkulacijaKese({ setPage }) {
                     pakovanje: napomena || ''
                 },
                 materijali,
+                materijali_struktura,
                 rezultati: rez,
                 created_at: new Date().toISOString()
             }));
@@ -410,7 +412,8 @@ export default function KalkulacijaKese({ setPage }) {
                 falta: Number(falta),
 
                 // Materijal (spojeni tipovi)
-                materijal: materijali.map(m => m.tip).join(' + '),
+                materijali_struktura,
+                materijal: materijali.map(m => m.vrsta || m.tip).join(' + '),
                 debljina: materijali[0] ? Number(materijali[0].debljina) : 0,
                 tezina_gm2: avgTezina,
                 cena_kg: avgCena,
