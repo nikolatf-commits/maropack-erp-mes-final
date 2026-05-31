@@ -332,6 +332,7 @@ const tdh = { ...td, fontWeight: 900 };
 
 export default function RolneWarehouseEngine({ db = {}, msg }) {
   const [activeTab, setActiveTab] = useState("rolne");
+  const [inputMode, setInputMode] = useState("rucno");
   const [materijali, setMaterijali] = useState([]);
   const [rolne, setRolne] = useState([]);
   const [history, setHistory] = useState([]);
@@ -810,8 +811,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
-        <button onClick={() => setActiveTab("ulaz")} style={tabBtn("ulaz")}>➕ Ručni ulaz rolne</button>
-        <button onClick={() => setActiveTab("uvoz")} style={tabBtn("uvoz")}>📥 Packing lista</button>
+        <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
         <button onClick={() => setActiveTab("popis")} style={tabBtn("popis")}>📲 QR popis</button>
         <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
         <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>
@@ -823,19 +823,32 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
 
       {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial }} />}
 
-      {activeTab === "ulaz" && (
-        <div style={{ display: "grid", gridTemplateColumns: "480px 1fr", gap: 16 }}>
+      {activeTab === "unos" && (
+        <div style={{ display: "grid", gap: 14 }}>
+          <div style={{ ...card, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 950, fontSize: 18 }}>Unos rolni</div>
+              <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>Jedna kartica za ručni unos, packing listu PDF i packing listu Excel.</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => setInputMode("rucno")} style={{...btn, background: inputMode === "rucno" ? "#0f172a" : "#f8fafc", color: inputMode === "rucno" ? "#fff" : "#334155"}}>Ručni unos</button>
+              <button onClick={() => setInputMode("pdf")} style={{...btn, background: inputMode === "pdf" ? "#0f172a" : "#f8fafc", color: inputMode === "pdf" ? "#fff" : "#334155"}}>Packing lista PDF</button>
+              <button onClick={() => setInputMode("excel")} style={{...btn, background: inputMode === "excel" ? "#0f172a" : "#f8fafc", color: inputMode === "excel" ? "#fff" : "#334155"}}>Packing lista Excel</button>
+            </div>
+          </div>
+          {inputMode === "rucno" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
           <div style={card}>
-            <div style={{ fontWeight: 900, marginBottom: 12 }}>Ulaz nove rolne</div>
+            <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>Ručni unos rolne</div><div style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>Unos je poređan logikom: vrsta → pod vrsta → oznaka → debljina → dimenzije → m/kg obračun.</div>
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 14, padding: 12 }}>
                 <div style={{ fontWeight: 950, marginBottom: 10 }}>🧠 Material Master izbor</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
                   <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                   <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                   <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, marginTop: 10 }}>
                   <label><span style={lbl}>Proizvođač</span><input style={input} value={materialPick.proizvodjac} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })} placeholder="npr. Taghleef / Jindal / Rossella" /></label>
                   <label><span style={lbl}>Cena €/kg</span><input style={input} type="number" value={materialPick.cenaKg} onChange={(e) => setMaterialPick({ ...materialPick, cenaKg: e.target.value })} /></label>
                 </div>
@@ -844,7 +857,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
                 <b>{selectedMat.komercijalnaOznaka}</b><br />
                 Vrsta: {selectedMat.vrsta} · Oznaka: {materialPick.oznaka} · Koef: {selectedMat.koeficijent || "—"} · g/m²: {fmt(liveGsm, 2)}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
                 <label><span style={lbl}>Širina rolne mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
                 <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option></select></label>
                 <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
@@ -853,13 +866,18 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
                 <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
                 <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="npr. transparent / beli / metalizovani" /></label>
                 <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
-                <label style={{ gridColumn: "1/3" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
+                <label style={{ gridColumn: "1 / -1" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
               </div>
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontWeight: 900 }}>Live obračun</div><div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>kg = širina(m) × dužina(m) × g/m² / 1000</div><div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><div><b>{fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg</b></div><div><b>{fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m</b></div></div></div>
               <button onClick={addRoll} style={{ ...btn, background: "#059669", color: "#fff", padding: "13px" }}>+ Dodaj rolnu i generiši QR</button>
             </div>
           </div>
-          <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>{[["Vrsta", selectedMat?.vrsta], ["Oznaka materijala", cleanOznaka(selectedMat?.oznaka || materialPick.oznaka || selectedMat?.komercijalnaOznaka, selectedMat?.vrsta)], ["Pod vrsta", form.pod_vrsta || "—"], ["Proizvođač", selectedMat?.proizvodjac || "—"], ["Debljina", selectedMat?.debljina ? `${selectedMat.debljina} µ` : "—"], ["Širina", `${form.sirina || 0} mm`], ["g/m²", fmt(liveGsm, 2)], ["Metara", fmt(calcMode === "kg_to_m" ? calculatedM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? calculatedKg : form.kg, 2)], ["Datum proizvodnje", form.datum_proizvodnje || "—"]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
+          <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(140px, 1fr))", gap: 10 }}>{[["Vrsta", selectedMat?.vrsta], ["Oznaka materijala", cleanOznaka(selectedMat?.oznaka || materialPick.oznaka || selectedMat?.komercijalnaOznaka, selectedMat?.vrsta)], ["Pod vrsta", form.pod_vrsta || "—"], ["Proizvođač", selectedMat?.proizvodjac || "—"], ["Debljina", selectedMat?.debljina ? `${selectedMat.debljina} µ` : "—"], ["Širina", `${form.sirina || 0} mm`], ["g/m²", fmt(liveGsm, 2)], ["Metara", fmt(calcMode === "kg_to_m" ? calculatedM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? calculatedKg : form.kg, 2)], ["Datum proizvodnje", form.datum_proizvodnje || "—"]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
+        </div>
+
+          ) : (
+            <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode } } />
+          )}
         </div>
       )}
 
@@ -908,7 +926,6 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       )}
 
 
-      {activeTab === "uvoz" && <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows }} />}
       {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }} />}
       {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
       {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 80).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
@@ -919,12 +936,12 @@ const cell = { padding: 9, borderBottom: "1px solid #f1f5f9" };
 const filterTh = { padding: 6, borderBottom: "1px solid #e2e8f0" };
 
 
-function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, handlePackingFile, parseTextPackingList, importPackingRows }) {
+function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode }) {
   return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
     <div style={card}>
-      <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 Uvoz packing liste</div>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>Podržano: Excel .xlsx/.xls, CSV/TXT. Za PDF možeš nalepiti tekst iz packing liste; skenirani PDF zahteva OCR API.</div>
-      <label><span style={lbl}>Excel / CSV / TXT fajl</span><input style={input} type="file" accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={handlePackingFile} /></label>
+      <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 {inputMode === "pdf" ? "Packing lista PDF" : "Packing lista Excel"}</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "Za PDF možeš nalepiti tekst iz packing liste ili učitati PDF kao pripremu za OCR workflow." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
+      <label><span style={lbl}>{inputMode === "pdf" ? "PDF fajl / tekst packing liste" : "Excel / CSV / TXT fajl"}</span><input style={input} type="file" accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={handlePackingFile} /></label>
       <div style={{ marginTop: 12 }}><span style={lbl}>Tekst iz PDF/packing liste</span><textarea style={{ ...input, minHeight: 190, fontFamily: "monospace" }} value={packingText} onChange={(e) => setPackingText(e.target.value)} /></div>
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
         <button onClick={parseTextPackingList} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>Prepoznaj redove</button>
