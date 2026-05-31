@@ -330,7 +330,7 @@ const boxStyle = { display: "inline-block", width: "7mm", height: "7mm", border:
 const td = { border: "1px solid #111", padding: 3 };
 const tdh = { ...td, fontWeight: 900 };
 
-export default function RolneWarehouseEngine({ db = {}, msg }) {
+export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false }) {
   const [activeTab, setActiveTab] = useState("rolne");
   const [inputMode, setInputMode] = useState("rucno");
   const [materijali, setMaterijali] = useState([]);
@@ -806,6 +806,99 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const lbl = { display: "block", fontSize: 11, fontWeight: 900, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.3 };
   const tabBtn = (key) => ({ ...btn, background: activeTab === key ? "#0f172a" : "#f8fafc", color: activeTab === key ? "#fff" : "#334155", border: "1px solid #e2e8f0" });
 
+
+  const mobileActionBtn = (key, icon, title, subtitle) => ({
+    key,
+    icon,
+    title,
+    subtitle,
+    active: activeTab === key,
+  });
+
+  const MobileShell = () => {
+    const mobileActions = [
+      mobileActionBtn("popis", "📷", "Skeniraj / popiši", "QR popis rolne"),
+      mobileActionBtn("povrat", "↩️", "Povrat u magacin", "Prečnik + hilzna"),
+      mobileActionBtn("unos", "➕", "Unos rolne", "Ručni unos"),
+      mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
+    ];
+
+    return (
+      <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: 12, color: "#0f172a" }}>
+        {LabelModal}{BulkModal}
+        <div style={{ ...card, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 950 }}>🏪 Magacin</div>
+          <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>Mobilni režim za magacionera</div>
+          <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff", marginTop: 12, width: "100%" }}>Osveži stanje</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          {mobileActions.map((a) => (
+            <button key={a.key} onClick={() => { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); }} style={{
+              border: a.active ? "2px solid #0f172a" : "1px solid #e2e8f0",
+              background: a.active ? "#0f172a" : "#fff",
+              color: a.active ? "#fff" : "#0f172a",
+              borderRadius: 16,
+              padding: 14,
+              textAlign: "left",
+              minHeight: 92,
+              boxShadow: "0 8px 20px rgba(15,23,42,0.06)",
+            }}>
+              <div style={{ fontSize: 26 }}>{a.icon}</div>
+              <div style={{ fontWeight: 950, marginTop: 5 }}>{a.title}</div>
+              <div style={{ fontSize: 12, opacity: 0.78, marginTop: 3 }}>{a.subtitle}</div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Rolni</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.total}</div></div>
+          <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div></div>
+        </div>
+
+        {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }} />}
+        {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }} />}
+        {activeTab === "unos" && (
+          <div style={card}>
+            <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
+            <div style={{ display: "grid", gap: 10 }}>
+              <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+              <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
+              <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
+              <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="transparent / sedef / beli" /></label>
+              <label><span style={lbl}>Širina mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
+              <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option></select></label>
+              <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
+              <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
+              <label><span style={lbl}>LOT</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
+              <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
+                <b>Live obračun:</b> {fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg · {fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m
+              </div>
+              <button onClick={addRoll} style={{ ...btn, background: "#059669", color: "#fff", padding: 14, fontSize: 15 }}>Dodaj rolnu i QR</button>
+            </div>
+          </div>
+        )}
+        {activeTab === "rolne" && (
+          <div style={card}>
+            <div style={{ fontWeight: 950, marginBottom: 10 }}>🎞️ Stanje rolni</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {filteredRolls.slice(0, 60).map((r) => (
+                <div key={r.qr || r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 12, background: "#fff" }}>
+                  <div style={{ fontWeight: 950 }}>{r.qr}</div>
+                  <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina,0)} m</span><span>{fmt(r.kg,2)} kg</span><span>{r.status}</span></div>
+                  <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", width: "100%", marginTop: 10 }}>QR / Etiketa</button>
+                </div>
+              ))}
+              {filteredRolls.length === 0 && <div style={{ color: "#64748b", padding: 20, textAlign: "center" }}>Nema rolni za prikaz.</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const PrintCSS = () => (
     <style>{`
       @media print {
@@ -854,6 +947,8 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       </div>
     </div>
   ) : null;
+
+  if (forceMobile) return <MobileShell />;
 
   return (
     <div style={{ padding: 22, background: "#f1f5f9", minHeight: "100vh", color: "#0f172a" }}>

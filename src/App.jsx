@@ -1557,6 +1557,23 @@ function MainAppContent() {
 
     const [page, setPage] = useState("dashboard_pro");
     const [openGroups, setOpenGroups] = useState(['dashboard']);
+    const [isMobileViewport, setIsMobileViewport] = useState(() => {
+        if (typeof window === "undefined") return false;
+        return window.innerWidth < 768;
+    });
+
+    useEffect(function () {
+        function handleResize() {
+            setIsMobileViewport(window.innerWidth < 768);
+        }
+        handleResize();
+        window.addEventListener("resize", handleResize);
+        window.addEventListener("orientationchange", handleResize);
+        return function () {
+            window.removeEventListener("resize", handleResize);
+            window.removeEventListener("orientationchange", handleResize);
+        };
+    }, []);
 
     useEffect(function () {
         if (isMagacioner) {
@@ -1890,6 +1907,7 @@ function MainAppContent() {
     // ✅ FINAL CLEAN ACCORDION NAVIGATION STRUCTURE
     // Navigacija je izdvojena u src/config/navigation.js da App.jsx ne drži meni u sebi.
     const navGroups = getNavGroups(isAdmin, userProfile?.uloga);
+    const mobileMagacionerMode = isMagacioner && isMobileViewport;
 
     function toggleGroup(groupKey) {
         if (openGroups.includes(groupKey)) {
@@ -1910,7 +1928,7 @@ function MainAppContent() {
             {stampa && <PrintA4 data={stampa} onClose={function () { setStampa(null); }} />}
 
             {/* ACCORDION SIDEBAR */}
-            <div style={{ width: 240, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
+            <div style={{ width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
                 <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
                     <img src={LOGO_B64} alt="Maropack" style={{ maxWidth: 160, height: 42, objectFit: "contain" }} />
                 </div>
@@ -2086,7 +2104,7 @@ function MainAppContent() {
             </div>
 
             {/* SADRZAJ */}
-            <div style={{ flex: 1, overflow: "auto", padding: 22 }}>
+            <div style={{ flex: 1, overflow: "auto", padding: mobileMagacionerMode ? 0 : 22 }}>
 
                 {/* DASHBOARD */}
                 {(page === "dash" || page === "dashboard") && <DashboardPRO setPage={setPage} />}
@@ -2224,7 +2242,7 @@ function MainAppContent() {
                 )}
 
                 {page === "rolne_engine" && (
-                    <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} />
+                    <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={isMagacioner && isMobileViewport} />
                 )}
 
                 {page === "kalkulator_maticnih" && (
