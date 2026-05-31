@@ -60,11 +60,36 @@ function metersFromKg({ sirinaMm, kg, gsm }) {
   if (!sirinaM || !g) return 0;
   return round2((number(kg) * 1000) / (sirinaM * g));
 }
+function normalizeStatus(status) {
+  const s = String(status || "").trim();
+  const lower = s.toLowerCase();
+  if (!s) return "dostupna";
+  if (["na stanju", "dostupna", "available", "slobodna"].includes(lower)) return "dostupna";
+  if (["rezervisano", "rezervisana", "reserved"].includes(lower)) return "rezervisana";
+  if (["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(lower)) return "potrosena";
+  if (["formatirana", "formatirano"].includes(lower)) return "formatirana";
+  if (["blokirana", "blokirano"].includes(lower)) return "blokirana";
+  return lower;
+}
+function displayStatus(status) {
+  const st = normalizeStatus(status);
+  if (st === "dostupna") return "Na stanju";
+  if (st === "rezervisana") return "Rezervisano";
+  if (st === "potrosena") return "Iskorišćeno";
+  if (st === "formatirana") return "Formatirana";
+  if (st === "blokirana") return "Blokirana";
+  return status || "Na stanju";
+}
+function isRollVisibleOnStock(r) {
+  const st = normalizeStatus(r?.status);
+  return ["dostupna", "rezervisana", "formatirana"].includes(st) && number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) > 0;
+}
 function statusColor(s) {
-  if (s === "rezervisana") return "#f59e0b";
-  if (s === "potrosena") return "#ef4444";
-  if (s === "formatirana") return "#2563eb";
-  if (s === "blokirana") return "#7c3aed";
+  const st = normalizeStatus(s);
+  if (st === "rezervisana") return "#f59e0b";
+  if (st === "potrosena") return "#ef4444";
+  if (st === "formatirana") return "#2563eb";
+  if (st === "blokirana") return "#7c3aed";
   return "#059669";
 }
 function ensureMaterials() {
@@ -143,7 +168,7 @@ function rollQrPayload(r) {
     kg: r.kg,
     lot: r.lot || "",
     lokacija: r.lokacija || "",
-    status: r.status || "dostupna",
+    status: displayStatus(r.status),
     parent_qr: r.parent_qr || "",
     datum_ulaza: r.datum_ulaza || r.datum || "",
     datum_proizvodnje: r.datum_proizvodnje || "",
@@ -215,7 +240,7 @@ export function findMatchingRolls(requirement = {}) {
   const wantedSirina = number(requirement.sirina || requirement.sirinaMm);
   const tolerance = number(requirement.tolerancijaSirine || 2);
   return rolls
-    .filter((r) => r.status === "dostupna")
+    .filter((r) => isRollVisibleOnStock(r))
     .filter((r) => !wantedVrsta || String(r.vrsta || r.materijal || "").toLowerCase().includes(wantedVrsta))
     .filter((r) => !wantedDeb || Math.abs(number(r.debljina) - wantedDeb) < 0.01)
     .filter((r) => !wantedSirina || number(r.sirina) >= wantedSirina - tolerance)
@@ -242,7 +267,7 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     kg: number(roll.kg),
     lot: roll.lot || "",
     lokacija: roll.lokacija || "Magacin",
-    status: roll.status || "dostupna",
+    status: roll.status || "Na stanju",
     master_nalog_id: roll.master_nalog_id || "",
     parent_qr: roll.parent_qr || "",
     datum: roll.datum || new Date().toLocaleDateString("sr-RS"),
@@ -413,7 +438,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       if (columnFilters.kg && !matchesText(r.kg, columnFilters.kg)) return false;
       if (columnFilters.lot && !matchesText(r.lot, columnFilters.lot)) return false;
       if (columnFilters.lokacija && !matchesText(r.lokacija, columnFilters.lokacija)) return false;
-      if (columnFilters.status && String(r.status || "").toLowerCase() !== columnFilters.status.toLowerCase()) return false;
+      if (columnFilters.status && normalizeStatus(r.status) !== normalizeStatus(columnFilters.status)) return false;
       return true;
     });
   }, [rolne, filter, columnFilters]);
@@ -421,7 +446,11 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const stats = useMemo(() => {
     const totalM = rolne.reduce((s, r) => s + number(r.duzina), 0);
     const totalKg = rolne.reduce((s, r) => s + number(r.kg), 0);
-    const byStatus = rolne.reduce((a, r) => { a[r.status || "dostupna"] = (a[r.status || "dostupna"] || 0) + 1; return a; }, {});
+    const byStatus = rolne.reduce((a, r) => {
+      const st = normalizeStatus(r.status);
+      a[st] = (a[st] || 0) + 1;
+      return a;
+    }, {});
     return { total: rolne.length, totalM, totalKg, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0 };
   }, [rolne]);
 
@@ -505,7 +534,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
         oznaka_materijala: cleanCode, materijal: selectedMat.vrsta,
         komercijalnaOznaka: cleanCode, proizvodjac: selectedMat.proizvodjac, debljina: selectedMat.debljina,
         koeficijent: selectedMat.koeficijent, gsm: calcGsm(selectedMat), sirina: form.sirina, duzina: finalM, kg: finalKg,
-        lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: form.napomena, status: "dostupna",
+        lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: form.napomena, status: "Na stanju",
       }, "ULAZ U MAGACIN");
     }
     reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
@@ -519,8 +548,8 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   function reserveForMaster(r) {
     const masterId = prompt("Unesi master_nalog_id / broj naloga za rezervaciju:", r.master_nalog_id || "");
     if (masterId === null) return;
-    const next = rolne.map((x) => x.qr === r.qr ? { ...x, status: "rezervisana", master_nalog_id: masterId, datum_poslednje_promene: now() } : x);
-    const hist = [{ vreme: now(), qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "rezervisana" }, ...history];
+    const next = rolne.map((x) => x.qr === r.qr ? { ...x, status: "Rezervisano", master_nalog_id: masterId, datum_poslednje_promene: now() } : x);
+    const hist = [{ vreme: now(), qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" }, ...history];
     safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
     msg?.(`Rolna ${r.qr} rezervisana za ${masterId}`);
   }
@@ -530,7 +559,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     const usedM = used === "" ? number(r.duzina) : number(used);
     const remainM = Math.max(0, number(r.duzina) - usedM);
     const remainKg = kgFromMeters({ sirinaMm: r.sirina, duzinaM: remainM, gsm: r.gsm });
-    const status = remainM > 0 ? r.status : "potrosena";
+    const status = remainM > 0 ? r.status : "Iskorišćeno";
     const next = rolne.map((x) => x.qr === r.qr ? { ...x, duzina: remainM, kg: remainKg, status, datum_poslednje_promene: now() } : x);
     const hist = [{ vreme: now(), qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status }, ...history];
     safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
@@ -666,7 +695,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
         oznaka_materijala: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
         materijal: mat.vrsta, komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
         proizvodjac: mat.proizvodjac || row.proizvodjac, debljina: mat.debljina || row.debljina, koeficijent: mat.koeficijent || row.koeficijent,
-        gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "dostupna",
+        gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
         napomena: "Uvoz iz packing liste"
       }, "UVOZ PACKING LISTE");
       count += 1;
@@ -842,14 +871,14 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
                   <th style={filterTh}><input style={smallInput} value={columnFilters.kg} onChange={(e) => setColFilter("kg", e.target.value)} placeholder="kg" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.lot} onChange={(e) => setColFilter("lot", e.target.value)} placeholder="Lot" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.lokacija} onChange={(e) => setColFilter("lokacija", e.target.value)} placeholder="Lokacija" /></th>
-                  <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="dostupna">dostupna</option><option value="rezervisana">rezervisana</option><option value="formatirana">formatirana</option><option value="potrosena">potrošena</option><option value="blokirana">blokirana</option></select></th>
+                  <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
                   <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                 </tr>
               </thead>
               <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{r.status}</span></td>
-                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "dostupna")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Dostupna</button></div></td>
+                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
+                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button></div></td>
               </tr>)}</tbody>
             </table>
             {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
