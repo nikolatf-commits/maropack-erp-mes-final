@@ -358,6 +358,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   const [povratQr, setPovratQr] = useState("");
   const [povratRoll, setPovratRoll] = useState(null);
   const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
+  const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat"
 
   async function reload() {
     const mats = ensureMaterials().map(normalizeMaterial);
@@ -780,9 +781,44 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     reload();
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
+  function handleMobileScan(decodedText) {
+    const qr = extractQrFromScan(decodedText);
+    if (!qr) {
+      msg?.("QR kod nije prepoznat", "err");
+      return;
+    }
+    if (scannerMode === "povrat") {
+      setPovratQr(qr);
+      const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === decodedText);
+      if (found) {
+        setPovratRoll(found);
+        setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
+        msg?.(`Skenirana rolna za povrat: ${qr}`);
+      } else {
+        msg?.(`Rolna nije pronađena: ${qr}`, "err");
+      }
+    } else {
+      setPopisQr(qr);
+      const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === decodedText);
+      if (found) {
+        setPopisRoll(found);
+        setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
+        msg?.(`Skenirana rolna za popis: ${qr}`);
+      } else {
+        msg?.(`Rolna nije pronađena: ${qr}`, "err");
+      }
+    }
+    setScannerMode(null);
+  }
+
+  function openMobileScanner(mode) {
+    setScannerMode(mode);
+    setActiveTab(mode === "povrat" ? "povrat" : "popis");
+  }
+
   function findPopisRoll() {
     const qr = extractQrFromScan(popisQr);
-    const found = rolne.find((r) => r.qr === qr || rollQrPayload(r) === popisQr);
+    const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === popisQr);
     if (!found) { setPopisRoll(null); msg?.(`Rolna nije pronađena: ${qr}`, "err"); return; }
     setPopisRoll(found);
     setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
@@ -826,6 +862,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     return (
       <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: 12, color: "#0f172a" }}>
         {LabelModal}{BulkModal}
+        {scannerMode && <MobileCameraScanner mode={scannerMode} onClose={() => setScannerMode(null)} onScan={handleMobileScan} />}
         <div style={{ ...card, padding: 14, marginBottom: 12 }}>
           <div style={{ fontSize: 22, fontWeight: 950 }}>🏪 Magacin</div>
           <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>Mobilni režim za magacionera</div>
@@ -834,7 +871,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           {mobileActions.map((a) => (
-            <button key={a.key} onClick={() => { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); }} style={{
+            <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") openMobileScanner(a.key); else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
               border: a.active ? "2px solid #0f172a" : "1px solid #e2e8f0",
               background: a.active ? "#0f172a" : "#fff",
               color: a.active ? "#fff" : "#0f172a",
@@ -856,8 +893,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div></div>
         </div>
 
-        {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }} />}
-        {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }} />}
+        {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner: () => openMobileScanner("popis") }} />}
+        {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat") }} />}
         {activeTab === "unos" && (
           <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
@@ -1075,8 +1112,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
       )}
 
 
-      {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }} />}
-      {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }} />}
+      {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner: () => openMobileScanner("popis") }} />}
+      {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat") }} />}
       {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
       {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 80).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
     </div>
@@ -1108,11 +1145,78 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
     </div>
   </div>;
 }
-function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount }) {
+
+function MobileCameraScanner({ mode, onClose, onScan }) {
+  const scannerId = React.useMemo(() => `maropack-mobile-qr-scanner-${Math.random().toString(36).slice(2)}`, []);
+  const [error, setError] = React.useState("");
+  const [started, setStarted] = React.useState(false);
+
+  React.useEffect(() => {
+    let scanner = null;
+    let stopped = false;
+
+    async function startScanner() {
+      try {
+        const mod = await import("html5-qrcode");
+        const Html5Qrcode = mod.Html5Qrcode;
+        scanner = new Html5Qrcode(scannerId);
+        const config = { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1.0 };
+        await scanner.start(
+          { facingMode: "environment" },
+          config,
+          async (decodedText) => {
+            if (stopped) return;
+            stopped = true;
+            try { await scanner.stop(); } catch {}
+            try { scanner.clear(); } catch {}
+            onScan(decodedText);
+          },
+          () => {}
+        );
+        setStarted(true);
+      } catch (e) {
+        console.error("QR scanner greška", e);
+        setError("Kamera nije dostupna. Proveri dozvolu za kameru u browseru ili koristi HTTPS/production link.");
+      }
+    }
+
+    startScanner();
+
+    return () => {
+      stopped = true;
+      if (scanner) {
+        scanner.stop().catch(() => {}).finally(() => {
+          try { scanner.clear(); } catch {}
+        });
+      }
+    };
+  }, [scannerId, onScan]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.96)", color: "#fff", padding: 14, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>{mode === "povrat" ? "↩️ Skeniraj QR za povrat" : "📷 Skeniraj QR za popis"}</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Usmeri kameru ka QR kodu na etiketi rolne.</div>
+        </div>
+        <button onClick={onClose} style={{ border: "1px solid rgba(255,255,255,.25)", background: "rgba(255,255,255,.12)", color: "#fff", borderRadius: 12, padding: "10px 12px", fontWeight: 900 }}>Zatvori</button>
+      </div>
+      <div style={{ background: "#020617", border: "1px solid rgba(255,255,255,.18)", borderRadius: 18, padding: 10, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 360 }}>
+        <div id={scannerId} style={{ width: "100%", maxWidth: 420, overflow: "hidden", borderRadius: 14 }} />
+      </div>
+      {!started && !error && <div style={{ marginTop: 12, textAlign: "center", opacity: 0.8 }}>Pokrećem kameru...</div>}
+      {error && <div style={{ marginTop: 12, background: "#7f1d1d", border: "1px solid #fecaca", borderRadius: 12, padding: 12, fontWeight: 800 }}>{error}</div>}
+      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7, textAlign: "center" }}>Ako telefon pita za dozvolu kamere, izaberi Allow / Dozvoli.</div>
+    </div>
+  );
+}
+
+function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner }) {
   return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
     <div style={card}>
       <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📲 QR popis rolni</div>
-      <div style={{ color: "#64748b", fontSize: 12, marginBottom: 14 }}>Skeniraj QR čitačem ili nalepi QR sadržaj. Scanner obično radi kao tastatura i pošalje Enter.</div>
+      <div style={{ color: "#64748b", fontSize: 12, marginBottom: 14 }}>Na telefonu klikni dugme za kameru. Na laptopu možeš koristiti ručni unos ili USB QR čitač.</div>
+      {onOpenScanner && <button onClick={onOpenScanner} style={{ ...btn, background: "#0f172a", color: "#fff", width: "100%", marginBottom: 10, padding: 14, fontSize: 15 }}>📷 Otvori kameru i skeniraj QR</button>}
       <label><span style={lbl}>QR / Broj rolne</span><input autoFocus style={{ ...input, fontSize: 16, fontWeight: 800 }} value={popisQr} onChange={(e) => setPopisQr(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") findPopisRoll(); }} placeholder="Skeniraj ROLNA-..." /></label>
       <button onClick={findPopisRoll} style={{ ...btn, background: "#2563eb", color: "#fff", marginTop: 10 }}>Pronađi rolnu</button>
     </div>
@@ -1218,15 +1322,16 @@ function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial
 }
 
 
-function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse }) {
+function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner }) {
   const meters = povratRoll ? estimateMetersFromDiameter(povratRoll, povratForm.spoljasnjiPrecnik, povratForm.hilzna) : 0;
   const kg = povratRoll ? estimateKgForMeters(povratRoll, meters) : 0;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 430px) 1fr", gap: 16 }}>
       <div style={card}>
         <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>↩️ Povrat u magacin</div>
-        <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Skeniraj QR rolnu, izaberi hilznu i unesi spoljašnji prečnik. Sistem računa preostalu metražu.</div>
+        <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Na telefonu prvo skeniraj QR kamerom, zatim izaberi hilznu i unesi spoljašnji prečnik.</div>
         <div style={{ display: "grid", gap: 10 }}>
+          {onOpenScanner && <button onClick={onOpenScanner} style={{ ...btn, background: "#0f172a", color: "#fff", padding: 14, fontSize: 15 }}>📷 Otvori kameru i skeniraj QR</button>}
           <label><span style={lbl}>QR / broj rolne</span><input style={input} value={povratQr} onChange={(e) => setPovratQr(e.target.value)} placeholder="Skeniraj QR ili unesi broj rolne" /></label>
           <button onClick={findPovratRoll} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Pronađi rolnu</button>
           <label><span style={lbl}>Hilzna</span><select style={input} value={povratForm.hilzna} onChange={(e) => setPovratForm({ ...povratForm, hilzna: e.target.value })}><option value="FI76">FI 76 — računa se 100 mm</option><option value="FI152">FI 152 — računa se 180 mm</option></select></label>
