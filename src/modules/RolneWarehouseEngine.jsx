@@ -155,9 +155,10 @@ function mapDbRollToEngine(r = {}) {
   };
 }
 function rollQrPayload(r) {
-  // QR etiketa za rolne nosi samo broj rolne/QR kod.
-  // Skener i dalje podržava stare JSON QR kodove preko extractQrFromScan().
-  return String(r?.qr || r?.qr_code || r?.br_rolne || r?.broj_rolne || r?.id || "").trim();
+  // QR etiketa nosi stabilan MAROPACK format.
+  // U QR-u je samo ključ rolne, a podaci se posle skeniranja čitaju iz Supabase magacin tabele.
+  const code = String(r?.qr || r?.qr_code || r?.br_rolne || r?.broj_rolne || r?.id || "").trim();
+  return code ? `MAROPACK|ROLNA|${code}` : "";
 }
 function normalizePackingRow(row = {}) {
   return {
@@ -193,11 +194,18 @@ function parsePackingText(text = "") {
 function extractQrFromScan(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+
+  // Novi format: MAROPACK|ROLNA|ROLNA-2026-...
+  if (raw.startsWith("MAROPACK|ROLNA|")) {
+    return raw.split("|").slice(2).join("|").trim();
+  }
+
+  // Podrška za stare QR kodove koji su bili JSON.
   try {
     const parsed = JSON.parse(raw);
-    return parsed.qr || parsed.rola || parsed.roll || raw;
+    return String(parsed.qr || parsed.qr_code || parsed.br_rolne || parsed.rola || parsed.roll || raw).trim();
   } catch {
-    const match = raw.match(/ROLNA[-_A-Z0-9]+/i);
+    const match = raw.match(/ROLNA[-_A-Z0-9]+|R-[0-9A-Za-z_.;:-]+/i);
     return match ? match[0] : raw;
   }
 }
@@ -268,7 +276,7 @@ function RollLabel({ roll, className = "roll-label-print" }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "34mm 1fr", gap: 5, marginTop: 5 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <QRCodeSVG value={rollQrPayload(roll)} size={118} level="M" includeMargin={false} />
+          <QRCodeSVG value={rollQrPayload(roll)} size={150} level="M" includeMargin={true} />
         </div>
         <div style={{ fontSize: 10, lineHeight: 1.35 }}>
           <div style={{ fontSize: 12, fontWeight: 900, wordBreak: "break-all" }}>{roll.qr}</div>
@@ -370,6 +378,56 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   useEffect(() => {
     setPopisForm((f) => ({ ...f, lokacija: f.lokacija || popisMagacin }));
   }, [popisMagacin]);
+
+  function findRollLocalByQr(qrValue) {
+    const qr = extractQrFromScan(qrValue);
+    return rolne.find((r) => {
+      const keys = [r.qr, r.qr_code, r.br_rolne, r.broj_rolne, rollQrPayload(r)];
+      return keys.some((k) => String(extractQrFromScan(k) || "").trim() === String(qr || "").trim());
+    }) || null;
+  }
+
+  async function fetchRollFromSupabaseByQr(qrValue) {
+    const qr = extractQrFromScan(qrValue);
+    if (!qr || supabase?.__localDemo) return null;
+    try {
+      let { data, error } = await supabase
+        .from("magacin")
+        .select("*")
+        .eq("br_rolne", qr)
+        .limit(1);
+      if (error) throw error;
+      if (!data?.[0]) {
+        const res = await supabase
+          .from("magacin")
+          .select("*")
+          .eq("qr_code", qr)
+          .limit(1);
+        if (res.error) throw res.error;
+        data = res.data;
+      }
+      return data?.[0] ? mapDbRollToEngine(data[0]) : null;
+    } catch (e) {
+      console.error("QR lookup iz Supabase magacin nije uspeo:", e);
+      msg?.("Ne mogu da proverim QR u Supabase: " + (e?.message || e), "err");
+      return null;
+    }
+  }
+
+  async function resolveRollByQr(qrValue) {
+    const local = findRollLocalByQr(qrValue);
+    if (local) return local;
+    const fresh = await fetchRollFromSupabaseByQr(qrValue);
+    if (fresh) {
+      setRolne((prev) => {
+        const next = [fresh, ...prev.filter((r) => String(r.qr) !== String(fresh.qr))];
+        safeWrite(LS_ROLNE, next);
+        return next;
+      });
+      return fresh;
+    }
+    return null;
+  }
 
   const masterVrste = useMemo(() => getVrsteMaterijala(), []);
   const masterOznake = useMemo(() => getOznakeZaVrstu(materialPick.vrsta), [materialPick.vrsta]);
@@ -604,10 +662,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     return Math.round((sirina * meters * gsm / 1000000) * 100) / 100;
   }
 
-  function findPovratRoll() {
+  async function findPovratRoll() {
     const q = String(povratQr || "").trim();
     if (!q) { msg?.("Skeniraj ili unesi QR broj rolne", "err"); return; }
-    const found = rolne.find((r) => r.qr === q || r.br_rolne === q || rollQrPayload(r) === q);
+    const found = await resolveRollByQr(q);
     if (!found) { msg?.("Rolna nije pronađena u magacinu", "err"); return; }
     setPovratRoll(found);
     setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
@@ -774,31 +832,33 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     reload();
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
-  function handleMobileScan(decodedText) {
+  async function handleMobileScan(decodedText) {
     const qr = extractQrFromScan(decodedText);
     if (!qr) {
       msg?.("QR kod nije prepoznat", "err");
+      setScannerMode(null);
       return;
     }
+
+    const found = await resolveRollByQr(qr);
+
     if (scannerMode === "povrat") {
       setPovratQr(qr);
-      const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === decodedText);
       if (found) {
         setPovratRoll(found);
         setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
         msg?.(`Skenirana rolna za povrat: ${qr}`);
       } else {
-        msg?.(`Rolna nije pronađena: ${qr}`, "err");
+        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
       }
     } else {
       setPopisQr(qr);
-      const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === decodedText);
       if (found) {
         setPopisRoll(found);
         setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: popisMagacin || found.lokacija || "" });
         msg?.(`Skenirana rolna za popis: ${qr}`);
       } else {
-        msg?.(`Rolna nije pronađena: ${qr}`, "err");
+        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
       }
     }
     setScannerMode(null);
@@ -809,10 +869,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     setActiveTab(mode === "povrat" ? "povrat" : "popis");
   }
 
-  function findPopisRoll() {
+  async function findPopisRoll() {
     const qr = extractQrFromScan(popisQr);
-    const found = rolne.find((r) => r.qr === qr || r.br_rolne === qr || rollQrPayload(r) === popisQr);
-    if (!found) { setPopisRoll(null); msg?.(`Rolna nije pronađena: ${qr}`, "err"); return; }
+    const found = await resolveRollByQr(qr);
+    if (!found) { setPopisRoll(null); msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err"); return; }
     setPopisRoll(found);
     setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: popisMagacin || found.lokacija || "" });
   }
@@ -1204,7 +1264,8 @@ function MobileCameraScanner({ mode, onClose, onScan }) {
     async function startScanner() {
       try {
         const mod = await import("html5-qrcode");
-        const Html5Qrcode = mod.Html5Qrcode;
+        const Html5Qrcode = mod.Html5Qrcode || mod.default?.Html5Qrcode || mod.default;
+        if (!Html5Qrcode) throw new Error("html5-qrcode nije pravilno učitan");
         scanner = new Html5Qrcode(scannerId);
         const config = { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1.0 };
         await scanner.start(
