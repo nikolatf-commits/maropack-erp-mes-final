@@ -19,23 +19,27 @@ const demoRolls=[
 function num(v,d=0){ const x=Number(String(v??'').replace(',','.')); return Number.isFinite(x)?x:d; }
 function pickDbArray(db){
   if(Array.isArray(db)) return db;
-  const keys=['magacin_rolni','magacinRolni','rolne','magacin','materijali','stock','warehouse'];
+  const keys=['magacin','materijali','rolne','stock','warehouse'];
   for(const k of keys) if(Array.isArray(db?.[k]) && db[k].length) return db[k];
   return [];
 }
 function normalizeRolls(db){
   const src=pickDbArray(db); const list=(src.length?src:demoRolls).map((r,i)=>({
     id:String(r.br_rolne||r.broj_rolne||r.brojRolne||r.oznaka||r.code||r.id||`R-${i+1}`),
-    materijal:String(r.materijal||r.naziv_materijala||r.naziv||r.tip||r.vrsta||'Materijal'),
+    vrsta:String(r.vrsta||r.tip||r.materijal||'Materijal'),
+    pod_vrsta:String(r.pod_vrsta||r.podvrsta||''),
+    oznaka_materijala:String(r.oznaka_materijala||r.oznaka||r.komercijalnaOznaka||'—'),
+    materijal:String(r.materijal||r.naziv_materijala||r.naziv||r.vrsta||r.tip||'Materijal'),
     tip:String(r.tip||r.vrsta||r.materijal||'Materijal'),
-    debljina:num(r.debljina||r.mikroni||r.mic||r.um||0),
+    debljina:num(r.debljina||r.deb||r.mikroni||r.mic||r.um||0),
     sirina:num(r.sirina||r.sirina_mm||r.width||0),
-    metara:num(r.metara||r.duzina||r.ostalo_m||r.stanje_m||r.m||0),
+    metara:num(r.metara||r.duzina||r.metraza_ost||r.ostalo_m||r.stanje_m||r.m||0),
     kg:num(r.kg||r.neto||r.tezina||0),
     lot:String(r.lot||r.LOT||r.batch||'—'),
     lokacija:String(r.lokacija||r.location||'—'),
     status:String(r.status||'na stanju').toLowerCase(),
-    rezervisano:num(r.rezervisano||r.reserved_m||0)
+    rezervisano:num(r.rezervisano||r.reserved_m||0),
+    datum_proizvodnje:r.datum_proizvodnje||r.datum||r.created_at||''
   })).filter(r=>r.sirina>0);
   return list;
 }
@@ -48,7 +52,7 @@ function parseNeeds(text){
   }).filter(Boolean);
 }
 function scoreRoll(roll, need, strictMaterial){
-  const materialMatch=!need.materijal || roll.materijal.toLowerCase().includes(need.materijal.toLowerCase()) || roll.tip.toLowerCase().includes(need.materijal.toLowerCase());
+  const materialMatch=!need.materijal || `${roll.vrsta} ${roll.pod_vrsta} ${roll.oznaka_materijala} ${roll.materijal} ${roll.tip}`.toLowerCase().includes(need.materijal.toLowerCase());
   if(strictMaterial && !materialMatch) return -Infinity;
   if(roll.sirina<need.sirina) return -Infinity;
   if(need.metara && (roll.metara-roll.rezervisano)<need.metara) return -Infinity;

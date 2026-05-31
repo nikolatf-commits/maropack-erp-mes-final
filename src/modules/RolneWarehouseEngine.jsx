@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { supabase } from "../supabase.js";
 import {
   getVrsteMaterijala,
   getOznakeZaVrstu,
@@ -88,27 +89,90 @@ function normalizeMaterial(m) {
     napomena: m.napomena || "",
   };
 }
+function formatDateSR(value, withTime = false) {
+  if (!value) return "—";
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return withTime ? d.toLocaleString("sr-RS") : d.toLocaleDateString("sr-RS");
+  } catch {
+    return String(value);
+  }
+}
+function fifoAgeDays(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+}
+function fifoPriority(value) {
+  const age = fifoAgeDays(value);
+  if (age === null) return "NEPOZNATO";
+  if (age > 180) return "HITNO";
+  if (age > 90) return "SREDNJE";
+  return "NORMALNO";
+}
+function fifoColor(priority) {
+  if (priority === "HITNO") return "#dc2626";
+  if (priority === "SREDNJE") return "#d97706";
+  if (priority === "NORMALNO") return "#059669";
+  return "#64748b";
+}
+
 function materialLabel(m) {
   if (!m) return "—";
   const dim = m.jedinica === "g/m²" || !number(m.debljina) ? `${fmt(m.gsm, 1)} g/m²` : `${m.debljina}µ / ${fmt(calcGsm(m), 1)} g/m²`;
-  return `${m.vrsta} · ${m.komercijalnaOznaka} · ${m.proizvodjac || "—"} · ${dim}`;
+  const oznaka = m.oznaka || m.oznaka_materijala || m.komercijalnaOznaka || "—";
+  return `${m.vrsta} · ${oznaka} · ${m.proizvodjac || "—"} · ${dim}`;
+}
+function cleanOznaka(value, vrsta = "") {
+  let v = String(value || "").trim();
+  const t = String(vrsta || "").trim();
+  if (t && v.toLowerCase().startsWith(t.toLowerCase() + " ")) v = v.slice(t.length).trim();
+  return v;
+}
+function rollOznaka(r) {
+  return cleanOznaka(r?.oznaka_materijala || r?.oznaka || r?.komercijalnaOznaka || r?.materijal || "", r?.vrsta);
+}
+function mapDbRollToEngine(r = {}) {
+  const vrsta = r.vrsta || r.tip || r.materijal || "Nedefinisano";
+  const oznaka = cleanOznaka(r.oznaka_materijala || r.oznaka || r.komercijalnaOznaka || "", vrsta);
+  return {
+    ...r,
+    qr: r.qr || r.qr_code || r.br_rolne || r.broj_rolne || String(r.id || ""),
+    vrsta,
+    pod_vrsta: r.pod_vrsta || r.podvrsta || "",
+    oznaka_materijala: oznaka,
+    materijal: vrsta,
+    komercijalnaOznaka: oznaka,
+    proizvodjac: r.proizvodjac || r.dobavljac || "",
+    debljina: r.debljina ?? r.deb ?? 0,
+    sirina: r.sirina ?? 0,
+    duzina: r.duzina ?? r.metraza_ost ?? r.metraza ?? 0,
+    kg: r.kg ?? r.kg_neto ?? r.kg_bruto ?? 0,
+    datum: r.datum_prijema || r.datum || r.created_at || "",
+    datum_ulaza: r.datum_prijema || r.datum || r.created_at || "",
+    datum_proizvodnje: r.datum_proizvodnje || "",
+    status: r.status || "Na stanju",
+    lokacija: r.lokacija || "Magacin",
+  };
 }
 function rollQrPayload(r) {
   return JSON.stringify({
     type: "maropack_roll",
     qr: r.qr,
     vrsta: r.vrsta,
-    oznaka: r.komercijalnaOznaka || r.materijal,
+    pod_vrsta: r.pod_vrsta || "",
+    oznaka_materijala: rollOznaka(r),
+    oznaka: rollOznaka(r),
     proizvodjac: r.proizvodjac || "",
     debljina: r.debljina,
     sirina: r.sirina,
     duzina_m: r.duzina,
     kg: r.kg,
     lot: r.lot || "",
-    lokacija: r.lokacija || "",
-    status: r.status || "dostupna",
     parent_qr: r.parent_qr || "",
-    datum_ulaza: r.datum_ulaza || r.datum || "",
+    datum_proizvodnje: r.datum_proizvodnje || "",
     datum_popisa: r.datum_popisa || "",
   });
 }
@@ -129,7 +193,9 @@ function pick(row, names) {
 function normalizePackingRow(row = {}) {
   return {
     vrsta: pick(row, ["vrsta", "type", "material", "materijal"]),
-    komercijalnaOznaka: pick(row, ["komercijalna oznaka", "oznaka", "commercial name", "naziv", "materijal"]),
+    pod_vrsta: pick(row, ["pod vrsta", "pod_vrsta", "podvrsta", "subtype", "podtip"]),
+    oznaka_materijala: pick(row, ["oznaka materijala", "oznaka", "material code", "code"]),
+    komercijalnaOznaka: pick(row, ["oznaka materijala", "komercijalna oznaka", "oznaka", "commercial name", "naziv", "materijal"]),
     proizvodjac: pick(row, ["proizvodjac", "proizvođač", "manufacturer", "supplier", "dobavljac"]),
     debljina: number(pick(row, ["debljina", "deb", "thickness", "mic", "µ"])),
     koeficijent: number(pick(row, ["koeficijent", "gustina", "density"])),
@@ -140,6 +206,7 @@ function normalizePackingRow(row = {}) {
     lot: String(pick(row, ["lot", "batch", "sarza", "šarža", "serija"])),
     lokacija: String(pick(row, ["lokacija", "location", "skladiste", "magacin"])),
     datum: String(pick(row, ["datum", "date", "datum ulaza"])),
+    datum_proizvodnje: String(pick(row, ["datum proizvodnje", "datum_proizvodnje", "production date", "date of production"])),
   };
 }
 function parsePackingText(text = "") {
@@ -188,8 +255,10 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     qr: roll.qr || makeId("ROLNA"),
     materijal_id: roll.materijal_id || "",
     vrsta: roll.vrsta || roll.materijal || "Nedefinisano",
-    materijal: roll.materijal || roll.komercijalnaOznaka || roll.vrsta || "Nedefinisano",
-    komercijalnaOznaka: roll.komercijalnaOznaka || roll.materijal || "",
+    pod_vrsta: roll.pod_vrsta || "",
+    oznaka_materijala: cleanOznaka(roll.oznaka_materijala || roll.oznaka || roll.komercijalnaOznaka || "", roll.vrsta || roll.materijal),
+    materijal: roll.materijal || roll.vrsta || "Nedefinisano",
+    komercijalnaOznaka: cleanOznaka(roll.oznaka_materijala || roll.oznaka || roll.komercijalnaOznaka || roll.materijal || "", roll.vrsta || roll.materijal),
     proizvodjac: roll.proizvodjac || "",
     debljina: number(roll.debljina),
     koeficijent: number(roll.koeficijent),
@@ -204,6 +273,7 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     parent_qr: roll.parent_qr || "",
     datum: roll.datum || new Date().toLocaleDateString("sr-RS"),
     datum_ulaza: roll.datum_ulaza || roll.datum || new Date().toLocaleDateString("sr-RS"),
+    datum_proizvodnje: roll.datum_proizvodnje || "",
     datum_poslednje_promene: roll.datum_poslednje_promene || now(),
     datum_popisa: roll.datum_popisa || "",
     popisano: !!roll.popisano,
@@ -217,43 +287,47 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
 }
 
 function RollLabel({ roll, className = "roll-label-print" }) {
+  const oznaka = rollOznaka(roll);
   return (
-    <div className={className} style={{ width: "100mm", height: "120mm", background: "#fff", border: "1px solid #111827", borderRadius: 0, padding: "5mm", boxSizing: "border-box", fontFamily: "Arial, sans-serif", color: "#111827", overflow: "hidden" }}>
+    <div className={className} style={{ width: "100mm", height: "140mm", background: "#fff", border: "1px solid #111827", borderRadius: 0, padding: "5mm", boxSizing: "border-box", fontFamily: "Arial, sans-serif", color: "#111827", overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #111827", paddingBottom: 4 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: .4 }}>MAROPACK</div>
           <div style={{ fontSize: 9, fontWeight: 800 }}>ETIKETA ROLNE / QR TRACEABILITY</div>
         </div>
-        <div style={{ fontSize: 10, fontWeight: 900, textTransform: "uppercase", color: statusColor(roll.status) }}>{roll.status || "dostupna"}</div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "35mm 1fr", gap: 5, marginTop: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "34mm 1fr", gap: 5, marginTop: 5 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <QRCodeSVG value={rollQrPayload(roll)} size={122} level="M" includeMargin={false} />
+          <QRCodeSVG value={rollQrPayload(roll)} size={118} level="M" includeMargin={false} />
         </div>
         <div style={{ fontSize: 10, lineHeight: 1.35 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, wordBreak: "break-all" }}>{roll.qr}</div>
+          <div style={{ fontSize: 12, fontWeight: 900, wordBreak: "break-all" }}>{roll.qr}</div>
           <div><b>Vrsta:</b> {roll.vrsta || "—"}</div>
-          <div><b>Oznaka:</b> {roll.komercijalnaOznaka || roll.materijal || "—"}</div>
-          <div><b>Proizvođač:</b> {roll.proizvodjac || "—"}</div>
-          <div><b>Debljina:</b> {roll.debljina || "—"} µ</div>
+          <div><b>Pod vrsta:</b> {roll.pod_vrsta || "—"}</div>
+          <div><b>Oznaka:</b> {oznaka || "—"}</div>
+          <div><b>Dobavljač:</b> {roll.proizvodjac || "—"}</div>
         </div>
       </div>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, fontSize: 10 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 5, fontSize: 10 }}>
         <tbody>
-          <tr><td style={tdh}>ŠIRINA</td><td style={td}>{roll.sirina} mm</td><td style={tdh}>m</td><td style={td}>{fmt(roll.duzina, 0)}</td></tr>
-          <tr><td style={tdh}>kg</td><td style={td}>{fmt(roll.kg, 2)}</td><td style={tdh}>g/m²</td><td style={td}>{fmt(roll.gsm, 2)}</td></tr>
-          <tr><td style={tdh}>LOT</td><td style={td}>{roll.lot || "—"}</td><td style={tdh}>LOK</td><td style={td}>{roll.lokacija || "—"}</td></tr>
+          <tr><td style={tdh}>DEB.</td><td style={td}>{roll.debljina || "—"} µ</td><td style={tdh}>ŠIRINA</td><td style={td}>{roll.sirina} mm</td></tr>
+          <tr><td style={tdh}>METRAŽA</td><td style={td}>{fmt(roll.duzina, 0)} m</td><td style={tdh}>KG</td><td style={td}>{fmt(roll.kg, 2)}</td></tr>
+          <tr><td style={tdh}>LOT</td><td style={td}>{roll.lot || "—"}</td><td style={tdh}>DOB.</td><td style={td}>{roll.proizvodjac || "—"}</td></tr>
+          <tr><td style={tdh}>DAT. PROIZ.</td><td style={td} colSpan={3}>{formatDateSR(roll.datum_proizvodnje)}</td></tr>
         </tbody>
       </table>
       {roll.parent_qr && <div style={{ marginTop: 4, fontSize: 9 }}><b>Parent rolna:</b> {roll.parent_qr}</div>}
-      <div style={{ marginTop: 5, borderTop: "1px solid #111", paddingTop: 4, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 8 }}>
-        <div>Datum: {roll.datum || new Date().toLocaleDateString("sr-RS")}</div>
-        <div style={{ textAlign: "right" }}>Štampa: {new Date().toLocaleDateString("sr-RS")}</div>
-        <div style={{ gridColumn: "1/3" }}>Skeniranjem QR koda otvara se istorija i status rolne.</div>
+      <div style={{ marginTop: 5, borderTop: "1px solid #111", paddingTop: 4, fontSize: 8 }}>
+        QR otvara karticu rolne, istoriju, rezervacije i FIFO podatke.
+      </div>
+      <div style={{ marginTop: 7, borderTop: "2px solid #111", paddingTop: 6, fontSize: 13, fontWeight: 900 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}><span style={boxStyle}></span><span>Prvi ulaz</span></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={boxStyle}></span><span>Povrat u magacin</span></div>
       </div>
     </div>
   );
 }
+const boxStyle = { display: "inline-block", width: "7mm", height: "7mm", border: "2px solid #111" };
 const td = { border: "1px solid #111", padding: 3 };
 const tdh = { ...td, fontWeight: 900 };
 
@@ -263,11 +337,11 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const [rolne, setRolne] = useState([]);
   const [history, setHistory] = useState([]);
   const [filter, setFilter] = useState("");
-  const [columnFilters, setColumnFilters] = useState({ datum: "", vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
+  const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", fifo: "", status: "" });
   const [matFilter, setMatFilter] = useState("");
   const [selectedMatId, setSelectedMatId] = useState("");
   const [calcMode, setCalcMode] = useState("m_to_kg");
-  const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01", napomena: "" });
+  const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
   const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
   // V45: Jedini aktivni unos materijala ide preko Material Master logike.
   // Nema duplog ručnog kucanja: VRSTA -> OZNAKA -> DEBLJINA -> auto koef/gm2/naziv.
@@ -286,11 +360,15 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     const mats = ensureMaterials().map(normalizeMaterial);
     safeWrite(LS_MATERIJALI, mats);
     setMaterijali(mats);
-    setRolne(safeRead(LS_ROLNE, []));
+    const localRolls = safeRead(LS_ROLNE, []).map(mapDbRollToEngine);
+    const dbRolls = Array.isArray(db?.rolne) ? db.rolne.map(mapDbRollToEngine) : [];
+    const mergedRolls = [...dbRolls, ...localRolls].filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
+    setRolne(mergedRolls);
     setHistory(safeRead(LS_HISTORY, []));
     if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
   }
   useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [db?.rolne?.length]);
 
   const masterVrste = useMemo(() => getVrsteMaterijala(), []);
   const masterOznake = useMemo(() => getOznakeZaVrstu(materialPick.vrsta), [materialPick.vrsta]);
@@ -348,10 +426,12 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     const q = filter.toLowerCase().trim();
     const matchesText = (val, needle) => String(val ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase().trim());
     return rolne.filter((r) => {
-      if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_popisa, r.vrsta, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id].join(" ").toLowerCase().includes(q)) return false;
+      if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_proizvodnje, r.datum_popisa, r.vrsta, r.pod_vrsta, r.oznaka_materijala, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id].join(" ").toLowerCase().includes(q)) return false;
       if (columnFilters.datum && !matchesText(r.datum_ulaza || r.datum, columnFilters.datum)) return false;
       if (columnFilters.vrsta && !matchesText(r.vrsta, columnFilters.vrsta)) return false;
-      if (columnFilters.oznaka && !matchesText(r.komercijalnaOznaka || r.materijal, columnFilters.oznaka)) return false;
+      if (columnFilters.pod_vrsta && !matchesText(r.pod_vrsta, columnFilters.pod_vrsta)) return false;
+      if (columnFilters.datum_proizvodnje && !matchesText(r.datum_proizvodnje, columnFilters.datum_proizvodnje)) return false;
+      if (columnFilters.oznaka && !matchesText(rollOznaka(r), columnFilters.oznaka)) return false;
       if (columnFilters.proizvodjac && !matchesText(r.proizvodjac, columnFilters.proizvodjac)) return false;
       if (columnFilters.debljina && !matchesText(r.debljina, columnFilters.debljina)) return false;
       if (columnFilters.sirina && !matchesText(r.sirina, columnFilters.sirina)) return false;
@@ -401,7 +481,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     });
     safeWrite(LS_MATERIJALI, merged); setMaterijali(merged);
   }
-  function addRoll() {
+  async function addRoll() {
     if (!selectedMat) { msg?.("Prvo izaberi materijal preko Material Master-a", "err"); return; }
     if (!number(form.sirina)) { msg?.("Unesi širinu rolne", "err"); return; }
     const existsMat = materijali.some((m) => m.id === selectedMat.id || (m.vrsta === selectedMat.vrsta && m.komercijalnaOznaka === selectedMat.komercijalnaOznaka && Number(m.debljina) === Number(selectedMat.debljina)));
@@ -412,12 +492,48 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     const finalKg = calcMode === "m_to_kg" ? calculatedKg : number(form.kg);
     const finalM = calcMode === "kg_to_m" ? calculatedM : number(form.duzina);
     if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
-    const item = addWarehouseRoll({
-      qr: makeId("ROLNA"), materijal_id: selectedMat.id, vrsta: selectedMat.vrsta, materijal: selectedMat.komercijalnaOznaka,
-      komercijalnaOznaka: selectedMat.komercijalnaOznaka, proizvodjac: selectedMat.proizvodjac, debljina: selectedMat.debljina,
-      koeficijent: selectedMat.koeficijent, gsm: calcGsm(selectedMat), sirina: form.sirina, duzina: finalM, kg: finalKg,
-      lot: form.lot, lokacija: form.lokacija, napomena: form.napomena, status: "dostupna",
-    }, "ULAZ U MAGACIN");
+    const brRolne = makeId("ROLNA");
+    const cleanCode = cleanOznaka(selectedMat.oznaka || materialPick.oznaka || selectedMat.komercijalnaOznaka, selectedMat.vrsta);
+    let item = null;
+    try {
+      if (!supabase.__localDemo) {
+        const { data, error } = await supabase.from("magacin").insert({
+          br_rolne: brRolne,
+          tip: selectedMat.vrsta,
+          vrsta: selectedMat.vrsta,
+          pod_vrsta: form.pod_vrsta || null,
+          oznaka_materijala: cleanCode,
+          deb: selectedMat.debljina,
+          sirina: number(form.sirina),
+          metraza: finalM,
+          metraza_ost: finalM,
+          kg_bruto: finalKg,
+          kg_neto: finalKg,
+          lot: form.lot || null,
+          dobavljac: selectedMat.proizvodjac || null,
+          datum: new Date().toISOString().slice(0, 10),
+          datum_prijema: new Date().toISOString().slice(0, 10),
+          datum_proizvodnje: form.datum_proizvodnje || null,
+          status: "Na stanju",
+          qr_code: brRolne,
+          lokacija: form.lokacija || null,
+          napomena: form.napomena || null,
+        }).select("*").single();
+        if (error) throw error;
+        item = mapDbRollToEngine(data);
+      }
+    } catch (e) {
+      msg?.("Supabase upis rolne nije uspeo, čuvam lokalno: " + e.message, "err");
+    }
+    if (!item) {
+      item = addWarehouseRoll({
+        qr: brRolne, materijal_id: selectedMat.id, vrsta: selectedMat.vrsta, pod_vrsta: form.pod_vrsta,
+        oznaka_materijala: cleanCode, materijal: selectedMat.vrsta,
+        komercijalnaOznaka: cleanCode, proizvodjac: selectedMat.proizvodjac, debljina: selectedMat.debljina,
+        koeficijent: selectedMat.koeficijent, gsm: calcGsm(selectedMat), sirina: form.sirina, duzina: finalM, kg: finalKg,
+        lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: form.napomena, status: "dostupna",
+      }, "ULAZ U MAGACIN");
+    }
     reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
   }
   function changeStatus(r, status) {
@@ -467,7 +583,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   <meta charset="utf-8" />
   <title>QR etikete rolni</title>
   <style>
-    @page { size: 100mm 120mm; margin: 0; }
+    @page { size: 100mm 140mm; margin: 0; }
     html, body {
       margin: 0 !important;
       padding: 0 !important;
@@ -478,7 +594,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     * { box-sizing: border-box !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .roll-label-print {
       width: 100mm !important;
-      height: 120mm !important;
+      height: 140mm !important;
       margin: 0 !important;
       padding: 5mm !important;
       border: none !important;
@@ -556,7 +672,9 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       if (!mat) {
         mat = normalizeMaterial({
           vrsta: row.vrsta || "Nedefinisano",
-          komercijalnaOznaka: row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste",
+          oznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
+          oznaka_materijala: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
+          komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste", row.vrsta),
           proizvodjac: row.proizvodjac || "",
           debljina: row.debljina,
           koeficijent: row.koeficijent || 0,
@@ -570,9 +688,11 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       const kg = row.kg || (row.duzina && row.sirina && gsm ? kgFromMeters({ sirinaMm: row.sirina, duzinaM: row.duzina, gsm }) : 0);
       if (!row.sirina || (!duzina && !kg)) return;
       addWarehouseRoll({
-        materijal_id: mat.id, vrsta: mat.vrsta, materijal: mat.komercijalnaOznaka, komercijalnaOznaka: mat.komercijalnaOznaka,
+        materijal_id: mat.id, vrsta: mat.vrsta, pod_vrsta: row.pod_vrsta || "",
+        oznaka_materijala: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
+        materijal: mat.vrsta, komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
         proizvodjac: mat.proizvodjac || row.proizvodjac, debljina: mat.debljina || row.debljina, koeficijent: mat.koeficijent || row.koeficijent,
-        gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), status: "dostupna",
+        gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "dostupna",
         napomena: "Uvoz iz packing liste"
       }, "UVOZ PACKING LISTE");
       count += 1;
@@ -611,12 +731,12 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
   const PrintCSS = () => (
     <style>{`
       @media print {
-        @page { size: 100mm 120mm; margin: 0; }
+        @page { size: 100mm 140mm; margin: 0; }
         html, body { width: 100mm !important; min-width: 100mm !important; height: auto !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; background: #fff !important; }
         body * { visibility: hidden !important; }
         .roll-label-print-root, .roll-label-print-root * { visibility: visible !important; }
         .roll-label-print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100mm !important; margin: 0 !important; padding: 0 !important; background: #fff !important; display: block !important; }
-        .roll-label-print { width: 100mm !important; height: 120mm !important; margin: 0 !important; padding: 5mm !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; overflow: hidden !important; page-break-after: always !important; break-after: page !important; box-sizing: border-box !important; }
+        .roll-label-print { width: 100mm !important; height: 140mm !important; margin: 0 !important; padding: 5mm !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; overflow: hidden !important; page-break-after: always !important; break-after: page !important; box-sizing: border-box !important; }
         .roll-label-print:last-child { page-break-after: auto !important; break-after: auto !important; }
         .no-print { display: none !important; }
       }
@@ -628,14 +748,14 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       <PrintCSS />
       <div style={{ background: "#fff", borderRadius: 18, padding: 18, width: "min(860px,96vw)", boxShadow: "0 20px 80px rgba(0,0,0,.35)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div><div style={{ fontSize: 18, fontWeight: 900 }}>QR etiketa rolne · 100×120 mm</div><div style={{ fontSize: 12, color: "#64748b" }}>Optimizovano za Rongta RP400H thermal label printer.</div></div>
+          <div><div style={{ fontSize: 18, fontWeight: 900 }}>QR etiketa rolne · 100×140 mm</div><div style={{ fontSize: 12, color: "#64748b" }}>Optimizovano za Rongta RP400H thermal label printer.</div></div>
           <div style={{ display: "flex", gap: 8 }}><button onClick={printLabels} style={{ ...btn, background: "#059669", color: "#fff" }}>🖨️ Štampaj etiketu</button><button onClick={() => setLabelRoll(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Zatvori</button></div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "110mm 1fr", gap: 18, alignItems: "start" }}>
           <div className="roll-label-print-root"><RollLabel roll={labelRoll} /></div>
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ fontWeight: 900 }}>Preview podaci za proveru pre štampe</div>
-            {[`QR: ${labelRoll.qr}`, `Materijal: ${labelRoll.vrsta} · ${labelRoll.komercijalnaOznaka || labelRoll.materijal}`, `Dimenzije: ${labelRoll.sirina} mm · ${fmt(labelRoll.duzina,0)} m · ${fmt(labelRoll.kg,2)} kg`, `Lot/Lokacija: ${labelRoll.lot || "—"} / ${labelRoll.lokacija || "—"}`].map((x) => <div key={x} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>{x}</div>)}
+            {[`QR: ${labelRoll.qr}`, `Materijal: ${labelRoll.vrsta} · ${labelRoll.komercijalnaOznaka || labelRoll.materijal}`, `Dimenzije: ${labelRoll.sirina} mm · ${fmt(labelRoll.duzina,0)} m · ${fmt(labelRoll.kg,2)} kg`, `Lot: ${labelRoll.lot || "—"}`].map((x) => <div key={x} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>{x}</div>)}
           </div>
         </div>
       </div>
@@ -647,7 +767,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
       <PrintCSS />
       <div style={{ background: "#fff", borderRadius: 18, padding: 18, width: "min(980px,96vw)", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 80px rgba(0,0,0,.35)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div><div style={{ fontSize: 18, fontWeight: 900 }}>Bulk QR etikete · {bulkLabels.length} rolni</div><div style={{ fontSize: 12, color: "#64748b" }}>Svaka rolna ide na posebnu etiketu 100×120 mm.</div></div>
+          <div><div style={{ fontSize: 18, fontWeight: 900 }}>Bulk QR etikete · {bulkLabels.length} rolni</div><div style={{ fontSize: 12, color: "#64748b" }}>Svaka rolna ide na posebnu etiketu 100×140 mm.</div></div>
           <div style={{ display: "flex", gap: 8 }}><button onClick={printLabels} style={{ ...btn, background: "#059669", color: "#fff" }}>🖨️ Štampaj sve etikete</button><button onClick={() => setBulkLabels([])} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Zatvori</button></div>
         </div>
         <div className="roll-label-print-root" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100mm, 1fr))", gap: 12 }}>
@@ -661,7 +781,7 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
     <div style={{ padding: 22, background: "#f1f5f9", minHeight: "100vh", color: "#0f172a" }}>
       {LabelModal}{BulkModal}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
-        <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×120 mm.</div></div>
+        <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>
         <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Osveži</button>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
@@ -707,13 +827,15 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
                 <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
                 <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                 <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
+                <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="npr. transparent / beli / metalizovani" /></label>
+                <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                 <label style={{ gridColumn: "1/3" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
               </div>
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontWeight: 900 }}>Live obračun</div><div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>kg = širina(m) × dužina(m) × g/m² / 1000</div><div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><div><b>{fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg</b></div><div><b>{fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m</b></div></div></div>
               <button onClick={addRoll} style={{ ...btn, background: "#059669", color: "#fff", padding: "13px" }}>+ Dodaj rolnu i generiši QR</button>
             </div>
           </div>
-          <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>{[["Vrsta", selectedMat?.vrsta], ["Komercijalna oznaka", selectedMat?.komercijalnaOznaka], ["Proizvođač", selectedMat?.proizvodjac || "—"], ["Debljina", selectedMat?.debljina ? `${selectedMat.debljina} µ` : "—"], ["Širina", `${form.sirina || 0} mm`], ["g/m²", fmt(liveGsm, 2)], ["Metara", fmt(calcMode === "kg_to_m" ? calculatedM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? calculatedKg : form.kg, 2)]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
+          <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>{[["Vrsta", selectedMat?.vrsta], ["Oznaka materijala", cleanOznaka(selectedMat?.oznaka || materialPick.oznaka || selectedMat?.komercijalnaOznaka, selectedMat?.vrsta)], ["Pod vrsta", form.pod_vrsta || "—"], ["Proizvođač", selectedMat?.proizvodjac || "—"], ["Debljina", selectedMat?.debljina ? `${selectedMat.debljina} µ` : "—"], ["Širina", `${form.sirina || 0} mm`], ["g/m²", fmt(liveGsm, 2)], ["Metara", fmt(calcMode === "kg_to_m" ? calculatedM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? calculatedKg : form.kg, 2)], ["Datum proizvodnje", form.datum_proizvodnje || "—"]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
         </div>
       )}
 
@@ -731,11 +853,15 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum", "Vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Akcije"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr>
+                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum ulaza", "Datum proiz.", "Starost", "FIFO", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Akcije"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr>
                 <tr style={{ background: "#fff" }}>
                   <th style={filterTh}></th><th style={filterTh}></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.datum} onChange={(e) => setColFilter("datum", e.target.value)} placeholder="Datum" /></th>
+                  <th style={filterTh}><input style={smallInput} value={columnFilters.datum_proizvodnje} onChange={(e) => setColFilter("datum_proizvodnje", e.target.value)} placeholder="Dat. proiz." /></th>
+                  <th style={filterTh}></th>
+                  <th style={filterTh}><select style={smallInput} value={columnFilters.fifo} onChange={(e) => setColFilter("fifo", e.target.value)}><option value="">FIFO</option><option value="HITNO">HITNO</option><option value="SREDNJE">SREDNJE</option><option value="NORMALNO">NORMALNO</option><option value="NEPOZNATO">NEPOZNATO</option></select></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.vrsta} onChange={(e) => setColFilter("vrsta", e.target.value)} placeholder="Vrsta" /></th>
+                  <th style={filterTh}><input style={smallInput} value={columnFilters.pod_vrsta} onChange={(e) => setColFilter("pod_vrsta", e.target.value)} placeholder="Pod vrsta" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.oznaka} onChange={(e) => setColFilter("oznaka", e.target.value)} placeholder="Oznaka" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.proizvodjac} onChange={(e) => setColFilter("proizvodjac", e.target.value)} placeholder="Proizvođač" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.debljina} onChange={(e) => setColFilter("debljina", e.target.value)} placeholder="Deb." /></th>
@@ -745,12 +871,12 @@ export default function RolneWarehouseEngine({ db = {}, msg }) {
                   <th style={filterTh}><input style={smallInput} value={columnFilters.lot} onChange={(e) => setColFilter("lot", e.target.value)} placeholder="Lot" /></th>
                   <th style={filterTh}><input style={smallInput} value={columnFilters.lokacija} onChange={(e) => setColFilter("lokacija", e.target.value)} placeholder="Lokacija" /></th>
                   <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="dostupna">dostupna</option><option value="rezervisana">rezervisana</option><option value="formatirana">formatirana</option><option value="potrosena">potrošena</option><option value="blokirana">blokirana</option></select></th>
-                  <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
+                  <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", fifo: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                 </tr>
               </thead>
               <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.komercijalnaOznaka || r.materijal}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{r.status}</span></td>
+                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{formatDateSR(r.datum_ulaza || r.datum)}</td><td style={cell}>{formatDateSR(r.datum_proizvodnje)}</td><td style={cell}>{fifoAgeDays(r.datum_proizvodnje) ?? "—"} dana</td><td style={cell}><span style={{ background: fifoColor(fifoPriority(r.datum_proizvodnje)) + "18", color: fifoColor(fifoPriority(r.datum_proizvodnje)), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{fifoPriority(r.datum_proizvodnje)}</span></td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{r.status}</span></td>
                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "dostupna")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Dostupna</button></div></td>
               </tr>)}</tbody>
             </table>
@@ -786,8 +912,8 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
     <div style={card}>
       <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-        <tbody>{packingRows.map((r, i) => <tr key={i}><td style={cell}>{r.vrsta || "—"}</td><td style={cell}>{r.komercijalnaOznaka || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina || "—"}</td><td style={cell}>{r.duzina || "—"}</td><td style={cell}>{r.kg || "—"}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija || "—"}</td><td style={cell}>{r.datum || "—"}</td></tr>)}</tbody>
+        <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
+        <tbody>{packingRows.map((r, i) => <tr key={i}><td style={cell}>{r.vrsta || "—"}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{r.oznaka_materijala || r.komercijalnaOznaka || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina || "—"}</td><td style={cell}>{r.duzina || "—"}</td><td style={cell}>{r.kg || "—"}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija || "—"}</td><td style={cell}>{r.datum || "—"}</td><td style={cell}>{r.datum_proizvodnje || "—"}</td></tr>)}</tbody>
       </table></div>
       {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
     </div>
@@ -888,7 +1014,7 @@ function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial
           <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Oznaka", "Proizvođač", "Deb.", "Koef.", "g/m²", "€/kg", "Akcije"].map(h => <th key={h} style={{ padding: 10, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
           <tbody>{filteredMaterials.map((m) => <tr key={m.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
             <td style={cell}><b>{m.vrsta}</b></td>
-            <td style={cell}>{m.komercijalnaOznaka}</td>
+            <td style={cell}>{cleanOznaka(m.oznaka || m.oznaka_materijala || m.komercijalnaOznaka, m.vrsta)}</td>
             <td style={cell}>{m.proizvodjac || "—"}</td>
             <td style={cell}>{m.debljina || "—"}</td>
             <td style={cell}>{m.koeficijent || "—"}</td>

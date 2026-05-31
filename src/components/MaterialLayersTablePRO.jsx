@@ -8,7 +8,7 @@ const tableWrap = {
   borderRadius: 14,
   background: "#fff",
 };
-const table = { width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 1080, fontSize: 13 };
+const table = { width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 1280, fontSize: 13 };
 const th = { textAlign: "left", padding: "10px 12px", background: "#f8fafc", color: "#64748b", fontSize: 11, fontWeight: 900, textTransform: "uppercase", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" };
 const td = { padding: "9px 10px", borderBottom: "1px solid #edf2f7", verticalAlign: "middle" };
 const input = { width: "100%", boxSizing: "border-box", height: 38, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", color: "#0f172a", fontWeight: 700 };
@@ -20,9 +20,12 @@ function normalizeLayer(layer = {}) {
   return {
     ...layer,
     vrsta: layer.vrsta || layer.tip || "BOPP",
-    oznaka: layer.oznaka || layer.grade || "FXCB",
+    pod_vrsta: layer.pod_vrsta || layer.podvrsta || layer.subtype || "transparent",
+    oznaka: layer.oznaka_materijala || layer.oznaka || layer.grade || "FXCB",
+    oznaka_materijala: layer.oznaka_materijala || layer.oznaka || layer.grade || "FXCB",
     debljina: layer.debljina || layer.debljina_um || layer.deb || layer.thickness || 20,
-    sirina: layer.sirina || layer.sirinaMm || layer.sirina_mm || "",
+    idealna_sirina: layer.idealna_sirina || layer.idealnaSirina || layer.sirina || layer.sirinaMm || layer.sirina_mm || "",
+    sirina: layer.sirina || layer.sirinaMm || layer.sirina_mm || layer.idealna_sirina || "",
     cena: layer.cena ?? layer.cenaKg ?? "",
     stampa: !!(layer.stampa || layer.stampaSe),
     lakira: !!(layer.lakira || layer.lakiranje),
@@ -32,7 +35,8 @@ function normalizeLayer(layer = {}) {
 function patchLayer(base, patch) {
   const next = { ...(base || {}), ...patch };
   const vrsta = next.vrsta || next.tip || "BOPP";
-  const oznaka = next.oznaka || next.grade || "FXCB";
+  const pod_vrsta = next.pod_vrsta || next.podvrsta || next.subtype || "transparent";
+  const oznaka = next.oznaka_materijala || next.oznaka || next.grade || "FXCB";
   const debljina = Number(next.debljina || next.debljina_um || 0);
   const gm2 = calculateGm2(vrsta, debljina);
   const koeficijent = getKoeficijent(vrsta);
@@ -41,7 +45,10 @@ function patchLayer(base, patch) {
     ...next,
     tip: vrsta,
     vrsta,
+    pod_vrsta,
+    podvrsta: pod_vrsta,
     oznaka,
+    oznaka_materijala: oznaka,
     debljina: String(next.debljina ?? debljina),
     debljina_um: next.debljina ?? debljina,
     koeficijent,
@@ -51,9 +58,11 @@ function patchLayer(base, patch) {
     nazivMaterijala,
     materijal: nazivMaterijala,
     tipMaterijala: nazivMaterijala,
-    sirina: next.sirina || next.sirinaMm || next.sirina_mm || "",
-    sirinaMm: next.sirina || next.sirinaMm || next.sirina_mm || "",
-    sirina_mm: next.sirina || next.sirinaMm || next.sirina_mm || "",
+    idealna_sirina: next.idealna_sirina || next.idealnaSirina || next.sirina || next.sirinaMm || next.sirina_mm || "",
+    idealnaSirina: next.idealna_sirina || next.idealnaSirina || next.sirina || next.sirinaMm || next.sirina_mm || "",
+    sirina: next.sirina || next.sirinaMm || next.sirina_mm || next.idealna_sirina || "",
+    sirinaMm: next.sirina || next.sirinaMm || next.sirina_mm || next.idealna_sirina || "",
+    sirina_mm: next.sirina || next.sirinaMm || next.sirina_mm || next.idealna_sirina || "",
   };
 }
 
@@ -86,7 +95,7 @@ export default function MaterialLayersTablePRO({
 
   const addRow = () => {
     if (maxLayers && rows.length >= maxLayers) return;
-    const newRow = patchLayer({ vrsta: "BOPP", oznaka: "FXCB", debljina: 20, sirina: rows[0]?.sirina || rows[0]?.sirina_mm || "", cena: "", stampa: false, lakira: false, }, {});
+    const newRow = patchLayer({ vrsta: "BOPP", pod_vrsta: "transparent", oznaka_materijala: "FXCB", oznaka: "FXCB", debljina: 20, idealna_sirina: rows[0]?.idealna_sirina || rows[0]?.sirina || rows[0]?.sirina_mm || "", sirina: rows[0]?.sirina || rows[0]?.sirina_mm || "", cena: "", stampa: false, lakira: false, }, {});
     if (onAdd) onAdd(newRow);
     else onChange?.([...rows, newRow]);
   };
@@ -111,11 +120,12 @@ export default function MaterialLayersTablePRO({
         <thead><tr>
           <th style={{ ...th, width: 44 }}>#</th>
           <th style={{ ...th, width: 150 }}>Vrsta materijala</th>
+          <th style={{ ...th, width: 150 }}>Pod vrsta</th>
           <th style={{ ...th, width: 170 }}>Oznaka materijala</th>
           <th style={{ ...th, width: 110 }}>Debljina</th>
           <th style={{ ...th, width: 110 }}>Koeficijent</th>
           <th style={{ ...th, width: 120 }}>Težina g/m²</th>
-          {showWidth && <th style={{ ...th, width: 110 }}>Širina mm</th>}
+          {showWidth && <><th style={{ ...th, width: 120 }}>Idealna širina</th><th style={{ ...th, width: 110 }}>Širina mm</th></>}
           {showPrice && <th style={{ ...th, width: 110 }}>Cena €/kg</th>}
           {showFlags && <><th style={th}>Š</th><th style={th}>L</th></>}
           <th style={{ ...th, width: 76 }}>Akcije</th>
@@ -130,12 +140,13 @@ export default function MaterialLayersTablePRO({
             const gm2 = r.gm2 || r.tezina || calculateGm2(r.vrsta, r.debljina);
             return <tr key={i}>
               <td style={{ ...td, fontWeight: 900 }}>{i + 1}</td>
-              <td style={td}><select style={select} value={r.vrsta} onChange={(e) => updateRow(i, { vrsta: e.target.value, oznaka: getOznakeZaVrstu(e.target.value)[0] || "", debljina: getDebljineZaMaterijal(e.target.value, getOznakeZaVrstu(e.target.value)[0] || "")[0] || "" })}>{vrste.map(v => <option key={v} value={v}>{v}</option>)}</select></td>
-              <td style={td}><select style={select} value={r.oznaka} onChange={(e) => updateRow(i, { oznaka: e.target.value, debljina: getDebljineZaMaterijal(r.vrsta, e.target.value)[0] || r.debljina })}>{oznake.map(o => <option key={o} value={o}>{o}</option>)}</select></td>
+              <td style={td}><select style={select} value={r.vrsta} onChange={(e) => updateRow(i, { vrsta: e.target.value, oznaka: getOznakeZaVrstu(e.target.value)[0] || "", oznaka_materijala: getOznakeZaVrstu(e.target.value)[0] || "", debljina: getDebljineZaMaterijal(e.target.value, getOznakeZaVrstu(e.target.value)[0] || "")[0] || "" })}>{vrste.map(v => <option key={v} value={v}>{v}</option>)}</select></td>
+              <td style={td}><input style={input} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value, podvrsta: e.target.value })} placeholder="transparent / beli / metalizovani" /></td>
+              <td style={td}><select style={select} value={r.oznaka} onChange={(e) => updateRow(i, { oznaka: e.target.value, oznaka_materijala: e.target.value, debljina: getDebljineZaMaterijal(r.vrsta, e.target.value)[0] || r.debljina })}>{oznake.map(o => <option key={o} value={o}>{o}</option>)}</select></td>
               <td style={td}><select style={select} value={r.debljina} onChange={(e) => updateRow(i, { debljina: e.target.value })}>{debljine.map(d => <option key={d} value={d}>{d}{r.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></td>
               <td style={td}><input style={{ ...input, background: "#f8fafc" }} value={koef || ""} readOnly /></td>
               <td style={td}><input style={{ ...input, background: "#fef3c7", color: "#92400e" }} value={gm2 || 0} readOnly /></td>
-              {showWidth && <td style={td}><input style={input} value={r.sirina} onChange={(e) => updateRow(i, { sirina: e.target.value, sirinaMm: e.target.value, sirina_mm: e.target.value })} /></td>}
+              {showWidth && <><td style={td}><input style={input} value={r.idealna_sirina || ""} onChange={(e) => updateRow(i, { idealna_sirina: e.target.value, idealnaSirina: e.target.value })} /></td><td style={td}><input style={input} value={r.sirina} onChange={(e) => updateRow(i, { sirina: e.target.value, sirinaMm: e.target.value, sirina_mm: e.target.value })} /></td></>}
               {showPrice && <td style={td}><input style={input} type="number" value={r.cena} onChange={(e) => updateRow(i, { cena: e.target.value })} /></td>}
               {showFlags && <><td style={td}><input style={checkbox} type="checkbox" checked={!!r.stampa} onChange={(e) => updateRow(i, { stampa: e.target.checked })} /></td><td style={td}><input style={checkbox} type="checkbox" checked={!!r.lakira} onChange={(e) => updateRow(i, { lakira: e.target.checked })} /></td></>}
               <td style={td}><button type="button" onClick={() => removeRow(i)} disabled={rows.length <= 1} style={{ ...smallBtn, opacity: rows.length <= 1 ? .4 : 1 }}>×</button></td>
@@ -143,11 +154,11 @@ export default function MaterialLayersTablePRO({
           })}
         </tbody>
         <tfoot><tr style={{ background: "#f8fafc" }}>
-          <td style={td}></td><td style={{ ...td, fontWeight: 900 }} colSpan="2">UKUPNO / PROSEK</td>
+          <td style={td}></td><td style={{ ...td, fontWeight: 900 }} colSpan="3">UKUPNO / PROSEK</td>
           <td style={{ ...td, color: "#059669", fontWeight: 900 }}>{totals.totalDeb.toFixed(0)} µ</td>
           <td style={{ ...td, color: "#059669", fontWeight: 900 }}>{totals.avgKoef.toFixed(2)}</td>
           <td style={{ ...td, color: "#059669", fontWeight: 900 }}>{totals.totalGm2.toFixed(1)} g/m²</td>
-          {showWidth && <td style={td}></td>}
+          {showWidth && <><td style={td}></td><td style={td}></td></>}
           {showPrice && <td style={{ ...td, color: "#059669", fontWeight: 900 }}>{totals.totalPrice.toFixed(2)} €/kg</td>}
           {showFlags && <td style={td} colSpan="2"></td>}
           <td style={td}></td>

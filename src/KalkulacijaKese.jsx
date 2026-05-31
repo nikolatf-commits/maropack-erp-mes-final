@@ -426,6 +426,7 @@ export default function KalkulacijaKese({ setPage }) {
 
                 // Opcije
                 materijali: materijali,
+                materijali_struktura: materijali,
                 eurozumba: opts.eurozumba || false,
                 duplofan: opts.duplofan || false,
                 anleger: opts.anleger || false,

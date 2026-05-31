@@ -29,6 +29,33 @@ function num(v) {
 function getBase(tip) {
   return String(tip || "").split(" ")[0].toUpperCase().trim();
 }
+function normText(v) { return String(v || "").trim().toLowerCase(); }
+function cleanCode(v, vrsta = "") {
+  let x = String(v || "").trim();
+  const t = String(vrsta || "").trim();
+  if (t && x.toLowerCase().startsWith(t.toLowerCase() + " ")) x = x.slice(t.length).trim();
+  return x;
+}
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+  const raw = String(v).trim();
+  const sr = raw.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (sr) return new Date(Number(sr[3]), Number(sr[2]) - 1, Number(sr[1]));
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function starostDana(v) {
+  const d = parseDate(v);
+  if (!d) return -1;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+}
+function getRollVrsta(r) { return r.vrsta || r.tip || r.materijal || ""; }
+function getRollPodVrsta(r) { return r.pod_vrsta || r.podvrsta || ""; }
+function getRollOznaka(r) { return cleanCode(r.oznaka_materijala || r.oznaka || r.komercijalnaOznaka || r.materijal || "", getRollVrsta(r)); }
+function getLayerVrsta(l) { return l.vrsta || l.tip || l.material || l.materijal || ""; }
+function getLayerPodVrsta(l) { return l.pod_vrsta || l.podvrsta || ""; }
+function getLayerOznaka(l) { return cleanCode(l.oznaka_materijala || l.oznaka || l.grade || l.komercijalnaOznaka || "", getLayerVrsta(l)); }
 
 function getGustoca(tip) {
   const base = getBase(tip);
@@ -109,19 +136,9 @@ function scoreRolne(rolna, idealnaSirina, kolPlus) {
   // 3. Preferira punu rolnu nad delimičnom
   if (isPuna) score += 100;
 
-  // 4. Svežina (datum) — starije rolne treba pre potrošiti (FIFO)
-  // Ako ima datum, starija rolna dobija blagi bonus
-  if (rolna.datum) {
-    try {
-      const parts = rolna.datum.split(".");
-      if (parts.length >= 3) {
-        const d = new Date(parts[2], parts[1] - 1, parts[0]);
-        const daniStarosti = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
-        // Starija rolna + mali bonus (FIFO princip), ali ne preveliki
-        score += Math.min(50, Math.round(daniStarosti / 7)); // +1 po nedelji, max 50
-      }
-    } catch (_) {}
-  }
+  // 4. FIFO — datum proizvodnje je primarni signal. Starija rolna dobija značajan bonus.
+  const age = starostDana(rolna.datum_proizvodnje || rolna.datum || rolna.datum_prijema);
+  if (age >= 0) score += Math.min(500, age * 2);
 
   return score;
 }
@@ -137,20 +154,31 @@ function scoreRolne(rolna, idealnaSirina, kolPlus) {
  * @returns {{ predlog, kandidati, analiza }}
  */
 export function izaberiRolnu(layer, rolne, idealnaSirina, kolPlus, zauzete = new Set()) {
-  const base = getBase(layer.material || layer.materijal || layer.tip || "");
-  const deb = num(layer.debljina || layer.deb || 0);
+  const layerVrsta = getLayerVrsta(layer);
+  const layerPodVrsta = getLayerPodVrsta(layer);
+  const layerOznaka = getLayerOznaka(layer);
+  const base = getBase(layerVrsta);
+  const deb = num(layer.debljina || layer.deb || layer.debljina_um || 0);
 
   if (!base) return { predlog: null, kandidati: [], analiza: null };
 
   // ── KORAK 1: Filtriranje — samo prikladne rolne ──────────
   const prikladne = rolne.filter(r => {
-    // Tip mora odgovarati
-    const okTip = r.tip && getBase(r.tip) === base;
+    // Vrsta mora odgovarati (BOPP, CPP, PET...)
+    const rollVrsta = getRollVrsta(r);
+    const okTip = rollVrsta && getBase(rollVrsta) === base;
     if (!okTip) return false;
 
-    // Debljina ±3µ (ako je zadana)
-    if (deb > 0 && r.deb > 0) {
-      if (Math.abs(num(r.deb) - deb) > 3) return false;
+    // Pod vrsta, ako je upisana, mora odgovarati
+    if (layerPodVrsta && normText(getRollPodVrsta(r)) !== normText(layerPodVrsta)) return false;
+
+    // Oznaka materijala, ako je upisana, mora odgovarati tačno
+    if (layerOznaka && normText(getRollOznaka(r)) !== normText(layerOznaka)) return false;
+
+    // Debljina ±1µ (ako je zadana)
+    const rollDeb = num(r.deb ?? r.debljina);
+    if (deb > 0 && rollDeb > 0) {
+      if (Math.abs(rollDeb - deb) > 1) return false;
     }
 
     // Status mora biti OK
@@ -169,7 +197,13 @@ export function izaberiRolnu(layer, rolne, idealnaSirina, kolPlus, zauzete = new
     analiza: analizaSirine(r.sirina, idealnaSirina),
     metraza: num(r.metraza_ost || r.metraza),
     imaMetraze: num(r.metraza_ost || r.metraza) >= kolPlus,
-  })).sort((a, b) => b.score - a.score);
+  })).sort((a, b) => {
+    const ageB = starostDana(b.rolna.datum_proizvodnje || b.rolna.datum || b.rolna.datum_prijema);
+    const ageA = starostDana(a.rolna.datum_proizvodnje || a.rolna.datum || a.rolna.datum_prijema);
+    if (ageB !== ageA) return ageB - ageA;
+    if (a.analiza.otpad !== b.analiza.otpad) return a.analiza.otpad - b.analiza.otpad;
+    return b.score - a.score;
+  });
 
   const predlog = scoreovane[0] || null;
 
@@ -220,12 +254,17 @@ export function autoIzborSvihSlojeva(layers, rolne, idealnaSirina, kolPlus) {
   // Sortiraj slojeve — najpre oni čiji materijal ima manje kandidata (teže za nađi)
   // To osigurava da rijetki materijali dobiju prioritet pri izboru
   const prioriteti = layers.map((layer, i) => {
-    const base = getBase(layer.material || layer.materijal || layer.tip || "");
+    const base = getBase(getLayerVrsta(layer));
+    const pod = getLayerPodVrsta(layer);
+    const ozn = getLayerOznaka(layer);
     const deb = num(layer.debljina || layer.deb || 0);
     const brKandidata = rolne.filter(r => {
-      const okT = r.tip && getBase(r.tip) === base;
-      const okD = !deb || !r.deb || Math.abs(num(r.deb) - deb) <= 3;
-      return okT && okD && STATUS_OK.includes(r.status);
+      const okT = getRollVrsta(r) && getBase(getRollVrsta(r)) === base;
+      const okP = !pod || normText(getRollPodVrsta(r)) === normText(pod);
+      const okO = !ozn || normText(getRollOznaka(r)) === normText(ozn);
+      const rDeb = num(r.deb ?? r.debljina);
+      const okD = !deb || !rDeb || Math.abs(rDeb - deb) <= 1;
+      return okT && okP && okO && okD && STATUS_OK.includes(r.status);
     }).length;
     return { idx: i, layer, brKandidata };
   }).sort((a, b) => a.brKandidata - b.brKandidata); // manje kandidata = viši prioritet
@@ -246,7 +285,7 @@ export function autoIzborSvihSlojeva(layers, rolne, idealnaSirina, kolPlus) {
       upozorenja.push({
         sloj: idx + 1,
         tip: "nema_rolne",
-        poruka: `Sloj ${idx+1} (${getBase(layer.material||layer.materijal||layer.tip)}) — nema nijedne prikladne rolne u magacinu!`,
+        poruka: `Sloj ${idx+1} (${getBase(getLayerVrsta(layer))}) — nema nijedne prikladne rolne u magacinu!`,
         ozbiljnost: "kritično",
       });
     } else if (!rezultat.predlogImaMetraze) {
@@ -303,6 +342,7 @@ export function labelaRolne(rolna, idealnaSirina, kolPlus) {
     rolna.kg_neto ? `${Math.round(rolna.kg_neto)}kg` : null,
     rolna.dobavljac || null,
     rolna.lot ? `LOT:${rolna.lot}` : null,
+    (rolna.datum_proizvodnje || rolna.datum) ? `FIFO:${starostDana(rolna.datum_proizvodnje || rolna.datum)}d` : null,
     !doMetraze ? "⚠️ NEMA METRAŽE" : null,
     !ana.dovoljna ? `⚠️ USKA(${rolna.sirina}mm<${idealnaSirina}mm)` : null,
     ana.dovoljna && ana.otpad > 0 ? `otpad:${ana.otpad}mm` : null,

@@ -19,10 +19,13 @@ export function normalizeRoll(raw, index = 0) {
     ...raw,
     id,
     br_rolne: raw?.br_rolne || raw?.broj_rolne || id,
-    materijal: String(raw?.materijal || raw?.naziv_materijala || raw?.naziv || raw?.tip || raw?.vrsta || 'Materijal'),
+    vrsta: String(raw?.vrsta || raw?.tip || raw?.materijal || 'Materijal'),
+    pod_vrsta: String(raw?.pod_vrsta || raw?.podvrsta || ''),
+    materijal: String(raw?.materijal || raw?.naziv_materijala || raw?.naziv || raw?.vrsta || raw?.tip || 'Materijal'),
     tip: String(raw?.tip || raw?.vrsta || raw?.materijal || 'Materijal'),
-    oznaka: String(raw?.oznaka_materijala || raw?.oznaka || raw?.materijal || raw?.tip || '—'),
-    debljina: num(raw?.debljina ?? raw?.mikroni ?? raw?.mic ?? raw?.um),
+    oznaka_materijala: String(raw?.oznaka_materijala || raw?.oznaka || raw?.komercijalnaOznaka || '—'),
+    oznaka: String(raw?.oznaka_materijala || raw?.oznaka || raw?.komercijalnaOznaka || '—'),
+    debljina: num(raw?.debljina ?? raw?.deb ?? raw?.mikroni ?? raw?.mic ?? raw?.um),
     sirina,
     sirina_mm: sirina,
     metara,
@@ -39,7 +42,7 @@ export function normalizeRoll(raw, index = 0) {
 }
 
 export function normalizeRolls(db) {
-  const keys = ['rolne', 'magacin_rolni', 'magacinRolni', 'magacin', 'materijali', 'stock', 'warehouse'];
+  const keys = ['magacin', 'materijali', 'rolne', 'stock', 'warehouse'];
   let source = [];
   if (Array.isArray(db)) source = db;
   else {
@@ -88,7 +91,7 @@ export function expandNeeds(needs) {
 export function scoreRollForNeed(roll, need, opts = {}) {
   const strictMaterial = opts.strictMaterial !== false;
   const materialNeed = String(need.materijal || '').trim().toLowerCase();
-  const materialMatch = !materialNeed || `${roll.materijal} ${roll.tip} ${roll.oznaka}`.toLowerCase().includes(materialNeed);
+  const materialMatch = !materialNeed || `${roll.vrsta} ${roll.pod_vrsta} ${roll.oznaka_materijala} ${roll.materijal} ${roll.tip} ${roll.oznaka}`.toLowerCase().includes(materialNeed);
   if (strictMaterial && !materialMatch) return -Infinity;
   if (roll.sirina < need.sirina) return -Infinity;
   if (need.metara && roll.available_m < need.metara) return -Infinity;

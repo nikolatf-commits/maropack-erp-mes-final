@@ -95,13 +95,36 @@ export function mapDbMaster(m, nalozi = []) {
   };
 }
 
+export function mapDbRolna(r) {
+  if (!r) return r;
+  const vrsta = r.vrsta || r.tip || r.materijal || '';
+  const oznaka = r.oznaka_materijala || r.oznaka || '';
+  return {
+    ...r,
+    qr: r.qr_code || r.br_rolne || r.broj_rolne || String(r.id || ''),
+    br_rolne: r.br_rolne || r.qr_code || String(r.id || ''),
+    vrsta,
+    pod_vrsta: r.pod_vrsta || '',
+    oznaka_materijala: oznaka,
+    komercijalnaOznaka: oznaka,
+    materijal: vrsta,
+    proizvodjac: r.proizvodjac || r.dobavljac || '',
+    debljina: r.deb ?? r.debljina ?? 0,
+    duzina: r.metraza_ost ?? r.metraza ?? r.duzina ?? 0,
+    kg: r.kg_neto ?? r.kg_bruto ?? r.kg ?? 0,
+    datum: r.datum_prijema || r.datum || r.created_at || '',
+    datum_ulaza: r.datum_prijema || r.datum || r.created_at || '',
+    datum_proizvodnje: r.datum_proizvodnje || '',
+  };
+}
+
 export async function fetchCoreData() {
   const [proizvodi, ponude, nalozi, masterNalozi, rolne, masine, radnici, sessions, qc] = await Promise.all([
     supabase.from("proizvodi").select("*").order("created_at", { ascending: false }),
     supabase.from("ponude").select("*").order("created_at", { ascending: false }),
     supabase.from("nalozi").select("*").order("created_at", { ascending: false }),
     supabase.from("master_nalozi").select("*").order("created_at", { ascending: false }),
-    supabase.from("rolne").select("*").order("created_at", { ascending: false }),
+    supabase.from("magacin").select("*").order("created_at", { ascending: false }),
     supabase.from("masine").select("*").order("created_at", { ascending: false }),
     supabase.from("radnici").select("*").order("created_at", { ascending: false }),
     supabase.from("production_sessions").select("*").order("created_at", { ascending: false }),
@@ -119,7 +142,7 @@ export async function fetchCoreData() {
     ponude: (ponude.data || []).map(mapDbPonuda),
     nalozi: mappedNalozi,
     master_nalozi: mappedMasters,
-    rolne: rolne.data || [],
+    rolne: (rolne.data || []).map(mapDbRolna),
     masine: masine.data || [],
     radnici: radnici.data || [],
     production_sessions: sessions.data || [],

@@ -582,7 +582,7 @@ export default function KalkulacijaFolijeSmart() {
             const { error } = await supabase.from('kalkulacije_folije').insert([{
                 naziv, kupac, sirina, metraza, nalog, skart,
                 marza: rezultati?.izracunataMarza,
-                materijali, lepak, lak, kasiranje,
+                materijali, materijali_struktura: materijali, lepak, lak, kasiranje,
                 stampa_cena: stampaCena,
                 lakiranje_cena: lakiranjeCena,
                 transport, pakovanje, dorada,

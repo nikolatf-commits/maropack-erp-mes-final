@@ -1132,9 +1132,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 const r = nalogIzbor[i];
                 return {
                     sloj: i + 1,
-                    materijal: l.material || l.materijal || l.tip || "",
-                    oznaka: l.oznaka || l.komercijalnaOznaka || "",
+                    vrsta: l.vrsta || l.tip || l.material || l.materijal || "",
+                    pod_vrsta: l.pod_vrsta || l.podvrsta || "",
+                    oznaka_materijala: l.oznaka_materijala || l.oznaka || l.komercijalnaOznaka || "",
+                    materijal: l.material || l.materijal || l.tip || l.vrsta || "",
+                    oznaka: l.oznaka_materijala || l.oznaka || l.komercijalnaOznaka || "",
                     debljina: l.debljina || l.deb || "",
+                    idealna_sirina: l.idealna_sirina || l.idealnaSirina || form.idealnaSirinaMaterijala || "",
                     br_rolne: r?.br_rolne || null,
                     rolna_id: r?.id || null,
                     sirina: r?.sirina || null,
@@ -1166,6 +1170,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 idealna_sirina: form.idealnaSirinaMaterijala || "",
                 template: JSON.stringify(form),
                 izabrane_rolne: JSON.stringify(izborData),
+                materijali_struktura: JSON.stringify(layers),
                 status: "ceka_magacin",
                 datum: new Date().toLocaleDateString("sr-RS"),
                 created_at: new Date().toISOString(),

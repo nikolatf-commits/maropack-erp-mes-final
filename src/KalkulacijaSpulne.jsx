@@ -188,6 +188,18 @@ export default function KalkulacijaSpulne() {
                 rezultati: rez,
                 created_at: new Date().toISOString()
             }));
+            const materijaliStruktura = [{
+                sloj: 1,
+                vrsta: materijal,
+                pod_vrsta: '',
+                oznaka_materijala: materijal,
+                debljina: Number(tezinaGM2),
+                idealna_sirina: Number(sirina),
+                sirina: Number(sirina),
+                metraza: Number(duzina),
+                cena: Number(cenaM2)
+            }];
+
             const { error } = await supabase.from('kalkulacije_spulne').insert([{
                 naziv,
                 kupac,
@@ -200,6 +212,7 @@ export default function KalkulacijaSpulne() {
                 marza: Number(marza),
                 kolicina: Number(kolicina),
                 rezultati: rez,
+                materijali_struktura: materijaliStruktura,
                 tip_jezgra: '',
                 precnik_jezgra: 0,
                 napomena: '',
