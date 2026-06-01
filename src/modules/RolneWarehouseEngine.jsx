@@ -636,18 +636,17 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   }
 
   async function resolveRollByQr(qrValue) {
-    const local = findRollLocalByQr(qrValue);
-    if (local) return local;
+    // Jedan izvor istine: kada Supabase radi, uvek čitamo svežu rolnu iz public.magacin.
+    // Ovo sprečava razliku desktop ↔ telefon posle skidanja metraže, povrata ili promene lokacije.
     const fresh = await fetchRollFromSupabaseByQr(qrValue);
     if (fresh) {
       setRolne((prev) => {
-        const next = [fresh, ...prev.filter((r) => String(r.qr) !== String(fresh.qr))];
-        safeWrite(LS_ROLNE, next);
+        const next = [fresh, ...prev.filter((r) => String(r.qr) !== String(fresh.qr) && String(r.id) !== String(fresh.id))];
         return next;
       });
       return fresh;
     }
-    return null;
+    return findRollLocalByQr(qrValue);
   }
 
   const masterVrste = useMemo(() => getVrsteMaterijala(), []);
@@ -837,30 +836,71 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
     reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
   }
-  function changeStatus(r, status) {
-    const next = rolne.map((x) => x.qr === r.qr ? { ...x, status, datum_poslednje_promene: now() } : x);
-    const hist = [{ vreme: now(), qr: r.qr, event: "PROMENA STATUSA", opis: `${r.status} → ${status}`, stanje: status }, ...history];
-    safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
-    msg?.(`Status rolne ${r.qr}: ${status}`);
+  async function changeStatus(r, status) {
+    const normalizedStatus = toDbStatus(status);
+    const updated = { ...r, status: normalizedStatus, datum_poslednje_promene: now() };
+    try {
+      if (!supabase?.__localDemo && r.id) {
+        const { error } = await supabase.from("magacin").update({ status: normalizedStatus, updated_at: new Date().toISOString() }).eq("id", r.id);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error(e);
+      msg?.("Promena statusa nije upisana u Supabase: " + (e?.message || e), "err");
+    }
+    setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
+    const hist = [{ vreme: now(), qr: r.qr, event: "PROMENA STATUSA", opis: `${r.status} → ${normalizedStatus}`, stanje: normalizedStatus }, ...history];
+    safeWrite(LS_HISTORY, hist); setHistory(hist);
+    msg?.(`Status rolne ${r.qr}: ${normalizedStatus}`);
+    await reload();
   }
-  function reserveForMaster(r) {
+  async function reserveForMaster(r) {
     const masterId = prompt("Unesi master_nalog_id / broj naloga za rezervaciju:", r.master_nalog_id || "");
     if (masterId === null) return;
-    const next = rolne.map((x) => x.qr === r.qr ? { ...x, status: "Rezervisano", master_nalog_id: masterId, datum_poslednje_promene: now() } : x);
+    const updated = { ...r, status: "Rezervisano", master_nalog_id: masterId, datum_poslednje_promene: now() };
+    try {
+      if (!supabase?.__localDemo && r.id) {
+        const { error } = await supabase.from("magacin").update({ status: "Rezervisano", updated_at: new Date().toISOString() }).eq("id", r.id);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error(e);
+      msg?.("Rezervacija nije upisana u Supabase: " + (e?.message || e), "err");
+    }
+    setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
     const hist = [{ vreme: now(), qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" }, ...history];
-    safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
+    safeWrite(LS_HISTORY, hist); setHistory(hist);
     msg?.(`Rolna ${r.qr} rezervisana za ${masterId}`);
+    await reload();
   }
-  function consumeRoll(r) {
-    const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(r.duzina || ""));
+  async function consumeRoll(r) {
+    const currentM = number(r.metraza_ost ?? r.duzina ?? r.metraza ?? 0);
+    const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(currentM || ""));
     if (used === null) return;
-    const usedM = used === "" ? number(r.duzina) : number(used);
-    const remainM = Math.max(0, number(r.duzina) - usedM);
+    const usedM = used === "" ? currentM : number(used);
+    const remainM = Math.max(0, currentM - usedM);
     const remainKg = kgFromMeters({ sirinaMm: r.sirina, duzinaM: remainM, gsm: r.gsm });
-    const status = remainM > 0 ? r.status : "Iskorišćeno";
-    const next = rolne.map((x) => x.qr === r.qr ? { ...x, duzina: remainM, kg: remainKg, status, datum_poslednje_promene: now() } : x);
+    const status = remainM > 0 ? toDbStatus(r.status) : "Iskorišćeno";
+    const updated = { ...r, duzina: remainM, metraza_ost: remainM, kg: remainKg, kg_neto: remainKg, status, datum_poslednje_promene: now() };
+    try {
+      if (!supabase?.__localDemo && r.id) {
+        const { error } = await supabase.from("magacin").update({
+          metraza_ost: remainM,
+          kg_neto: remainKg,
+          status,
+          updated_at: new Date().toISOString(),
+        }).eq("id", r.id);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error(e);
+      msg?.("Skidanje metraže nije upisano u Supabase: " + (e?.message || e), "err");
+    }
+    setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
     const hist = [{ vreme: now(), qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status }, ...history];
-    safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
+    safeWrite(LS_HISTORY, hist); setHistory(hist);
+    msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(remainM, 0)} m.`);
+    await reload();
   }
   function createReservationRequest() { safeWrite(LS_PENDING_RESERVATION, req); msg?.("Zahtev za izbor rolni je sačuvan. Kasnije ga povezujemo direktno sa master nalogom."); }
 
@@ -901,7 +941,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const updated = { ...povratRoll, duzina: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: effectiveForm.lokacija || povratRoll.lokacija || "Magacin", datum_poslednje_promene: now(), napomena: effectiveForm.napomena || "Povrat u magacin" };
     try {
       if (!supabase?.__localDemo && povratRoll.id) {
-        await supabase.from("magacin").update({ metraza_ost: meters, kg_neto: kg, status: "Na stanju", lokacija: updated.lokacija, napomena: updated.napomena, updated_at: new Date().toISOString() }).eq("id", povratRoll.id);
+        await supabase.from("magacin").update({ metraza: meters, metraza_ost: meters, kg_neto: kg, status: "Na stanju", lokacija: updated.lokacija, napomena: updated.napomena, updated_at: new Date().toISOString() }).eq("id", povratRoll.id);
       }
     } catch (e) {
       console.error(e);
@@ -909,9 +949,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
     const next = rolne.map((x) => (x.qr === povratRoll.qr ? updated : x));
     const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
-    safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
+    safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
     msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
     setPovratRoll(updated);
+    await reload();
   }
 
   async function resetWarehouseTestData() {
