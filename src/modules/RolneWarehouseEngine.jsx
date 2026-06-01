@@ -126,6 +126,15 @@ function displayStatus(status) {
   if (st === "blokirana") return "Blokirana";
   return status || "Na stanju";
 }
+function toDbStatus(status) {
+  const st = normalizeStatus(status);
+  if (st === "dostupna") return "Na stanju";
+  if (st === "rezervisana") return "Rezervisano";
+  if (st === "potrosena") return "Iskorišćeno";
+  if (st === "formatirana") return "Formatirana";
+  if (st === "blokirana") return "Blokirana";
+  return status || "Na stanju";
+}
 function isRollVisibleOnStock(r) {
   const st = normalizeStatus(r?.status);
   return ["dostupna", "rezervisana", "formatirana"].includes(st) && number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) > 0;
@@ -878,29 +887,42 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(currentM || ""));
     if (used === null) return;
     const usedM = used === "" ? currentM : number(used);
-    const remainM = Math.max(0, currentM - usedM);
-    const remainKg = kgFromMeters({ sirinaMm: r.sirina, duzinaM: remainM, gsm: r.gsm });
-    const status = remainM > 0 ? toDbStatus(r.status) : "Iskorišćeno";
-    const updated = { ...r, duzina: remainM, metraza_ost: remainM, kg: remainKg, kg_neto: remainKg, status, datum_poslednje_promene: now() };
+    if (usedM <= 0) { msg?.("Unesi ispravnu metražu za skidanje", "err"); return; }
+
     try {
       if (!supabase?.__localDemo && r.id) {
-        const { error } = await supabase.from("magacin").update({
-          metraza_ost: remainM,
-          kg_neto: remainKg,
-          status,
-          updated_at: new Date().toISOString(),
-        }).eq("id", r.id);
+        const { error } = await supabase.rpc("skini_metre_rolne", {
+          p_rolna_id: Number(r.id),
+          p_skinuto: usedM,
+        });
         if (error) throw error;
+
+        const fresh = await fetchRollFromSupabaseByQr(r.qr || r.br_rolne || r.qr_code);
+        if (fresh) {
+          setRolne((prev) => prev.map((x) => String(x.id) === String(fresh.id) || x.qr === fresh.qr ? fresh : x));
+          const hist = [{ vreme: now(), qr: fresh.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(fresh.duzina, 0)} m`, stanje: fresh.status }, ...history];
+          safeWrite(LS_HISTORY, hist); setHistory(hist);
+          msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(fresh.duzina, 0)} m.`);
+        } else {
+          msg?.(`Skinuto ${fmt(usedM, 0)} m. Osvežavam stanje iz baze.`);
+        }
+        await reload();
+        return;
       }
     } catch (e) {
       console.error(e);
       msg?.("Skidanje metraže nije upisano u Supabase: " + (e?.message || e), "err");
     }
+
+    // Lokalni fallback samo ako Supabase nije dostupan.
+    const remainM = Math.max(0, currentM - usedM);
+    const remainKg = kgFromMeters({ sirinaMm: r.sirina, duzinaM: remainM, gsm: r.gsm });
+    const status = remainM > 0 ? toDbStatus(r.status) : "Iskorišćeno";
+    const updated = { ...r, duzina: remainM, metraza: remainM, metraza_ost: remainM, kg: remainKg, kg_neto: remainKg, status, datum_poslednje_promene: now() };
     setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
     const hist = [{ vreme: now(), qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status }, ...history];
     safeWrite(LS_HISTORY, hist); setHistory(hist);
     msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(remainM, 0)} m.`);
-    await reload();
   }
   function createReservationRequest() { safeWrite(LS_PENDING_RESERVATION, req); msg?.("Zahtev za izbor rolni je sačuvan. Kasnije ga povezujemo direktno sa master nalogom."); }
 
@@ -938,21 +960,49 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const meters = estimateMetersFromDiameter(povratRoll, effectiveForm.spoljasnjiPrecnik, effectiveForm.hilzna);
     if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
     const kg = estimateKgForMeters(povratRoll, meters);
-    const updated = { ...povratRoll, duzina: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: effectiveForm.lokacija || povratRoll.lokacija || "Magacin", datum_poslednje_promene: now(), napomena: effectiveForm.napomena || "Povrat u magacin" };
+    const novaLokacija = effectiveForm.lokacija || povratRoll.lokacija || "Magacin";
+
     try {
       if (!supabase?.__localDemo && povratRoll.id) {
-        await supabase.from("magacin").update({ metraza: meters, metraza_ost: meters, kg_neto: kg, status: "Na stanju", lokacija: updated.lokacija, napomena: updated.napomena, updated_at: new Date().toISOString() }).eq("id", povratRoll.id);
+        const { error } = await supabase.rpc("povrat_rolne_u_magacin", {
+          p_rolna_id: Number(povratRoll.id),
+          p_nova_metraza: meters,
+          p_nova_lokacija: novaLokacija,
+        });
+        if (error) throw error;
+
+        // Upis dodatnih podataka koje RPC ne mora da pokriva.
+        await supabase.from("magacin").update({
+          kg_neto: kg,
+          napomena: effectiveForm.napomena || "Povrat u magacin",
+          updated_at: new Date().toISOString(),
+        }).eq("id", povratRoll.id);
+
+        const fresh = await fetchRollFromSupabaseByQr(povratRoll.qr || povratRoll.br_rolne || povratRoll.qr_code);
+        const updated = fresh || { ...povratRoll, duzina: meters, metraza: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: novaLokacija, napomena: effectiveForm.napomena || "Povrat u magacin" };
+
+        const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
+        safeWrite(LS_HISTORY, hist);
+        setHistory(hist);
+        setPovratRoll(updated);
+        setLabelRoll(updated);
+        setRolne((prev) => prev.map((x) => String(x.id) === String(updated.id) || x.qr === updated.qr ? updated : x));
+        msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(updated.duzina ?? meters, 0)} m · ${fmt(updated.kg ?? kg, 2)} kg`);
+        await reload();
+        return;
       }
     } catch (e) {
       console.error(e);
       msg?.("Supabase update povrata nije uspeo: " + (e?.message || e), "err");
     }
+
+    // Lokalni fallback samo ako Supabase nije dostupan.
+    const updated = { ...povratRoll, duzina: meters, metraza: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: novaLokacija, datum_poslednje_promene: now(), napomena: effectiveForm.napomena || "Povrat u magacin" };
     const next = rolne.map((x) => (x.qr === povratRoll.qr ? updated : x));
     const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
     safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
     msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
     setPovratRoll(updated);
-    await reload();
   }
 
   async function resetWarehouseTestData() {
@@ -1920,7 +1970,7 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
 
   React.useEffect(() => {
     setLocalForm(povratForm || { hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
-  }, [povratRoll?.id, povratForm?.hilzna, povratForm?.spoljasnjiPrecnik, povratForm?.lokacija, povratForm?.napomena]);
+  }, [povratRoll?.id]);
 
   function updateLocal(patch) { setLocalForm((prev) => ({ ...prev, ...patch })); }
   function syncLocal() { setPovratForm(localForm); }
