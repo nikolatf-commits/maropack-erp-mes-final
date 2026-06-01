@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
 import {
@@ -1166,44 +1166,55 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
   async function handleMobileScan(decodedText) {
-    const locationPart = parseLocationQr(decodedText);
-    if (locationPart) {
-      applyLocationPart(locationPart);
-      setScannerMode(null);
-      return;
-    }
+    try {
+      const rawScan = String(decodedText || "").trim();
+      const activeMode = scannerMode;
 
-    const qr = extractQrFromScan(decodedText);
-    if (!qr) {
-      msg?.("QR kod nije prepoznat", "err");
-      setScannerMode(null);
-      return;
-    }
-
-    const found = await resolveRollByQr(qr);
-
-    if (scannerMode === "povrat") {
-      setPovratQr(qr);
-      if (found) {
-        setPovratRoll(found);
-        setPovratForm((f) => ({ ...f, lokacija: f.lokacija || found.lokacija || "" }));
-        resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
-        msg?.(`Skenirana rolna za povrat: ${qr}`);
-      } else {
-        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+      // 1) QR lokacije: MAROPACK|MAGACIN|A / MAROPACK|RED|01 / ...
+      const locationPart = parseLocationQr(rawScan);
+      if (locationPart) {
+        applyLocationPart(locationPart);
+        setScannerMode(null);
+        return;
       }
-    } else {
-      setPopisQr(qr);
-      if (found) {
-        setPopisRoll(found);
-        setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
-        resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
-        msg?.(`Skenirana rolna za popis: ${qr}`);
-      } else {
-        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+
+      // 2) QR rolne: MAROPACK|ROLNA|... ili stari JSON ili čist broj rolne
+      const qr = extractQrFromScan(rawScan) || rawScan;
+      if (!qr) {
+        msg?.("QR kod nije prepoznat", "err");
+        setScannerMode(null);
+        return;
       }
+
+      const found = await resolveRollByQr(qr);
+
+      if (activeMode === "povrat" || activeMode === "lokacija_povrat" || activeTab === "povrat") {
+        setPovratQr(qr);
+        if (found) {
+          setPovratRoll(found);
+          setPovratForm((f) => ({ ...f, lokacija: f.lokacija || found.lokacija || "" }));
+          resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
+          msg?.(`Skenirana rolna za povrat: ${qr}`);
+        } else {
+          msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+        }
+      } else {
+        setPopisQr(qr);
+        if (found) {
+          setPopisRoll(found);
+          setPopisForm({ duzina: found.duzina || "", kg: found.kg || "", lokacija: found.lokacija || "" });
+          resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
+          msg?.(`Skenirana rolna za popis: ${qr}`);
+        } else {
+          msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+        }
+      }
+    } catch (e) {
+      console.error("Greška posle QR skeniranja", e);
+      msg?.("Greška posle QR skeniranja: " + (e?.message || e), "err");
+    } finally {
+      setScannerMode(null);
     }
-    setScannerMode(null);
   }
 
   function openMobileScanner(mode) {
@@ -1611,6 +1622,11 @@ function MobileCameraScanner({ mode, onClose, onScan }) {
   const scannerId = React.useMemo(() => `maropack-mobile-qr-scanner-${Math.random().toString(36).slice(2)}`, []);
   const [error, setError] = React.useState("");
   const [started, setStarted] = React.useState(false);
+  const onScanRef = React.useRef(onScan);
+
+  React.useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
 
   React.useEffect(() => {
     let scanner = null;
@@ -1631,7 +1647,12 @@ function MobileCameraScanner({ mode, onClose, onScan }) {
             stopped = true;
             try { await scanner.stop(); } catch {}
             try { scanner.clear(); } catch {}
-            onScan(decodedText);
+            try {
+              await onScanRef.current?.(decodedText);
+            } catch (e) {
+              console.error("Greška obrade skeniranog QR-a", e);
+              setError("QR je očitan, ali obrada nije uspela: " + (e?.message || e));
+            }
           },
           () => {}
         );
@@ -1652,7 +1673,7 @@ function MobileCameraScanner({ mode, onClose, onScan }) {
         });
       }
     };
-  }, [scannerId, onScan]);
+  }, [scannerId]);
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.96)", color: "#fff", padding: 14, display: "flex", flexDirection: "column" }}>
