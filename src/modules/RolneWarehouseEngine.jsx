@@ -14,51 +14,7 @@ const LS_MATERIJALI = "maropack_baza_materijala_v30";
 const LS_ROLNE = "maropack_rolne_magacin";
 const LS_HISTORY = "maropack_rolne_istorija";
 const LS_PENDING_RESERVATION = "maropack_pending_roll_reservation";
-const WAREHOUSE_CODES = ["A", "B", "C", "D", "E", "F", "G", "H"];
-const ROW_CODES = ["01", "02", "03", "04", "05"];
-const SHELF_CODES = ["A", "B", "C", "D"];
-const POSITION_CODES = ["01", "02", "03", "04"];
-const WAREHOUSE_OPTIONS = WAREHOUSE_CODES.map((code) => ({ value: code, label: `Magacin ${code}` }));
-const EMPTY_LOCATION_PARTS = { magacin: "", red: "", polica: "", pozicija: "" };
-function formatWarehouseLocation(parts = {}) {
-  const m = String(parts.magacin || "").trim().toUpperCase();
-  const r = String(parts.red || "").trim().padStart(2, "0");
-  const p = String(parts.polica || "").trim().toUpperCase();
-  const z = String(parts.pozicija || "").trim().padStart(2, "0");
-  if (!m || !r || !p || !z) return "";
-  return `${m}-${r}-${p}-${z}`;
-}
-function parseLocationCodeFromText(location = "") {
-  const raw = String(location || "").trim();
-  const direct = raw.match(/^([A-H])[-\s_]*(0?[1-5])[-\s_]*([A-D])[-\s_]*(0?[1-4])$/i);
-  if (direct) return {
-    magacin: direct[1].toUpperCase(),
-    red: String(direct[2]).padStart(2, "0"),
-    polica: direct[3].toUpperCase(),
-    pozicija: String(direct[4]).padStart(2, "0"),
-  };
-  const mag = raw.match(/magacin\s*([A-H])/i);
-  if (mag) return { ...EMPTY_LOCATION_PARTS, magacin: mag[1].toUpperCase() };
-  return { ...EMPTY_LOCATION_PARTS };
-}
-function parseLocationQr(value = "") {
-  const raw = String(value || "").trim();
-  if (!raw.startsWith("MAROPACK|")) return null;
-  const [, typeRaw, ...rest] = raw.split("|");
-  const type = String(typeRaw || "").trim().toUpperCase();
-  const val = rest.join("|").trim().toUpperCase();
-  if (type === "MAGACIN" && WAREHOUSE_CODES.includes(val)) return { type: "magacin", value: val };
-  if (type === "RED" && ROW_CODES.includes(val.padStart(2, "0"))) return { type: "red", value: val.padStart(2, "0") };
-  if (type === "POLICA" && SHELF_CODES.includes(val)) return { type: "polica", value: val };
-  if (type === "POZICIJA" && POSITION_CODES.includes(val.padStart(2, "0"))) return { type: "pozicija", value: val.padStart(2, "0") };
-  return null;
-}
-function isLocationInWarehouse(location = "", warehouseCode = "") {
-  const loc = String(location || "").trim().toUpperCase();
-  const wh = String(warehouseCode || "").replace(/MAGACIN/i, "").trim().toUpperCase();
-  if (!wh) return true;
-  return loc === wh || loc === `MAGACIN ${wh}` || loc.startsWith(`${wh}-`);
-}
+const WAREHOUSE_OPTIONS = ["Magacin A", "Magacin B", "Magacin C", "Magacin D", "Magacin E", "Magacin F", "Magacin G", "Magacin H"];
 
 const DEFAULT_MATERIALS = [
   { id: "MAT-BOPP-20", vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "Generički", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "Standardni BOPP film" },
@@ -368,15 +324,28 @@ function parseRossellaPacking(text = "") {
   }
   return rows;
 }
+// Dobavljački parseri - namerno odvojeni, jer svaka packing lista ima drugačiji format.
+// Nazivi su ostavljeni i u PascalCase varijanti zbog lakšeg praćenja u kodu/dokumentaciji.
+function ParserPlastchim(text = "") { return parsePlastchimPacking(text); }
+function ParserTaghleef(text = "") { return parseTaghleefPacking(text); }
+function ParserInterGradex(text = "") { return parseInterGradexPacking(text); }
+function ParserRossella(text = "") { return parseRossellaPacking(text); }
+
 function parseUniversalPackingText(text = "") {
   const t = String(text || "");
   let rows = [];
-  if (/PLASTCHIM|Packing list Date|Film Type Thikness/i.test(t)) rows = parsePlastchimPacking(t);
-  else if (/Taghleef|CSOMAGLISTA|NATIVIA/i.test(t)) rows = parseTaghleefPacking(t);
-  else if (/Inter Gradex|LISTA PAKOV/i.test(t)) rows = parseInterGradexPacking(t);
-  else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) rows = parseRossellaPacking(t);
+  if (/PLASTCHIM|Packing list Date|Film Type Thikness|Film Type Thickness/i.test(t)) rows = ParserPlastchim(t);
+  else if (/Taghleef|CSOMAGLISTA|NATIVIA|Reel Code/i.test(t)) rows = ParserTaghleef(t);
+  else if (/Inter Gradex|LISTA PAKOV|Koleto\s+Količina/i.test(t)) rows = ParserInterGradex(t);
+  else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) rows = ParserRossella(t);
   if (!rows.length) rows = parsePackingText(t);
-  return rows.map(normalizePackingRow).map((r, i) => ({ ...r, br_rolne: r.br_rolne || r.qr || r.roll_no || makeId("ROLNA"), qr: r.qr || r.br_rolne || r.roll_no || makeId("ROLNA") }));
+  return rows
+    .map(normalizePackingRow)
+    .filter((r) => r.br_rolne || r.qr || r.sirina || r.duzina || r.kg)
+    .map((r) => {
+      const br = String(r.br_rolne || r.qr || r.roll_no || makeId("ROLNA")).trim();
+      return { ...r, br_rolne: br, qr: String(r.qr || br).trim() };
+    });
 }
 function loadPdfJsGlobal() {
   return new Promise((resolve, reject) => {
@@ -407,9 +376,6 @@ async function extractPdfTextFromFile(file) {
 function extractQrFromScan(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
-
-  // QR lokacija nije QR rolne.
-  if (parseLocationQr(raw)) return "";
 
   // Novi format: MAROPACK|ROLNA|ROLNA-2026-...
   if (raw.startsWith("MAROPACK|ROLNA|")) {
@@ -549,14 +515,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   const [popisQr, setPopisQr] = useState("");
   const [popisRoll, setPopisRoll] = useState(null);
   const [popisForm, setPopisForm] = useState({ duzina: "", kg: "", lokacija: "" });
-  const [popisMagacin, setPopisMagacin] = useState("A");
+  const [popisMagacin, setPopisMagacin] = useState("Magacin A");
   const [popisSessionId, setPopisSessionId] = useState(() => `POPIS-${new Date().toISOString().slice(0,10)}-${Date.now().toString().slice(-6)}`);
   const [popisScanned, setPopisScanned] = useState({});
   const [povratQr, setPovratQr] = useState("");
   const [povratRoll, setPovratRoll] = useState(null);
-  const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "", napomena: "Povrat u magacin" });
-  const [locationParts, setLocationParts] = useState({ ...EMPTY_LOCATION_PARTS });
-  const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat" | "lokacija_popis" | "lokacija_povrat"
+  const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
+  const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat"
 
   async function reload() {
     const mats = ensureMaterials().map(normalizeMaterial);
@@ -598,7 +563,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   useEffect(() => { reload(); }, []);
   useEffect(() => { reload(); }, [db?.rolne?.length]);
   useEffect(() => {
-    setPopisForm((f) => ({ ...f, lokacija: f.lokacija || "" }));
+    setPopisForm((f) => ({ ...f, lokacija: f.lokacija || popisMagacin }));
   }, [popisMagacin]);
 
   function findRollLocalByQr(qrValue) {
@@ -649,61 +614,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
       return fresh;
     }
     return null;
-  }
-
-
-  function resetLocationBuilder(initial = {}) {
-    const next = { ...EMPTY_LOCATION_PARTS, ...initial };
-    setLocationParts(next);
-    return next;
-  }
-
-  function applyLocationPart(part) {
-    setLocationParts((prev) => {
-      const next = { ...prev, [part.type]: part.value };
-      const full = formatWarehouseLocation(next);
-      if (full) {
-        if (scannerMode === "lokacija_povrat" || activeTab === "povrat") {
-          setPovratForm((f) => ({ ...f, lokacija: full }));
-        } else {
-          setPopisForm((f) => ({ ...f, lokacija: full }));
-        }
-        msg?.(`Lokacija sklopljena: ${full}`);
-      } else {
-        msg?.(`Skenirano: ${part.type.toUpperCase()} ${part.value}. Nastavi skeniranje lokacije.`);
-      }
-      return next;
-    });
-  }
-
-  async function saveRollLocation(roll, newLocation, source = "PROMENA LOKACIJE") {
-    const loc = String(newLocation || "").trim();
-    if (!roll || !loc) return false;
-    const oldLoc = roll.lokacija || "";
-    const updated = { ...roll, lokacija: loc, datum_poslednje_promene: now() };
-    setRolne((prev) => prev.map((r) => (String(r.qr) === String(roll.qr) ? updated : r)));
-    try {
-      if (!supabase?.__localDemo && roll.id) {
-        await supabase.from("magacin").update({ lokacija: loc, updated_at: new Date().toISOString() }).eq("id", roll.id);
-        await supabase.from("istorija_lokacija_rolni").insert({
-          rolna_id: roll.id,
-          br_rolne: roll.br_rolne || roll.qr,
-          stara_lokacija: oldLoc,
-          nova_lokacija: loc,
-          korisnik: "magacioner",
-          napomena: source,
-        });
-      }
-    } catch (e) {
-      console.error(e);
-      msg?.("Promena lokacije u Supabase nije uspela: " + (e?.message || e), "err");
-    }
-    const hist = [{ vreme: now(), qr: roll.qr, event: source, opis: `${oldLoc || "—"} → ${loc}`, stanje: roll.status }, ...history];
-    safeWrite(LS_HISTORY, hist); setHistory(hist);
-    if (String(popisRoll?.qr) === String(roll.qr)) setPopisRoll(updated);
-    if (String(povratRoll?.qr) === String(roll.qr)) setPovratRoll(updated);
-    msg?.(`Lokacija sačuvana: ${loc}`);
-    return true;
   }
 
   const masterVrste = useMemo(() => getVrsteMaterijala(), []);
@@ -792,7 +702,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   }, [rolne]);
 
   const popisExpectedRolls = useMemo(() => {
-    return rolne.filter((r) => isRollVisibleOnStock(r) && isLocationInWarehouse(r.lokacija, popisMagacin));
+    return rolne.filter((r) => isRollVisibleOnStock(r) && String(r.lokacija || "").trim() === String(popisMagacin || "").trim());
   }, [rolne, popisMagacin]);
 
   const popisCountedRows = useMemo(() => {
@@ -805,7 +715,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
   }, [popisExpectedRolls, popisCountedRows]);
 
   const popisExtraRows = useMemo(() => {
-    return popisCountedRows.filter((x) => !isLocationInWarehouse(x.ocekivana_lokacija, popisMagacin) || !isLocationInWarehouse(x.popisana_lokacija, popisMagacin));
+    return popisCountedRows.filter((x) => String(x.ocekivana_lokacija || "") !== String(popisMagacin || ""));
   }, [popisCountedRows, popisMagacin]);
 
   const suggestedRolls = useMemo(() => {
@@ -945,32 +855,65 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const found = await resolveRollByQr(q);
     if (!found) { msg?.("Rolna nije pronađena u magacinu", "err"); return; }
     setPovratRoll(found);
-    setPovratForm((f) => ({ ...f, lokacija: f.lokacija || found.lokacija || "" }));
-    resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
+    setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
   }
 
-  async function confirmReturnToWarehouse() {
+  async function confirmReturnToWarehouse(formOverride = null) {
+    const effectiveForm = formOverride || povratForm;
     if (!povratRoll) { msg?.("Prvo pronađi rolnu", "err"); return; }
-    const meters = estimateMetersFromDiameter(povratRoll, povratForm.spoljasnjiPrecnik, povratForm.hilzna);
+    const meters = estimateMetersFromDiameter(povratRoll, effectiveForm.spoljasnjiPrecnik, effectiveForm.hilzna);
     if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
     const kg = estimateKgForMeters(povratRoll, meters);
-    const updated = { ...povratRoll, duzina: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: povratForm.lokacija || povratRoll.lokacija || "Magacin", datum_poslednje_promene: now(), napomena: povratForm.napomena || "Povrat u magacin" };
+    const updated = {
+      ...povratRoll,
+      duzina: meters,
+      metraza: meters,
+      metraza_ost: meters,
+      kg,
+      kg_neto: kg,
+      status: "Na stanju",
+      lokacija: effectiveForm.lokacija || povratRoll.lokacija || "Magacin",
+      datum_poslednje_promene: now(),
+      napomena: effectiveForm.napomena || "Povrat u magacin"
+    };
+
     try {
-      if (!supabase?.__localDemo && povratRoll.id) {
-        await supabase.from("magacin").update({ metraza_ost: meters, kg_neto: kg, status: "Na stanju", lokacija: updated.lokacija, napomena: updated.napomena, updated_at: new Date().toISOString() }).eq("id", povratRoll.id);
+      if (!supabase?.__localDemo) {
+        const updatePayload = {
+          metraza: meters,
+          metraza_ost: meters,
+          kg_neto: kg,
+          status: "Na stanju",
+          lokacija: updated.lokacija,
+          napomena: updated.napomena,
+          updated_at: new Date().toISOString()
+        };
+
+        let query = supabase.from("magacin").update(updatePayload);
+        if (povratRoll.id) query = query.eq("id", povratRoll.id);
+        else query = query.eq("br_rolne", povratRoll.br_rolne || povratRoll.qr);
+
+        const { error } = await query;
+        if (error) throw error;
       }
     } catch (e) {
       console.error(e);
       msg?.("Supabase update povrata nije uspeo: " + (e?.message || e), "err");
+      return;
     }
-    if (updated.lokacija && updated.lokacija !== povratRoll.lokacija) {
-      await saveRollLocation(povratRoll, updated.lokacija, "POVRAT - PROMENA LOKACIJE");
-    }
-    const next = rolne.map((x) => (x.qr === povratRoll.qr ? updated : x));
-    const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${povratForm.hilzna} (${coreEffectiveDiameter(povratForm.hilzna)} mm), spoljašnji prečnik ${povratForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
+
+    const sameRoll = (x) => String(x.id || "") === String(povratRoll.id || "")
+      || String(x.qr || "") === String(povratRoll.qr || "")
+      || String(x.br_rolne || "") === String(povratRoll.br_rolne || povratRoll.qr || "");
+    const next = rolne.map((x) => sameRoll(x) ? { ...x, ...updated } : x);
+    const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters,0)} m`, stanje: "Na stanju" }, ...history];
     safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
-    msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
+    msg?.(`Povrat evidentiran i sačuvan: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
     setPovratRoll(updated);
+    setPovratForm((f) => ({ ...f, ...effectiveForm, spoljasnjiPrecnik: String(effectiveForm.spoljasnjiPrecnik || "") }));
+
+    // Posle Supabase upisa odmah osvežavamo stanje da refresh stranice prikaže iste metre.
+    await reload();
   }
 
   function toggleSelected(qr) { setSelectedRolls((prev) => prev.includes(qr) ? prev.filter((x) => x !== qr) : [...prev, qr]); }
@@ -1165,86 +1108,49 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     await reload();
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
-  async function handleMobileScan(decodedText, forcedMode = null) {
-    const mode = forcedMode || scannerMode || activeTab || "popis";
-    try {
-      const raw = String(decodedText || "").trim();
-      if (!raw) {
-        msg?.("QR kod je prazan ili nije prepoznat", "err");
-        return;
-      }
-
-      const locationPart = parseLocationQr(raw);
-      if (locationPart) {
-        applyLocationPart(locationPart);
-        return;
-      }
-
-      const qr = extractQrFromScan(raw);
-      if (!qr) {
-        msg?.("QR kod nije prepoznat: " + raw, "err");
-        return;
-      }
-
-      const found = await resolveRollByQr(qr);
-
-      if (mode === "povrat" || mode === "lokacija_povrat") {
-        setActiveTab("povrat");
-        setPovratQr(qr);
-        if (found) {
-          setPovratRoll(found);
-          setPovratForm((f) => ({ ...f, lokacija: f.lokacija || found.lokacija || "" }));
-          resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
-          msg?.(`Skenirana rolna za povrat: ${qr}`);
-        } else {
-          setPovratRoll(null);
-          msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
-        }
-      } else {
-        setActiveTab("popis");
-        setPopisQr(qr);
-        if (found) {
-          setPopisRoll(found);
-          setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
-          resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
-          msg?.(`Skenirana rolna za popis: ${qr}`);
-        } else {
-          setPopisRoll(null);
-          msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
-        }
-      }
-    } catch (e) {
-      console.error("Greška u obradi skeniranog QR koda", e);
-      msg?.("Greška posle skeniranja QR koda: " + (e?.message || e), "err");
-      try {
-        if (!supabase?.__localDemo) {
-          await supabase.from("frontend_errors").insert({
-            message: "QR scan handler error: " + String(e?.message || e || ""),
-            stack: String(e?.stack || ""),
-            url: String(window.location.href || ""),
-            user_agent: String(navigator.userAgent || ""),
-          });
-        }
-      } catch {}
-    } finally {
+  async function handleMobileScan(decodedText) {
+    const qr = extractQrFromScan(decodedText);
+    if (!qr) {
+      msg?.("QR kod nije prepoznat", "err");
       setScannerMode(null);
+      return;
     }
+
+    const found = await resolveRollByQr(qr);
+
+    if (scannerMode === "povrat") {
+      setPovratQr(qr);
+      if (found) {
+        setPovratRoll(found);
+        setPovratForm((f) => ({ ...f, lokacija: found.lokacija || "Magacin" }));
+        msg?.(`Skenirana rolna za povrat: ${qr}`);
+      } else {
+        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+      }
+    } else {
+      setPopisQr(qr);
+      if (found) {
+        setPopisRoll(found);
+        setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: popisMagacin || found.lokacija || "" });
+        msg?.(`Skenirana rolna za popis: ${qr}`);
+      } else {
+        msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
+      }
+    }
+    setScannerMode(null);
   }
 
   function openMobileScanner(mode) {
-    if (mode === "popis" || mode === "lokacija_popis") setActiveTab("popis");
-    if (mode === "povrat" || mode === "lokacija_povrat") setActiveTab("povrat");
     setScannerMode(mode);
+    setActiveTab(mode === "povrat" ? "povrat" : "popis");
   }
-
 
   async function findPopisRoll() {
     const qr = extractQrFromScan(popisQr);
     const found = await resolveRollByQr(qr);
     if (!found) { setPopisRoll(null); msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err"); return; }
     setPopisRoll(found);
-    setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
-    resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
+    setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: popisMagacin || found.lokacija || "" });
   }
   async function confirmInventoryCount() {
     if (!popisRoll) { msg?.("Prvo skeniraj/pronađi rolnu", "err"); return; }
@@ -1285,19 +1191,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           kg_neto: kg,
           lokacija: updatedLokacija,
           updated_at: new Date().toISOString(),
-          datum_poslednjeg_popisa: new Date().toISOString(),
-          napomena: `Popis ${popisSessionId} · Magacin ${popisMagacin}`,
+          napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
         }).eq("id", popisRoll.id);
-        if (updatedLokacija && updatedLokacija !== popisRoll.lokacija) {
-          await supabase.from("istorija_lokacija_rolni").insert({
-            rolna_id: popisRoll.id,
-            br_rolne: popisRoll.br_rolne || popisRoll.qr,
-            stara_lokacija: popisRoll.lokacija || "",
-            nova_lokacija: updatedLokacija,
-            korisnik: "magacioner",
-            napomena: `Popis ${popisSessionId}`,
-          });
-        }
       }
     } catch (e) {
       console.error(e);
@@ -1312,7 +1207,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, ...history];
     safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
     setPopisScanned((prev) => ({ ...prev, [qr]: countedRow }));
-    setPopisQr(""); setPopisRoll(null); setPopisForm({ duzina: "", kg: "", lokacija: "" });
+    setPopisQr(""); setPopisRoll(null); setPopisForm({ duzina: "", kg: "", lokacija: popisMagacin });
     msg?.("Popis rolne potvrđen i stanje ažurirano.");
   }
 
@@ -1322,7 +1217,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     setPopisScanned({});
     setPopisQr("");
     setPopisRoll(null);
-    setPopisForm({ duzina: "", kg: "", lokacija: "" });
+    setPopisForm({ duzina: "", kg: "", lokacija: popisMagacin });
   }
 
 
@@ -1362,7 +1257,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           {mobileActions.map((a) => (
-            <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") { setActiveTab(a.key); openMobileScanner(a.key); } else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
+            <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") openMobileScanner(a.key); else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
               border: a.active ? "2px solid #0f172a" : "1px solid #e2e8f0",
               background: a.active ? "#0f172a" : "#fff",
               color: a.active ? "#fff" : "#0f172a",
@@ -1384,8 +1279,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div></div>
         </div>
 
-        {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner: () => openMobileScanner("popis"), onOpenLocationScanner: () => openMobileScanner("lokacija_popis"), locationParts, resetLocationBuilder, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
-        {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat"), onOpenLocationScanner: () => openMobileScanner("lokacija_povrat"), locationParts, resetLocationBuilder }} />}
+        {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner: () => openMobileScanner("popis"), popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
+        {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat") }} />}
         {activeTab === "unos" && (
           <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
@@ -1493,7 +1388,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 16 }}>
-        {[["Materijala", materijali.length], ["Ukupno rolni", stats.total], ["Ukupno m", fmt(stats.totalM,0)], ["Ukupno kg", fmt(stats.totalKg,2)], ["Na stanju", stats.dostupna], ["Rezervisane", stats.rezervisana]].map(([a,b]) => <div key={a} style={card}><div style={{ color: "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
+        {[["Materijala", materijali.length], ["Ukupno rolni", stats.total], ["Ukupno m", fmt(stats.totalM,0)], ["Ukupno kg", fmt(stats.totalKg,2)], ["Dostupne", stats.dostupna], ["Rezervisane", stats.rezervisana]].map(([a,b]) => <div key={a} style={card}><div style={{ color: "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
       </div>
 
       {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial }} />}
@@ -1635,141 +1530,78 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
 
 function MobileCameraScanner({ mode, onClose, onScan }) {
   const scannerId = React.useMemo(() => `maropack-mobile-qr-scanner-${Math.random().toString(36).slice(2)}`, []);
-  const scannerRef = React.useRef(null);
-  const handledRef = React.useRef(false);
-  const mountedRef = React.useRef(true);
   const [error, setError] = React.useState("");
-  const [info, setInfo] = React.useState("Pokrećem kameru...");
-  const [manualQr, setManualQr] = React.useState("");
-
-  const safeStop = React.useCallback(async () => {
-    const scanner = scannerRef.current;
-    scannerRef.current = null;
-    if (!scanner) return;
-    try {
-      const state = typeof scanner.getState === "function" ? scanner.getState() : null;
-      if (state === 2 || state === 3 || state === null) await scanner.stop();
-    } catch (e) {
-      console.warn("QR scanner stop warning", e);
-    }
-    try { scanner.clear(); } catch (e) { console.warn("QR scanner clear warning", e); }
-  }, []);
-
-  const finishScan = React.useCallback(async (decodedText) => {
-    if (handledRef.current) return;
-    handledRef.current = true;
-    const value = String(decodedText || "").trim();
-    setInfo(value ? `Očitano: ${value}` : "QR je prazan");
-    await safeStop();
-    try {
-      await Promise.resolve(onScan(value, mode));
-    } catch (e) {
-      console.error("Greška posle skeniranja", e);
-      const msg = e?.message || String(e || "Nepoznata greška");
-      setError("Greška posle skeniranja: " + msg);
-      try {
-        if (!supabase?.__localDemo) {
-          await supabase.from("frontend_errors").insert({
-            message: "Mobile scanner onScan error: " + msg,
-            stack: String(e?.stack || ""),
-            url: String(window.location.href || ""),
-            user_agent: String(navigator.userAgent || ""),
-          });
-        }
-      } catch {}
-    }
-  }, [mode, onScan, safeStop]);
+  const [started, setStarted] = React.useState(false);
 
   React.useEffect(() => {
-    mountedRef.current = true;
-    handledRef.current = false;
+    let scanner = null;
+    let stopped = false;
 
     async function startScanner() {
       try {
-        if (!window.isSecureContext && !String(window.location.hostname || "").includes("localhost")) {
-          throw new Error("Kamera radi samo preko HTTPS linka ili localhost-a.");
-        }
         const mod = await import("html5-qrcode");
         const Html5Qrcode = mod.Html5Qrcode || mod.default?.Html5Qrcode || mod.default;
         if (!Html5Qrcode) throw new Error("html5-qrcode nije pravilno učitan");
-
-        const scanner = new Html5Qrcode(scannerId, false);
-        scannerRef.current = scanner;
-        const config = { fps: 8, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0, disableFlip: false };
-        setInfo("Dozvoli kameru i usmeri telefon ka QR kodu.");
+        scanner = new Html5Qrcode(scannerId);
+        const config = { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1.0 };
         await scanner.start(
           { facingMode: "environment" },
           config,
-          (decodedText) => { finishScan(decodedText); },
+          async (decodedText) => {
+            if (stopped) return;
+            stopped = true;
+            try { await scanner.stop(); } catch {}
+            try { scanner.clear(); } catch {}
+            onScan(decodedText);
+          },
           () => {}
         );
-        if (mountedRef.current) setInfo("Kamera je aktivna. Skeniraj QR kod rolne ili lokacije.");
+        setStarted(true);
       } catch (e) {
         console.error("QR scanner greška", e);
-        const msg = e?.message || String(e || "Nepoznata greška");
-        if (mountedRef.current) setError("Kamera nije dostupna: " + msg);
-        try {
-          if (!supabase?.__localDemo) {
-            await supabase.from("frontend_errors").insert({
-              message: "Mobile scanner start error: " + msg,
-              stack: String(e?.stack || ""),
-              url: String(window.location.href || ""),
-              user_agent: String(navigator.userAgent || ""),
-            });
-          }
-        } catch {}
+        setError("Kamera nije dostupna. Proveri dozvolu za kameru u browseru ili koristi HTTPS/production link.");
       }
     }
 
-    const t = setTimeout(startScanner, 150);
-    return () => {
-      mountedRef.current = false;
-      clearTimeout(t);
-      safeStop();
-    };
-  }, [scannerId, finishScan, safeStop]);
+    startScanner();
 
-  async function submitManual() {
-    const value = String(manualQr || "").trim();
-    if (!value) return;
-    await finishScan(value);
-  }
+    return () => {
+      stopped = true;
+      if (scanner) {
+        scanner.stop().catch(() => {}).finally(() => {
+          try { scanner.clear(); } catch {}
+        });
+      }
+    };
+  }, [scannerId, onScan]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "#0f172a", color: "#fff", padding: 14, display: "flex", flexDirection: "column", overflow: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.96)", color: "#fff", padding: 14, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 19, fontWeight: 950 }}>📷 QR skener</div>
-          <div style={{ color: "#cbd5e1", fontSize: 12 }}>Režim: {mode || "popis"}</div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>{mode === "povrat" ? "↩️ Skeniraj QR za povrat" : "📷 Skeniraj QR za popis"}</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Usmeri kameru ka QR kodu na etiketi rolne.</div>
         </div>
-        <button onClick={async () => { await safeStop(); onClose?.(); }} style={{ border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 900 }}>Zatvori</button>
+        <button onClick={onClose} style={{ border: "1px solid rgba(255,255,255,.25)", background: "rgba(255,255,255,.12)", color: "#fff", borderRadius: 12, padding: "10px 12px", fontWeight: 900 }}>Zatvori</button>
       </div>
-
-      <div style={{ background: "#111827", border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, padding: 10, display: "flex", justifyContent: "center", minHeight: 300 }}>
-        <div id={scannerId} style={{ width: "100%", maxWidth: 430, minHeight: 280, overflow: "hidden", borderRadius: 14, background: "#000" }} />
+      <div style={{ background: "#020617", border: "1px solid rgba(255,255,255,.18)", borderRadius: 18, padding: 10, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 360 }}>
+        <div id={scannerId} style={{ width: "100%", maxWidth: 420, overflow: "hidden", borderRadius: 14 }} />
       </div>
-
-      <div style={{ marginTop: 12, background: error ? "#7f1d1d" : "#1e293b", border: "1px solid rgba(255,255,255,.14)", borderRadius: 12, padding: 12, fontSize: 13 }}>
-        {error || info}
-      </div>
-
-      <div style={{ marginTop: 12, background: "#fff", color: "#0f172a", borderRadius: 14, padding: 12 }}>
-        <div style={{ fontWeight: 950, marginBottom: 8 }}>Rezervni ručni unos QR-a</div>
-        <input value={manualQr} onChange={(e) => setManualQr(e.target.value)} placeholder="npr. ROLNA-2026-55213591" style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 10, border: "1px solid #cbd5e1" }} />
-        <button onClick={submitManual} style={{ width: "100%", marginTop: 10, border: "none", borderRadius: 10, padding: 12, fontWeight: 950, background: "#0f172a", color: "#fff" }}>Potvrdi QR ručno</button>
-      </div>
+      {!started && !error && <div style={{ marginTop: 12, textAlign: "center", opacity: 0.8 }}>Pokrećem kameru...</div>}
+      {error && <div style={{ marginTop: 12, background: "#7f1d1d", border: "1px solid #fecaca", borderRadius: 12, padding: 12, fontWeight: 800 }}>{error}</div>}
+      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7, textAlign: "center" }}>Ako telefon pita za dozvolu kamere, izaberi Allow / Dozvoli.</div>
     </div>
   );
 }
 
-function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner, onOpenLocationScanner, locationParts = EMPTY_LOCATION_PARTS, resetLocationBuilder, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls = [], popisCountedRows = [], popisMissingRolls = [], popisExtraRows = [] }) {
+function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls = [], popisCountedRows = [], popisMissingRolls = [], popisExtraRows = [] }) {
   return <div style={{ display: "grid", gap: 14 }}>
     <div style={card}>
       <div style={{ fontWeight: 950, fontSize: 20, marginBottom: 6 }}>📲 QR popis rolni</div>
       <div style={{ color: "#64748b", fontSize: 12, marginBottom: 14 }}>Izaberi koji magacin popisuješ, zatim skeniraj QR kodove. Na kraju vidiš šta nedostaje i šta je višak/na pogrešnoj lokaciji.</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-        <label><span style={lbl}>Magacin koji se popisuje</span><select style={input} value={popisMagacin} onChange={(e) => { setPopisMagacin(e.target.value); setPopisForm({ ...popisForm, lokacija: "" }); resetLocationBuilder?.({ magacin: e.target.value }); }}>
-          {WAREHOUSE_OPTIONS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
+        <label><span style={lbl}>Magacin koji se popisuje</span><select style={input} value={popisMagacin} onChange={(e) => { setPopisMagacin(e.target.value); setPopisForm({ ...popisForm, lokacija: e.target.value }); }}>
+          {WAREHOUSE_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
         </select></label>
         <label><span style={lbl}>Popis sesija</span><input style={input} value={popisSessionId} readOnly /></label>
       </div>
@@ -1791,14 +1623,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <label><span style={lbl}>Stvarno metara</span><input style={input} type="number" value={popisForm.duzina} onChange={(e) => setPopisForm({ ...popisForm, duzina: e.target.value })} /></label>
           <label><span style={lbl}>Stvarno kg</span><input style={input} type="number" value={popisForm.kg} onChange={(e) => setPopisForm({ ...popisForm, kg: e.target.value })} /></label>
-          <div style={{ gridColumn: "1 / -1", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>📍 Lokacija rolne</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 8 }}>
-              {[ ["Magacin", locationParts.magacin], ["Red", locationParts.red], ["Polica", locationParts.polica], ["Pozicija", locationParts.pozicija] ].map(([a,b]) => <div key={a} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: 9 }}><div style={{ fontSize: 10, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950 }}>{b || "—"}</div></div>)}
-            </div>
-            <button onClick={onOpenLocationScanner} style={{ ...btn, background: "#7c3aed", color: "#fff", width: "100%", marginBottom: 8 }}>📍 Skeniraj QR lokacije</button>
-            <label><span style={lbl}>Sklopljena lokacija</span><input style={input} value={popisForm.lokacija || ""} onChange={(e) => setPopisForm({ ...popisForm, lokacija: e.target.value })} placeholder="npr. A-01-C-02" /></label>
-          </div>
+          <label><span style={lbl}>Lokacija / magacin</span><select style={input} value={popisForm.lokacija || popisMagacin} onChange={(e) => setPopisForm({ ...popisForm, lokacija: e.target.value })}>{WAREHOUSE_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}</select></label>
         </div>
         <button onClick={confirmInventoryCount} style={{ ...btn, background: "#059669", color: "#fff", marginTop: 12 }}>Potvrdi popis i ažuriraj stanje</button>
       </>}
@@ -1907,9 +1732,25 @@ function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial
 }
 
 
-function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner, onOpenLocationScanner, locationParts = EMPTY_LOCATION_PARTS, resetLocationBuilder }) {
-  const meters = povratRoll ? estimateMetersFromDiameter(povratRoll, povratForm.spoljasnjiPrecnik, povratForm.hilzna) : 0;
+function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner }) {
+  const [draftForm, setDraftForm] = React.useState(povratForm);
+
+  React.useEffect(() => {
+    setDraftForm((prev) => ({ ...prev, ...povratForm }));
+  }, [povratRoll?.id, povratRoll?.qr, povratForm?.hilzna, povratForm?.lokacija]);
+
+  const updateDraft = React.useCallback((patch) => {
+    setDraftForm((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const meters = povratRoll ? estimateMetersFromDiameter(povratRoll, draftForm.spoljasnjiPrecnik, draftForm.hilzna) : 0;
   const kg = povratRoll ? estimateKgForMeters(povratRoll, meters) : 0;
+
+  const confirmWithDraft = React.useCallback(() => {
+    setPovratForm(draftForm);
+    confirmReturnToWarehouse(draftForm);
+  }, [draftForm, setPovratForm, confirmReturnToWarehouse]);
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 430px) 1fr", gap: 16 }}>
       <div style={card}>
@@ -1919,18 +1760,11 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
           {onOpenScanner && <button onClick={onOpenScanner} style={{ ...btn, background: "#0f172a", color: "#fff", padding: 14, fontSize: 15 }}>📷 Otvori kameru i skeniraj QR</button>}
           <label><span style={lbl}>QR / broj rolne</span><input style={input} value={povratQr} onChange={(e) => setPovratQr(e.target.value)} placeholder="Skeniraj QR ili unesi broj rolne" /></label>
           <button onClick={findPovratRoll} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Pronađi rolnu</button>
-          <label><span style={lbl}>Hilzna</span><select style={input} value={povratForm.hilzna} onChange={(e) => setPovratForm({ ...povratForm, hilzna: e.target.value })}><option value="FI76">FI 76 — računa se 100 mm</option><option value="FI152">FI 152 — računa se 180 mm</option></select></label>
-          <label><span style={lbl}>Spoljašnji prečnik rolne mm</span><input style={input} type="number" value={povratForm.spoljasnjiPrecnik} onChange={(e) => setPovratForm({ ...povratForm, spoljasnjiPrecnik: e.target.value })} placeholder="npr. 420" /></label>
-          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>📍 Lokacija povrata</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 8 }}>
-              {[ ["Magacin", locationParts.magacin], ["Red", locationParts.red], ["Polica", locationParts.polica], ["Pozicija", locationParts.pozicija] ].map(([a,b]) => <div key={a} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: 9 }}><div style={{ fontSize: 10, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950 }}>{b || "—"}</div></div>)}
-            </div>
-            {onOpenLocationScanner && <button onClick={onOpenLocationScanner} style={{ ...btn, background: "#7c3aed", color: "#fff", width: "100%", marginBottom: 8 }}>📍 Skeniraj QR lokacije</button>}
-            <label><span style={lbl}>Sklopljena lokacija</span><input style={input} value={povratForm.lokacija || ""} onChange={(e) => setPovratForm({ ...povratForm, lokacija: e.target.value })} placeholder="npr. A-01-C-02" /></label>
-          </div>
-          <label><span style={lbl}>Napomena</span><input style={input} value={povratForm.napomena} onChange={(e) => setPovratForm({ ...povratForm, napomena: e.target.value })} /></label>
-          <button onClick={confirmReturnToWarehouse} disabled={!povratRoll} style={{ ...btn, background: povratRoll ? "#059669" : "#cbd5e1", color: "#fff", padding: 12 }}>Potvrdi povrat i štampaj novu etiketu</button>
+          <label><span style={lbl}>Hilzna</span><select style={input} value={draftForm.hilzna} onChange={(e) => updateDraft({ hilzna: e.target.value })}><option value="FI76">FI 76 — računa se 100 mm</option><option value="FI152">FI 152 — računa se 180 mm</option></select></label>
+          <label><span style={lbl}>Spoljašnji prečnik rolne mm</span><input style={input} inputMode="decimal" type="text" value={draftForm.spoljasnjiPrecnik || ""} onChange={(e) => updateDraft({ spoljasnjiPrecnik: e.target.value.replace(/[^0-9.,]/g, "") })} placeholder="npr. 420" /></label>
+          <label><span style={lbl}>Lokacija povrata</span><input style={input} value={draftForm.lokacija || ""} onChange={(e) => updateDraft({ lokacija: e.target.value })} /></label>
+          <label><span style={lbl}>Napomena</span><input style={input} value={draftForm.napomena || ""} onChange={(e) => updateDraft({ napomena: e.target.value })} /></label>
+          <button onClick={confirmWithDraft} disabled={!povratRoll} style={{ ...btn, background: povratRoll ? "#059669" : "#cbd5e1", color: "#fff", padding: 12 }}>Potvrdi povrat i štampaj novu etiketu</button>
         </div>
       </div>
       <div style={card}>
@@ -1939,7 +1773,7 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
           {[["Rolna", povratRoll.qr], ["Materijal", `${povratRoll.vrsta || "—"} · ${povratRoll.komercijalnaOznaka || ""}`], ["Debljina", `${povratRoll.debljina || "—"} µ`], ["Širina", `${povratRoll.sirina || "—"} mm`], ["Izračunato m", `${fmt(meters,0)} m`], ["Izračunato kg", `${fmt(kg,2)} kg`]].map(([a,b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
         </div>}
         <div style={{ marginTop: 14, padding: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, color: "#92400e", fontSize: 13 }}>
-          Formula koristi spoljašnji prečnik, efektivni prečnik hilzne i debljinu materijala. FI 76 se računa kao 100 mm, FI 152 kao 180 mm.
+          Formula koristi spoljašnji prečnik, efektivni prečnik hilzne i debljinu materijala. FI 76 se računa kao 100 mm, FI 152 kao 180 mm. Posle potvrde se metraža upisuje u Supabase i ostaje ista posle osvežavanja stranice.
         </div>
       </div>
     </div>
