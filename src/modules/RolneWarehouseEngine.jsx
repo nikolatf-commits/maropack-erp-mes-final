@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
 import {
@@ -1165,30 +1165,31 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     await reload();
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
-  async function handleMobileScan(decodedText) {
+  async function handleMobileScan(decodedText, forcedMode = null) {
+    const mode = forcedMode || scannerMode || activeTab || "popis";
     try {
-      const rawScan = String(decodedText || "").trim();
-      const activeMode = scannerMode;
-
-      // 1) QR lokacije: MAROPACK|MAGACIN|A / MAROPACK|RED|01 / ...
-      const locationPart = parseLocationQr(rawScan);
-      if (locationPart) {
-        applyLocationPart(locationPart);
-        setScannerMode(null);
+      const raw = String(decodedText || "").trim();
+      if (!raw) {
+        msg?.("QR kod je prazan ili nije prepoznat", "err");
         return;
       }
 
-      // 2) QR rolne: MAROPACK|ROLNA|... ili stari JSON ili čist broj rolne
-      const qr = extractQrFromScan(rawScan) || rawScan;
+      const locationPart = parseLocationQr(raw);
+      if (locationPart) {
+        applyLocationPart(locationPart);
+        return;
+      }
+
+      const qr = extractQrFromScan(raw);
       if (!qr) {
-        msg?.("QR kod nije prepoznat", "err");
-        setScannerMode(null);
+        msg?.("QR kod nije prepoznat: " + raw, "err");
         return;
       }
 
       const found = await resolveRollByQr(qr);
 
-      if (activeMode === "povrat" || activeMode === "lokacija_povrat" || activeTab === "povrat") {
+      if (mode === "povrat" || mode === "lokacija_povrat") {
+        setActiveTab("povrat");
         setPovratQr(qr);
         if (found) {
           setPovratRoll(found);
@@ -1196,32 +1197,46 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
           msg?.(`Skenirana rolna za povrat: ${qr}`);
         } else {
+          setPovratRoll(null);
           msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
         }
       } else {
+        setActiveTab("popis");
         setPopisQr(qr);
         if (found) {
           setPopisRoll(found);
-          setPopisForm({ duzina: found.duzina || "", kg: found.kg || "", lokacija: found.lokacija || "" });
+          setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
           resetLocationBuilder(parseLocationCodeFromText(found.lokacija));
           msg?.(`Skenirana rolna za popis: ${qr}`);
         } else {
+          setPopisRoll(null);
           msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
         }
       }
     } catch (e) {
-      console.error("Greška posle QR skeniranja", e);
-      msg?.("Greška posle QR skeniranja: " + (e?.message || e), "err");
+      console.error("Greška u obradi skeniranog QR koda", e);
+      msg?.("Greška posle skeniranja QR koda: " + (e?.message || e), "err");
+      try {
+        if (!supabase?.__localDemo) {
+          await supabase.from("frontend_errors").insert({
+            message: "QR scan handler error: " + String(e?.message || e || ""),
+            stack: String(e?.stack || ""),
+            url: String(window.location.href || ""),
+            user_agent: String(navigator.userAgent || ""),
+          });
+        }
+      } catch {}
     } finally {
       setScannerMode(null);
     }
   }
 
   function openMobileScanner(mode) {
+    if (mode === "popis" || mode === "lokacija_popis") setActiveTab("popis");
+    if (mode === "povrat" || mode === "lokacija_povrat") setActiveTab("povrat");
     setScannerMode(mode);
-    if (mode.includes("povrat")) setActiveTab("povrat");
-    else setActiveTab("popis");
   }
+
 
   async function findPopisRoll() {
     const qr = extractQrFromScan(popisQr);
@@ -1347,7 +1362,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           {mobileActions.map((a) => (
-            <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") openMobileScanner(a.key); else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
+            <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") { setActiveTab(a.key); openMobileScanner(a.key); } else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
               border: a.active ? "2px solid #0f172a" : "1px solid #e2e8f0",
               background: a.active ? "#0f172a" : "#fff",
               color: a.active ? "#fff" : "#0f172a",
@@ -1620,76 +1635,129 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
 
 function MobileCameraScanner({ mode, onClose, onScan }) {
   const scannerId = React.useMemo(() => `maropack-mobile-qr-scanner-${Math.random().toString(36).slice(2)}`, []);
+  const scannerRef = React.useRef(null);
+  const handledRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
   const [error, setError] = React.useState("");
-  const [started, setStarted] = React.useState(false);
-  const onScanRef = React.useRef(onScan);
+  const [info, setInfo] = React.useState("Pokrećem kameru...");
+  const [manualQr, setManualQr] = React.useState("");
+
+  const safeStop = React.useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (!scanner) return;
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : null;
+      if (state === 2 || state === 3 || state === null) await scanner.stop();
+    } catch (e) {
+      console.warn("QR scanner stop warning", e);
+    }
+    try { scanner.clear(); } catch (e) { console.warn("QR scanner clear warning", e); }
+  }, []);
+
+  const finishScan = React.useCallback(async (decodedText) => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+    const value = String(decodedText || "").trim();
+    setInfo(value ? `Očitano: ${value}` : "QR je prazan");
+    await safeStop();
+    try {
+      await Promise.resolve(onScan(value, mode));
+    } catch (e) {
+      console.error("Greška posle skeniranja", e);
+      const msg = e?.message || String(e || "Nepoznata greška");
+      setError("Greška posle skeniranja: " + msg);
+      try {
+        if (!supabase?.__localDemo) {
+          await supabase.from("frontend_errors").insert({
+            message: "Mobile scanner onScan error: " + msg,
+            stack: String(e?.stack || ""),
+            url: String(window.location.href || ""),
+            user_agent: String(navigator.userAgent || ""),
+          });
+        }
+      } catch {}
+    }
+  }, [mode, onScan, safeStop]);
 
   React.useEffect(() => {
-    onScanRef.current = onScan;
-  }, [onScan]);
-
-  React.useEffect(() => {
-    let scanner = null;
-    let stopped = false;
+    mountedRef.current = true;
+    handledRef.current = false;
 
     async function startScanner() {
       try {
+        if (!window.isSecureContext && !String(window.location.hostname || "").includes("localhost")) {
+          throw new Error("Kamera radi samo preko HTTPS linka ili localhost-a.");
+        }
         const mod = await import("html5-qrcode");
         const Html5Qrcode = mod.Html5Qrcode || mod.default?.Html5Qrcode || mod.default;
         if (!Html5Qrcode) throw new Error("html5-qrcode nije pravilno učitan");
-        scanner = new Html5Qrcode(scannerId);
-        const config = { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1.0 };
+
+        const scanner = new Html5Qrcode(scannerId, false);
+        scannerRef.current = scanner;
+        const config = { fps: 8, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0, disableFlip: false };
+        setInfo("Dozvoli kameru i usmeri telefon ka QR kodu.");
         await scanner.start(
           { facingMode: "environment" },
           config,
-          async (decodedText) => {
-            if (stopped) return;
-            stopped = true;
-            try { await scanner.stop(); } catch {}
-            try { scanner.clear(); } catch {}
-            try {
-              await onScanRef.current?.(decodedText);
-            } catch (e) {
-              console.error("Greška obrade skeniranog QR-a", e);
-              setError("QR je očitan, ali obrada nije uspela: " + (e?.message || e));
-            }
-          },
+          (decodedText) => { finishScan(decodedText); },
           () => {}
         );
-        setStarted(true);
+        if (mountedRef.current) setInfo("Kamera je aktivna. Skeniraj QR kod rolne ili lokacije.");
       } catch (e) {
         console.error("QR scanner greška", e);
-        setError("Kamera nije dostupna. Proveri dozvolu za kameru u browseru ili koristi HTTPS/production link.");
+        const msg = e?.message || String(e || "Nepoznata greška");
+        if (mountedRef.current) setError("Kamera nije dostupna: " + msg);
+        try {
+          if (!supabase?.__localDemo) {
+            await supabase.from("frontend_errors").insert({
+              message: "Mobile scanner start error: " + msg,
+              stack: String(e?.stack || ""),
+              url: String(window.location.href || ""),
+              user_agent: String(navigator.userAgent || ""),
+            });
+          }
+        } catch {}
       }
     }
 
-    startScanner();
-
+    const t = setTimeout(startScanner, 150);
     return () => {
-      stopped = true;
-      if (scanner) {
-        scanner.stop().catch(() => {}).finally(() => {
-          try { scanner.clear(); } catch {}
-        });
-      }
+      mountedRef.current = false;
+      clearTimeout(t);
+      safeStop();
     };
-  }, [scannerId]);
+  }, [scannerId, finishScan, safeStop]);
+
+  async function submitManual() {
+    const value = String(manualQr || "").trim();
+    if (!value) return;
+    await finishScan(value);
+  }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.96)", color: "#fff", padding: 14, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "#0f172a", color: "#fff", padding: 14, display: "flex", flexDirection: "column", overflow: "auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 950 }}>{mode === "povrat" ? "↩️ Skeniraj QR za povrat" : "📷 Skeniraj QR za popis"}</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Usmeri kameru ka QR kodu na etiketi rolne.</div>
+          <div style={{ fontSize: 19, fontWeight: 950 }}>📷 QR skener</div>
+          <div style={{ color: "#cbd5e1", fontSize: 12 }}>Režim: {mode || "popis"}</div>
         </div>
-        <button onClick={onClose} style={{ border: "1px solid rgba(255,255,255,.25)", background: "rgba(255,255,255,.12)", color: "#fff", borderRadius: 12, padding: "10px 12px", fontWeight: 900 }}>Zatvori</button>
+        <button onClick={async () => { await safeStop(); onClose?.(); }} style={{ border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 900 }}>Zatvori</button>
       </div>
-      <div style={{ background: "#020617", border: "1px solid rgba(255,255,255,.18)", borderRadius: 18, padding: 10, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 360 }}>
-        <div id={scannerId} style={{ width: "100%", maxWidth: 420, overflow: "hidden", borderRadius: 14 }} />
+
+      <div style={{ background: "#111827", border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, padding: 10, display: "flex", justifyContent: "center", minHeight: 300 }}>
+        <div id={scannerId} style={{ width: "100%", maxWidth: 430, minHeight: 280, overflow: "hidden", borderRadius: 14, background: "#000" }} />
       </div>
-      {!started && !error && <div style={{ marginTop: 12, textAlign: "center", opacity: 0.8 }}>Pokrećem kameru...</div>}
-      {error && <div style={{ marginTop: 12, background: "#7f1d1d", border: "1px solid #fecaca", borderRadius: 12, padding: 12, fontWeight: 800 }}>{error}</div>}
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7, textAlign: "center" }}>Ako telefon pita za dozvolu kamere, izaberi Allow / Dozvoli.</div>
+
+      <div style={{ marginTop: 12, background: error ? "#7f1d1d" : "#1e293b", border: "1px solid rgba(255,255,255,.14)", borderRadius: 12, padding: 12, fontSize: 13 }}>
+        {error || info}
+      </div>
+
+      <div style={{ marginTop: 12, background: "#fff", color: "#0f172a", borderRadius: 14, padding: 12 }}>
+        <div style={{ fontWeight: 950, marginBottom: 8 }}>Rezervni ručni unos QR-a</div>
+        <input value={manualQr} onChange={(e) => setManualQr(e.target.value)} placeholder="npr. ROLNA-2026-55213591" style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 10, border: "1px solid #cbd5e1" }} />
+        <button onClick={submitManual} style={{ width: "100%", marginTop: 10, border: "none", borderRadius: 10, padding: 12, fontWeight: 950, background: "#0f172a", color: "#fff" }}>Potvrdi QR ručno</button>
+      </div>
     </div>
   );
 }
