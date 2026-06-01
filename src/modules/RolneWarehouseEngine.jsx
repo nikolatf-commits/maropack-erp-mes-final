@@ -162,6 +162,8 @@ function rollQrPayload(r) {
 }
 function normalizePackingRow(row = {}) {
   return {
+    br_rolne: String(pick(row, ["br_rolne", "broj rolne", "roll no", "roll_no", "reel", "reel code", "qr"])),
+    qr: String(pick(row, ["qr", "br_rolne", "broj rolne", "roll no", "roll_no", "reel code"])),
     vrsta: pick(row, ["vrsta", "type", "material", "materijal"]),
     pod_vrsta: pick(row, ["pod vrsta", "pod_vrsta", "podvrsta", "subtype", "podtip"]),
     oznaka_materijala: pick(row, ["oznaka materijala", "oznaka", "material code", "code"]),
@@ -172,7 +174,9 @@ function normalizePackingRow(row = {}) {
     gsm: number(pick(row, ["gsm", "g/m2", "g/m²", "gramatura"])),
     sirina: number(pick(row, ["sirina", "širina", "width", "sirina mm", "width mm"])),
     duzina: number(pick(row, ["m", "metara", "duzina", "dužina", "length", "meter", "meters"])),
-    kg: number(pick(row, ["kg", "kilograma", "weight", "tezina", "težina"])),
+    kg: number(pick(row, ["kg", "kilograma", "net weight", "net", "weight", "tezina", "težina"])),
+    kg_bruto: number(pick(row, ["kg_bruto", "gross weight", "gross", "bruto"])),
+    palet: String(pick(row, ["palet", "pallet", "pallet no", "plt.no"])),
     lot: String(pick(row, ["lot", "batch", "sarza", "šarža", "serija"])),
     lokacija: String(pick(row, ["lokacija", "location", "skladiste", "magacin"])),
     datum: String(pick(row, ["datum", "date", "datum ulaza"])),
@@ -190,6 +194,171 @@ function parsePackingText(text = "") {
     headers.forEach((h, i) => { obj[h] = parts[i] || ""; });
     return normalizePackingRow(obj);
   }).filter((r) => r.vrsta || r.komercijalnaOznaka || r.sirina || r.duzina || r.kg);
+}
+
+function parseNumSmart(value) {
+  let v = String(value ?? "").trim().replace(/\s+/g, "");
+  if (!v) return 0;
+  // 1.020 u italijanskim/rossella dokumentima je 1020, dok 904,0 znači 904.0
+  if (v.includes(",")) return Number(v.replace(/\./g, "").replace(",", ".")) || 0;
+  if (/^\d{1,3}\.\d{3}$/.test(v)) return Number(v.replace(".", "")) || 0;
+  return Number(v) || 0;
+}
+function detectVrstaFromText(text, fallback = "") {
+  const t = String(text || fallback || "").toUpperCase();
+  if (t.includes("BOPA")) return "BOPA";
+  if (t.includes("BOPP")) return "BOPP";
+  if (t.includes("PET")) return "PET";
+  if (t.includes("CPP")) return "CPP";
+  if (t.includes("CLAY COATED") || t.includes("PAPIR") || t.includes("PAPER")) return "PAPIR";
+  if (t.includes("LDPE") || t.includes("PE")) return "LDPE";
+  return fallback || "Nedefinisano";
+}
+function coeffByVrsta(vrsta) {
+  const v = String(vrsta || "").toUpperCase();
+  if (v.includes("BOPA") || v.includes("OPA") || v.includes("PA")) return 1.14;
+  if (v.includes("PET")) return 1.4;
+  if (v.includes("ALU")) return 2.71;
+  if (v.includes("PE") || v.includes("LDPE")) return 0.925;
+  return 0.91;
+}
+function calcMetersFromKgFallback({ kg, sirina, debljina, vrsta, gsm }) {
+  const g = number(gsm) || number(debljina) * coeffByVrsta(vrsta);
+  return metersFromKg({ sirinaMm: sirina, kg, gsm: g });
+}
+function parsePlastchimPacking(text = "") {
+  const rows = [];
+  const date = (text.match(/Packing list Date:\s*([0-9.]+)/i) || [])[1] || "";
+  const product = (text.match(/PRODUCT:\s*([^\n]+)/i) || [])[1] || "BOPP film";
+  const vrsta = detectVrstaFromText(product, "BOPP");
+  let pallet = "";
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/\s+/g, " ");
+    const pm = line.match(/^Pallet:\s*([^\s]+)/i);
+    if (pm) pallet = pm[1];
+    const m = line.match(/^(\d{6,})\s+([0-9.]+)\s+([A-Z0-9]+)\s+(\d+(?:[.,]\d+)?)\s+(\d{1,2}\s?\d{3}|\d{3,4})\s+(\d+)\s+(\d+)\s+(\d{1,3}\s?\d{3}|\d{3,6})\s+([\d.,]+)\s+([\d.,]+)/);
+    if (!m) continue;
+    const rollNo = m[1];
+    const orderNo = m[2];
+    const oznaka = m[3];
+    const debljina = parseNumSmart(m[4]);
+    const sirina = parseNumSmart(m[5]);
+    const inner = parseNumSmart(m[6]);
+    const outer = parseNumSmart(m[7]);
+    const duzina = parseNumSmart(m[8]);
+    const kg = parseNumSmart(m[9]);
+    const kgBruto = parseNumSmart(m[10]);
+    rows.push({ br_rolne: rollNo, qr: rollNo, vrsta, pod_vrsta: "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Plastchim-T", debljina, sirina, duzina, kg, kg_bruto: kgBruto, lot: orderNo, palet: pallet, hilzna_mm: inner, spoljasnji_precnik_mm: outer, datum: date });
+  }
+  return rows;
+}
+function parseTaghleefPacking(text = "") {
+  const rows = [];
+  const date = (text.match(/Date:\s*([0-9.]+)/i) || [])[1] || "";
+  const flat = String(text).replace(/\s+/g, " ");
+  const re = /(\d{9})\s+(\d{12,})\s+([A-Z0-9\s]+?)\s+(\d+(?:,\d+)?)\s+(\d{4,6})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d{2}\.\d{2}\.\d{4})/g;
+  let m;
+  while ((m = re.exec(flat))) {
+    const palletNo = m[1];
+    const reelCode = m[2];
+    const item = m[3].trim();
+    const kg = parseNumSmart(m[4]);
+    const duzina = parseNumSmart(m[5]);
+    const inner = parseNumSmart(m[6]);
+    const outer = parseNumSmart(m[7]);
+    const prodDate = m[9];
+    const tokens = item.split(/\s+/);
+    let sirina = 0, debljina = 0;
+    for (let i = tokens.length - 1; i >= 1; i--) {
+      if (/^\d{3,4}$/.test(tokens[i])) { sirina = parseNumSmart(tokens[i]); debljina = parseNumSmart(tokens[i - 1]); break; }
+    }
+    const oznaka = tokens.filter(t => !/^\d+$/.test(t) && t !== "TO").join(" ") || "Taghleef";
+    rows.push({ br_rolne: palletNo, qr: palletNo, vrsta: detectVrstaFromText(item, "BOPP"), pod_vrsta: tokens[1] || "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Taghleef", debljina, sirina, duzina, kg, lot: reelCode, palet: palletNo, hilzna_mm: inner, spoljasnji_precnik_mm: outer, datum, datum_proizvodnje: prodDate });
+  }
+  return rows;
+}
+function parseInterGradexPacking(text = "") {
+  const rows = [];
+  const date = (text.match(/Datum:\s*([0-9.]+)/i) || [])[1] || "";
+  let current = null;
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/\s+/g, " ");
+    const header = line.match(/^\d{4}\s+(.+?)\s+[\d.,]+\s*Kg$/i);
+    if (header) {
+      const desc = header[1];
+      const dim = desc.match(/(\d{3,4})\s*[Xx]\s*(\d+(?:[.,]\d+)?)/);
+      const vrsta = detectVrstaFromText(desc, "");
+      const oznaka = (desc.match(/FILM\s+([A-Z0-9\s-]+?)\s*-?\s*\d{3,4}\s*[Xx]/i) || [])[1]?.trim() || vrsta;
+      current = { vrsta, oznaka_materijala: cleanOznaka(oznaka, vrsta), sirina: dim ? parseNumSmart(dim[1]) : 0, debljina: dim ? parseNumSmart(dim[2]) : 0 };
+      continue;
+    }
+    const r = line.match(/^0*(\d{6,})\s+([\d.,]+)\s*Kg\s+(\S+)\s+(.+)$/i);
+    if (r && current) {
+      const kg = parseNumSmart(r[2]);
+      const duzina = current.sirina && current.debljina ? calcMetersFromKgFallback({ kg, sirina: current.sirina, debljina: current.debljina, vrsta: current.vrsta }) : 0;
+      rows.push({ br_rolne: r[1], qr: r[1], ...current, komercijalnaOznaka: current.oznaka_materijala, proizvodjac: "Inter Gradex", kg, duzina, lot: r[3], datum });
+    }
+  }
+  return rows;
+}
+function parseRossellaPacking(text = "") {
+  const rows = [];
+  const date = (text.match(/1\/\s*704\s*([0-9/]+)/i) || text.match(/(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let gross = 0, net = 0, pallet = "", sch = "";
+  for (const line of lines) {
+    const g = line.match(/Gross wt\. Kg:\s*([\d.]+)\s+Net wt\. Kg:\s*([\d.]+)/i);
+    if (g) { gross = parseNumSmart(g[1]); net = parseNumSmart(g[2]); continue; }
+    const p = line.match(/Pallet\s*:\s*(\d+).*?Sch\.:\s*([^\s]+)/i);
+    if (p) { pallet = p[1]; sch = p[2]; continue; }
+    if (/CLAY COATED/i.test(line)) {
+      const mm = line.match(/(\d{2,3})g\s*-\s*(\d{3,4})mm/i);
+      const len = line.match(/U\d+\/\d+\s+1\s+([\d.]+)/i) || line.match(/\s1\s+([\d.]+)\s+[\d.,]+\s+[\d.,]+\s+[\d.]+$/);
+      const debljina = mm ? parseNumSmart(mm[1]) : 0;
+      const sirina = mm ? parseNumSmart(mm[2]) : 0;
+      const duzina = len ? parseNumSmart(len[1]) : 0;
+      if (pallet && sirina && (duzina || net)) {
+        rows.push({ br_rolne: String(pallet), qr: String(pallet), vrsta: "PAPIR", pod_vrsta: "Clay coated white", oznaka_materijala: `CC White ${debljina}g`, komercijalnaOznaka: `CC White ${debljina}g`, proizvodjac: "Rossella", debljina: 0, gsm: debljina, sirina, duzina, kg: net, kg_bruto: gross, lot: sch, palet: pallet, datum });
+      }
+    }
+  }
+  return rows;
+}
+function parseUniversalPackingText(text = "") {
+  const t = String(text || "");
+  let rows = [];
+  if (/PLASTCHIM|Packing list Date|Film Type Thikness/i.test(t)) rows = parsePlastchimPacking(t);
+  else if (/Taghleef|CSOMAGLISTA|NATIVIA/i.test(t)) rows = parseTaghleefPacking(t);
+  else if (/Inter Gradex|LISTA PAKOV/i.test(t)) rows = parseInterGradexPacking(t);
+  else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) rows = parseRossellaPacking(t);
+  if (!rows.length) rows = parsePackingText(t);
+  return rows.map(normalizePackingRow).map((r, i) => ({ ...r, br_rolne: r.br_rolne || r.qr || r.roll_no || makeId("ROLNA"), qr: r.qr || r.br_rolne || r.roll_no || makeId("ROLNA") }));
+}
+function loadPdfJsGlobal() {
+  return new Promise((resolve, reject) => {
+    if (window.pdfjsLib) return resolve(window.pdfjsLib);
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.onload = () => {
+      if (!window.pdfjsLib) return reject(new Error("PDF.js nije učitan"));
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("Ne mogu da učitam PDF parser. Proveri internet konekciju."));
+    document.head.appendChild(script);
+  });
+}
+async function extractPdfTextFromFile(file) {
+  const pdfjsLib = await loadPdfJsGlobal();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    text += content.items.map((x) => x.str || "").join(" ") + "\n";
+  }
+  return text;
 }
 function extractQrFromScan(value) {
   const raw = String(value || "").trim();
@@ -346,7 +515,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     safeWrite(LS_MATERIJALI, mats);
     setMaterijali(mats);
 
-    let supabaseRolls = [];
+    let sourceRolls = [];
+    let loadedFromSupabase = false;
     try {
       if (!supabase?.__localDemo) {
         const { data, error } = await supabase
@@ -355,21 +525,25 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           .order("created_at", { ascending: false });
 
         if (error) throw error;
-        supabaseRolls = (data || []).map(mapDbRollToEngine);
+        sourceRolls = (data || []).map(mapDbRollToEngine);
+        loadedFromSupabase = true;
       }
     } catch (e) {
       console.error("Učitavanje rolni iz Supabase magacin nije uspelo:", e);
       msg?.("Ne mogu da učitam stanje rolni iz Supabase: " + (e?.message || e), "err");
     }
 
-    const localRolls = safeRead(LS_ROLNE, []).map(mapDbRollToEngine);
-    const dbRolls = Array.isArray(db?.rolne) ? db.rolne.map(mapDbRollToEngine) : [];
+    // VAŽNO: kada Supabase radi, desktop i telefon moraju da pokazuju isto stanje.
+    // Ne mešamo više stare localStorage rolne sa public.magacin, jer to pravi razliku 29 vs 18 rolni.
+    if (!loadedFromSupabase) {
+      const localRolls = safeRead(LS_ROLNE, []).map(mapDbRollToEngine);
+      const dbRolls = Array.isArray(db?.rolne) ? db.rolne.map(mapDbRollToEngine) : [];
+      sourceRolls = [...dbRolls, ...localRolls]
+        .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
+    }
 
-    const mergedRolls = [...supabaseRolls, ...dbRolls, ...localRolls]
-      .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
-
-    setRolne(mergedRolls);
-    safeWrite(LS_ROLNE, mergedRolls);
+    setRolne(sourceRolls);
+    if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
     setHistory(safeRead(LS_HISTORY, []));
     if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
   }
@@ -774,11 +948,15 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
       } else if (name.endsWith(".csv") || name.endsWith(".txt")) {
         const text = await file.text();
         setPackingText(text);
-        const rows = parsePackingText(text);
+        const rows = parseUniversalPackingText(text);
         setPackingRows(rows);
         msg?.(`Učitano ${rows.length} redova iz tekstualne packing liste.`);
       } else if (name.endsWith(".pdf")) {
-        msg?.("PDF upload je pripremljen: za sada nalepi tekst iz packing liste u polje ispod ili koristi Excel/CSV. Skenirani PDF zahteva OCR API.", "err");
+        const text = await extractPdfTextFromFile(file);
+        setPackingText(text);
+        const rows = parseUniversalPackingText(text);
+        setPackingRows(rows);
+        msg?.(`PDF packing lista pročitana: ${rows.length} rolni prepoznato.`);
       } else {
         msg?.("Podržano: Excel .xlsx/.xls, CSV/TXT. Za PDF nalepi tekst ili koristi OCR workflow.", "err");
       }
@@ -788,17 +966,23 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     e.target.value = "";
   }
   function parseTextPackingList() {
-    const rows = parsePackingText(packingText);
+    const rows = parseUniversalPackingText(packingText);
     setPackingRows(rows);
     msg?.(`Prepoznato ${rows.length} redova iz teksta.`);
   }
-  function importPackingRows() {
+  async function importPackingRows() {
     if (!packingRows.length) { msg?.("Nema redova za uvoz", "err"); return; }
     let mats = [...materijali];
     let count = 0;
-    packingRows.forEach((row) => {
+    const importedLocal = [];
+
+    for (const row of packingRows) {
       const baseGsm = row.gsm || (row.debljina && row.koeficijent ? row.debljina * row.koeficijent : 0);
-      let mat = mats.find((m) => String(m.vrsta).toLowerCase() === String(row.vrsta).toLowerCase() && String(m.komercijalnaOznaka).toLowerCase() === String(row.komercijalnaOznaka).toLowerCase() && number(m.debljina) === number(row.debljina));
+      let mat = mats.find((m) =>
+        String(m.vrsta).toLowerCase() === String(row.vrsta).toLowerCase()
+        && String(m.komercijalnaOznaka || m.oznaka || m.oznaka_materijala).toLowerCase() === String(row.komercijalnaOznaka || row.oznaka_materijala).toLowerCase()
+        && (!row.debljina || number(m.debljina) === number(row.debljina))
+      );
       if (!mat) {
         mat = normalizeMaterial({
           vrsta: row.vrsta || "Nedefinisano",
@@ -807,7 +991,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
           komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste", row.vrsta),
           proizvodjac: row.proizvodjac || "",
           debljina: row.debljina,
-          koeficijent: row.koeficijent || 0,
+          koeficijent: row.koeficijent || coeffByVrsta(row.vrsta),
           gsm: baseGsm,
           jedinica: baseGsm && !row.debljina ? "g/m²" : "µ",
         });
@@ -816,20 +1000,62 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
       const gsm = calcGsm(mat) || row.gsm || baseGsm;
       const duzina = row.duzina || (row.kg && row.sirina && gsm ? metersFromKg({ sirinaMm: row.sirina, kg: row.kg, gsm }) : 0);
       const kg = row.kg || (row.duzina && row.sirina && gsm ? kgFromMeters({ sirinaMm: row.sirina, duzinaM: row.duzina, gsm }) : 0);
-      if (!row.sirina || (!duzina && !kg)) return;
-      addWarehouseRoll({
-        materijal_id: mat.id, vrsta: mat.vrsta, pod_vrsta: row.pod_vrsta || "",
-        oznaka_materijala: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
-        materijal: mat.vrsta, komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta),
-        proizvodjac: mat.proizvodjac || row.proizvodjac, debljina: mat.debljina || row.debljina, koeficijent: mat.koeficijent || row.koeficijent,
-        gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
-        napomena: "Uvoz iz packing liste"
-      }, "UVOZ PACKING LISTE");
+      if (!row.sirina || (!duzina && !kg)) continue;
+
+      const brRolne = String(row.br_rolne || row.qr || makeId("ROLNA")).trim();
+      const cleanCode = cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta);
+      let item = null;
+      try {
+        if (!supabase?.__localDemo) {
+          const { data, error } = await supabase.from("magacin").insert({
+            br_rolne: brRolne,
+            tip: mat.vrsta,
+            vrsta: mat.vrsta,
+            pod_vrsta: row.pod_vrsta || null,
+            oznaka_materijala: cleanCode,
+            deb: mat.debljina || row.debljina || 0,
+            sirina: number(row.sirina),
+            metraza: duzina,
+            metraza_ost: duzina,
+            kg_bruto: row.kg_bruto || kg,
+            kg_neto: kg,
+            lot: row.lot || null,
+            dobavljac: mat.proizvodjac || row.proizvodjac || null,
+            datum: new Date().toISOString().slice(0, 10),
+            datum_prijema: new Date().toISOString().slice(0, 10),
+            datum_proizvodnje: row.datum_proizvodnje || null,
+            status: "Na stanju",
+            qr_code: brRolne,
+            lokacija: row.lokacija || "Magacin",
+            palet: row.palet || null,
+            napomena: `Uvoz packing liste${row.datum ? " · dokument: " + row.datum : ""}`,
+          }).select("*").single();
+          if (error) throw error;
+          item = mapDbRollToEngine(data);
+        }
+      } catch (e) {
+        console.error(e);
+        msg?.(`Supabase uvoz rolne ${brRolne} nije uspeo: ${e?.message || e}`, "err");
+      }
+      if (!item) {
+        item = addWarehouseRoll({
+          qr: brRolne, materijal_id: mat.id, vrsta: mat.vrsta, pod_vrsta: row.pod_vrsta || "",
+          oznaka_materijala: cleanCode,
+          materijal: mat.vrsta, komercijalnaOznaka: cleanCode,
+          proizvodjac: mat.proizvodjac || row.proizvodjac,
+          debljina: mat.debljina || row.debljina,
+          koeficijent: mat.koeficijent || row.koeficijent,
+          gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
+          napomena: "Uvoz iz packing liste"
+        }, "UVOZ PACKING LISTE");
+      }
+      importedLocal.push(item);
       count += 1;
-    });
+    }
+
     safeWrite(LS_MATERIJALI, mats);
     setMaterijali(mats);
-    reload();
+    await reload();
     msg?.(`Uvezeno ${count} rolni iz packing liste.`);
   }
   async function handleMobileScan(decodedText) {
@@ -1139,6 +1365,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <div style={{ fontWeight: 950, marginBottom: 10 }}>🧠 Material Master izbor</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
                   <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                  <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="transparent / sedef / beli" /></label>
                   <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                   <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                 </div>
@@ -1158,7 +1385,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
                 <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                 <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
-                <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="npr. transparent / beli / metalizovani" /></label>
                 <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                 <label style={{ gridColumn: "1 / -1" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
               </div>
@@ -1233,7 +1459,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
   return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
     <div style={card}>
       <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 {inputMode === "pdf" ? "Packing lista PDF" : "Packing lista Excel"}</div>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "Za PDF možeš nalepiti tekst iz packing liste ili učitati PDF kao pripremu za OCR workflow." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "PDF se čita automatski za Plastchim, Taghleef, Inter Gradex i Rossella formate. Ako format nije prepoznat, nalepi tekst ispod." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
       <label><span style={lbl}>{inputMode === "pdf" ? "PDF fajl / tekst packing liste" : "Excel / CSV / TXT fajl"}</span><input style={input} type="file" accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={handlePackingFile} /></label>
       <div style={{ marginTop: 12 }}><span style={lbl}>Tekst iz PDF/packing liste</span><textarea style={{ ...input, minHeight: 190, fontFamily: "monospace" }} value={packingText} onChange={(e) => setPackingText(e.target.value)} /></div>
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
