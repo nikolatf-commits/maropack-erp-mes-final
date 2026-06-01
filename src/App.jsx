@@ -22,6 +22,55 @@ import KalkulatorMaticnihRolni from "./KalkulatorMaticnihRolni.jsx";
 import PlanerRezanjaIzMagacina from "./PlanerRezanjaIzMagacina.jsx";
 import QRCode from "qrcode";
 
+
+// ============================================================================
+// FRONTEND ERROR LOGGER - hvata beli ekran / mobilne QR greške
+// Upisuje grešku u Supabase tabelu public.frontend_errors
+// ============================================================================
+function stringifyFrontendError(value) {
+  try {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    if (value?.message) return String(value.message);
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value || "");
+  }
+}
+
+async function logFrontendErrorToSupabase(message, stack = "") {
+  try {
+    if (!supabase || supabase.__localDemo) return;
+    await supabase.from("frontend_errors").insert({
+      message: stringifyFrontendError(message),
+      stack: stringifyFrontendError(stack),
+      url: String(window.location.href || ""),
+      user_agent: String(navigator.userAgent || "")
+    });
+  } catch (e) {
+    // Ne sme da ruši aplikaciju ako logovanje greške ne uspe.
+    console.error("Frontend error logging failed:", e);
+  }
+}
+
+if (typeof window !== "undefined" && !window.__MAROPACK_FRONTEND_ERROR_LOGGER__) {
+  window.__MAROPACK_FRONTEND_ERROR_LOGGER__ = true;
+
+  window.addEventListener("error", (event) => {
+    logFrontendErrorToSupabase(
+      event?.message || "window.error",
+      event?.error?.stack || `${event?.filename || ""}:${event?.lineno || ""}:${event?.colno || ""}`
+    );
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    logFrontendErrorToSupabase(
+      event?.reason?.message || event?.reason || "unhandledrejection",
+      event?.reason?.stack || ""
+    );
+  });
+}
+
 // ✅ AUTH SISTEM - NOVI IMPORT-I
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import Login from './auth/Login';
