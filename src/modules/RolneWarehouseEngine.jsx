@@ -821,7 +821,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
     // Nema duplog ručnog kucanja: VRSTA -> OZNAKA -> DEBLJINA -> auto koef/gm2/naziv.
-    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
+    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", koeficijent: "", napomena: "" });
     const [materialDropdowns, setMaterialDropdowns] = useState(FALLBACK_MATERIAL_DROPDOWNS);
     const [materialMaster, setMaterialMaster] = useState([]);
     const [materialPrices, setMaterialPrices] = useState({});
@@ -956,20 +956,58 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     useEffect(() => { reload(); loadMaterialDropdowns(); loadMaterialMaster(); }, []);
     useEffect(() => { reload(); }, [db?.rolne?.length]);
 
-    // REALTIME SYNC: kada bilo ko (telefon ili desktop) izmeni rolnu u public.magacin,
-    // svi otvoreni uredjaji se automatski osvezavaju. Resava: popis/povrat sa telefona
-    // koji se ranije nisu videli na desktopu dok se rucno ne reload-uje.
+    // Uvek najsveziji reload, da realtime/focus callback-ovi ne koriste stari React closure.
+    const reloadRef = React.useRef(reload);
+    useEffect(() => { reloadRef.current = reload; });
+
+    // REALTIME SYNC + OTPORNOST: telefon i desktop gledaju istu public.magacin tabelu.
+    // 1) realtime kanal gura promene na sve uredjaje,
+    // 2) na povratak taba/aplikacije u fokus radi reload (hvata promene propustene dok je veza spavala),
+    // 3) ako kanal padne (CHANNEL_ERROR / TIMED_OUT / CLOSED) automatski se ponovo povezuje,
+    // 4) sigurnosni interval povlaci stanje i kada realtime zakaze.
     useEffect(() => {
         if (supabase?.__localDemo) return;
-        const channel = supabase
-            .channel("magacin_rolne_sync")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "magacin" },
-                () => { reload(); }
-            )
-            .subscribe();
-        return () => { try { supabase.removeChannel(channel); } catch (e) { /* noop */ } };
+
+        let channel = null;
+        let retryTimer = null;
+        let cancelled = false;
+        const safeReload = () => { try { reloadRef.current?.(); } catch (e) { /* noop */ } };
+
+        const subscribe = () => {
+            if (cancelled) return;
+            try { if (channel) supabase.removeChannel(channel); } catch (e) { /* noop */ }
+            channel = supabase
+                .channel("magacin_rolne_sync")
+                .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, safeReload)
+                .subscribe((status) => {
+                    if (status === "SUBSCRIBED") {
+                        safeReload(); // posle (ponovnog) povezivanja uvek povuci sveze stanje
+                    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+                        if (!cancelled && !retryTimer) {
+                            retryTimer = setTimeout(() => { retryTimer = null; subscribe(); }, 3000);
+                        }
+                    }
+                });
+        };
+
+        const onVisible = () => { if (document.visibilityState === "visible") safeReload(); };
+        const onOnline = () => { safeReload(); subscribe(); };
+
+        subscribe();
+        document.addEventListener("visibilitychange", onVisible);
+        window.addEventListener("focus", safeReload);
+        window.addEventListener("online", onOnline);
+        const pollTimer = setInterval(safeReload, 60000);
+
+        return () => {
+            cancelled = true;
+            if (retryTimer) clearTimeout(retryTimer);
+            clearInterval(pollTimer);
+            document.removeEventListener("visibilitychange", onVisible);
+            window.removeEventListener("focus", safeReload);
+            window.removeEventListener("online", onOnline);
+            try { if (channel) supabase.removeChannel(channel); } catch (e) { /* noop */ }
+        };
     }, []);
     useEffect(() => {
         setPopisForm((f) => ({ ...f, lokacija: f.lokacija || "" }));
@@ -1105,32 +1143,35 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         return vals.length ? vals : (materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci);
     }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
+    // V46: dozvoljen unos NOVE kombinacije u rucnom unosu.
+    // Default popunjavamo samo kad je polje prazno; ne gazimo ono sto je korisnik otkucao.
     useEffect(() => {
         if (!masterVrste.length) return;
-        if (!masterVrste.includes(materialPick.vrsta)) {
-            setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "", pod_vrsta: "", oznaka: "", debljina: "" }));
+        if (!String(materialPick.vrsta || "").trim()) {
+            setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "" }));
         }
     }, [masterVrste, materialPick.vrsta]);
 
     useEffect(() => {
         if (!materialPick.vrsta || !masterPodVrste.length) return;
-        if (!masterPodVrste.includes(materialPick.pod_vrsta)) {
-            setMaterialPick((p) => ({ ...p, pod_vrsta: masterPodVrste[0] || "", oznaka: "", debljina: "" }));
+        if (!String(materialPick.pod_vrsta || "").trim()) {
+            setMaterialPick((p) => ({ ...p, pod_vrsta: masterPodVrste[0] || "" }));
         }
     }, [masterPodVrste, materialPick.vrsta, materialPick.pod_vrsta]);
 
     useEffect(() => {
         if (!materialPick.vrsta || !materialPick.pod_vrsta || !masterOznake.length) return;
-        if (!masterOznake.includes(materialPick.oznaka)) {
-            setMaterialPick((p) => ({ ...p, oznaka: masterOznake[0] || "", debljina: "" }));
+        if (!String(materialPick.oznaka || "").trim()) {
+            setMaterialPick((p) => ({ ...p, oznaka: masterOznake[0] || "" }));
         }
     }, [masterOznake, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
 
     useEffect(() => {
         if (!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka || !masterDebljine.length) return;
-        const nums = masterDebljine.map(Number);
-        const current = Number(materialPick.debljina);
-        if (!nums.includes(current)) setMaterialPick((p) => ({ ...p, debljina: Number(nums[0] || 0) }));
+        if (!Number(materialPick.debljina)) {
+            const nums = masterDebljine.map(Number);
+            setMaterialPick((p) => ({ ...p, debljina: Number(nums[0] || 0) }));
+        }
     }, [masterDebljine, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
     useEffect(() => {
@@ -1143,7 +1184,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     const selectedMat = useMemo(() => {
         const master = selectedMasterMaterial;
-        const koef = number(master?.koeficijent) || mmKoeficijent(materialPick.vrsta) || 0;
+        const koef = number(master?.koeficijent) || number(materialPick.koeficijent) || mmKoeficijent(materialPick.vrsta) || 0;
         const gsm = number(master?.gsm) || (Number(materialPick.debljina) && koef ? round2(Number(materialPick.debljina) * koef) : mmCalculateGm2(materialPick.vrsta, materialPick.debljina));
         const cenaIzCenovnika = master?.id && materialPrices[master.id]?.cena_kg ? number(materialPrices[master.id].cena_kg) : 0;
         const cenaKg = number(materialPick.cenaKg) || cenaIzCenovnika || number(master?.cena_kg);
@@ -1325,7 +1366,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     async function addRoll() {
         if (!selectedMat) { msg?.("Prvo izaberi materijal preko Material Master-a", "err"); return; }
-        if (materialMaster.length > 0 && !selectedMasterMaterial) { msg?.("Izabrana kombinacija nije u bazi materijala. Dodaj je prvo u tabu Baza materijala.", "err"); return; }
+        if (materialMaster.length > 0 && !selectedMasterMaterial) { msg?.("Izabrana kombinacija nije u bazi materijala. Sačuvaj je prvo dugmetom „Sačuvaj novu kombinaciju u Material master\" iznad (ili u tabu Baza materijala).", "err"); return; }
         if (!number(form.sirina)) { msg?.("Unesi širinu rolne", "err"); return; }
         const existsMat = materijali.some((m) => m.id === selectedMat.id || (m.vrsta === selectedMat.vrsta && m.komercijalnaOznaka === selectedMat.komercijalnaOznaka && Number(m.debljina) === Number(selectedMat.debljina)));
         if (!existsMat) {
@@ -2175,17 +2216,41 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>Ručni unos rolne</div><div style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>Unos je poređan logikom: vrsta → pod vrsta → oznaka → debljina → dimenzije → m/kg obračun.</div>
                                 <div style={{ display: "grid", gap: 10 }}>
                                     <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 14, padding: 12 }}>
-                                        <div style={{ fontWeight: 950, marginBottom: 10 }}>🧠 Material Master izbor</div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                                            <div style={{ fontWeight: 950 }}>🧠 Material Master izbor</div>
+                                            {selectedMasterMaterial
+                                                ? <span style={{ fontSize: 11, fontWeight: 900, color: "#065f46", background: "#d1fae5", border: "1px solid #6ee7b7", borderRadius: 999, padding: "3px 10px" }}>✅ Postoji u bazi</span>
+                                                : <span style={{ fontSize: 11, fontWeight: 900, color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 999, padding: "3px 10px" }}>🆕 Nova kombinacija</span>}
+                                        </div>
+                                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>Biraj iz liste ili otkucaj novu vrednost. Ako kombinacija ne postoji, unesi koeficijent i sačuvaj je u Material master.</div>
+                                        <datalist id="dl-vrste">{masterVrste.map((v) => <option key={v} value={v} />)}</datalist>
+                                        <datalist id="dl-podvrste">{masterPodVrste.map((v) => <option key={v} value={v} />)}</datalist>
+                                        <datalist id="dl-oznake">{masterOznake.map((o) => <option key={o} value={o} />)}</datalist>
+                                        <datalist id="dl-debljine">{masterDebljine.map((d) => <option key={d} value={d} />)}</datalist>
+                                        <datalist id="dl-proizvodjaci">{masterProizvodjaci.map((p) => <option key={p} value={p} />)}</datalist>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
-                                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value, pod_vrsta: "", oznaka: "", debljina: "" }))}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "", debljina: "" }))}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value, debljina: "" }))}><option value="">Izaberi oznaku</option>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
-                                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))}><option value="">Izaberi</option>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
+                                            <label><span style={lbl}>Vrsta</span><input style={input} list="dl-vrste" value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value.toUpperCase(), pod_vrsta: "", oznaka: "" }))} placeholder="npr. BOPP" /></label>
+                                            <label><span style={lbl}>Pod vrsta</span><input style={input} list="dl-podvrste" value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "" }))} placeholder="npr. Transparent" /></label>
+                                            <label><span style={lbl}>Oznaka</span><input style={input} list="dl-oznake" value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value }))} placeholder="npr. FXC" /></label>
+                                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><input style={input} type="number" step="0.01" list="dl-debljine" value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))} placeholder={materialPick.vrsta === "PAPIR" ? "g/m²" : "µ"} /></label>
                                         </div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, marginTop: 10 }}>
-                                            <label><span style={lbl}>Proizvođač</span><select style={input} value={materialPick.proizvodjac || ""} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })}><option value="">Izaberi proizvođača</option>{masterProizvodjaci.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
+                                            <label><span style={lbl}>Proizvođač</span><input style={input} list="dl-proizvodjaci" value={materialPick.proizvodjac || ""} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })} placeholder="Izaberi ili upiši" /></label>
+                                            <label><span style={lbl}>Koeficijent</span><input style={input} type="number" step="0.001" value={materialPick.koeficijent} onChange={(e) => setMaterialPick({ ...materialPick, koeficijent: e.target.value })} placeholder={String(mmKoeficijent(materialPick.vrsta) || "npr. 0.91")} /></label>
                                             <label><span style={lbl}>Cena €/kg</span><input style={input} type="number" value={materialPick.cenaKg} onChange={(e) => setMaterialPick({ ...materialPick, cenaKg: e.target.value })} /></label>
                                         </div>
+                                        {!selectedMasterMaterial && (
+                                            <div style={{ marginTop: 10, padding: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12 }}>
+                                                <div style={{ fontWeight: 900, color: "#92400e", marginBottom: 6 }}>Ova kombinacija još nije u Material master bazi</div>
+                                                <div style={{ fontSize: 12, color: "#92400e", marginBottom: 10 }}>{materialPick.vrsta || "?"} · {materialPick.pod_vrsta || "?"} · {materialPick.oznaka || "?"} · {materialPick.debljina || "?"}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"} — koeficijent <b>{selectedMat.koeficijent || "—"}</b></div>
+                                                <button
+                                                    onClick={() => saveMaterialMaster({ vrsta: materialPick.vrsta, pod_vrsta: materialPick.pod_vrsta, oznaka: materialPick.oznaka, proizvodjac: materialPick.proizvodjac, debljina: materialPick.debljina, koeficijent: number(materialPick.koeficijent) || selectedMat.koeficijent, gsm: liveGsm, cenaKg: materialPick.cenaKg })}
+                                                    disabled={!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka || !Number(materialPick.debljina)}
+                                                    style={{ ...btn, background: (materialPick.vrsta && materialPick.pod_vrsta && materialPick.oznaka && Number(materialPick.debljina)) ? "#059669" : "#cbd5e1", color: "#fff", width: "100%", padding: 11 }}>
+                                                    💾 Sačuvaj novu kombinaciju u Material master
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <div style={{ background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 12, padding: 12, fontSize: 13 }}>
                                         <b>{selectedMat.komercijalnaOznaka}</b><br />
@@ -2334,20 +2399,22 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-                <tbody>{packingRows.map((r, i) => { const opts = getRowOptions(r); return <tr key={i}>
-                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
-                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{opts.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{opts.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{opts.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{opts.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{opts.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
-                    <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
-                    <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
-                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
-                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
-                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
-                </tr>; })}</tbody>
+                <tbody>{packingRows.map((r, i) => {
+                    const opts = getRowOptions(r); return <tr key={i}>
+                        <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
+                        <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{opts.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{opts.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{opts.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{opts.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{opts.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
+                        <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
+                        <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
+                        <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
+                        <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
+                        <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
+                    </tr>;
+                })}</tbody>
             </table></div>
             {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
         </div>
