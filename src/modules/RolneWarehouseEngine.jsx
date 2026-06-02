@@ -214,6 +214,23 @@ function rollQrPayload(r) {
     const code = String(r?.qr || r?.qr_code || r?.br_rolne || r?.broj_rolne || r?.id || "").trim();
     return code ? `MAROPACK|ROLNA|${code}` : "";
 }
+
+function pick(row = {}, keys = []) {
+    if (!row || typeof row !== "object") return "";
+    const normalized = {};
+    Object.keys(row).forEach((k) => {
+        normalized[String(k).trim().toLowerCase()] = row[k];
+    });
+    for (const key of keys) {
+        const wanted = String(key || "").trim().toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(normalized, wanted)) {
+            const value = normalized[wanted];
+            if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+        }
+    }
+    return "";
+}
+
 function normalizePackingRow(row = {}) {
     return {
         br_rolne: String(pick(row, ["br_rolne", "broj rolne", "roll no", "roll_no", "reel", "reel code", "qr"])),
