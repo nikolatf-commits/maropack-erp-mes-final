@@ -217,43 +217,49 @@ function rollQrPayload(r) {
 
 function pick(row = {}, keys = []) {
     if (!row || typeof row !== "object") return "";
-    const normalized = {};
-    Object.keys(row).forEach((k) => {
-        normalized[String(k).trim().toLowerCase()] = row[k];
-    });
+    const entries = Object.entries(row);
     for (const key of keys) {
         const wanted = String(key || "").trim().toLowerCase();
-        if (Object.prototype.hasOwnProperty.call(normalized, wanted)) {
-            const value = normalized[wanted];
-            if (value !== undefined && value !== null && String(value).trim() !== "") return value;
-        }
+        const exact = entries.find(([k]) => String(k || "").trim().toLowerCase() === wanted);
+        if (exact && exact[1] !== undefined && exact[1] !== null && String(exact[1]).trim() !== "") return exact[1];
+    }
+    for (const key of keys) {
+        const wanted = String(key || "").trim().toLowerCase();
+        const partial = entries.find(([k]) => String(k || "").trim().toLowerCase().includes(wanted));
+        if (partial && partial[1] !== undefined && partial[1] !== null && String(partial[1]).trim() !== "") return partial[1];
     }
     return "";
 }
 
 function normalizePackingRow(row = {}) {
+    const br = String(pick(row, ["br_rolne", "broj rolne", "roll no", "roll_no", "reel", "reel code", "qr"])).trim();
+    const qr = String(pick(row, ["qr", "br_rolne", "broj rolne", "roll no", "roll_no", "reel code"])).trim();
     return {
-        br_rolne: String(pick(row, ["br_rolne", "broj rolne", "roll no", "roll_no", "reel", "reel code", "qr"])),
-        qr: String(pick(row, ["qr", "br_rolne", "broj rolne", "roll no", "roll_no", "reel code"])),
+        ...row,
+        br_rolne: br,
+        qr: qr || br,
         vrsta: pick(row, ["vrsta", "type", "material", "materijal"]),
         pod_vrsta: pick(row, ["pod vrsta", "pod_vrsta", "podvrsta", "subtype", "podtip"]),
-        oznaka_materijala: pick(row, ["oznaka materijala", "oznaka", "material code", "code"]),
-        komercijalnaOznaka: pick(row, ["oznaka materijala", "komercijalna oznaka", "oznaka", "commercial name", "naziv", "materijal"]),
-        proizvodjac: pick(row, ["proizvodjac", "proizvođač", "manufacturer", "supplier", "dobavljac"]),
+        oznaka_materijala: pick(row, ["oznaka_materijala", "oznaka materijala", "oznaka", "material code", "code"]),
+        komercijalnaOznaka: pick(row, ["komercijalnaOznaka", "oznaka_materijala", "oznaka materijala", "komercijalna oznaka", "oznaka", "commercial name", "naziv", "materijal"]),
+        proizvodjac: pick(row, ["proizvodjac", "proizvođač", "manufacturer", "supplier", "dobavljac", "dobavljač"]),
         debljina: number(pick(row, ["debljina", "deb", "thickness", "mic", "µ"])),
         koeficijent: number(pick(row, ["koeficijent", "gustina", "density"])),
         gsm: number(pick(row, ["gsm", "g/m2", "g/m²", "gramatura"])),
         sirina: number(pick(row, ["sirina", "širina", "width", "sirina mm", "width mm"])),
-        duzina: number(pick(row, ["m", "metara", "duzina", "dužina", "length", "meter", "meters"])),
+        duzina: number(pick(row, ["duzina", "dužina", "m", "metara", "length", "meter", "meters"])),
         kg: number(pick(row, ["kg", "kilograma", "net weight", "net", "weight", "tezina", "težina"])),
         kg_bruto: number(pick(row, ["kg_bruto", "gross weight", "gross", "bruto"])),
-        palet: String(pick(row, ["palet", "pallet", "pallet no", "plt.no"])),
-        lot: String(pick(row, ["lot", "batch", "sarza", "šarža", "serija"])),
-        lokacija: String(pick(row, ["lokacija", "location", "skladiste", "magacin"])),
-        datum: String(pick(row, ["datum", "date", "datum ulaza"])),
-        datum_proizvodnje: String(pick(row, ["datum proizvodnje", "datum_proizvodnje", "production date", "date of production"])),
+        palet: String(pick(row, ["palet", "pallet", "pallet no", "plt.no"])).trim(),
+        lot: String(pick(row, ["lot", "batch", "sarza", "šarža", "serija"])).trim(),
+        lokacija: String(pick(row, ["lokacija", "location", "skladiste", "magacin"])).trim(),
+        datum: String(pick(row, ["datum", "date", "datum ulaza"])).trim(),
+        datum_proizvodnje: String(pick(row, ["datum_proizvodnje", "datum proizvodnje", "production date", "date of production"])).trim(),
+        hilzna_mm: number(pick(row, ["hilzna_mm", "id", "diam ins", "diam. ins", "inner", "core"])),
+        spoljasnji_precnik_mm: number(pick(row, ["spoljasnji_precnik_mm", "od", "diam outs", "diam. outs", "outer"])),
     };
 }
+
 function parsePackingText(text = "") {
     const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length < 2) return [];
@@ -268,40 +274,21 @@ function parsePackingText(text = "") {
 }
 
 function parseNumSmart(value) {
-    let v = String(value ?? "").trim();
+    let v = String(value ?? "").trim().replace(/\s+/g, "");
     if (!v) return 0;
-    v = v.replace(/\s+/g, "").replace(/[€£$]/g, "");
-    const hasComma = v.includes(",");
-    const hasDot = v.includes(".");
-    if (hasComma && hasDot) {
-        // 1.234,56 => 1234.56
-        if (v.lastIndexOf(",") > v.lastIndexOf(".")) return Number(v.replace(/\./g, "").replace(",", ".")) || 0;
-        // 1,234.56 => 1234.56
-        return Number(v.replace(/,/g, "")) || 0;
-    }
-    if (hasComma) return Number(v.replace(",", ".")) || 0;
-    if (/^\d{1,3}(\.\d{3})+$/.test(v)) return Number(v.replace(/\./g, "")) || 0;
+    // 1.020 u italijanskim/rossella dokumentima je 1020, dok 904,0 znači 904.0
+    if (v.includes(",")) return Number(v.replace(/\./g, "").replace(",", ".")) || 0;
+    if (/^\d{1,3}\.\d{3}$/.test(v)) return Number(v.replace(".", "")) || 0;
     return Number(v) || 0;
-}
-function normalizeDateText(value = "") {
-    const v = String(value || "").trim();
-    if (!v) return "";
-    const m1 = v.match(/(\d{2})[./-](\d{2})[./-](\d{4})/);
-    if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
-    const m2 = v.match(/(\d{4})[./-](\d{2})[./-](\d{2})/);
-    if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
-    return v;
 }
 function detectVrstaFromText(text, fallback = "") {
     const t = String(text || fallback || "").toUpperCase();
-    if (t.includes("NATIVIA")) return "BOPP";
     if (t.includes("BOPA")) return "BOPA";
-    if (/(^|\s)OPA(\s|$)|POLYAMIDE|PA\s*FILM/.test(t)) return "OPA";
     if (t.includes("BOPP")) return "BOPP";
     if (t.includes("PET")) return "PET";
     if (t.includes("CPP")) return "CPP";
-    if (t.includes("CLAY COATED") || t.includes("PAPIR") || t.includes("PAPER") || t.includes("KRAFT")) return "PAPIR";
-    if (t.includes("LDPE") || /(^|\s)PE(\s|$)/.test(t)) return "LDPE";
+    if (t.includes("CLAY COATED") || t.includes("PAPIR") || t.includes("PAPER")) return "PAPIR";
+    if (t.includes("LDPE") || t.includes("PE")) return "LDPE";
     return fallback || "Nedefinisano";
 }
 function coeffByVrsta(vrsta) {
@@ -310,160 +297,282 @@ function coeffByVrsta(vrsta) {
     if (v.includes("PET")) return 1.4;
     if (v.includes("ALU")) return 2.71;
     if (v.includes("PE") || v.includes("LDPE")) return 0.925;
-    if (v.includes("PAPIR")) return 0;
     return 0.91;
 }
 function calcMetersFromKgFallback({ kg, sirina, debljina, vrsta, gsm }) {
     const g = number(gsm) || number(debljina) * coeffByVrsta(vrsta);
     return metersFromKg({ sirinaMm: sirina, kg, gsm: g });
 }
-function makeRollRow(row = {}) {
-    const vrsta = row.vrsta || detectVrstaFromText(row.oznaka_materijala || row.komercijalnaOznaka || row.pod_vrsta || "", "Nedefinisano");
-    const gsm = number(row.gsm) || (vrsta === "PAPIR" ? number(row.debljina) : 0);
-    const debljina = vrsta === "PAPIR" ? 0 : number(row.debljina);
-    const kg = number(row.kg || row.kg_neto);
-    const duzina = number(row.duzina) || calcMetersFromKgFallback({ kg, sirina: row.sirina, debljina: row.debljina, vrsta, gsm });
-    return normalizePackingRow({
-        ...row,
-        vrsta,
-        debljina,
-        gsm,
-        duzina,
-        kg,
-        br_rolne: String(row.br_rolne || row.qr || row.palet || makeId("ROLNA")).trim(),
-        qr: String(row.qr || row.br_rolne || row.palet || makeId("ROLNA")).trim(),
-        oznaka_materijala: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || vrsta, vrsta),
-        komercijalnaOznaka: cleanOznaka(row.komercijalnaOznaka || row.oznaka_materijala || vrsta, vrsta),
-        datum: normalizeDateText(row.datum),
-        datum_proizvodnje: normalizeDateText(row.datum_proizvodnje),
-    });
-}
 function parsePlastchimPacking(text = "") {
     const rows = [];
-    const src = String(text || "");
-    const date = normalizeDateText((src.match(/Packing\s*list\s*Date\s*[:\-]?\s*([0-9./-]+)/i) || [])[1] || "");
-    const product = (src.match(/PRODUCT\s*[:\-]?\s*([^\n]+)/i) || [])[1] || "BOPP film";
+    const t = String(text || "");
+    const date = (t.match(/Packing list Date:\s*([0-9.]+)/i) || [])[1] || "";
+    const product = (t.match(/PRODUCT:\s*([^\n]+)/i) || [])[1] || "BOPP film";
     const vrsta = detectVrstaFromText(product, "BOPP");
     let pallet = "";
-    for (const rawLine of src.split(/\r?\n/)) {
+    let activeOrder = "";
+    let activeRef = "";
+
+    for (const rawLine of t.split(/\r?\n/)) {
         const line = rawLine.trim().replace(/\s+/g, " ");
-        const pm = line.match(/^(?:Pallet|Pallet No\.?|Pallet:)\s*[:#-]?\s*([^\s]+)/i);
-        if (pm) pallet = pm[1];
-        // RollNo OrderNo FilmType Thickness Width ID OD Length Net Gross
-        const m = line.match(/^(\d{5,})\s+([0-9./-]+)\s+([A-Z0-9._-]+)\s+(\d+(?:[.,]\d+)?)\s+(\d{3,4}|\d{1,2}\s?\d{3})\s+(\d{2,4})\s+(\d{2,4})\s+(\d{3,6}|\d{1,3}\s?\d{3})\s+([\d.,]+)\s+([\d.,]+)/i);
+        if (!line) continue;
+
+        const orderMatch = line.match(/^Order No:\s*(\S+)/i);
+        if (orderMatch) activeOrder = orderMatch[1];
+
+        const refMatch = line.match(/^Reff\.\s*Doc\.:\s*(.+)$/i);
+        if (refMatch) activeRef = refMatch[1].trim();
+
+        const pm = line.match(/^Pallet:\s*([^\s]+)/i);
+        if (pm) {
+            pallet = pm[1];
+            continue;
+        }
+
+        // Plastchim red:
+        // 7553927 136180.1 FXC 15 1 560 152 780 28 400 614.00 649.00
+        // 7442227 137528.3 FXA 28 700 152 745 13 900 248.00 277.00
+        const m = line.match(/^(\d{6,})\s+([0-9.]+)\s+([A-Z0-9]+)\s+(\d+(?:[.,]\d+)?)\s+((?:\d\s*)?\d{3,4})\s+(\d+)\s+(\d+)\s+((?:\d{1,3}\s)?\d{3}|\d{4,6})\s+([\d.,]+)\s+([\d.,]+)$/);
         if (!m) continue;
-        rows.push(makeRollRow({
-            br_rolne: m[1], qr: m[1], vrsta,
-            pod_vrsta: product.trim(),
-            oznaka_materijala: m[3], komercijalnaOznaka: m[3], proizvodjac: "Plastchim-T",
-            debljina: parseNumSmart(m[4]), sirina: parseNumSmart(m[5]), duzina: parseNumSmart(m[8]),
-            kg: parseNumSmart(m[9]), kg_bruto: parseNumSmart(m[10]), lot: m[2], palet: pallet,
-            hilzna_mm: parseNumSmart(m[6]), spoljasnji_precnik_mm: parseNumSmart(m[7]), datum: date,
-        }));
+
+        const rollNo = m[1];
+        const orderNo = m[2] || activeOrder;
+        const filmType = m[3];
+        const debljina = parseNumSmart(m[4]);
+        const sirina = parseNumSmart(m[5]);
+        const inner = parseNumSmart(m[6]);
+        const outer = parseNumSmart(m[7]);
+        const duzina = parseNumSmart(m[8]);
+        const kg = parseNumSmart(m[9]);
+        const kgBruto = parseNumSmart(m[10]);
+        const oznaka = `${filmType}${debljina || ""}`;
+
+        rows.push({
+            br_rolne: rollNo,
+            qr: rollNo,
+            vrsta,
+            pod_vrsta: filmType,
+            oznaka_materijala: oznaka,
+            komercijalnaOznaka: oznaka,
+            proizvodjac: "Plastchim-T",
+            debljina,
+            sirina,
+            duzina,
+            kg,
+            kg_bruto: kgBruto,
+            lot: orderNo,
+            palet: pallet,
+            hilzna_mm: inner,
+            spoljasnji_precnik_mm: outer,
+            datum: date,
+            napomena: activeRef ? `Ref: ${activeRef}` : "",
+        });
     }
     return rows;
 }
+
 function parseTaghleefPacking(text = "") {
     const rows = [];
-    const src = String(text || "");
-    const docDate = normalizeDateText((src.match(/Document\s+no:\s*Date:[\s\S]*?(\d{2}\.\d{2}\.\d{4})/i) || src.match(/\b(\d{2}\.\d{2}\.\d{4})\b/) || [])[1] || "");
-    const flat = src.replace(/\s+/g, " ");
-    const re = /(\d{8,10})\s+(\d{10,15})\s+([A-Z][A-Z0-9\s._-]*?)\s+(\d+(?:[,.]\d+)?)\s+(\d{4,6})\s+(\d{2,4})\s+(\d{2,4})\s+(\d+)\s+(\d{2}\.\d{2}\.\d{4})/g;
+    const t = String(text || "");
+    const date = (t.match(/Document no:\s*Date:[\s\S]*?\n\s*\d+\s+([0-9.]+)/i) || t.match(/\b(\d{2}\.\d{2}\.\d{4})\b/) || [])[1] || "";
+    const flat = t.replace(/\s+/g, " ");
+
+    // Taghleef format iz PDF-a:
+    // 110949959 122607302003000 NATIVIA NTSS 30 1650 TO 904,0 14700 152 783 1 13.02.2026
+    const re = /(\d{9})\s+(\d{12,})\s+([A-Z0-9\s]+?)\s+(\d+(?:,\d+)?)\s+(\d{4,6})\s+(\d+)\s+(\d+)\s+\d+\s+(\d{2}\.\d{2}\.\d{4})/g;
     let m;
     while ((m = re.exec(flat))) {
         const palletNo = m[1];
         const reelCode = m[2];
-        const item = m[3].trim().replace(/\s+TO$/i, "");
+        const item = m[3].trim().replace(/\s+/g, " ");
+        const kg = parseNumSmart(m[4]);
+        const duzina = parseNumSmart(m[5]);
+        const inner = parseNumSmart(m[6]);
+        const outer = parseNumSmart(m[7]);
+        const prodDate = m[8];
+
         const tokens = item.split(/\s+/).filter(Boolean);
-        let debljina = 0, sirina = 0;
-        for (let i = 0; i < tokens.length - 1; i++) {
+        let debljina = 0;
+        let sirina = 0;
+        for (let i = tokens.length - 2; i >= 0; i--) {
             if (/^\d{1,3}$/.test(tokens[i]) && /^\d{3,4}$/.test(tokens[i + 1])) {
                 debljina = parseNumSmart(tokens[i]);
                 sirina = parseNumSmart(tokens[i + 1]);
+                break;
             }
         }
-        const oznaka = item.replace(/\b\d{1,3}\s+\d{3,4}\b/g, "").replace(/\s+/g, " ").trim() || "Taghleef";
-        rows.push(makeRollRow({
-            br_rolne: palletNo, qr: palletNo, vrsta: detectVrstaFromText(item, "BOPP"),
-            pod_vrsta: tokens[1] || "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka,
-            proizvodjac: "Taghleef", debljina, sirina, kg: parseNumSmart(m[4]), duzina: parseNumSmart(m[5]),
-            lot: reelCode, palet: palletNo, hilzna_mm: parseNumSmart(m[6]), spoljasnji_precnik_mm: parseNumSmart(m[7]),
-            datum: docDate, datum_proizvodnje: normalizeDateText(m[9]),
-        }));
+
+        const oznaka = item.replace(/\s+\d{1,3}\s+\d{3,4}\s+TO$/i, "").trim() || item;
+        rows.push({
+            br_rolne: palletNo,
+            qr: palletNo,
+            vrsta: detectVrstaFromText(item, "BOPP"),
+            pod_vrsta: tokens.slice(0, 2).join(" "),
+            oznaka_materijala: oznaka,
+            komercijalnaOznaka: oznaka,
+            proizvodjac: "Taghleef",
+            debljina,
+            sirina,
+            duzina,
+            kg,
+            kg_bruto: 0,
+            lot: reelCode,
+            palet: palletNo,
+            hilzna_mm: inner,
+            spoljasnji_precnik_mm: outer,
+            datum: date,
+            datum_proizvodnje: prodDate,
+        });
     }
     return rows;
 }
+
 function parseInterGradexPacking(text = "") {
     const rows = [];
-    const src = String(text || "");
-    const date = normalizeDateText((src.match(/Datum\s*[:\-]?\s*([0-9./-]+)/i) || [])[1] || "");
+    const t = String(text || "");
+    const date = (t.match(/Datum:\s*([0-9.]+)/i) || [])[1] || "";
     let current = null;
-    for (const rawLine of src.split(/\r?\n/)) {
+
+    for (const rawLine of t.split(/\r?\n/)) {
         const line = rawLine.trim().replace(/\s+/g, " ");
-        const header = line.match(/^\d{3,5}\s+(.+?)\s+[\d.,]+\s*Kg/i) || line.match(/^(.*FILM.*?\d{3,4}\s*[Xx]\s*\d+(?:[.,]\d+)?).*$/i);
+        if (!line) continue;
+
+        // Header:
+        // 9976 BOPP FILM RBT - 1215X18 7,359.220 Kg
+        // 9291 BOPA FILM KUNSHAN 960X15 298.100 Kg
+        const header = line.match(/^(\d{3,5})\s+(.+?)\s+([\d.,]+)\s*Kg$/i);
         if (header) {
-            const desc = header[1];
+            const sifra = header[1];
+            const desc = header[2].trim();
             const dim = desc.match(/(\d{3,4})\s*[Xx]\s*(\d+(?:[.,]\d+)?)/);
             const vrsta = detectVrstaFromText(desc, "");
-            const oznaka = (desc.match(/FILM\s+(.+?)\s*-?\s*\d{3,4}\s*[Xx]/i) || [])[1]?.trim() || vrsta;
-            current = { vrsta, oznaka_materijala: cleanOznaka(oznaka, vrsta), komercijalnaOznaka: cleanOznaka(oznaka, vrsta), sirina: dim ? parseNumSmart(dim[1]) : 0, debljina: dim ? parseNumSmart(dim[2]) : 0 };
+            const oznakaRaw = desc.replace(/\s*-\s*/g, " ").replace(/\d{3,4}\s*[Xx]\s*\d+(?:[.,]\d+)?/g, "").replace(/\s+/g, " ").trim();
+            current = {
+                sifra,
+                vrsta,
+                oznaka_materijala: cleanOznaka(oznakaRaw, vrsta),
+                komercijalnaOznaka: cleanOznaka(oznakaRaw, vrsta),
+                sirina: dim ? parseNumSmart(dim[1]) : 0,
+                debljina: dim ? parseNumSmart(dim[2]) : 0,
+            };
             continue;
         }
-        const r = line.match(/^0*(\d{5,})\s+([\d.,]+)\s*Kg\s+(\S+)\s*(.*)$/i);
+
+        // Roll:
+        // 0001382907 425.260 Kg 225249004 RBT
+        const r = line.match(/^(0*\d{6,})\s+([\d.,]+)\s*Kg\s+(\S+)\s+(.+)$/i);
         if (r && current) {
+            const rollNo = r[1];
             const kg = parseNumSmart(r[2]);
-            rows.push(makeRollRow({ br_rolne: r[1], qr: r[1], ...current, proizvodjac: "Inter Gradex", kg, lot: r[3], datum: date }));
+            const lot = r[3];
+            const tech = r[4].trim();
+            const duzina = current.sirina && current.debljina
+                ? calcMetersFromKgFallback({ kg, sirina: current.sirina, debljina: current.debljina, vrsta: current.vrsta })
+                : 0;
+
+            rows.push({
+                br_rolne: rollNo,
+                qr: rollNo,
+                ...current,
+                proizvodjac: "Inter Gradex",
+                kg,
+                kg_bruto: kg,
+                duzina,
+                lot,
+                palet: current.sifra,
+                datum,
+                napomena: tech,
+            });
         }
     }
     return rows;
 }
+
 function parseRossellaPacking(text = "") {
     const rows = [];
-    const src = String(text || "");
-    const date = normalizeDateText((src.match(/1\/\s*704\s*([0-9/.-]+)/i) || src.match(/(\d{2}[./]\d{2}[./]\d{4})/) || [])[1] || "");
-    const lines = src.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const t = String(text || "");
+    const date = (t.match(/1\/\s*704\s*([0-9/]+)/i) || t.match(/(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+    const lines = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     let gross = 0, net = 0, pallet = "", sch = "";
+
     for (const line of lines) {
-        const g = line.match(/Gross\s*wt\.?\s*Kg\s*[:\-]?\s*([\d.,]+)\s+Net\s*wt\.?\s*Kg\s*[:\-]?\s*([\d.,]+)/i);
+        const g = line.match(/Gross wt\.?\s*Kg:\s*([\d.]+)\s+Net wt\.?\s*Kg:\s*([\d.]+)/i);
         if (g) { gross = parseNumSmart(g[1]); net = parseNumSmart(g[2]); continue; }
-        const p = line.match(/Pallet\s*[:\-]?\s*(\d+).*?Sch\.?\s*[:\-]?\s*([^\s]+)/i);
+
+        const p = line.match(/Pallet\s*:\s*(\d+).*?Sch\.?\s*:\s*([^\s]+)/i);
         if (p) { pallet = p[1]; sch = p[2]; continue; }
-        if (/CLAY COATED|KRAFT|PAPER|PAPIR/i.test(line)) {
-            const mm = line.match(/(\d{2,3})\s*g\s*-\s*(\d{3,4})\s*mm/i) || line.match(/(\d{3,4})\s*mm.*?(\d{2,3})\s*g/i);
-            const gsm = mm ? (parseNumSmart(mm[1]) < 200 ? parseNumSmart(mm[1]) : parseNumSmart(mm[2])) : 0;
-            const sirina = mm ? (parseNumSmart(mm[1]) >= 200 ? parseNumSmart(mm[1]) : parseNumSmart(mm[2])) : 0;
-            const len = line.match(/U\d+\/\d+\s+1\s+([\d.,]+)/i) || line.match(/\s1\s+([\d.,]+)\s+[\d.,]+\s+[\d.,]+\s+[\d.,]+$/);
+
+        if (/CLAY COATED|WHITE|PAPER/i.test(line)) {
+            const mm = line.match(/(\d{2,3})\s*g\s*-\s*(\d{3,4})\s*mm/i);
+            const len = line.match(/U\d+\/\d+\s+1\s+([\d.]+)/i) || line.match(/\s1\s+([\d.]+)\s+[\d.,]+\s+[\d.,]+\s+[\d.]+$/);
+            const gsm = mm ? parseNumSmart(mm[1]) : 0;
+            const sirina = mm ? parseNumSmart(mm[2]) : 0;
             const duzina = len ? parseNumSmart(len[1]) : 0;
-            if ((pallet || sch) && sirina && (duzina || net)) {
-                rows.push(makeRollRow({
-                    br_rolne: String(pallet || sch), qr: String(pallet || sch), vrsta: "PAPIR", pod_vrsta: "Clay coated white",
-                    oznaka_materijala: `CC White ${gsm}g`, komercijalnaOznaka: `CC White ${gsm}g`, proizvodjac: "Rossella",
-                    debljina: 0, gsm, sirina, duzina, kg: net, kg_bruto: gross, lot: sch, palet: pallet, datum,
-                }));
+            if (pallet && sirina && (duzina || net)) {
+                rows.push({
+                    br_rolne: String(pallet),
+                    qr: String(pallet),
+                    vrsta: "PAPIR",
+                    pod_vrsta: "Clay coated white",
+                    oznaka_materijala: `CC White ${gsm}g`,
+                    komercijalnaOznaka: `CC White ${gsm}g`,
+                    proizvodjac: "Rossella",
+                    debljina: 0,
+                    gsm,
+                    sirina,
+                    duzina,
+                    kg: net,
+                    kg_bruto: gross,
+                    lot: sch,
+                    palet: pallet,
+                    datum,
+                });
             }
         }
     }
     return rows;
 }
+
 function parseUniversalPackingText(text = "") {
     const t = String(text || "");
     let rows = [];
-    if (/PLASTCHIM|Packing\s*list\s*Date|Film\s*Type\s*Thick/i.test(t)) rows = parsePlastchimPacking(t);
-    else if (/Taghleef|CSOMAGLISTA|NATIVIA|TI\s+H\s+EU/i.test(t)) rows = parseTaghleefPacking(t);
-    else if (/Inter\s*Gradex|LISTA\s+PAKOV/i.test(t)) rows = parseInterGradexPacking(t);
-    else if (/Rossella|Shipping\s+Packing\s+List|CLAY\s+COATED/i.test(t)) rows = parseRossellaPacking(t);
+
+    if (/PLASTCHIM|ПЛАСТХИМ|Packing list Date|Film Type Thikness|Film Type Thickness/i.test(t)) {
+        rows = parsePlastchimPacking(t);
+    } else if (/Taghleef|CSOMAGLISTA|NATIVIA|Reel Code Item Kg Length/i.test(t)) {
+        rows = parseTaghleefPacking(t);
+    } else if (/Inter Gradex|LISTA PAKOV|L I S T A P A K O V/i.test(t)) {
+        rows = parseInterGradexPacking(t);
+    } else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) {
+        rows = parseRossellaPacking(t);
+    }
+
+    if (!rows.length) {
+        rows = [
+            ...parsePlastchimPacking(t),
+            ...parseTaghleefPacking(t),
+            ...parseInterGradexPacking(t),
+            ...parseRossellaPacking(t),
+        ];
+    }
+
     if (!rows.length) rows = parsePackingText(t);
-    const seen = new Set();
+
     return rows
-        .map(makeRollRow)
-        .filter((r) => r.br_rolne || r.qr || r.sirina || r.duzina || r.kg)
-        .filter((r) => {
-            const key = `${r.br_rolne || r.qr}-${r.sirina}-${r.duzina}-${r.kg}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
+        .map(normalizePackingRow)
+        .filter((r) => r.br_rolne || r.qr)
+        .map((r) => ({
+            ...r,
+            br_rolne: r.br_rolne || r.qr || makeId("ROLNA"),
+            qr: r.qr || r.br_rolne || makeId("ROLNA"),
+            metraza: r.duzina,
+            metraza_ost: r.duzina,
+            kg_neto: r.kg,
+            kg_bruto: r.kg_bruto || r.kg,
+            status: "Na stanju",
+        }));
 }
+
 function loadPdfJsGlobal() {
     return new Promise((resolve, reject) => {
         if (window.pdfjsLib) return resolve(window.pdfjsLib);
