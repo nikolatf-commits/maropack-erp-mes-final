@@ -702,15 +702,33 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
 
         if (!supabase?.__localDemo) {
-            const { data, error } = await supabase
+            // VAŽNO:
+            // Ne koristimo .single() na update-u jer PostgREST može da vrati 0 redova
+            // i tada se javlja greška: "Cannot coerce the result to a single JSON object".
+            // Prvo upisujemo stanje, pa zatim radimo poseban svež SELECT rolne.
+            const { error } = await supabase
                 .from("magacin")
                 .update(payload)
-                .eq("id", roll.id)
-                .select("*")
-                .single();
+                .eq("id", roll.id);
             if (error) throw error;
-            if (!data) throw new Error("Supabase nije vratio ažuriranu rolnu.");
-            const fresh = mapDbRollToEngine(data);
+
+            let fresh = await fetchRollFromSupabaseByQr(roll.qr || roll.qr_code || roll.br_rolne || roll.broj_rolne || "");
+
+            // Ako QR lookup iz nekog razloga ne vrati rolnu, pokušaj direktno po ID-u.
+            if (!fresh) {
+                const { data: byIdData, error: byIdError } = await supabase
+                    .from("magacin")
+                    .select("*")
+                    .eq("id", roll.id)
+                    .limit(1);
+                if (byIdError) throw byIdError;
+                fresh = byIdData?.[0] ? mapDbRollToEngine(byIdData[0]) : null;
+            }
+
+            if (!fresh) {
+                throw new Error("Supabase nije vratio ažuriranu rolnu posle upisa.");
+            }
+
             setRolne((prev) => prev.map((r) => String(r.id) === String(fresh.id) || String(r.qr) === String(fresh.qr) ? fresh : r));
             if (povratRoll?.id && String(povratRoll.id) === String(fresh.id)) setPovratRoll(fresh);
             if (popisRoll?.id && String(popisRoll.id) === String(fresh.id)) setPopisRoll(fresh);
