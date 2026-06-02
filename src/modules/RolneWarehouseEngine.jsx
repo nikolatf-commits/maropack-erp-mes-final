@@ -16,6 +16,25 @@ const LS_HISTORY = "maropack_rolne_istorija";
 const LS_PENDING_RESERVATION = "maropack_pending_roll_reservation";
 const WAREHOUSE_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
+const FALLBACK_MATERIAL_DROPDOWNS = {
+    vrste: ["BOPP", "PET", "BOPA", "CPP", "PE", "LDPE", "HDPE", "BOPE", "ALU", "PAPIR", "BIOFOLIJA", "ADHESIVE", "LAK", "BOJA", "OSTALO"],
+    podVrste: ["Transparent", "Pearl", "White", "Metalized", "Matt", "Gloss", "Coex", "Plain", "AntiFog", "Heat Seal", "Cold Seal", "Release", "Barrier", "Cellulose", "Retort", "Easy Peel", "Kraft", "SigmaKraft", "Glassine", "Pergamin", "Siliconized", "MG"],
+    oznake: ["FXC", "FXA", "FXM", "FXPMT", "FXCWP", "FXCW", "FXP", "FXT", "NTSS", "NVS", "NATIVIA", "EXT", "RAYOFACE", "DERPROSA", "RBT", "KUNSHAN", "PET HS", "CPP HS", "CPP RETORT"],
+    debljine: [7, 8, 9, 10, 12, 15, 18, 20, 23, 25, 28, 30, 35, 36, 40, 50, 55, 60, 62, 65, 70, 75, 80, 90, 100, 120, 125, 150],
+    proizvodjaci: ["Plastchim", "Taghleef", "Rossella", "Inter Gradex", "Jindal", "Cosmo", "Treofan", "Innovia", "Uflex", "Polyplex", "Toray", "Mitsubishi"],
+};
+
+function uniqSorted(values, fallback = []) {
+    const merged = [...(Array.isArray(values) ? values : []), ...(Array.isArray(fallback) ? fallback : [])]
+        .map((v) => typeof v === "number" ? v : String(v ?? "").trim())
+        .filter((v) => v !== "" && v !== null && v !== undefined);
+    return Array.from(new Set(merged)).sort((a, b) => {
+        const na = Number(a); const nb = Number(b);
+        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+        return String(a).localeCompare(String(b), "sr");
+    });
+}
+
 function magacinCodeFromLocation(value) {
     const v = String(value || "").trim().toUpperCase();
     if (!v) return "";
@@ -354,7 +373,7 @@ function parsePlastchimPacking(text = "") {
             pod_vrsta: filmType,
             oznaka_materijala: oznaka,
             komercijalnaOznaka: oznaka,
-            proizvodjac: "Plastchim-T",
+            proizvodjac: "Plastchim",
             debljina,
             sirina,
             duzina,
@@ -731,7 +750,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
     // Nema duplog ručnog kucanja: VRSTA -> OZNAKA -> DEBLJINA -> auto koef/gm2/naziv.
-    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", oznaka: "FXCB", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
+    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
+    const [materialDropdowns, setMaterialDropdowns] = useState(FALLBACK_MATERIAL_DROPDOWNS);
     const [req, setReq] = useState({ vrsta: "BOPP", debljina: 20, sirina: 840, potrebniM: 5000 });
     const [labelRoll, setLabelRoll] = useState(null);
     const [bulkLabels, setBulkLabels] = useState([]);
@@ -750,6 +770,36 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat" | "lokacija"
     const [locationTarget, setLocationTarget] = useState("popis");
     const [locationParts, setLocationParts] = useState({ magacin: "", red: "", polica: "", pozicija: "" });
+
+    async function loadMaterialDropdowns() {
+        if (supabase?.__localDemo) {
+            setMaterialDropdowns(FALLBACK_MATERIAL_DROPDOWNS);
+            return;
+        }
+        try {
+            const [vrsteRes, podVrsteRes, oznakeRes, debljineRes, proizvodjaciRes] = await Promise.all([
+                supabase.from("material_vrste").select("naziv, sort_order, aktivan").eq("aktivan", true).order("sort_order", { ascending: true, nullsFirst: false }).order("naziv", { ascending: true }),
+                supabase.from("material_pod_vrste").select("naziv, sort_order, aktivan").eq("aktivan", true).order("sort_order", { ascending: true, nullsFirst: false }).order("naziv", { ascending: true }),
+                supabase.from("material_oznake").select("naziv, sort_order, aktivan").eq("aktivan", true).order("sort_order", { ascending: true, nullsFirst: false }).order("naziv", { ascending: true }),
+                supabase.from("material_debljine").select("vrednost, sort_order, aktivan").eq("aktivan", true).order("sort_order", { ascending: true, nullsFirst: false }).order("vrednost", { ascending: true }),
+                supabase.from("material_proizvodjaci").select("naziv, sort_order, aktivan").eq("aktivan", true).order("sort_order", { ascending: true, nullsFirst: false }).order("naziv", { ascending: true }),
+            ]);
+
+            const anyError = [vrsteRes, podVrsteRes, oznakeRes, debljineRes, proizvodjaciRes].find((r) => r.error);
+            if (anyError?.error) throw anyError.error;
+
+            setMaterialDropdowns({
+                vrste: uniqSorted((vrsteRes.data || []).map((x) => x.naziv), FALLBACK_MATERIAL_DROPDOWNS.vrste),
+                podVrste: uniqSorted((podVrsteRes.data || []).map((x) => x.naziv), FALLBACK_MATERIAL_DROPDOWNS.podVrste),
+                oznake: uniqSorted((oznakeRes.data || []).map((x) => x.naziv), FALLBACK_MATERIAL_DROPDOWNS.oznake),
+                debljine: uniqSorted((debljineRes.data || []).map((x) => Number(x.vrednost)), FALLBACK_MATERIAL_DROPDOWNS.debljine),
+                proizvodjaci: uniqSorted((proizvodjaciRes.data || []).map((x) => x.naziv), FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci),
+            });
+        } catch (e) {
+            console.warn("Material dropdown liste nisu učitane iz Supabase, koristim fallback liste:", e);
+            setMaterialDropdowns(FALLBACK_MATERIAL_DROPDOWNS);
+        }
+    }
 
     async function reload() {
         const mats = ensureMaterials().map(normalizeMaterial);
@@ -788,7 +838,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setHistory(safeRead(LS_HISTORY, []));
         if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
     }
-    useEffect(() => { reload(); }, []);
+    useEffect(() => { reload(); loadMaterialDropdowns(); }, []);
     useEffect(() => { reload(); }, [db?.rolne?.length]);
 
     // REALTIME SYNC: kada bilo ko (telefon ili desktop) izmeni rolnu u public.magacin,
@@ -908,21 +958,30 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         return local;
     }
 
-    const masterVrste = useMemo(() => getVrsteMaterijala(), []);
-    const masterOznake = useMemo(() => getOznakeZaVrstu(materialPick.vrsta), [materialPick.vrsta]);
-    const masterDebljine = useMemo(() => getDebljineZaMaterijal(materialPick.vrsta, materialPick.oznaka), [materialPick.vrsta, materialPick.oznaka]);
+    const masterVrste = useMemo(() => materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste, [materialDropdowns]);
+    const masterPodVrste = useMemo(() => materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste, [materialDropdowns]);
+    const masterOznake = useMemo(() => materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake, [materialDropdowns]);
+    const masterDebljine = useMemo(() => materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine, [materialDropdowns]);
+    const masterProizvodjaci = useMemo(() => materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci, [materialDropdowns]);
 
     useEffect(() => {
-        const nextOznake = getOznakeZaVrstu(materialPick.vrsta);
-        const preferred = nextOznake.includes(materialPick.oznaka) ? materialPick.oznaka : (nextOznake.includes("FXCB") ? "FXCB" : (nextOznake[0] || "STANDARD"));
-        if (preferred !== materialPick.oznaka) setMaterialPick((p) => ({ ...p, oznaka: preferred }));
-    }, [materialPick.vrsta]);
+        if (!masterVrste.includes(materialPick.vrsta)) setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "BOPP" }));
+    }, [masterVrste]);
 
     useEffect(() => {
-        const nextDebljine = getDebljineZaMaterijal(materialPick.vrsta, materialPick.oznaka);
-        const preferred = nextDebljine.includes(Number(materialPick.debljina)) ? Number(materialPick.debljina) : (nextDebljine.includes(20) ? 20 : (nextDebljine[0] || 20));
-        if (preferred !== Number(materialPick.debljina)) setMaterialPick((p) => ({ ...p, debljina: preferred }));
-    }, [materialPick.vrsta, materialPick.oznaka]);
+        if (!masterOznake.includes(materialPick.oznaka)) {
+            const preferred = masterOznake.includes("FXC") ? "FXC" : (masterOznake[0] || "");
+            setMaterialPick((p) => ({ ...p, oznaka: preferred }));
+        }
+    }, [masterOznake, materialPick.oznaka]);
+
+    useEffect(() => {
+        const current = Number(materialPick.debljina);
+        if (!masterDebljine.map(Number).includes(current)) {
+            const preferred = masterDebljine.map(Number).includes(20) ? 20 : Number(masterDebljine[0] || 20);
+            setMaterialPick((p) => ({ ...p, debljina: preferred }));
+        }
+    }, [masterDebljine, materialPick.debljina]);
 
     const selectedMat = useMemo(() => {
         const koef = mmKoeficijent(materialPick.vrsta);
@@ -1473,8 +1532,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             count += 1;
         }
 
-        safeWrite(LS_MATERIJALI, mats);
-        setMaterijali(mats);
+        // Packing lista unosi samo rolne u magacin. Ne puni bazu materijala automatski.
         await reload();
         msg?.(`Uvezeno ${count} rolni iz packing liste.`);
     }
@@ -1726,7 +1784,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                             <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                             <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
-                            <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="transparent / sedef / beli" /></label>
+                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={form.pod_vrsta || ""} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                             <label><span style={lbl}>Širina mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
                             <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option></select></label>
                             <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
@@ -1834,7 +1892,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 {[["Materijala", materijali.length], ["Ukupno rolni", stats.total], ["Ukupno m", fmt(stats.totalM, 0)], ["Ukupno kg", fmt(stats.totalKg, 2)], ["Na stanju", stats.dostupna], ["Rezervisane", stats.rezervisana]].map(([a, b]) => <div key={a} style={card}><div style={{ color: "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
             </div>
 
-            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial }} />}
+            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial, materialDropdowns }} />}
 
             {activeTab === "unos" && (
                 <div style={{ display: "grid", gap: 14 }}>
@@ -1858,12 +1916,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                         <div style={{ fontWeight: 950, marginBottom: 10 }}>🧠 Material Master izbor</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
                                             <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                                            <label><span style={lbl}>Pod vrsta</span><input style={input} value={form.pod_vrsta} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })} placeholder="transparent / sedef / beli" /></label>
+                                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={form.pod_vrsta || ""} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                                             <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                                             <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                                         </div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, marginTop: 10 }}>
-                                            <label><span style={lbl}>Proizvođač</span><input style={input} value={materialPick.proizvodjac} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })} placeholder="npr. Taghleef / Jindal / Rossella" /></label>
+                                            <label><span style={lbl}>Proizvođač</span><select style={input} value={materialPick.proizvodjac || ""} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })}><option value="">Izaberi proizvođača</option>{masterProizvodjaci.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
                                             <label><span style={lbl}>Cena €/kg</span><input style={input} type="number" value={materialPick.cenaKg} onChange={(e) => setMaterialPick({ ...materialPick, cenaKg: e.target.value })} /></label>
                                         </div>
                                     </div>
@@ -1889,7 +1947,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         </div>
 
                     ) : (
-                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode }} />
+                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns }} />
                     )}
                 </div>
             )}
@@ -1948,7 +2006,18 @@ const cell = { padding: 9, borderBottom: "1px solid #f1f5f9" };
 const filterTh = { padding: 6, borderBottom: "1px solid #e2e8f0" };
 
 
-function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode }) {
+function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
+    const dropdowns = {
+        vrste: materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste,
+        podVrste: materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste,
+        oznake: materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake,
+        debljine: materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine,
+        proizvodjaci: materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci,
+    };
+    const updateRow = (index, patch) => {
+        setPackingRows((prev) => prev.map((row, i) => i === index ? { ...row, ...patch } : row));
+    };
+    const compactInput = { ...input, minWidth: 92, padding: "7px 8px", fontSize: 12 };
     return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
         <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 {inputMode === "pdf" ? "Packing lista PDF" : "Packing lista Excel"}</div>
@@ -1957,14 +2026,28 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
             <div style={{ marginTop: 12 }}><span style={lbl}>Tekst iz PDF/packing liste</span><textarea style={{ ...input, minHeight: 190, fontFamily: "monospace" }} value={packingText} onChange={(e) => setPackingText(e.target.value)} /></div>
             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                 <button onClick={parseTextPackingList} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>Prepoznaj redove</button>
-                <button onClick={importPackingRows} style={{ ...btn, background: "#059669", color: "#fff" }}>Uvezi rolne u magacin</button>
+                <button onClick={importPackingRows} style={{ ...btn, background: "#059669", color: "#fff" }}>Ubaci pronađene rolne u magacin</button>
             </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: "#64748b" }}>Pre unosa možeš ručno korigovati Vrstu, Pod vrstu, Oznaku, Proizvođača i Debljinu iz centralnih SQL dropdown lista.</div>
         </div>
         <div style={card}>
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-                <tbody>{packingRows.map((r, i) => <tr key={i}><td style={cell}>{r.vrsta || "—"}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{r.oznaka_materijala || r.komercijalnaOznaka || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina || "—"}</td><td style={cell}>{r.duzina || "—"}</td><td style={cell}>{r.kg || "—"}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija || "—"}</td><td style={cell}>{r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td></tr>)}</tbody>
+                <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
+                <tbody>{packingRows.map((r, i) => <tr key={i}>
+                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
+                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{dropdowns.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{dropdowns.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{dropdowns.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{dropdowns.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{dropdowns.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
+                    <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
+                    <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
+                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
+                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
+                    <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
+                </tr>)}</tbody>
             </table></div>
             {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
         </div>
@@ -2107,23 +2190,27 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
 }
 
 
-function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial }) {
-    const [p, setP] = React.useState({ vrsta: "BOPP", oznaka: "FXCB", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
-    const vrste = React.useMemo(() => getVrsteMaterijala(), []);
-    const oznake = React.useMemo(() => getOznakeZaVrstu(p.vrsta), [p.vrsta]);
-    const debljine = React.useMemo(() => getDebljineZaMaterijal(p.vrsta, p.oznaka), [p.vrsta, p.oznaka]);
+function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial, resetDefaultMaterials, matFilter, setMatFilter, filteredMaterials, editMaterial, deleteMaterial, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
+    const [p, setP] = React.useState({ vrsta: "BOPP", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
+    const vrste = materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste;
+    const oznake = materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake;
+    const debljine = materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine;
+    const proizvodjaci = materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci;
 
     React.useEffect(() => {
-        const next = getOznakeZaVrstu(p.vrsta);
-        const preferred = next.includes(p.oznaka) ? p.oznaka : (next.includes("FXCB") ? "FXCB" : (next[0] || "STANDARD"));
-        if (preferred !== p.oznaka) setP((x) => ({ ...x, oznaka: preferred }));
-    }, [p.vrsta]);
+        if (!oznake.includes(p.oznaka)) {
+            const preferred = oznake.includes("FXC") ? "FXC" : (oznake[0] || "");
+            setP((x) => ({ ...x, oznaka: preferred }));
+        }
+    }, [oznake, p.oznaka]);
 
     React.useEffect(() => {
-        const next = getDebljineZaMaterijal(p.vrsta, p.oznaka);
-        const preferred = next.includes(Number(p.debljina)) ? Number(p.debljina) : (next.includes(20) ? 20 : (next[0] || 20));
-        if (preferred !== Number(p.debljina)) setP((x) => ({ ...x, debljina: preferred }));
-    }, [p.vrsta, p.oznaka]);
+        const nums = debljine.map(Number);
+        if (!nums.includes(Number(p.debljina))) {
+            const preferred = nums.includes(20) ? 20 : Number(nums[0] || 20);
+            setP((x) => ({ ...x, debljina: preferred }));
+        }
+    }, [debljine, p.debljina]);
 
     const koef = mmKoeficijent(p.vrsta);
     const gsm = mmCalculateGm2(p.vrsta, p.debljina);
@@ -2155,7 +2242,7 @@ function MaterialsTab({ card, input, btn, lbl, matForm, setMatForm, saveMaterial
                 <label><span style={lbl}>Vrsta</span><select style={input} value={p.vrsta} onChange={(e) => setP({ ...p, vrsta: e.target.value })}>{vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                 <label><span style={lbl}>Oznaka / komercijalni tip</span><select style={input} value={p.oznaka} onChange={(e) => setP({ ...p, oznaka: e.target.value })}>{oznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                 <label><span style={lbl}>{p.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={p.debljina} onChange={(e) => setP({ ...p, debljina: Number(e.target.value) })}>{debljine.map((d) => <option key={d} value={d}>{d}{p.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
-                <label><span style={lbl}>Proizvođač</span><input style={input} value={p.proizvodjac} onChange={(e) => setP({ ...p, proizvodjac: e.target.value })} /></label>
+                <label><span style={lbl}>Proizvođač</span><select style={input} value={p.proizvodjac || ""} onChange={(e) => setP({ ...p, proizvodjac: e.target.value })}><option value="">Izaberi proizvođača</option>{proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
                 <label><span style={lbl}>Cena €/kg</span><input style={input} type="number" value={p.cenaKg} onChange={(e) => setP({ ...p, cenaKg: e.target.value })} /></label>
                 <label><span style={lbl}>Napomena</span><input style={input} value={p.napomena} onChange={(e) => setP({ ...p, napomena: e.target.value })} /></label>
 
