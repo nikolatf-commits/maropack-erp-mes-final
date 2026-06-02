@@ -679,56 +679,41 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!roll?.id) throw new Error("Nedostaje ID rolne za upis u magacin.");
 
         const payload = { updated_at: new Date().toISOString() };
-        if (Object.prototype.hasOwnProperty.call(updates, "meters")) {
+        const hasMeters = Object.prototype.hasOwnProperty.call(updates, "meters");
+        const hasKg = Object.prototype.hasOwnProperty.call(updates, "kg");
+        const hasLocation = Object.prototype.hasOwnProperty.call(updates, "location");
+        const hasStatus = Object.prototype.hasOwnProperty.call(updates, "status");
+        const hasNapomena = Object.prototype.hasOwnProperty.call(updates, "napomena");
+
+        if (hasMeters) {
             const m = number(updates.meters);
             payload.metraza_ost = m;
-            // U ovom sistemu metraza i metraza_ost moraju ostati iste kao trenutno stanje.
             payload.metraza = m;
         }
-        if (Object.prototype.hasOwnProperty.call(updates, "kg")) {
-            payload.kg_neto = round2(updates.kg);
-        }
-        if (Object.prototype.hasOwnProperty.call(updates, "location")) {
-            payload.lokacija = String(updates.location || "").trim() || null;
-        }
-        if (Object.prototype.hasOwnProperty.call(updates, "status")) {
-            payload.status = toDbStatus(updates.status || "Na stanju");
-        }
-        if (Object.prototype.hasOwnProperty.call(updates, "napomena")) {
-            payload.napomena = updates.napomena || null;
-        }
-        if (updates.popis) {
-            payload.datum_poslednjeg_popisa = new Date().toISOString();
-        }
+        if (hasKg) payload.kg_neto = round2(updates.kg);
+        if (hasLocation) payload.lokacija = String(updates.location || "").trim() || null;
+        if (hasStatus) payload.status = toDbStatus(updates.status || "Na stanju");
+        if (hasNapomena) payload.napomena = updates.napomena || null;
+        if (updates.popis) payload.datum_poslednjeg_popisa = new Date().toISOString();
 
         if (!supabase?.__localDemo) {
-            // VAŽNO:
-            // Ne koristimo .single() na update-u jer PostgREST može da vrati 0 redova
-            // i tada se javlja greška: "Cannot coerce the result to a single JSON object".
-            // Prvo upisujemo stanje, pa zatim radimo poseban svež SELECT rolne.
-            const { error } = await supabase
-                .from("magacin")
-                .update(payload)
-                .eq("id", roll.id);
+            // JEDAN IZVOR ISTINE: sve izmene sa telefona i desktopa idu kroz SECURITY DEFINER RPC.
+            // Ovo rešava slučaj gde RLS dozvoli čitanje, ali update sa telefona ne promeni red.
+            const { data, error } = await supabase.rpc("azuriraj_stanje_rolne", {
+                p_rolna_id: Number(roll.id),
+                p_metraza: hasMeters ? number(updates.meters) : null,
+                p_kg_neto: hasKg ? round2(updates.kg) : null,
+                p_lokacija: hasLocation ? String(updates.location || "").trim() : null,
+                p_status: hasStatus ? toDbStatus(updates.status || "Na stanju") : null,
+                p_napomena: hasNapomena ? (updates.napomena || null) : null,
+                p_popis: !!updates.popis,
+            });
             if (error) throw error;
 
-            let fresh = await fetchRollFromSupabaseByQr(roll.qr || roll.qr_code || roll.br_rolne || roll.broj_rolne || "");
+            const row = Array.isArray(data) ? data[0] : data;
+            if (!row) throw new Error("Supabase nije vratio ažuriranu rolnu. Proveri RPC azuriraj_stanje_rolne i RLS dozvole.");
 
-            // Ako QR lookup iz nekog razloga ne vrati rolnu, pokušaj direktno po ID-u.
-            if (!fresh) {
-                const { data: byIdData, error: byIdError } = await supabase
-                    .from("magacin")
-                    .select("*")
-                    .eq("id", roll.id)
-                    .limit(1);
-                if (byIdError) throw byIdError;
-                fresh = byIdData?.[0] ? mapDbRollToEngine(byIdData[0]) : null;
-            }
-
-            if (!fresh) {
-                throw new Error("Supabase nije vratio ažuriranu rolnu posle upisa.");
-            }
-
+            const fresh = mapDbRollToEngine(row);
             setRolne((prev) => prev.map((r) => String(r.id) === String(fresh.id) || String(r.qr) === String(fresh.qr) ? fresh : r));
             if (povratRoll?.id && String(povratRoll.id) === String(fresh.id)) setPovratRoll(fresh);
             if (popisRoll?.id && String(popisRoll.id) === String(fresh.id)) setPopisRoll(fresh);
