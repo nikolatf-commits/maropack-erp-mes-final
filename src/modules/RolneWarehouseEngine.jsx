@@ -1253,8 +1253,23 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             a[st] = (a[st] || 0) + 1;
             return a;
         }, {});
-        return { total: rolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0 };
-    }, [rolne]);
+
+        // ZA PORUCIVANJE: koliko materijala (sa definisanom minimalnom zalihom) ima kg na stanju ispod minimuma.
+        const keyOf = (vrsta, oznaka, deb) => `${normKey(vrsta)}|${normMaterialCode(oznaka)}|${Number(deb) || 0}`;
+        const kgByKey = {};
+        rolne.filter((r) => normalizeStatus(r.status) === "dostupna").forEach((r) => {
+            const k = keyOf(r.vrsta, r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka, r.debljina);
+            kgByKey[k] = (kgByKey[k] || 0) + number(r.kg_neto ?? r.kg);
+        });
+        const ispodMinimuma = (materialMaster || []).filter((m) => {
+            const min = number(m.minimalna_zaliha);
+            if (!(min > 0)) return false;
+            return (kgByKey[keyOf(m.vrsta, m.oznaka, m.debljina)] || 0) < min;
+        });
+        const zaPorucivanje = ispodMinimuma.length;
+
+        return { total: rolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0, zaPorucivanje, ispodMinimuma };
+    }, [rolne, materialMaster]);
 
     const popisExpectedRolls = useMemo(() => {
         return rolne.filter((r) => isRollVisibleOnStock(r) && isLocationInMagacin(r.lokacija, popisMagacin));
@@ -2192,7 +2207,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
-                {[["Materijala", materialMaster.length || materijali.length], ["Ukupno rolni", stats.total], ["Ukupno m", fmt(stats.totalM, 0)], ["Ukupno kg", fmt(stats.totalKg, 2)], ["Na stanju", stats.dostupna], ["Rezervisane", stats.rezervisana], ["Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`]].map(([a, b]) => <div key={a} style={card}><div style={{ color: "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4 }}>{b}</div></div>)}
+                {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
+                    const warn = String(a).includes("Za poručivanje") && Number(b) > 0;
+                    return <div key={a} style={{ ...card, ...(warn ? { background: "#fffbeb", border: "1px solid #fcd34d" } : {}) }}><div style={{ color: warn ? "#92400e" : "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4, ...(warn ? { color: "#b45309" } : {}) }}>{b}</div></div>;
+                })}
             </div>
 
             {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns }} />}
