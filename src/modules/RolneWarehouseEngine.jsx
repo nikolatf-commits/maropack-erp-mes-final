@@ -74,17 +74,32 @@ function normMaterialCode(v) { return normKey(v).replace(/[^A-Z0-9]+/g, ""); }
 function findBestMasterMaterial(row = {}, masterRows = []) {
     if (!Array.isArray(masterRows) || masterRows.length === 0) return null;
     const vrsta = normKey(row.vrsta || row.tip || row.materijal);
+    const pod = normKey(row.pod_vrsta || row.podvrsta || row.subtype || "");
     const ozn = normMaterialCode(row.oznaka || row.oznaka_materijala || row.komercijalnaOznaka || row.komercijalna_oznaka);
     const deb = number(row.debljina ?? row.deb ?? row.gsm);
+
     let candidates = masterRows.filter((m) => {
         if (vrsta && normKey(m.vrsta) !== vrsta) return false;
+        if (pod && normKey(m.pod_vrsta) !== pod) return false;
         if (ozn && normMaterialCode(m.oznaka) !== ozn) return false;
         if (deb && Number(m.debljina) !== Number(deb)) return false;
         return true;
     });
+
+    // Parseri često vrate oznaku sa debljinom, npr. FXC15, a master čuva FXC + deb=15.
     if (!candidates.length && ozn) {
-        candidates = masterRows.filter((m) => normMaterialCode(m.oznaka) === ozn && (!deb || Number(m.debljina) === Number(deb)));
+        candidates = masterRows.filter((m) => {
+            const mo = normMaterialCode(m.oznaka);
+            if (vrsta && normKey(m.vrsta) !== vrsta) return false;
+            if (deb && Number(m.debljina) !== Number(deb)) return false;
+            return ozn === mo || ozn.startsWith(mo) || mo.startsWith(ozn);
+        });
     }
+
+    if (!candidates.length && deb && vrsta) {
+        candidates = masterRows.filter((m) => normKey(m.vrsta) === vrsta && Number(m.debljina) === Number(deb));
+    }
+
     return candidates[0] || null;
 }
 
@@ -420,7 +435,7 @@ function parsePlastchimPacking(text = "") {
         const duzina = parseNumSmart(m[8]);
         const kg = parseNumSmart(m[9]);
         const kgBruto = parseNumSmart(m[10]);
-        const oznaka = `${filmType}${debljina || ""}`;
+        const oznaka = filmType;
 
         rows.push({
             br_rolne: rollNo,
@@ -588,9 +603,9 @@ function parseRossellaPacking(text = "") {
                     br_rolne: String(pallet),
                     qr: String(pallet),
                     vrsta: "PAPIR",
-                    pod_vrsta: "Clay coated white",
-                    oznaka_materijala: `CC White ${gsm}g`,
-                    komercijalnaOznaka: `CC White ${gsm}g`,
+                    pod_vrsta: "Clay Coated",
+                    oznaka_materijala: `CLAY COATED - WHITE - ${gsm}g`,
+                    komercijalnaOznaka: `CLAY COATED - WHITE - ${gsm}g`,
                     proizvodjac: "Rossella",
                     debljina: 0,
                     gsm,
@@ -806,7 +821,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
     // Nema duplog ručnog kucanja: VRSTA -> OZNAKA -> DEBLJINA -> auto koef/gm2/naziv.
-    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
+    const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", napomena: "" });
     const [materialDropdowns, setMaterialDropdowns] = useState(FALLBACK_MATERIAL_DROPDOWNS);
     const [materialMaster, setMaterialMaster] = useState([]);
     const [materialPrices, setMaterialPrices] = useState({});
@@ -1064,46 +1079,59 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, [materialMaster, materialDropdowns]);
 
     const masterPodVrste = useMemo(() => {
+        if (!materialPick.vrsta) return [];
         const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta);
         const vals = uniqMaterialValues(rows, "pod_vrsta", []);
         return materialMaster.length ? vals : (materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste);
     }, [materialMaster, materialDropdowns, materialPick.vrsta]);
 
     const masterOznake = useMemo(() => {
-        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && (!materialPick.pod_vrsta || x.pod_vrsta === materialPick.pod_vrsta));
+        if (!materialPick.vrsta || !materialPick.pod_vrsta) return [];
+        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && x.pod_vrsta === materialPick.pod_vrsta);
         const vals = uniqMaterialValues(rows, "oznaka", []);
         return materialMaster.length ? vals : (materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake);
     }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta]);
 
     const masterDebljine = useMemo(() => {
-        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && (!materialPick.pod_vrsta || x.pod_vrsta === materialPick.pod_vrsta) && (!materialPick.oznaka || x.oznaka === materialPick.oznaka));
+        if (!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka) return [];
+        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && x.pod_vrsta === materialPick.pod_vrsta && x.oznaka === materialPick.oznaka);
         const vals = uniqSorted(rows.map((x) => Number(x.debljina)).filter((x) => Number.isFinite(x)), []);
         return materialMaster.length ? vals : (materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine);
     }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
 
     const masterProizvodjaci = useMemo(() => {
-        const rows = materialMaster.filter((x) => (!materialPick.vrsta || x.vrsta === materialPick.vrsta) && (!materialPick.pod_vrsta || x.pod_vrsta === materialPick.pod_vrsta) && (!materialPick.oznaka || x.oznaka === materialPick.oznaka));
+        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && x.pod_vrsta === materialPick.pod_vrsta && x.oznaka === materialPick.oznaka && Number(x.debljina) === Number(materialPick.debljina));
         const vals = uniqMaterialValues(rows, "proizvodjac", []);
-        return materialMaster.length ? vals : (materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci);
-    }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
+        return vals.length ? vals : (materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci);
+    }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
     useEffect(() => {
-        if (!masterVrste.includes(materialPick.vrsta)) setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "BOPP", pod_vrsta: "", oznaka: "" }));
+        if (!masterVrste.length) return;
+        if (!masterVrste.includes(materialPick.vrsta)) {
+            setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "", pod_vrsta: "", oznaka: "", debljina: "" }));
+        }
     }, [masterVrste, materialPick.vrsta]);
 
     useEffect(() => {
-        if (!masterPodVrste.includes(materialPick.pod_vrsta)) setMaterialPick((p) => ({ ...p, pod_vrsta: masterPodVrste[0] || "", oznaka: "" }));
-    }, [masterPodVrste, materialPick.pod_vrsta]);
+        if (!materialPick.vrsta || !masterPodVrste.length) return;
+        if (!masterPodVrste.includes(materialPick.pod_vrsta)) {
+            setMaterialPick((p) => ({ ...p, pod_vrsta: masterPodVrste[0] || "", oznaka: "", debljina: "" }));
+        }
+    }, [masterPodVrste, materialPick.vrsta, materialPick.pod_vrsta]);
 
     useEffect(() => {
-        if (!masterOznake.includes(materialPick.oznaka)) setMaterialPick((p) => ({ ...p, oznaka: masterOznake[0] || "" }));
-    }, [masterOznake, materialPick.oznaka]);
+        if (!materialPick.vrsta || !materialPick.pod_vrsta || !masterOznake.length) return;
+        if (!masterOznake.includes(materialPick.oznaka)) {
+            setMaterialPick((p) => ({ ...p, oznaka: masterOznake[0] || "", debljina: "" }));
+        }
+    }, [masterOznake, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
 
     useEffect(() => {
+        if (!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka || !masterDebljine.length) return;
         const nums = masterDebljine.map(Number);
         const current = Number(materialPick.debljina);
         if (!nums.includes(current)) setMaterialPick((p) => ({ ...p, debljina: Number(nums[0] || 0) }));
-    }, [masterDebljine, materialPick.debljina]);
+    }, [masterDebljine, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
     useEffect(() => {
         setForm((f) => ({ ...f, pod_vrsta: materialPick.pod_vrsta || "" }));
@@ -1654,16 +1682,46 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         let count = 0;
         const importedLocal = [];
 
-        for (const row of packingRows) {
+        for (const rawRow of packingRows) {
+            const matchedMaster = findBestMasterMaterial(rawRow, materialMaster);
+            const row = matchedMaster ? {
+                ...rawRow,
+                vrsta: matchedMaster.vrsta,
+                pod_vrsta: matchedMaster.pod_vrsta,
+                oznaka_materijala: matchedMaster.oznaka,
+                komercijalnaOznaka: matchedMaster.oznaka,
+                proizvodjac: matchedMaster.proizvodjac,
+                debljina: matchedMaster.debljina,
+                koeficijent: matchedMaster.koeficijent,
+                gsm: matchedMaster.gsm,
+            } : rawRow;
+
+            const activePrice = matchedMaster?.id ? materialPrices[matchedMaster.id]?.cena_kg : null;
+            const cenaKg = number(row.cena_kg ?? row.cenaKg ?? activePrice ?? matchedMaster?.cena_kg ?? 0);
             const baseGsm = row.gsm || (row.debljina && row.koeficijent ? row.debljina * row.koeficijent : 0);
-            let mat = mats.find((m) =>
+
+            let mat = matchedMaster ? normalizeMaterial({
+                id: matchedMaster.id,
+                vrsta: matchedMaster.vrsta,
+                pod_vrsta: matchedMaster.pod_vrsta,
+                oznaka: matchedMaster.oznaka,
+                komercijalnaOznaka: materialDisplayName(matchedMaster),
+                proizvodjac: matchedMaster.proizvodjac,
+                debljina: matchedMaster.debljina,
+                koeficijent: matchedMaster.koeficijent,
+                gsm: matchedMaster.gsm,
+                cenaKg,
+                jedinica: matchedMaster.vrsta === "PAPIR" ? "g/m²" : "µ",
+            }) : mats.find((m) =>
                 String(m.vrsta).toLowerCase() === String(row.vrsta).toLowerCase()
                 && String(m.komercijalnaOznaka || m.oznaka || m.oznaka_materijala).toLowerCase() === String(row.komercijalnaOznaka || row.oznaka_materijala).toLowerCase()
                 && (!row.debljina || number(m.debljina) === number(row.debljina))
             );
+
             if (!mat) {
                 mat = normalizeMaterial({
                     vrsta: row.vrsta || "Nedefinisano",
+                    pod_vrsta: row.pod_vrsta || "",
                     oznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
                     oznaka_materijala: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
                     komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste", row.vrsta),
@@ -1671,13 +1729,16 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     debljina: row.debljina,
                     koeficijent: row.koeficijent || coeffByVrsta(row.vrsta),
                     gsm: baseGsm,
-                    jedinica: baseGsm && !row.debljina ? "g/m²" : "µ",
+                    cenaKg,
+                    jedinica: row.vrsta === "PAPIR" ? "g/m²" : "µ",
                 });
                 mats = [mat, ...mats];
             }
+
             const gsm = calcGsm(mat) || row.gsm || baseGsm;
             const duzina = row.duzina || (row.kg && row.sirina && gsm ? metersFromKg({ sirinaMm: row.sirina, kg: row.kg, gsm }) : 0);
             const kg = row.kg || (row.duzina && row.sirina && gsm ? kgFromMeters({ sirinaMm: row.sirina, duzinaM: row.duzina, gsm }) : 0);
+            const vrednost = round2(kg * cenaKg);
             if (!row.sirina || (!duzina && !kg)) continue;
 
             const brRolne = String(row.br_rolne || row.qr || makeId("ROLNA")).trim();
@@ -1689,7 +1750,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         br_rolne: brRolne,
                         tip: mat.vrsta,
                         vrsta: mat.vrsta,
-                        pod_vrsta: row.pod_vrsta || null,
+                        pod_vrsta: row.pod_vrsta || mat.pod_vrsta || null,
                         oznaka_materijala: cleanCode,
                         deb: mat.debljina || row.debljina || 0,
                         sirina: number(row.sirina),
@@ -1697,6 +1758,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         metraza_ost: duzina,
                         kg_bruto: row.kg_bruto || kg,
                         kg_neto: kg,
+                        cena_kg: cenaKg || null,
+                        vrednost: vrednost || null,
                         lot: row.lot || null,
                         dobavljac: mat.proizvodjac || row.proizvodjac || null,
                         datum: new Date().toISOString().slice(0, 10),
@@ -1706,7 +1769,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         qr_code: brRolne,
                         lokacija: row.lokacija || "Magacin",
                         palet: row.palet || null,
-                        napomena: `Uvoz packing liste${row.datum ? " · dokument: " + row.datum : ""}`,
+                        napomena: `Uvoz packing liste${matchedMaster ? " · material_master" : " · ručna/proverena korekcija"}${row.datum ? " · dokument: " + row.datum : ""}`,
                     }).select("*").single();
                     if (error) throw error;
                     item = mapDbRollToEngine(data);
@@ -1717,13 +1780,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             }
             if (!item) {
                 item = addWarehouseRoll({
-                    qr: brRolne, materijal_id: mat.id, vrsta: mat.vrsta, pod_vrsta: row.pod_vrsta || "",
+                    qr: brRolne, materijal_id: mat.id, vrsta: mat.vrsta, pod_vrsta: row.pod_vrsta || mat.pod_vrsta || "",
                     oznaka_materijala: cleanCode,
                     materijal: mat.vrsta, komercijalnaOznaka: cleanCode,
                     proizvodjac: mat.proizvodjac || row.proizvodjac,
                     debljina: mat.debljina || row.debljina,
                     koeficijent: mat.koeficijent || row.koeficijent,
-                    gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
+                    gsm, sirina: row.sirina, duzina, kg, cenaKg, vrednost, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
                     napomena: "Uvoz iz packing liste"
                 }, "UVOZ PACKING LISTE");
             }
@@ -1980,10 +2043,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={card}>
                         <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
                         <div style={{ display: "grid", gap: 10 }}>
-                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
-                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
-                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={form.pod_vrsta || ""} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value, pod_vrsta: "", oznaka: "", debljina: "" }))}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "", debljina: "" }))}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value, debljina: "" }))}><option value="">Izaberi oznaku</option>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
+                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))}><option value="">Izaberi</option>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                             <label><span style={lbl}>Širina mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
                             <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option></select></label>
                             <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
@@ -2114,10 +2177,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 14, padding: 12 }}>
                                         <div style={{ fontWeight: 950, marginBottom: 10 }}>🧠 Material Master izbor</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
-                                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick({ ...materialPick, vrsta: e.target.value })}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={form.pod_vrsta || ""} onChange={(e) => setForm({ ...form, pod_vrsta: e.target.value })}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka} onChange={(e) => setMaterialPick({ ...materialPick, oznaka: e.target.value })}>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
-                                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina} onChange={(e) => setMaterialPick({ ...materialPick, debljina: Number(e.target.value) })}>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
+                                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value, pod_vrsta: "", oznaka: "", debljina: "" }))}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "", debljina: "" }))}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+                                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value, debljina: "" }))}><option value="">Izaberi oznaku</option>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
+                                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))}><option value="">Izaberi</option>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                                         </div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, marginTop: 10 }}>
                                             <label><span style={lbl}>Proizvođač</span><select style={input} value={materialPick.proizvodjac || ""} onChange={(e) => setMaterialPick({ ...materialPick, proizvodjac: e.target.value })}><option value="">Izaberi proizvođača</option>{masterProizvodjaci.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
@@ -2146,7 +2209,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         </div>
 
                     ) : (
-                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns }} />
+                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns, materialMaster }} />
                     )}
                 </div>
             )}
@@ -2205,16 +2268,54 @@ const cell = { padding: 9, borderBottom: "1px solid #f1f5f9" };
 const filterTh = { padding: 6, borderBottom: "1px solid #e2e8f0" };
 
 
-function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
+function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS, materialMaster = [] }) {
     const dropdowns = {
-        vrste: materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste,
+        vrste: materialMaster.length ? uniqMaterialValues(materialMaster, "vrsta", []) : (materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste),
         podVrste: materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste,
         oznake: materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake,
         debljine: materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine,
         proizvodjaci: materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci,
     };
+    const getRowOptions = (row = {}) => {
+        if (!materialMaster.length) return dropdowns;
+        const vrsta = row.vrsta || "";
+        const pod = row.pod_vrsta || "";
+        const ozn = row.oznaka_materijala || row.komercijalnaOznaka || "";
+        const rowsByVrsta = materialMaster.filter((x) => !vrsta || x.vrsta === vrsta);
+        const rowsByPod = rowsByVrsta.filter((x) => !pod || x.pod_vrsta === pod);
+        const rowsByOzn = rowsByPod.filter((x) => !ozn || x.oznaka === ozn);
+        return {
+            vrste: uniqMaterialValues(materialMaster, "vrsta", []),
+            podVrste: uniqMaterialValues(rowsByVrsta, "pod_vrsta", []),
+            oznake: uniqMaterialValues(rowsByPod, "oznaka", []),
+            debljine: uniqSorted(rowsByOzn.map((x) => Number(x.debljina)).filter((x) => Number.isFinite(x)), []),
+            proizvodjaci: uniqMaterialValues(rowsByOzn, "proizvodjac", dropdowns.proizvodjaci),
+        };
+    };
+    const applyMasterToRow = (row = {}) => {
+        const found = findBestMasterMaterial(row, materialMaster);
+        if (!found) return row;
+        return {
+            ...row,
+            vrsta: found.vrsta,
+            pod_vrsta: found.pod_vrsta,
+            oznaka_materijala: found.oznaka,
+            komercijalnaOznaka: found.oznaka,
+            proizvodjac: found.proizvodjac,
+            debljina: found.debljina,
+            koeficijent: found.koeficijent,
+            gsm: found.gsm,
+        };
+    };
     const updateRow = (index, patch) => {
-        setPackingRows((prev) => prev.map((row, i) => i === index ? { ...row, ...patch } : row));
+        setPackingRows((prev) => prev.map((row, i) => {
+            if (i !== index) return row;
+            let next = { ...row, ...patch };
+            if (Object.prototype.hasOwnProperty.call(patch, "vrsta")) next = { ...next, pod_vrsta: "", oznaka_materijala: "", komercijalnaOznaka: "", debljina: "" };
+            if (Object.prototype.hasOwnProperty.call(patch, "pod_vrsta")) next = { ...next, oznaka_materijala: "", komercijalnaOznaka: "", debljina: "" };
+            if (Object.prototype.hasOwnProperty.call(patch, "oznaka_materijala") || Object.prototype.hasOwnProperty.call(patch, "komercijalnaOznaka")) next = { ...next, debljina: "" };
+            return applyMasterToRow(next);
+        }));
     };
     const compactInput = { ...input, minWidth: 92, padding: "7px 8px", fontSize: 12 };
     return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
@@ -2233,20 +2334,20 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-                <tbody>{packingRows.map((r, i) => <tr key={i}>
+                <tbody>{packingRows.map((r, i) => { const opts = getRowOptions(r); return <tr key={i}>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
-                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{dropdowns.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{dropdowns.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{dropdowns.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{dropdowns.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{dropdowns.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{opts.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{opts.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{opts.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{opts.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{opts.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
-                </tr>)}</tbody>
+                </tr>; })}</tbody>
             </table></div>
             {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
         </div>
