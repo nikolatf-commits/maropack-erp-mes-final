@@ -88,12 +88,6 @@ function safeWrite(key, value) {
 function now() { return new Date().toLocaleString("sr-RS"); }
 function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-8)}`; }
 function number(v) { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; }
-function actualMeters(r = {}) {
-    return number(r?.metraza_ost ?? r?.metraza ?? r?.duzina ?? 0);
-}
-function actualKg(r = {}) {
-    return number(r?.kg_neto ?? r?.kg ?? r?.kg_bruto ?? 0);
-}
 function round2(v) { return Math.round(number(v) * 100) / 100; }
 function fmt(v, dec = 2) { return number(v).toLocaleString("sr-RS", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
 function formatDateLabel(v) { if (!v) return ""; const d = new Date(v); if (Number.isNaN(d.getTime())) return String(v); return d.toLocaleDateString("sr-RS"); }
@@ -143,7 +137,7 @@ function toDbStatus(status) {
 }
 function isRollVisibleOnStock(r) {
     const st = normalizeStatus(r?.status);
-    return ["dostupna", "rezervisana", "formatirana"].includes(st) && actualMeters(r) > 0;
+    return ["dostupna", "rezervisana", "formatirana"].includes(st) && number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) > 0;
 }
 function statusColor(s) {
     const st = normalizeStatus(s);
@@ -205,11 +199,8 @@ function mapDbRollToEngine(r = {}) {
         proizvodjac: r.proizvodjac || r.dobavljac || "",
         debljina: r.debljina ?? r.deb ?? 0,
         sirina: r.sirina ?? 0,
-        duzina: actualMeters(r),
-        metraza: r.metraza ?? actualMeters(r),
-        metraza_ost: actualMeters(r),
-        kg: actualKg(r),
-        kg_neto: r.kg_neto ?? actualKg(r),
+        duzina: r.duzina ?? r.metraza_ost ?? r.metraza ?? 0,
+        kg: r.kg ?? r.kg_neto ?? r.kg_bruto ?? 0,
         datum: r.datum_prijema || r.datum || r.created_at || "",
         datum_ulaza: r.datum_prijema || r.datum || r.created_at || "",
         datum_proizvodnje: r.datum_proizvodnje || "",
@@ -758,8 +749,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, [rolne, filter, columnFilters]);
 
     const stats = useMemo(() => {
-        const totalM = rolne.reduce((s, r) => s + actualMeters(r), 0);
-        const totalKg = rolne.reduce((s, r) => s + actualKg(r), 0);
+        const totalM = rolne.reduce((s, r) => s + number(r.duzina), 0);
+        const totalKg = rolne.reduce((s, r) => s + number(r.kg), 0);
         const byStatus = rolne.reduce((a, r) => {
             const st = normalizeStatus(r.status);
             a[st] = (a[st] || 0) + 1;
@@ -788,7 +779,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const suggestedRolls = useMemo(() => {
         const matches = findMatchingRolls(req);
         const needM = number(req.potrebniM);
-        return matches.map((r) => ({ ...r, pokriva: needM ? actualMeters(r) >= needM : true, ostatak: needM ? actualMeters(r) - needM : 0 }));
+        return matches.map((r) => ({ ...r, pokriva: needM ? number(r.duzina) >= needM : true, ostatak: needM ? number(r.duzina) - needM : 0 }));
     }, [req, rolne]);
 
     function saveMaterial() {
@@ -908,7 +899,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         await reload();
     }
     async function consumeRoll(r) {
-        const currentM = actualMeters(r);
+        const currentM = number(r.metraza_ost ?? r.duzina ?? r.metraza ?? 0);
         const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(currentM || ""));
         if (used === null) return;
         const usedM = used === "" ? currentM : number(used);
@@ -966,8 +957,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     function estimateKgForMeters(roll, meters) {
         const sirina = number(roll?.sirina || 0);
         const gsm = number(roll?.gsm || (number(roll?.debljina || roll?.deb || 0) * 0.91));
-        if (!sirina || !meters || !gsm) return number(roll?.kg || roll?.kg_neto || 0);
+        if (!sirina || !meters || !gsm) return proportionalKgForMeters(roll, meters);
         return Math.round((sirina * meters * gsm / 1000000) * 100) / 100;
+    }
+
+    function proportionalKgForMeters(roll, meters) {
+        const oldM = number(roll?.metraza_ost ?? roll?.duzina ?? roll?.metraza ?? 0);
+        const oldKg = number(roll?.kg_neto ?? roll?.kg ?? roll?.kg_bruto ?? 0);
+        if (!oldM || !oldKg) return 0;
+        return Math.round((oldKg * number(meters) / oldM) * 100) / 100;
+    }
+
+    function calculatedKgForNewMeters(roll, meters) {
+        const materialKg = estimateKgForMeters(roll, meters);
+        if (materialKg > 0) return materialKg;
+        return proportionalKgForMeters(roll, meters);
     }
 
     async function findPovratRoll() {
@@ -982,107 +986,52 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     async function confirmReturnToWarehouse(formOverride = null) {
         const effectiveForm = formOverride || povratForm;
         if (!povratRoll) { msg?.("Prvo pronađi rolnu", "err"); return; }
-
         const meters = estimateMetersFromDiameter(povratRoll, effectiveForm.spoljasnjiPrecnik, effectiveForm.hilzna);
         if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
-
-        const kg = estimateKgForMeters(povratRoll, meters);
+        const kg = calculatedKgForNewMeters(povratRoll, meters);
         const novaLokacija = effectiveForm.lokacija || povratRoll.lokacija || "Magacin";
-        const napomena = effectiveForm.napomena || "Povrat u magacin";
 
         try {
             if (!supabase?.__localDemo && povratRoll.id) {
-                // Prvi izbor: RPC funkcija u bazi. Ona mora da menja JEDINU aktuelnu metražu: metraza_ost.
-                const { error: rpcError } = await supabase.rpc("povrat_rolne_u_magacin", {
+                const { error } = await supabase.rpc("povrat_rolne_u_magacin", {
                     p_rolna_id: Number(povratRoll.id),
                     p_nova_metraza: meters,
                     p_nova_lokacija: novaLokacija,
+                    p_kg_neto: kg,
                 });
+                if (error) throw error;
 
-                // Ako RPC nije dostupan ili je RLS/policy problem, odmah probamo direktan update i bacamo jasnu grešku ako ne prođe.
-                if (rpcError) {
-                    const { error: updateError } = await supabase
-                        .from("magacin")
-                        .update({
-                            metraza: meters,
-                            metraza_ost: meters,
-                            kg_neto: kg,
-                            status: "Na stanju",
-                            lokacija: novaLokacija,
-                            napomena,
-                            updated_at: new Date().toISOString(),
-                        })
-                        .eq("id", povratRoll.id);
-                    if (updateError) throw updateError;
-                } else {
-                    // Dopuna kg/napomene; ako nije dozvoljeno, ne rušimo povrat jer je RPC već upisao metražu.
-                    try {
-                        await supabase
-                            .from("magacin")
-                            .update({
-                                kg_neto: kg,
-                                napomena,
-                                updated_at: new Date().toISOString(),
-                            })
-                            .eq("id", povratRoll.id);
-                    } catch (extraErr) {
-                        console.warn("Dopuna kg/napomene posle povrata nije uspela:", extraErr);
-                    }
-                }
+                // Upis dodatnih podataka koje RPC ne mora da pokriva.
+                await supabase.from("magacin").update({
+                    kg_neto: kg,
+                    napomena: effectiveForm.napomena || "Povrat u magacin",
+                    updated_at: new Date().toISOString(),
+                }).eq("id", povratRoll.id);
 
                 const fresh = await fetchRollFromSupabaseByQr(povratRoll.qr || povratRoll.br_rolne || povratRoll.qr_code);
-                const updated = fresh || {
-                    ...povratRoll,
-                    duzina: meters,
-                    metraza: meters,
-                    metraza_ost: meters,
-                    kg,
-                    kg_neto: kg,
-                    status: "Na stanju",
-                    lokacija: novaLokacija,
-                    napomena,
-                };
+                const updated = fresh || { ...povratRoll, duzina: meters, metraza: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: novaLokacija, napomena: effectiveForm.napomena || "Povrat u magacin" };
 
-                const hist = [{
-                    vreme: now(),
-                    qr: updated.qr,
-                    event: "POVRAT U MAGACIN",
-                    opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters, 0)} m`,
-                    stanje: "Na stanju",
-                }, ...history];
-
+                const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters, 0)} m`, stanje: "Na stanju" }, ...history];
                 safeWrite(LS_HISTORY, hist);
                 setHistory(hist);
                 setPovratRoll(updated);
                 setLabelRoll(updated);
                 setRolne((prev) => prev.map((x) => String(x.id) === String(updated.id) || x.qr === updated.qr ? updated : x));
-                msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(actualMeters(updated), 0)} m · ${fmt(actualKg(updated) || kg, 2)} kg`);
+                msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(updated.duzina ?? meters, 0)} m · ${fmt(updated.kg ?? kg, 2)} kg`);
                 await reload();
                 return;
             }
         } catch (e) {
             console.error(e);
-            msg?.("Povrat nije upisan u Supabase. Proveri RLS/RPC dozvole: " + (e?.message || e), "err");
-            return;
+            msg?.("Supabase update povrata nije uspeo: " + (e?.message || e), "err");
         }
 
         // Lokalni fallback samo ako Supabase nije dostupan.
-        const updated = {
-            ...povratRoll,
-            duzina: meters,
-            metraza: meters,
-            metraza_ost: meters,
-            kg,
-            kg_neto: kg,
-            status: "Na stanju",
-            lokacija: novaLokacija,
-            datum_poslednje_promene: now(),
-            napomena,
-        };
+        const updated = { ...povratRoll, duzina: meters, metraza: meters, metraza_ost: meters, kg, kg_neto: kg, status: "Na stanju", lokacija: novaLokacija, datum_poslednje_promene: now(), napomena: effectiveForm.napomena || "Povrat u magacin" };
         const next = rolne.map((x) => (x.qr === povratRoll.qr ? updated : x));
         const hist = [{ vreme: now(), qr: updated.qr, event: "POVRAT U MAGACIN", opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters, 0)} m`, stanje: "Na stanju" }, ...history];
         safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist); setLabelRoll(updated);
-        msg?.(`Povrat evidentiran lokalno: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
+        msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
         setPovratRoll(updated);
     }
 
@@ -1411,7 +1360,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 setPopisQr(qr);
                 if (found) {
                     setPopisRoll(found);
-                    setPopisForm({ duzina: actualMeters(found), kg: actualKg(found), lokacija: found.lokacija || "" });
+                    setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
                     msg?.(`Skenirana rolna za popis: ${qr}`);
                 } else {
                     msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
@@ -1441,93 +1390,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const found = await resolveRollByQr(qr);
         if (!found) { setPopisRoll(null); msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err"); return; }
         setPopisRoll(found);
-        setPopisForm({ duzina: actualMeters(found), kg: actualKg(found), lokacija: found.lokacija || "" });
+        setPopisForm({ duzina: found.duzina, kg: found.kg, lokacija: found.lokacija || "" });
     }
     async function confirmInventoryCount() {
         if (!popisRoll) { msg?.("Prvo skeniraj/pronađi rolnu", "err"); return; }
-
         const m = number(popisForm.duzina);
-        if (m < 0) { msg?.("Unesi ispravnu metražu za popis", "err"); return; }
-
-        const gsm = number(popisRoll.gsm);
-        const kg = number(popisForm.kg) || kgFromMeters({ sirinaMm: popisRoll.sirina, duzinaM: m, gsm });
+        const kg = calculatedKgForNewMeters(popisRoll, m);
         const qr = String(popisRoll.qr || "");
-        const updatedLokacija = popisForm.lokacija || popisRoll.lokacija || "";
-
-        try {
-            if (!supabase?.__localDemo && popisRoll.id) {
-                const { error } = await supabase.rpc("popis_rolne_magacin", {
-                    p_rolna_id: Number(popisRoll.id),
-                    p_metraza: m,
-                    p_kg_neto: kg,
-                    p_lokacija: updatedLokacija,
-                    p_napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
-                });
-
-                if (error) {
-                    const { error: updateError } = await supabase.from("magacin").update({
-                        metraza: m,
-                        metraza_ost: m,
-                        kg_neto: kg,
-                        lokacija: updatedLokacija,
-                        status: toDbStatus(popisRoll.status || "Na stanju"),
-                        datum_poslednjeg_popisa: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                        napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
-                    }).eq("id", popisRoll.id);
-                    if (updateError) throw updateError;
-                }
-
-                const fresh = await fetchRollFromSupabaseByQr(popisRoll.qr || popisRoll.br_rolne || popisRoll.qr_code);
-                const updatedRoll = fresh || {
-                    ...popisRoll,
-                    duzina: m,
-                    metraza: m,
-                    metraza_ost: m,
-                    kg,
-                    kg_neto: kg,
-                    lokacija: updatedLokacija,
-                    datum_poslednjeg_popisa: new Date().toISOString(),
-                };
-
-                const countedRow = {
-                    qr,
-                    br_rolne: updatedRoll.br_rolne || qr,
-                    vrsta: updatedRoll.vrsta,
-                    oznaka_materijala: rollOznaka(updatedRoll),
-                    sirina: updatedRoll.sirina,
-                    duzina: actualMeters(updatedRoll),
-                    kg: actualKg(updatedRoll) || kg,
-                    popisana_lokacija: updatedLokacija,
-                    ocekivana_lokacija: popisRoll.lokacija || "",
-                    vreme: now(),
-                    session_id: popisSessionId,
-                };
-
-                const hist = [{
-                    vreme: now(),
-                    qr: updatedRoll.qr,
-                    event: "POPIS QR",
-                    opis: `Popis ${popisMagacin}: ${fmt(actualMeters(updatedRoll), 0)} m / ${fmt(actualKg(updatedRoll) || kg, 2)} kg · lokacija ${updatedLokacija}`,
-                    stanje: updatedRoll.status,
-                }, ...history];
-
-                safeWrite(LS_HISTORY, hist);
-                setHistory(hist);
-                setRolne((prev) => prev.map((r) => String(r.id) === String(updatedRoll.id) || String(r.qr) === String(updatedRoll.qr) ? updatedRoll : r));
-                setPopisScanned((prev) => ({ ...prev, [qr]: countedRow }));
-                setPopisQr(""); setPopisRoll(null); setPopisForm({ duzina: "", kg: "", lokacija: "" });
-                msg?.("Popis rolne potvrđen i stanje je upisano u Supabase.");
-                await reload();
-                return;
-            }
-        } catch (e) {
-            console.error(e);
-            msg?.("Popis nije upisan u Supabase. Proveri RLS/update dozvole: " + (e?.message || e), "err");
-            return;
-        }
-
-        // Lokalni fallback samo ako Supabase nije dostupan.
         const countedRow = {
             qr,
             br_rolne: popisRoll.br_rolne || qr,
@@ -1536,15 +1405,15 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             sirina: popisRoll.sirina,
             duzina: m,
             kg,
-            popisana_lokacija: updatedLokacija,
+            popisana_lokacija: popisForm.lokacija || popisRoll.lokacija || "",
             ocekivana_lokacija: popisRoll.lokacija || "",
             vreme: now(),
             session_id: popisSessionId,
         };
+        const updatedLokacija = popisForm.lokacija || popisRoll.lokacija || "";
         const next = rolne.map((r) => r.qr === popisRoll.qr ? {
             ...r,
             duzina: m,
-            metraza: m,
             metraza_ost: m,
             kg,
             kg_neto: kg,
@@ -1554,6 +1423,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             popisano: true,
             popis_session_id: popisSessionId,
         } : r);
+        try {
+            if (!supabase?.__localDemo && popisRoll.id) {
+                const { error } = await supabase.rpc("popis_rolne_magacin", {
+                    p_rolna_id: Number(popisRoll.id),
+                    p_metraza: m,
+                    p_kg_neto: kg,
+                    p_lokacija: updatedLokacija,
+                    p_napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
+                });
+                if (error) throw error;
+            }
+        } catch (e) {
+            console.error(e);
+            msg?.("Supabase update popisa nije uspeo: " + (e?.message || e), "err");
+        }
         const hist = [{
             vreme: now(),
             qr: popisRoll.qr,
@@ -1564,7 +1448,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
         setPopisScanned((prev) => ({ ...prev, [qr]: countedRow }));
         setPopisQr(""); setPopisRoll(null); setPopisForm({ duzina: "", kg: "", lokacija: "" });
-        msg?.("Popis rolne potvrđen lokalno.");
+        await reload();
+        msg?.("Popis rolne potvrđen i stanje ažurirano.");
     }
 
     function resetPopisSession() {
@@ -1668,7 +1553,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ fontWeight: 950 }}>{r.qr}</div>
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
-                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(actualMeters(r), 0)} m</span><span>{fmt(actualKg(r), 2)} kg</span><span>{displayStatus(r.status)}</span></div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span>{displayStatus(r.status)}</span></div>
                                     <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", width: "100%", marginTop: 10 }}>QR / Etiketa</button>
                                 </div>
                             ))}
@@ -1847,7 +1732,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             </thead>
                             <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(actualMeters(r), 0)}</td><td style={cell}>{fmt(actualKg(r), 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
+                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
                                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button></div></td>
                             </tr>)}</tbody>
                         </table>
@@ -1997,7 +1882,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
         <div style={card}>
             {!popisRoll ? <div style={{ color: "#64748b" }}>Nema izabrane rolne za popis.</div> : <>
                 <div style={{ fontWeight: 950, marginBottom: 10 }}>{popisRoll.qr}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>{[["Materijal", `${popisRoll.vrsta} · ${popisRoll.komercijalnaOznaka || rollOznaka(popisRoll)}`], ["Širina", `${popisRoll.sirina} mm`], ["Knjig. m", fmt(actualMeters(popisRoll), 0)], ["Knjig. kg", fmt(actualKg(popisRoll), 2)]].map(([a, b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950 }}>{b}</div></div>)}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>{[["Materijal", `${popisRoll.vrsta} · ${popisRoll.komercijalnaOznaka || rollOznaka(popisRoll)}`], ["Širina", `${popisRoll.sirina} mm`], ["Knjig. m", fmt(popisRoll.duzina, 0)], ["Knjig. kg", fmt(popisRoll.kg, 2)]].map(([a, b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950 }}>{b}</div></div>)}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                     <label><span style={lbl}>Stvarno metara</span><input style={input} type="number" value={popisForm.duzina} onChange={(e) => setPopisForm({ ...popisForm, duzina: e.target.value })} /></label>
                     <label><span style={lbl}>Stvarno kg</span><input style={input} type="number" value={popisForm.kg} onChange={(e) => setPopisForm({ ...popisForm, kg: e.target.value })} /></label>
@@ -2013,7 +1898,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                     <div style={{ fontWeight: 900, color: "#991b1b", marginBottom: 8 }}>Nedostaje u popisu</div>
-                    {popisMissingRolls.length === 0 ? <div style={{ color: "#64748b" }}>Nema nedostajućih rolni.</div> : popisMissingRolls.slice(0, 30).map((r) => <div key={r.qr} style={{ borderTop: "1px solid #fee2e2", padding: "7px 0", fontSize: 13 }}><b>{r.qr}</b> · {r.vrsta} · {r.sirina} mm · {fmt(actualMeters(r), 0)} m</div>)}
+                    {popisMissingRolls.length === 0 ? <div style={{ color: "#64748b" }}>Nema nedostajućih rolni.</div> : popisMissingRolls.slice(0, 30).map((r) => <div key={r.qr} style={{ borderTop: "1px solid #fee2e2", padding: "7px 0", fontSize: 13 }}><b>{r.qr}</b> · {r.vrsta} · {r.sirina} mm · {fmt(r.duzina, 0)} m</div>)}
                 </div>
                 <div>
                     <div style={{ fontWeight: 900, color: "#92400e", marginBottom: 8 }}>Višak / pogrešan magacin</div>
@@ -2155,5 +2040,5 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
 
 
 function PredlogTab({ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }) {
-    return <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}><div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Zahtev materijala za nalog</div><div style={{ display: "grid", gap: 10 }}><label><span style={lbl}>Vrsta materijala</span><input style={input} value={req.vrsta} onChange={(e) => setReq({ ...req, vrsta: e.target.value })} /></label><label><span style={lbl}>Debljina µ</span><input style={input} type="number" value={req.debljina} onChange={(e) => setReq({ ...req, debljina: e.target.value })} /></label><label><span style={lbl}>Potrebna širina mm</span><input style={input} type="number" value={req.sirina} onChange={(e) => setReq({ ...req, sirina: e.target.value })} /></label><label><span style={lbl}>Potrebno metara</span><input style={input} type="number" value={req.potrebniM} onChange={(e) => setReq({ ...req, potrebniM: e.target.value })} /></label><button onClick={createReservationRequest} style={{ ...btn, background: "#2563eb", color: "#fff" }}>Sačuvaj zahtev za nalog</button></div></div><div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Predložene rolne iz magacina</div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}><thead><tr style={{ background: "#f8fafc" }}>{["QR", "Materijal", "Širina", "m", "kg", "Lokacija", "Ocena", "Akcija"].map(h => <th key={h} style={{ padding: 10, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead><tbody>{suggestedRolls.map((r) => <tr key={r.qr}><td style={cell}><b>{r.qr}</b></td><td style={cell}>{r.vrsta} · {r.komercijalnaOznaka}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(actualMeters(r), 0)}</td><td style={cell}>{fmt(actualKg(r), 2)}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{r.pokriva ? "✅ Pokriva" : `⚠️ Fali ${fmt(Math.abs(r.ostatak), 0)} m`}</td><td style={cell}><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button></td></tr>)}</tbody></table>{suggestedRolls.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#64748b" }}>Nema dostupnih rolni koje odgovaraju zahtevu. Dodaj rolnu ili promeni kriterijum.</div>}</div></div></div>;
+    return <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}><div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Zahtev materijala za nalog</div><div style={{ display: "grid", gap: 10 }}><label><span style={lbl}>Vrsta materijala</span><input style={input} value={req.vrsta} onChange={(e) => setReq({ ...req, vrsta: e.target.value })} /></label><label><span style={lbl}>Debljina µ</span><input style={input} type="number" value={req.debljina} onChange={(e) => setReq({ ...req, debljina: e.target.value })} /></label><label><span style={lbl}>Potrebna širina mm</span><input style={input} type="number" value={req.sirina} onChange={(e) => setReq({ ...req, sirina: e.target.value })} /></label><label><span style={lbl}>Potrebno metara</span><input style={input} type="number" value={req.potrebniM} onChange={(e) => setReq({ ...req, potrebniM: e.target.value })} /></label><button onClick={createReservationRequest} style={{ ...btn, background: "#2563eb", color: "#fff" }}>Sačuvaj zahtev za nalog</button></div></div><div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Predložene rolne iz magacina</div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}><thead><tr style={{ background: "#f8fafc" }}>{["QR", "Materijal", "Širina", "m", "kg", "Lokacija", "Ocena", "Akcija"].map(h => <th key={h} style={{ padding: 10, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead><tbody>{suggestedRolls.map((r) => <tr key={r.qr}><td style={cell}><b>{r.qr}</b></td><td style={cell}>{r.vrsta} · {r.komercijalnaOznaka}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{r.pokriva ? "✅ Pokriva" : `⚠️ Fali ${fmt(Math.abs(r.ostatak), 0)} m`}</td><td style={cell}><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button></td></tr>)}</tbody></table>{suggestedRolls.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#64748b" }}>Nema dostupnih rolni koje odgovaraju zahtevu. Dodaj rolnu ili promeni kriterijum.</div>}</div></div></div>;
 }
