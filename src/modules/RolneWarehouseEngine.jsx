@@ -69,6 +69,60 @@ function materialDisplayName(m = {}) {
         .join(" · ");
 }
 
+function normKey(v) {
+    return String(v ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+function normMaterialCode(v) {
+    return normKey(v).replace(/[^A-Z0-9]+/g, "");
+}
+function findBestMasterMaterial(row = {}, masterRows = []) {
+    if (!Array.isArray(masterRows) || masterRows.length === 0) return null;
+    const vrsta = normKey(row.vrsta || row.tip || row.materijal);
+    const pod = normKey(row.pod_vrsta || row.podvrsta || row.podVrsta);
+    const ozn = normMaterialCode(row.oznaka || row.oznaka_materijala || row.komercijalnaOznaka || row.komercijalna_oznaka);
+    const deb = number(row.debljina ?? row.deb ?? row.gsm);
+    const prod = normKey(row.proizvodjac || row.dobavljac);
+
+    const candidates = masterRows.filter((m) => {
+        if (vrsta && normKey(m.vrsta) !== vrsta) return false;
+        if (ozn && normMaterialCode(m.oznaka) !== ozn) return false;
+        if (deb && Number(m.debljina) !== Number(deb)) return false;
+        return true;
+    });
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) {
+        return candidates.find((m) => pod && normKey(m.pod_vrsta) === pod)
+            || candidates.find((m) => prod && normKey(m.proizvodjac) === prod)
+            || candidates[0];
+    }
+
+    const loose = masterRows.filter((m) => {
+        if (ozn && normMaterialCode(m.oznaka) !== ozn) return false;
+        if (deb && Number(m.debljina) !== Number(deb)) return false;
+        return true;
+    });
+    return loose.find((m) => prod && normKey(m.proizvodjac) === prod) || loose[0] || null;
+}
+function applyMasterToRow(row = {}, master = null, price = null) {
+    if (!master) return row;
+    const cena = number(row.cena_kg ?? row.cenaKg) || number(price?.cena_kg) || number(master.cena_kg);
+    const kg = number(row.kg ?? row.kg_neto);
+    return {
+        ...row,
+        material_master_id: master.id,
+        vrsta: master.vrsta || row.vrsta,
+        pod_vrsta: master.pod_vrsta || row.pod_vrsta,
+        oznaka_materijala: master.oznaka || row.oznaka_materijala,
+        komercijalnaOznaka: master.oznaka || row.komercijalnaOznaka,
+        proizvodjac: master.proizvodjac || row.proizvodjac,
+        debljina: number(master.debljina) || number(row.debljina),
+        koeficijent: number(master.koeficijent) || number(row.koeficijent),
+        gsm: number(master.gsm) || number(row.gsm),
+        cena_kg: cena || "",
+        vrednost: cena && kg ? round2(cena * kg) : row.vrednost,
+    };
+}
+
 function magacinCodeFromLocation(value) {
     const v = String(value || "").trim().toUpperCase();
     if (!v) return "";
@@ -336,6 +390,7 @@ function parseNumSmart(value) {
 }
 function detectVrstaFromText(text, fallback = "") {
     const t = String(text || fallback || "").toUpperCase();
+    if (t.includes("NATIVIA") || t.includes("NTSS") || t.includes("NVS") || t.includes("BIO") || t.includes("CELLULOSE")) return "BIOFOLIJA";
     if (t.includes("BOPA")) return "BOPA";
     if (t.includes("BOPP")) return "BOPP";
     if (t.includes("PET")) return "PET";
@@ -398,13 +453,13 @@ function parsePlastchimPacking(text = "") {
         const duzina = parseNumSmart(m[8]);
         const kg = parseNumSmart(m[9]);
         const kgBruto = parseNumSmart(m[10]);
-        const oznaka = `${filmType}${debljina || ""}`;
+        const oznaka = filmType;
 
         rows.push({
             br_rolne: rollNo,
             qr: rollNo,
             vrsta,
-            pod_vrsta: filmType,
+            pod_vrsta: vrsta === "BOPP" ? "Transparent" : filmType,
             oznaka_materijala: oznaka,
             komercijalnaOznaka: oznaka,
             proizvodjac: "Plastchim",
@@ -455,12 +510,13 @@ function parseTaghleefPacking(text = "") {
             }
         }
 
-        const oznaka = item.replace(/\s+\d{1,3}\s+\d{3,4}\s+TO$/i, "").trim() || item;
+        const materialVrsta = detectVrstaFromText(item, "BOPP");
+        const oznaka = tokens.includes("NTSS") ? "NTSS" : tokens.includes("NVS") ? "NVS" : (tokens[1] || tokens[0] || item);
         rows.push({
             br_rolne: palletNo,
             qr: palletNo,
-            vrsta: detectVrstaFromText(item, "BOPP"),
-            pod_vrsta: tokens.slice(0, 2).join(" "),
+            vrsta: materialVrsta,
+            pod_vrsta: materialVrsta === "BIOFOLIJA" ? "Cellulose" : "Transparent",
             oznaka_materijala: oznaka,
             komercijalnaOznaka: oznaka,
             proizvodjac: "Taghleef",
@@ -500,11 +556,14 @@ function parseInterGradexPacking(text = "") {
             const dim = desc.match(/(\d{3,4})\s*[Xx]\s*(\d+(?:[.,]\d+)?)/);
             const vrsta = detectVrstaFromText(desc, "");
             const oznakaRaw = desc.replace(/\s*-\s*/g, " ").replace(/\d{3,4}\s*[Xx]\s*\d+(?:[.,]\d+)?/g, "").replace(/\s+/g, " ").trim();
+            const tokens = cleanOznaka(oznakaRaw, vrsta).split(/\s+/).filter(Boolean);
+            const oznakaClean = tokens[tokens.length - 1] || cleanOznaka(oznakaRaw, vrsta);
             current = {
                 sifra,
                 vrsta,
-                oznaka_materijala: cleanOznaka(oznakaRaw, vrsta),
-                komercijalnaOznaka: cleanOznaka(oznakaRaw, vrsta),
+                pod_vrsta: "Transparent",
+                oznaka_materijala: oznakaClean,
+                komercijalnaOznaka: oznakaClean,
                 sirina: dim ? parseNumSmart(dim[1]) : 0,
                 debljina: dim ? parseNumSmart(dim[2]) : 0,
             };
@@ -566,9 +625,9 @@ function parseRossellaPacking(text = "") {
                     br_rolne: String(pallet),
                     qr: String(pallet),
                     vrsta: "PAPIR",
-                    pod_vrsta: "Clay coated white",
-                    oznaka_materijala: `CC White ${gsm}g`,
-                    komercijalnaOznaka: `CC White ${gsm}g`,
+                    pod_vrsta: "Clay Coated",
+                    oznaka_materijala: `CLAY COATED - WHITE - ${gsm}g`,
+                    komercijalnaOznaka: `CLAY COATED - WHITE - ${gsm}g`,
                     proizvodjac: "Rossella",
                     debljina: 0,
                     gsm,
@@ -1628,19 +1687,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 const ws = wb.Sheets[wb.SheetNames[0]];
                 const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
                 const rows = json.map(normalizePackingRow).filter((r) => r.vrsta || r.komercijalnaOznaka || r.sirina || r.duzina || r.kg);
-                setPackingRows(rows);
+                setPackingRows(enrichPackingRows(rows));
                 msg?.(`Učitano ${rows.length} redova iz Excel packing liste.`);
             } else if (name.endsWith(".csv") || name.endsWith(".txt")) {
                 const text = await file.text();
                 setPackingText(text);
                 const rows = parseUniversalPackingText(text);
-                setPackingRows(rows);
+                setPackingRows(enrichPackingRows(rows));
                 msg?.(`Učitano ${rows.length} redova iz tekstualne packing liste.`);
             } else if (name.endsWith(".pdf")) {
                 const text = await extractPdfTextFromFile(file);
                 setPackingText(text);
                 const rows = parseUniversalPackingText(text);
-                setPackingRows(rows);
+                setPackingRows(enrichPackingRows(rows));
                 msg?.(`PDF packing lista pročitana: ${rows.length} rolni prepoznato.`);
             } else {
                 msg?.("Podržano: Excel .xlsx/.xls, CSV/TXT. Za PDF nalepi tekst ili koristi OCR workflow.", "err");
@@ -1650,41 +1709,44 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
         e.target.value = "";
     }
+    function enrichPackingRowWithMaster(row) {
+        const master = findBestMasterMaterial(row, materialMaster);
+        return applyMasterToRow(row, master, master?.id ? materialPrices[master.id] : null);
+    }
+    function enrichPackingRows(rows = []) {
+        return (rows || []).map((row) => enrichPackingRowWithMaster(row));
+    }
     function parseTextPackingList() {
-        const rows = parseUniversalPackingText(packingText);
+        const rows = enrichPackingRows(parseUniversalPackingText(packingText));
         setPackingRows(rows);
         msg?.(`Prepoznato ${rows.length} redova iz teksta.`);
     }
     async function importPackingRows() {
         if (!packingRows.length) { msg?.("Nema redova za uvoz", "err"); return; }
-        let mats = [...materijali];
         let count = 0;
         const importedLocal = [];
 
-        for (const row of packingRows) {
-            const baseGsm = row.gsm || (row.debljina && row.koeficijent ? row.debljina * row.koeficijent : 0);
-            let mat = mats.find((m) =>
-                String(m.vrsta).toLowerCase() === String(row.vrsta).toLowerCase()
-                && String(m.komercijalnaOznaka || m.oznaka || m.oznaka_materijala).toLowerCase() === String(row.komercijalnaOznaka || row.oznaka_materijala).toLowerCase()
-                && (!row.debljina || number(m.debljina) === number(row.debljina))
-            );
-            if (!mat) {
-                mat = normalizeMaterial({
-                    vrsta: row.vrsta || "Nedefinisano",
-                    oznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
-                    oznaka_materijala: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "", row.vrsta),
-                    komercijalnaOznaka: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste", row.vrsta),
-                    proizvodjac: row.proizvodjac || "",
-                    debljina: row.debljina,
-                    koeficijent: row.koeficijent || coeffByVrsta(row.vrsta),
-                    gsm: baseGsm,
-                    jedinica: baseGsm && !row.debljina ? "g/m²" : "µ",
-                });
-                mats = [mat, ...mats];
-            }
-            const gsm = calcGsm(mat) || row.gsm || baseGsm;
-            const duzina = row.duzina || (row.kg && row.sirina && gsm ? metersFromKg({ sirinaMm: row.sirina, kg: row.kg, gsm }) : 0);
-            const kg = row.kg || (row.duzina && row.sirina && gsm ? kgFromMeters({ sirinaMm: row.sirina, duzinaM: row.duzina, gsm }) : 0);
+        for (const rawRow of packingRows) {
+            const master = findBestMasterMaterial(rawRow, materialMaster);
+            const row = applyMasterToRow(rawRow, master, master?.id ? materialPrices[master.id] : null);
+            const mat = normalizeMaterial({
+                id: master?.id || row.material_master_id || makeId("MAT"),
+                vrsta: row.vrsta || "Nedefinisano",
+                pod_vrsta: row.pod_vrsta || "",
+                oznaka: row.oznaka_materijala || row.komercijalnaOznaka || "",
+                komercijalnaOznaka: row.oznaka_materijala || row.komercijalnaOznaka || row.vrsta || "Materijal iz packing liste",
+                proizvodjac: row.proizvodjac || master?.proizvodjac || "",
+                debljina: row.debljina || master?.debljina,
+                koeficijent: row.koeficijent || master?.koeficijent || coeffByVrsta(row.vrsta),
+                gsm: row.gsm || master?.gsm || 0,
+                jedinica: String(row.vrsta).toUpperCase() === "PAPIR" ? "g/m²" : "µ",
+                cenaKg: row.cena_kg || row.cenaKg || (master?.id ? materialPrices[master.id]?.cena_kg : 0),
+            });
+            const gsm = calcGsm(mat) || row.gsm || (number(row.debljina) * number(row.koeficijent || mat.koeficijent));
+            const duzina = number(row.duzina) || (number(row.kg) && number(row.sirina) && gsm ? metersFromKg({ sirinaMm: row.sirina, kg: row.kg, gsm }) : 0);
+            const kg = number(row.kg) || (duzina && number(row.sirina) && gsm ? kgFromMeters({ sirinaMm: row.sirina, duzinaM: duzina, gsm }) : 0);
+            const cenaKg = number(row.cena_kg || row.cenaKg || mat.cenaKg);
+            const vrednost = cenaKg && kg ? round2(cenaKg * kg) : null;
             if (!row.sirina || (!duzina && !kg)) continue;
 
             const brRolne = String(row.br_rolne || row.qr || makeId("ROLNA")).trim();
@@ -1706,6 +1768,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         kg_neto: kg,
                         lot: row.lot || null,
                         dobavljac: mat.proizvodjac || row.proizvodjac || null,
+                        cena_kg: cenaKg || null,
+                        vrednost: vrednost,
                         datum: new Date().toISOString().slice(0, 10),
                         datum_prijema: new Date().toISOString().slice(0, 10),
                         datum_proizvodnje: row.datum_proizvodnje || null,
@@ -1730,7 +1794,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     proizvodjac: mat.proizvodjac || row.proizvodjac,
                     debljina: mat.debljina || row.debljina,
                     koeficijent: mat.koeficijent || row.koeficijent,
-                    gsm, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
+                    gsm, cenaKg, vrednost: vrednost || 0, sirina: row.sirina, duzina, kg, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
                     napomena: "Uvoz iz packing liste"
                 }, "UVOZ PACKING LISTE");
             }
@@ -2153,7 +2217,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         </div>
 
                     ) : (
-                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns }} />
+                        <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns, materialMaster, materialPrices }} />
                     )}
                 </div>
             )}
@@ -2212,16 +2276,29 @@ const cell = { padding: 9, borderBottom: "1px solid #f1f5f9" };
 const filterTh = { padding: 6, borderBottom: "1px solid #e2e8f0" };
 
 
-function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
-    const dropdowns = {
-        vrste: materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste,
-        podVrste: materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste,
-        oznake: materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake,
-        debljine: materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine,
-        proizvodjaci: materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci,
+function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS, materialMaster = [], materialPrices = {} }) {
+    const allVrste = uniqMaterialValues(materialMaster, "vrsta", materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste);
+    const rowOptions = (row = {}) => {
+        const byVrsta = materialMaster.filter((m) => !row.vrsta || m.vrsta === row.vrsta);
+        const byPod = byVrsta.filter((m) => !row.pod_vrsta || m.pod_vrsta === row.pod_vrsta);
+        const byOzn = byPod.filter((m) => !(row.oznaka_materijala || row.komercijalnaOznaka) || m.oznaka === (row.oznaka_materijala || row.komercijalnaOznaka));
+        return {
+            vrste: allVrste,
+            podVrste: uniqMaterialValues(byVrsta, "pod_vrsta", materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste),
+            oznake: uniqMaterialValues(byPod, "oznaka", materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake),
+            debljine: uniqSorted(byOzn.map((m) => Number(m.debljina)).filter((x) => Number.isFinite(x)), materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine),
+            proizvodjaci: uniqMaterialValues(byOzn, "proizvodjac", materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci),
+        };
+    };
+    const enrichRow = (row) => {
+        const master = findBestMasterMaterial(row, materialMaster);
+        return applyMasterToRow(row, master, master?.id ? materialPrices[master.id] : null);
     };
     const updateRow = (index, patch) => {
-        setPackingRows((prev) => prev.map((row, i) => i === index ? { ...row, ...patch } : row));
+        setPackingRows((prev) => prev.map((row, i) => {
+            if (i !== index) return row;
+            return enrichRow({ ...row, ...patch });
+        }));
     };
     const compactInput = { ...input, minWidth: 92, padding: "7px 8px", fontSize: 12 };
     return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
@@ -2240,20 +2317,22 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
-                <tbody>{packingRows.map((r, i) => <tr key={i}>
+                <tbody>{packingRows.map((r, i) => {
+                    const opts = rowOptions(r);
+                    return <tr key={i}>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
-                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{dropdowns.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{dropdowns.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{dropdowns.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{dropdowns.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{dropdowns.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value, pod_vrsta: "", oznaka_materijala: "", komercijalnaOznaka: "", debljina: "" })}><option value="">—</option>{opts.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value, oznaka_materijala: "", komercijalnaOznaka: "", debljina: "" })}><option value="">—</option>{opts.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value, debljina: "" })}><option value="">—</option>{opts.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{opts.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                    <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{opts.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
                     <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
                     <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
-                </tr>)}</tbody>
+                </tr>})}</tbody>
             </table></div>
             {packingRows.length === 0 && <div style={{ padding: 20, color: "#64748b", textAlign: "center" }}>Učitaj Excel/CSV ili nalepi tekst packing liste.</div>}
         </div>
