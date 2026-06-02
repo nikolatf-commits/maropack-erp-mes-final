@@ -1261,11 +1261,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             const k = keyOf(r.vrsta, r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka, r.debljina);
             kgByKey[k] = (kgByKey[k] || 0) + number(r.kg_neto ?? r.kg);
         });
-        const ispodMinimuma = (materialMaster || []).filter((m) => {
-            const min = number(m.minimalna_zaliha);
-            if (!(min > 0)) return false;
-            return (kgByKey[keyOf(m.vrsta, m.oznaka, m.debljina)] || 0) < min;
-        });
+        const ispodMinimuma = (materialMaster || [])
+            .map((m) => {
+                const minimum = number(m.minimalna_zaliha);
+                const naStanju = kgByKey[keyOf(m.vrsta, m.oznaka, m.debljina)] || 0;
+                return { ...m, minimum, naStanju, manjak: round2(Math.max(0, minimum - naStanju)) };
+            })
+            .filter((m) => m.minimum > 0 && m.naStanju < m.minimum)
+            .sort((a, b) => b.manjak - a.manjak);
         const zaPorucivanje = ispodMinimuma.length;
 
         return { total: rolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0, zaPorucivanje, ispodMinimuma };
@@ -2213,7 +2216,26 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 })}
             </div>
 
-            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns }} />}
+            {stats.zaPorucivanje > 0 && (
+                <div style={{ ...card, border: "1px solid #fcd34d", background: "#fffbeb", marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ fontWeight: 950, color: "#92400e" }}>⚠️ Za poručivanje ({stats.zaPorucivanje})</div>
+                        <div style={{ fontSize: 12, color: "#92400e" }}>Materijali sa stanjem ispod minimalne zalihe (računa se samo roba „Na stanju")</div>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                            <thead><tr style={{ background: "#fef3c7" }}>{["Materijal", "Proizvođač", "Na stanju kg", "Minimum kg", "Manjak kg"].map((h) => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #fcd34d", color: "#92400e" }}>{h}</th>)}</tr></thead>
+                            <tbody>{stats.ispodMinimuma.map((m) => <tr key={m.id} style={{ borderBottom: "1px solid #fde68a" }}>
+                                <td style={{ padding: 9 }}><b>{materialDisplayName(m)}</b></td>
+                                <td style={{ padding: 9 }}>{m.proizvodjac || "—"}</td>
+                                <td style={{ padding: 9 }}>{fmt(m.naStanju, 2)}</td>
+                                <td style={{ padding: 9 }}>{fmt(m.minimum, 0)}</td>
+                                <td style={{ padding: 9, color: "#b45309", fontWeight: 900 }}>{fmt(m.manjak, 2)}</td>
+                            </tr>)}</tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {activeTab === "unos" && (
                 <div style={{ display: "grid", gap: 14 }}>
