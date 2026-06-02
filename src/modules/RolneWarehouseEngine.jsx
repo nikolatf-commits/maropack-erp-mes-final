@@ -251,21 +251,40 @@ function parsePackingText(text = "") {
 }
 
 function parseNumSmart(value) {
-    let v = String(value ?? "").trim().replace(/\s+/g, "");
+    let v = String(value ?? "").trim();
     if (!v) return 0;
-    // 1.020 u italijanskim/rossella dokumentima je 1020, dok 904,0 znači 904.0
-    if (v.includes(",")) return Number(v.replace(/\./g, "").replace(",", ".")) || 0;
-    if (/^\d{1,3}\.\d{3}$/.test(v)) return Number(v.replace(".", "")) || 0;
+    v = v.replace(/\s+/g, "").replace(/[€£$]/g, "");
+    const hasComma = v.includes(",");
+    const hasDot = v.includes(".");
+    if (hasComma && hasDot) {
+        // 1.234,56 => 1234.56
+        if (v.lastIndexOf(",") > v.lastIndexOf(".")) return Number(v.replace(/\./g, "").replace(",", ".")) || 0;
+        // 1,234.56 => 1234.56
+        return Number(v.replace(/,/g, "")) || 0;
+    }
+    if (hasComma) return Number(v.replace(",", ".")) || 0;
+    if (/^\d{1,3}(\.\d{3})+$/.test(v)) return Number(v.replace(/\./g, "")) || 0;
     return Number(v) || 0;
+}
+function normalizeDateText(value = "") {
+    const v = String(value || "").trim();
+    if (!v) return "";
+    const m1 = v.match(/(\d{2})[./-](\d{2})[./-](\d{4})/);
+    if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+    const m2 = v.match(/(\d{4})[./-](\d{2})[./-](\d{2})/);
+    if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+    return v;
 }
 function detectVrstaFromText(text, fallback = "") {
     const t = String(text || fallback || "").toUpperCase();
+    if (t.includes("NATIVIA")) return "BOPP";
     if (t.includes("BOPA")) return "BOPA";
+    if (/(^|\s)OPA(\s|$)|POLYAMIDE|PA\s*FILM/.test(t)) return "OPA";
     if (t.includes("BOPP")) return "BOPP";
     if (t.includes("PET")) return "PET";
     if (t.includes("CPP")) return "CPP";
-    if (t.includes("CLAY COATED") || t.includes("PAPIR") || t.includes("PAPER")) return "PAPIR";
-    if (t.includes("LDPE") || t.includes("PE")) return "LDPE";
+    if (t.includes("CLAY COATED") || t.includes("PAPIR") || t.includes("PAPER") || t.includes("KRAFT")) return "PAPIR";
+    if (t.includes("LDPE") || /(^|\s)PE(\s|$)/.test(t)) return "LDPE";
     return fallback || "Nedefinisano";
 }
 function coeffByVrsta(vrsta) {
@@ -274,105 +293,136 @@ function coeffByVrsta(vrsta) {
     if (v.includes("PET")) return 1.4;
     if (v.includes("ALU")) return 2.71;
     if (v.includes("PE") || v.includes("LDPE")) return 0.925;
+    if (v.includes("PAPIR")) return 0;
     return 0.91;
 }
 function calcMetersFromKgFallback({ kg, sirina, debljina, vrsta, gsm }) {
     const g = number(gsm) || number(debljina) * coeffByVrsta(vrsta);
     return metersFromKg({ sirinaMm: sirina, kg, gsm: g });
 }
+function makeRollRow(row = {}) {
+    const vrsta = row.vrsta || detectVrstaFromText(row.oznaka_materijala || row.komercijalnaOznaka || row.pod_vrsta || "", "Nedefinisano");
+    const gsm = number(row.gsm) || (vrsta === "PAPIR" ? number(row.debljina) : 0);
+    const debljina = vrsta === "PAPIR" ? 0 : number(row.debljina);
+    const kg = number(row.kg || row.kg_neto);
+    const duzina = number(row.duzina) || calcMetersFromKgFallback({ kg, sirina: row.sirina, debljina: row.debljina, vrsta, gsm });
+    return normalizePackingRow({
+        ...row,
+        vrsta,
+        debljina,
+        gsm,
+        duzina,
+        kg,
+        br_rolne: String(row.br_rolne || row.qr || row.palet || makeId("ROLNA")).trim(),
+        qr: String(row.qr || row.br_rolne || row.palet || makeId("ROLNA")).trim(),
+        oznaka_materijala: cleanOznaka(row.oznaka_materijala || row.komercijalnaOznaka || vrsta, vrsta),
+        komercijalnaOznaka: cleanOznaka(row.komercijalnaOznaka || row.oznaka_materijala || vrsta, vrsta),
+        datum: normalizeDateText(row.datum),
+        datum_proizvodnje: normalizeDateText(row.datum_proizvodnje),
+    });
+}
 function parsePlastchimPacking(text = "") {
     const rows = [];
-    const date = (text.match(/Packing list Date:\s*([0-9.]+)/i) || [])[1] || "";
-    const product = (text.match(/PRODUCT:\s*([^\n]+)/i) || [])[1] || "BOPP film";
+    const src = String(text || "");
+    const date = normalizeDateText((src.match(/Packing\s*list\s*Date\s*[:\-]?\s*([0-9./-]+)/i) || [])[1] || "");
+    const product = (src.match(/PRODUCT\s*[:\-]?\s*([^\n]+)/i) || [])[1] || "BOPP film";
     const vrsta = detectVrstaFromText(product, "BOPP");
     let pallet = "";
-    for (const rawLine of String(text).split(/\r?\n/)) {
+    for (const rawLine of src.split(/\r?\n/)) {
         const line = rawLine.trim().replace(/\s+/g, " ");
-        const pm = line.match(/^Pallet:\s*([^\s]+)/i);
+        const pm = line.match(/^(?:Pallet|Pallet No\.?|Pallet:)\s*[:#-]?\s*([^\s]+)/i);
         if (pm) pallet = pm[1];
-        const m = line.match(/^(\d{6,})\s+([0-9.]+)\s+([A-Z0-9]+)\s+(\d+(?:[.,]\d+)?)\s+(\d{1,2}\s?\d{3}|\d{3,4})\s+(\d+)\s+(\d+)\s+(\d{1,3}\s?\d{3}|\d{3,6})\s+([\d.,]+)\s+([\d.,]+)/);
+        // RollNo OrderNo FilmType Thickness Width ID OD Length Net Gross
+        const m = line.match(/^(\d{5,})\s+([0-9./-]+)\s+([A-Z0-9._-]+)\s+(\d+(?:[.,]\d+)?)\s+(\d{3,4}|\d{1,2}\s?\d{3})\s+(\d{2,4})\s+(\d{2,4})\s+(\d{3,6}|\d{1,3}\s?\d{3})\s+([\d.,]+)\s+([\d.,]+)/i);
         if (!m) continue;
-        const rollNo = m[1];
-        const orderNo = m[2];
-        const oznaka = m[3];
-        const debljina = parseNumSmart(m[4]);
-        const sirina = parseNumSmart(m[5]);
-        const inner = parseNumSmart(m[6]);
-        const outer = parseNumSmart(m[7]);
-        const duzina = parseNumSmart(m[8]);
-        const kg = parseNumSmart(m[9]);
-        const kgBruto = parseNumSmart(m[10]);
-        rows.push({ br_rolne: rollNo, qr: rollNo, vrsta, pod_vrsta: "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Plastchim-T", debljina, sirina, duzina, kg, kg_bruto: kgBruto, lot: orderNo, palet: pallet, hilzna_mm: inner, spoljasnji_precnik_mm: outer, datum: date });
+        rows.push(makeRollRow({
+            br_rolne: m[1], qr: m[1], vrsta,
+            pod_vrsta: product.trim(),
+            oznaka_materijala: m[3], komercijalnaOznaka: m[3], proizvodjac: "Plastchim-T",
+            debljina: parseNumSmart(m[4]), sirina: parseNumSmart(m[5]), duzina: parseNumSmart(m[8]),
+            kg: parseNumSmart(m[9]), kg_bruto: parseNumSmart(m[10]), lot: m[2], palet: pallet,
+            hilzna_mm: parseNumSmart(m[6]), spoljasnji_precnik_mm: parseNumSmart(m[7]), datum: date,
+        }));
     }
     return rows;
 }
 function parseTaghleefPacking(text = "") {
     const rows = [];
-    const date = (text.match(/Date:\s*([0-9.]+)/i) || [])[1] || "";
-    const flat = String(text).replace(/\s+/g, " ");
-    const re = /(\d{9})\s+(\d{12,})\s+([A-Z0-9\s]+?)\s+(\d+(?:,\d+)?)\s+(\d{4,6})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d{2}\.\d{2}\.\d{4})/g;
+    const src = String(text || "");
+    const docDate = normalizeDateText((src.match(/Document\s+no:\s*Date:[\s\S]*?(\d{2}\.\d{2}\.\d{4})/i) || src.match(/\b(\d{2}\.\d{2}\.\d{4})\b/) || [])[1] || "");
+    const flat = src.replace(/\s+/g, " ");
+    const re = /(\d{8,10})\s+(\d{10,15})\s+([A-Z][A-Z0-9\s._-]*?)\s+(\d+(?:[,.]\d+)?)\s+(\d{4,6})\s+(\d{2,4})\s+(\d{2,4})\s+(\d+)\s+(\d{2}\.\d{2}\.\d{4})/g;
     let m;
     while ((m = re.exec(flat))) {
         const palletNo = m[1];
         const reelCode = m[2];
-        const item = m[3].trim();
-        const kg = parseNumSmart(m[4]);
-        const duzina = parseNumSmart(m[5]);
-        const inner = parseNumSmart(m[6]);
-        const outer = parseNumSmart(m[7]);
-        const prodDate = m[9];
-        const tokens = item.split(/\s+/);
-        let sirina = 0, debljina = 0;
-        for (let i = tokens.length - 1; i >= 1; i--) {
-            if (/^\d{3,4}$/.test(tokens[i])) { sirina = parseNumSmart(tokens[i]); debljina = parseNumSmart(tokens[i - 1]); break; }
+        const item = m[3].trim().replace(/\s+TO$/i, "");
+        const tokens = item.split(/\s+/).filter(Boolean);
+        let debljina = 0, sirina = 0;
+        for (let i = 0; i < tokens.length - 1; i++) {
+            if (/^\d{1,3}$/.test(tokens[i]) && /^\d{3,4}$/.test(tokens[i + 1])) {
+                debljina = parseNumSmart(tokens[i]);
+                sirina = parseNumSmart(tokens[i + 1]);
+            }
         }
-        const oznaka = tokens.filter(t => !/^\d+$/.test(t) && t !== "TO").join(" ") || "Taghleef";
-        rows.push({ br_rolne: palletNo, qr: palletNo, vrsta: detectVrstaFromText(item, "BOPP"), pod_vrsta: tokens[1] || "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Taghleef", debljina, sirina, duzina, kg, lot: reelCode, palet: palletNo, hilzna_mm: inner, spoljasnji_precnik_mm: outer, datum, datum_proizvodnje: prodDate });
+        const oznaka = item.replace(/\b\d{1,3}\s+\d{3,4}\b/g, "").replace(/\s+/g, " ").trim() || "Taghleef";
+        rows.push(makeRollRow({
+            br_rolne: palletNo, qr: palletNo, vrsta: detectVrstaFromText(item, "BOPP"),
+            pod_vrsta: tokens[1] || "", oznaka_materijala: oznaka, komercijalnaOznaka: oznaka,
+            proizvodjac: "Taghleef", debljina, sirina, kg: parseNumSmart(m[4]), duzina: parseNumSmart(m[5]),
+            lot: reelCode, palet: palletNo, hilzna_mm: parseNumSmart(m[6]), spoljasnji_precnik_mm: parseNumSmart(m[7]),
+            datum: docDate, datum_proizvodnje: normalizeDateText(m[9]),
+        }));
     }
     return rows;
 }
 function parseInterGradexPacking(text = "") {
     const rows = [];
-    const date = (text.match(/Datum:\s*([0-9.]+)/i) || [])[1] || "";
+    const src = String(text || "");
+    const date = normalizeDateText((src.match(/Datum\s*[:\-]?\s*([0-9./-]+)/i) || [])[1] || "");
     let current = null;
-    for (const rawLine of String(text).split(/\r?\n/)) {
+    for (const rawLine of src.split(/\r?\n/)) {
         const line = rawLine.trim().replace(/\s+/g, " ");
-        const header = line.match(/^\d{4}\s+(.+?)\s+[\d.,]+\s*Kg$/i);
+        const header = line.match(/^\d{3,5}\s+(.+?)\s+[\d.,]+\s*Kg/i) || line.match(/^(.*FILM.*?\d{3,4}\s*[Xx]\s*\d+(?:[.,]\d+)?).*$/i);
         if (header) {
             const desc = header[1];
             const dim = desc.match(/(\d{3,4})\s*[Xx]\s*(\d+(?:[.,]\d+)?)/);
             const vrsta = detectVrstaFromText(desc, "");
-            const oznaka = (desc.match(/FILM\s+([A-Z0-9\s-]+?)\s*-?\s*\d{3,4}\s*[Xx]/i) || [])[1]?.trim() || vrsta;
-            current = { vrsta, oznaka_materijala: cleanOznaka(oznaka, vrsta), sirina: dim ? parseNumSmart(dim[1]) : 0, debljina: dim ? parseNumSmart(dim[2]) : 0 };
+            const oznaka = (desc.match(/FILM\s+(.+?)\s*-?\s*\d{3,4}\s*[Xx]/i) || [])[1]?.trim() || vrsta;
+            current = { vrsta, oznaka_materijala: cleanOznaka(oznaka, vrsta), komercijalnaOznaka: cleanOznaka(oznaka, vrsta), sirina: dim ? parseNumSmart(dim[1]) : 0, debljina: dim ? parseNumSmart(dim[2]) : 0 };
             continue;
         }
-        const r = line.match(/^0*(\d{6,})\s+([\d.,]+)\s*Kg\s+(\S+)\s+(.+)$/i);
+        const r = line.match(/^0*(\d{5,})\s+([\d.,]+)\s*Kg\s+(\S+)\s*(.*)$/i);
         if (r && current) {
             const kg = parseNumSmart(r[2]);
-            const duzina = current.sirina && current.debljina ? calcMetersFromKgFallback({ kg, sirina: current.sirina, debljina: current.debljina, vrsta: current.vrsta }) : 0;
-            rows.push({ br_rolne: r[1], qr: r[1], ...current, komercijalnaOznaka: current.oznaka_materijala, proizvodjac: "Inter Gradex", kg, duzina, lot: r[3], datum });
+            rows.push(makeRollRow({ br_rolne: r[1], qr: r[1], ...current, proizvodjac: "Inter Gradex", kg, lot: r[3], datum: date }));
         }
     }
     return rows;
 }
 function parseRossellaPacking(text = "") {
     const rows = [];
-    const date = (text.match(/1\/\s*704\s*([0-9/]+)/i) || text.match(/(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
-    const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const src = String(text || "");
+    const date = normalizeDateText((src.match(/1\/\s*704\s*([0-9/.-]+)/i) || src.match(/(\d{2}[./]\d{2}[./]\d{4})/) || [])[1] || "");
+    const lines = src.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     let gross = 0, net = 0, pallet = "", sch = "";
     for (const line of lines) {
-        const g = line.match(/Gross wt\. Kg:\s*([\d.]+)\s+Net wt\. Kg:\s*([\d.]+)/i);
+        const g = line.match(/Gross\s*wt\.?\s*Kg\s*[:\-]?\s*([\d.,]+)\s+Net\s*wt\.?\s*Kg\s*[:\-]?\s*([\d.,]+)/i);
         if (g) { gross = parseNumSmart(g[1]); net = parseNumSmart(g[2]); continue; }
-        const p = line.match(/Pallet\s*:\s*(\d+).*?Sch\.:\s*([^\s]+)/i);
+        const p = line.match(/Pallet\s*[:\-]?\s*(\d+).*?Sch\.?\s*[:\-]?\s*([^\s]+)/i);
         if (p) { pallet = p[1]; sch = p[2]; continue; }
-        if (/CLAY COATED/i.test(line)) {
-            const mm = line.match(/(\d{2,3})g\s*-\s*(\d{3,4})mm/i);
-            const len = line.match(/U\d+\/\d+\s+1\s+([\d.]+)/i) || line.match(/\s1\s+([\d.]+)\s+[\d.,]+\s+[\d.,]+\s+[\d.]+$/);
-            const debljina = mm ? parseNumSmart(mm[1]) : 0;
-            const sirina = mm ? parseNumSmart(mm[2]) : 0;
+        if (/CLAY COATED|KRAFT|PAPER|PAPIR/i.test(line)) {
+            const mm = line.match(/(\d{2,3})\s*g\s*-\s*(\d{3,4})\s*mm/i) || line.match(/(\d{3,4})\s*mm.*?(\d{2,3})\s*g/i);
+            const gsm = mm ? (parseNumSmart(mm[1]) < 200 ? parseNumSmart(mm[1]) : parseNumSmart(mm[2])) : 0;
+            const sirina = mm ? (parseNumSmart(mm[1]) >= 200 ? parseNumSmart(mm[1]) : parseNumSmart(mm[2])) : 0;
+            const len = line.match(/U\d+\/\d+\s+1\s+([\d.,]+)/i) || line.match(/\s1\s+([\d.,]+)\s+[\d.,]+\s+[\d.,]+\s+[\d.,]+$/);
             const duzina = len ? parseNumSmart(len[1]) : 0;
-            if (pallet && sirina && (duzina || net)) {
-                rows.push({ br_rolne: String(pallet), qr: String(pallet), vrsta: "PAPIR", pod_vrsta: "Clay coated white", oznaka_materijala: `CC White ${debljina}g`, komercijalnaOznaka: `CC White ${debljina}g`, proizvodjac: "Rossella", debljina: 0, gsm: debljina, sirina, duzina, kg: net, kg_bruto: gross, lot: sch, palet: pallet, datum });
+            if ((pallet || sch) && sirina && (duzina || net)) {
+                rows.push(makeRollRow({
+                    br_rolne: String(pallet || sch), qr: String(pallet || sch), vrsta: "PAPIR", pod_vrsta: "Clay coated white",
+                    oznaka_materijala: `CC White ${gsm}g`, komercijalnaOznaka: `CC White ${gsm}g`, proizvodjac: "Rossella",
+                    debljina: 0, gsm, sirina, duzina, kg: net, kg_bruto: gross, lot: sch, palet: pallet, datum,
+                }));
             }
         }
     }
@@ -381,12 +431,21 @@ function parseRossellaPacking(text = "") {
 function parseUniversalPackingText(text = "") {
     const t = String(text || "");
     let rows = [];
-    if (/PLASTCHIM|Packing list Date|Film Type Thikness/i.test(t)) rows = parsePlastchimPacking(t);
-    else if (/Taghleef|CSOMAGLISTA|NATIVIA/i.test(t)) rows = parseTaghleefPacking(t);
-    else if (/Inter Gradex|LISTA PAKOV/i.test(t)) rows = parseInterGradexPacking(t);
-    else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) rows = parseRossellaPacking(t);
+    if (/PLASTCHIM|Packing\s*list\s*Date|Film\s*Type\s*Thick/i.test(t)) rows = parsePlastchimPacking(t);
+    else if (/Taghleef|CSOMAGLISTA|NATIVIA|TI\s+H\s+EU/i.test(t)) rows = parseTaghleefPacking(t);
+    else if (/Inter\s*Gradex|LISTA\s+PAKOV/i.test(t)) rows = parseInterGradexPacking(t);
+    else if (/Rossella|Shipping\s+Packing\s+List|CLAY\s+COATED/i.test(t)) rows = parseRossellaPacking(t);
     if (!rows.length) rows = parsePackingText(t);
-    return rows.map(normalizePackingRow).map((r, i) => ({ ...r, br_rolne: r.br_rolne || r.qr || r.roll_no || makeId("ROLNA"), qr: r.qr || r.br_rolne || r.roll_no || makeId("ROLNA") }));
+    const seen = new Set();
+    return rows
+        .map(makeRollRow)
+        .filter((r) => r.br_rolne || r.qr || r.sirina || r.duzina || r.kg)
+        .filter((r) => {
+            const key = `${r.br_rolne || r.qr}-${r.sirina}-${r.duzina}-${r.kg}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
 }
 function loadPdfJsGlobal() {
     return new Promise((resolve, reject) => {
@@ -679,41 +738,38 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!roll?.id) throw new Error("Nedostaje ID rolne za upis u magacin.");
 
         const payload = { updated_at: new Date().toISOString() };
-        const hasMeters = Object.prototype.hasOwnProperty.call(updates, "meters");
-        const hasKg = Object.prototype.hasOwnProperty.call(updates, "kg");
-        const hasLocation = Object.prototype.hasOwnProperty.call(updates, "location");
-        const hasStatus = Object.prototype.hasOwnProperty.call(updates, "status");
-        const hasNapomena = Object.prototype.hasOwnProperty.call(updates, "napomena");
-
-        if (hasMeters) {
+        if (Object.prototype.hasOwnProperty.call(updates, "meters")) {
             const m = number(updates.meters);
             payload.metraza_ost = m;
+            // U ovom sistemu metraza i metraza_ost moraju ostati iste kao trenutno stanje.
             payload.metraza = m;
         }
-        if (hasKg) payload.kg_neto = round2(updates.kg);
-        if (hasLocation) payload.lokacija = String(updates.location || "").trim() || null;
-        if (hasStatus) payload.status = toDbStatus(updates.status || "Na stanju");
-        if (hasNapomena) payload.napomena = updates.napomena || null;
-        if (updates.popis) payload.datum_poslednjeg_popisa = new Date().toISOString();
+        if (Object.prototype.hasOwnProperty.call(updates, "kg")) {
+            payload.kg_neto = round2(updates.kg);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, "location")) {
+            payload.lokacija = String(updates.location || "").trim() || null;
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, "status")) {
+            payload.status = toDbStatus(updates.status || "Na stanju");
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, "napomena")) {
+            payload.napomena = updates.napomena || null;
+        }
+        if (updates.popis) {
+            payload.datum_poslednjeg_popisa = new Date().toISOString();
+        }
 
         if (!supabase?.__localDemo) {
-            // JEDAN IZVOR ISTINE: sve izmene sa telefona i desktopa idu kroz SECURITY DEFINER RPC.
-            // Ovo rešava slučaj gde RLS dozvoli čitanje, ali update sa telefona ne promeni red.
-            const { data, error } = await supabase.rpc("azuriraj_stanje_rolne", {
-                p_rolna_id: Number(roll.id),
-                p_metraza: hasMeters ? number(updates.meters) : null,
-                p_kg_neto: hasKg ? round2(updates.kg) : null,
-                p_lokacija: hasLocation ? String(updates.location || "").trim() : null,
-                p_status: hasStatus ? toDbStatus(updates.status || "Na stanju") : null,
-                p_napomena: hasNapomena ? (updates.napomena || null) : null,
-                p_popis: !!updates.popis,
-            });
+            const { data, error } = await supabase
+                .from("magacin")
+                .update(payload)
+                .eq("id", roll.id)
+                .select("*")
+                .single();
             if (error) throw error;
-
-            const row = Array.isArray(data) ? data[0] : data;
-            if (!row) throw new Error("Supabase nije vratio ažuriranu rolnu. Proveri RPC azuriraj_stanje_rolne i RLS dozvole.");
-
-            const fresh = mapDbRollToEngine(row);
+            if (!data) throw new Error("Supabase nije vratio ažuriranu rolnu.");
+            const fresh = mapDbRollToEngine(data);
             setRolne((prev) => prev.map((r) => String(r.id) === String(fresh.id) || String(r.qr) === String(fresh.qr) ? fresh : r));
             if (povratRoll?.id && String(povratRoll.id) === String(fresh.id)) setPovratRoll(fresh);
             if (popisRoll?.id && String(popisRoll.id) === String(fresh.id)) setPopisRoll(fresh);
