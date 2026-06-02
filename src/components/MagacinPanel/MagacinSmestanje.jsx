@@ -30,7 +30,7 @@ export default function MagacinSmestanje({ proizvod, magacioner, onBack }) {
 
         try {
             setLoading(true);
-            await smestiProizvod(proizvod.id, sektor, parseInt(red), parseInt(polica));
+            await smestiProizvod(proizvod.id, sektor, parseInt(red), parseInt(polica), magacioner?.id || null, `${magacioner?.ime || ''} ${magacioner?.prezime || ''}`.trim() || 'Magacioner');
             alert(`✅ Proizvod smešten na: ${finalnaLokacija}`);
             onBack();
         } catch (err) {

@@ -314,7 +314,7 @@ export const getMagacinCekaLista = async () => {
  * Smesti proizvod u magacin
  */
 export const smestiProizvod = async (proizvodId, sektor, red, polica, radnikId, radnikIme, napomena = null) => {
-    const lokacija = `${red}-${polica}`; // npr. B2-3
+    const lokacija = `${sektor}${red}-${polica}`; // npr. B2-3
     const datumSmestanja = new Date().toISOString();
 
     // Dobij proizvod
@@ -387,7 +387,7 @@ export const getMagacinSviProizvodi = async () => {
  * Promeni lokaciju proizvoda
  */
 export const promeniLokaciju = async (proizvodId, noviSektor, noviRed, novaPolica, radnikIme, razlog) => {
-    const novaLokacija = `${noviRed}-${novaPolica}`;
+    const novaLokacija = `${noviSektor}${noviRed}-${novaPolica}`;
     const datum = new Date().toISOString();
 
     // Dobij proizvod

@@ -1,0 +1,18 @@
+MAROPACK - OneDrive backup plan
+
+OneDrive backup ne treba raditi iz React browser aplikacije jer bi Microsoft/Service ključevi bili izloženi korisnicima.
+Ispravno rešenje je jedno od ova dva:
+
+1) Power Automate cloud flow
+- Schedule: svaki dan u 23:00
+- Action: HTTP call prema Vercel API ruti /api/backup-magacin
+- Action: Create file u OneDrive folderu /MAROPACK_BACKUP/magacin/YYYY-MM-DD.json
+
+2) Vercel Cron + Microsoft Graph
+- Vercel Cron poziva /api/backup-magacin u 23:00
+- API ruta čita Supabase backup podatke server-side
+- API ruta upisuje JSON u OneDrive preko Microsoft Graph API tokena
+
+Preporuka za sada:
+- U aplikaciji ostaviti samo ručni backup/reset za admina.
+- Automatski OneDrive backup raditi server-side, ne u frontendu.

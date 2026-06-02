@@ -41,7 +41,7 @@ export default function MagacinPromenaLokacije({ proizvod, onBack }) {
 
         try {
             setLoading(true);
-            await promeniLokaciju(proizvod.id, noviSektor, parseInt(noviRed), parseInt(novaPolica), razlog);
+            await promeniLokaciju(proizvod.id, noviSektor, parseInt(noviRed), parseInt(novaPolica), 'Magacioner', razlog);
             alert(`✅ Lokacija promenjena na: ${novaLokacija}`);
             onBack();
         } catch (err) {
