@@ -957,21 +957,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     function estimateKgForMeters(roll, meters) {
         const sirina = number(roll?.sirina || 0);
         const gsm = number(roll?.gsm || (number(roll?.debljina || roll?.deb || 0) * 0.91));
-        if (!sirina || !meters || !gsm) return proportionalKgForMeters(roll, meters);
+        if (!sirina || !meters || !gsm) return number(roll?.kg || roll?.kg_neto || 0);
         return Math.round((sirina * meters * gsm / 1000000) * 100) / 100;
-    }
-
-    function proportionalKgForMeters(roll, meters) {
-        const oldM = number(roll?.metraza_ost ?? roll?.duzina ?? roll?.metraza ?? 0);
-        const oldKg = number(roll?.kg_neto ?? roll?.kg ?? roll?.kg_bruto ?? 0);
-        if (!oldM || !oldKg) return 0;
-        return Math.round((oldKg * number(meters) / oldM) * 100) / 100;
-    }
-
-    function calculatedKgForNewMeters(roll, meters) {
-        const materialKg = estimateKgForMeters(roll, meters);
-        if (materialKg > 0) return materialKg;
-        return proportionalKgForMeters(roll, meters);
     }
 
     async function findPovratRoll() {
@@ -988,7 +975,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!povratRoll) { msg?.("Prvo pronađi rolnu", "err"); return; }
         const meters = estimateMetersFromDiameter(povratRoll, effectiveForm.spoljasnjiPrecnik, effectiveForm.hilzna);
         if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
-        const kg = calculatedKgForNewMeters(povratRoll, meters);
+        const kg = estimateKgForMeters(povratRoll, meters);
         const novaLokacija = effectiveForm.lokacija || povratRoll.lokacija || "Magacin";
 
         try {
@@ -997,7 +984,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     p_rolna_id: Number(povratRoll.id),
                     p_nova_metraza: meters,
                     p_nova_lokacija: novaLokacija,
-                    p_kg_neto: kg,
                 });
                 if (error) throw error;
 
@@ -1307,6 +1293,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 setPopisRoll(updatedRoll);
                 setPopisForm((f) => ({ ...f, lokacija: location }));
             }
+            await reload();
             msg?.(`Lokacija rolne ${targetRoll.qr || targetRoll.br_rolne} promenjena na ${location}`);
         } catch (e) {
             console.error(e);
@@ -1394,8 +1381,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
     async function confirmInventoryCount() {
         if (!popisRoll) { msg?.("Prvo skeniraj/pronađi rolnu", "err"); return; }
+        const gsm = number(popisRoll.gsm);
         const m = number(popisForm.duzina);
-        const kg = calculatedKgForNewMeters(popisRoll, m);
+        const kg = number(popisForm.kg) || kgFromMeters({ sirinaMm: popisRoll.sirina, duzinaM: m, gsm });
         const qr = String(popisRoll.qr || "");
         const countedRow = {
             qr,
@@ -1425,14 +1413,15 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         } : r);
         try {
             if (!supabase?.__localDemo && popisRoll.id) {
-                const { error } = await supabase.rpc("popis_rolne_magacin", {
-                    p_rolna_id: Number(popisRoll.id),
-                    p_metraza: m,
-                    p_kg_neto: kg,
-                    p_lokacija: updatedLokacija,
-                    p_napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
-                });
-                if (error) throw error;
+                await supabase.from("magacin").update({
+                    metraza: m,
+                    metraza_ost: m,
+                    kg_neto: kg,
+                    lokacija: updatedLokacija,
+                    datum_poslednjeg_popisa: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
+                }).eq("id", popisRoll.id);
             }
         } catch (e) {
             console.error(e);
@@ -1448,7 +1437,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         safeWrite(LS_ROLNE, next); safeWrite(LS_HISTORY, hist); setRolne(next); setHistory(hist);
         setPopisScanned((prev) => ({ ...prev, [qr]: countedRow }));
         setPopisQr(""); setPopisRoll(null); setPopisForm({ duzina: "", kg: "", lokacija: "" });
-        await reload();
         msg?.("Popis rolne potvrđen i stanje ažurirano.");
     }
 
@@ -2003,6 +1991,13 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
         setLocalForm(povratForm || { hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
     }, [povratRoll?.id]);
 
+    // Kada se lokacija očita QR kodom, parent komponenta promeni povratForm.lokacija.
+    // Ne sme da se resetuje ceo obrazac, jer bi obrisalo unet prečnik/hilznu; menja se samo lokacija.
+    React.useEffect(() => {
+        if (!povratForm?.lokacija) return;
+        setLocalForm((prev) => ({ ...prev, lokacija: povratForm.lokacija }));
+    }, [povratForm?.lokacija]);
+
     function updateLocal(patch) { setLocalForm((prev) => ({ ...prev, ...patch })); }
     function syncLocal() { setPovratForm(localForm); }
 
@@ -2022,7 +2017,7 @@ function PovratTab({ card, input, btn, lbl, povratQr, setPovratQr, findPovratRol
                     <label><span style={lbl}>Lokacija povrata</span><input style={input} value={localForm.lokacija} onChange={(e) => updateLocal({ lokacija: e.target.value })} onBlur={syncLocal} placeholder="npr. B-01-C-04" /></label>
                     {onOpenLocationScanner && <div style={{ padding: 10, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12 }}><div style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 900, marginBottom: 6 }}>QR lokacija: {locationProgressLabel(locationParts)}</div><button onClick={() => { syncLocal(); onOpenLocationScanner(); }} style={{ ...btn, background: "#2563eb", color: "#fff", width: "100%" }}>📍 Skeniraj lokaciju povrata</button></div>}
                     <label><span style={lbl}>Napomena</span><input style={input} value={localForm.napomena} onChange={(e) => updateLocal({ napomena: e.target.value })} onBlur={syncLocal} /></label>
-                    <button onClick={() => confirmReturnToWarehouse(localForm)} disabled={!povratRoll} style={{ ...btn, background: povratRoll ? "#059669" : "#cbd5e1", color: "#fff", padding: 12 }}>Potvrdi povrat i štampaj novu etiketu</button>
+                    <button onClick={() => confirmReturnToWarehouse({ ...localForm, lokacija: povratForm?.lokacija || localForm.lokacija })} disabled={!povratRoll} style={{ ...btn, background: povratRoll ? "#059669" : "#cbd5e1", color: "#fff", padding: 12 }}>Potvrdi povrat i štampaj novu etiketu</button>
                 </div>
             </div>
             <div style={card}>
