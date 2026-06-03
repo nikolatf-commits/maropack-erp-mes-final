@@ -818,6 +818,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
+    const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
@@ -1700,6 +1701,93 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
     }
 
+    function triggerDownload(filename, content, mime) {
+        try {
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            return true;
+        } catch (e) {
+            msg?.("Preuzimanje nije uspelo: " + e.message, "err");
+            return false;
+        }
+    }
+
+    function downloadBackup() {
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        const payload = {
+            app: "Magacin Materijala i Rolni PRO",
+            version: 1,
+            savedAt: new Date().toISOString(),
+            counts: { rolne: rolne.length, materijali: materialMaster.length, istorija: (history || []).length },
+            rolne,
+            materialMaster,
+            materialPrices,
+            history: (history || []).slice(0, 2000),
+        };
+        if (triggerDownload(`magacin-backup-${stamp}.json`, JSON.stringify(payload, null, 2), "application/json")) {
+            msg?.(`Backup napravljen: ${rolne.length} rolni, ${materialMaster.length} materijala (preuzeto kao JSON)`);
+        }
+    }
+
+    function exportStockCsv() {
+        const stamp = new Date().toISOString().slice(0, 10);
+        const headers = ["QR", "Tip", "Vrsta", "Pod vrsta", "Oznaka", "Proizvodjac", "Debljina", "Sirina_mm", "Metara", "Kg", "Lot", "Lokacija", "Status", "Datum proizvodnje", "Napomena"];
+        const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const lines = [headers.join(";")];
+        rolne.forEach((r) => {
+            lines.push([r.qr, r.tip || "", r.vrsta, r.pod_vrsta || "", r.komercijalnaOznaka || r.oznaka_materijala || rollOznaka(r), r.proizvodjac || "", r.debljina || r.deb || "", r.sirina || "", r.duzina || "", r.kg || "", r.lot || "", r.lokacija || "", r.status || "", r.datum_proizvodnje || "", (r.napomena || "").replace(/\r?\n/g, " ")].map(esc).join(";"));
+        });
+        const csv = "\uFEFF" + lines.join("\r\n"); // BOM za Excel ćirilicu/latinicu
+        if (triggerDownload(`stanje-rolni-${stamp}.csv`, csv, "text/csv;charset=utf-8")) {
+            msg?.(`CSV stanja napravljen: ${rolne.length} rolni`);
+        }
+    }
+
+    // ADMIN: brisanje rolni — dozvoljeno samo za rolne SA STANJA ("Na stanju").
+    async function deleteRoll(r) {
+        if (!adminMode) { msg?.("Brisanje je dostupno samo u admin režimu.", "err"); return; }
+        if (normalizeStatus(r.status) !== "dostupna") { msg?.("Brisati se mogu samo rolne sa stanja (Na stanju).", "err"); return; }
+        if (!confirm(`Trajno obrisati rolnu ${r.qr} iz magacina? Ovo se ne može poništiti.`)) return;
+        try {
+            if (!supabase.__localDemo && r.id != null) {
+                const { error } = await supabase.from("magacin").delete().eq("id", r.id);
+                if (error) throw error;
+            }
+        } catch (e) { msg?.("Brisanje u Supabase nije uspelo: " + e.message, "err"); return; }
+        setRolne((prev) => prev.filter((x) => !(String(x.id) === String(r.id) || x.qr === r.qr)));
+        setSelectedRolls((prev) => prev.filter((q) => q !== r.qr));
+        msg?.(`Rolna ${r.qr} obrisana sa stanja.`);
+        if (!supabase.__localDemo) reload();
+    }
+
+    async function deleteAllStockRolls() {
+        if (!adminMode) { msg?.("Brisanje je dostupno samo u admin režimu.", "err"); return; }
+        const onStock = rolne.filter((r) => normalizeStatus(r.status) === "dostupna");
+        if (!onStock.length) { msg?.("Nema rolni sa stanja za brisanje.", "err"); return; }
+        if (!confirm(`Obrisati SVE rolne sa stanja (${onStock.length})? Rezervisane i iskorišćene se NE diraju.`)) return;
+        if (!confirm(`Poslednja potvrda: trajno brisanje ${onStock.length} rolni sa stanja. Sigurno?`)) return;
+        let okCount = onStock.length;
+        try {
+            if (!supabase.__localDemo) {
+                const ids = onStock.map((r) => r.id).filter((x) => x != null);
+                if (ids.length) {
+                    const { error } = await supabase.from("magacin").delete().in("id", ids);
+                    if (error) throw error;
+                }
+                okCount = ids.length;
+            }
+        } catch (e) { msg?.("Grupno brisanje nije uspelo: " + e.message, "err"); return; }
+        const qrs = new Set(onStock.map((r) => r.qr));
+        setRolne((prev) => prev.filter((r) => !qrs.has(r.qr)));
+        setSelectedRolls((prev) => prev.filter((q) => !qrs.has(q)));
+        msg?.(`Obrisano ${okCount} rolni sa stanja.`);
+        if (!supabase.__localDemo) reload();
+    }
+
     async function resetWarehouseTestData() {
         const first = confirm("RESET MAGACINA briše test rolne i zavisne zapise iz magacina. Pre brisanja pravi backup snapshot. Nastaviti?");
         if (!first) return;
@@ -2317,6 +2405,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Osveži</button>
+                    <button onClick={downloadBackup} style={{ ...btn, background: "#dcfce7", color: "#065f46" }}>⬇️ Backup (JSON)</button>
+                    <button onClick={exportStockCsv} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>⬇️ CSV stanja</button>
+                    <button onClick={() => { if (adminMode) { setAdminMode(false); } else if (confirm("Uključiti admin režim? Omogućava trajno brisanje rolni sa stanja.")) setAdminMode(true); }} style={{ ...btn, background: adminMode ? "#fde68a" : "#f1f5f9", color: adminMode ? "#92400e" : "#334155" }}>{adminMode ? "🔓 Admin: uključen" : "🔒 Admin"}</button>
                     <button onClick={resetWarehouseTestData} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Reset test podataka</button>
                 </div>
             </div>
@@ -2503,6 +2594,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <button onClick={selectAllFiltered} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>Izaberi filtrirane</button>
                             <button onClick={clearSelection} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Poništi izbor</button>
                             <button onClick={openBulkLabels} style={{ ...btn, background: "#059669", color: "#fff" }}>🖨️ Štampaj izabrane QR etikete</button>
+                            {adminMode && <button onClick={deleteAllStockRolls} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši sve sa stanja</button>}
                             <input style={{ ...input, maxWidth: 390 }} placeholder="Globalna pretraga..." value={filter} onChange={(e) => setFilter(e.target.value)} />
                         </div>
                     </div>
@@ -2531,7 +2623,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
-                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button></div></td>
+                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
