@@ -822,6 +822,16 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
     // Nema duplog ručnog kucanja: VRSTA -> OZNAKA -> DEBLJINA -> auto koef/gm2/naziv.
     const [materialPick, setMaterialPick] = useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", cenaKg: "", koeficijent: "", napomena: "" });
+    // Kaširana (spojena) rolna — 2-4 sloja, svaki iz iste Material master baze.
+    const [layers, setLayers] = useState([
+        { vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20 },
+        { vrsta: "PE", pod_vrsta: "", oznaka: "", debljina: 50 },
+        { vrsta: "ALU", pod_vrsta: "", oznaka: "", debljina: 7 },
+        { vrsta: "PET", pod_vrsta: "", oznaka: "PET HS", debljina: 12 },
+    ]);
+    const [layerCount, setLayerCount] = useState(2);
+    const [lepakGsm, setLepakGsm] = useState(2.5);
+    const [compositeCenaKg, setCompositeCenaKg] = useState("");
     const [materialDropdowns, setMaterialDropdowns] = useState(FALLBACK_MATERIAL_DROPDOWNS);
     const [materialMaster, setMaterialMaster] = useState([]);
     const [materialPrices, setMaterialPrices] = useState({});
@@ -1380,6 +1390,98 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             console.error(e);
             msg?.("Deaktivacija nije uspela: " + (e?.message || e), "err");
         }
+    }
+
+    // ===== KAŠIRANO (spoj 2–4 sloja) — koristi iste Material master liste kao ručni unos =====
+    const [kasiranoLayers, setKasiranoLayers] = useState([
+        { vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20 },
+        { vrsta: "PE", pod_vrsta: "", oznaka: "", debljina: 50 },
+    ]);
+    const [kasiranoLepak, setKasiranoLepak] = useState(2.5);
+
+    function kasPodVrste(vrsta) {
+        const rows = materialMaster.filter((x) => x.vrsta === vrsta);
+        const vals = uniqMaterialValues(rows, "pod_vrsta", []);
+        return vals.length ? vals : (materialDropdowns.podVrste || FALLBACK_MATERIAL_DROPDOWNS.podVrste);
+    }
+    function kasOznake(vrsta, pod) {
+        const rows = materialMaster.filter((x) => x.vrsta === vrsta && (!pod || x.pod_vrsta === pod));
+        const vals = uniqMaterialValues(rows, "oznaka", []);
+        return vals.length ? vals : (materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake);
+    }
+    function kasDebljine(vrsta, pod, oznaka) {
+        const rows = materialMaster.filter((x) => x.vrsta === vrsta && (!pod || x.pod_vrsta === pod) && (!oznaka || x.oznaka === oznaka));
+        const vals = uniqSorted(rows.map((x) => Number(x.debljina)).filter((x) => Number.isFinite(x)), []);
+        return vals.length ? vals : (materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine);
+    }
+    function kasLayerMaster(l) {
+        return materialMaster.find((x) => x.vrsta === l.vrsta && x.pod_vrsta === l.pod_vrsta && x.oznaka === l.oznaka && Number(x.debljina) === Number(l.debljina)) || null;
+    }
+    function kasLayerGsm(l) {
+        const m = kasLayerMaster(l);
+        const koef = number(m?.koeficijent) || mmKoeficijent(l.vrsta) || 0;
+        if (String(l.vrsta).toUpperCase() === "PAPIR") return number(l.debljina);
+        return number(m?.gsm) || round2(number(l.debljina) * koef);
+    }
+    function setKasLayer(i, patch) { setKasiranoLayers((prev) => prev.map((l, idx) => idx === i ? { ...l, ...patch } : l)); }
+    function addKasLayer() { setKasiranoLayers((prev) => prev.length >= 4 ? prev : [...prev, { vrsta: masterVrste[0] || "PE", pod_vrsta: "", oznaka: "", debljina: "" }]); }
+    function removeKasLayer(i) { setKasiranoLayers((prev) => prev.length <= 2 ? prev : prev.filter((_, idx) => idx !== i)); }
+
+    const compositeGsm = useMemo(() => {
+        const layerSum = kasiranoLayers.reduce((s, l) => s + kasLayerGsm(l), 0);
+        const bonds = Math.max(0, kasiranoLayers.length - 1);
+        return round2(layerSum + number(kasiranoLepak) * bonds);
+    }, [kasiranoLayers, kasiranoLepak, materialMaster]);
+    const compositeDebljina = useMemo(() => round2(kasiranoLayers.reduce((s, l) => s + number(l.debljina), 0)), [kasiranoLayers]);
+    const compositeName = useMemo(() => kasiranoLayers.map((l) => [l.vrsta, l.oznaka, l.debljina ? (String(l.vrsta).toUpperCase() === "PAPIR" ? `${l.debljina}g` : `${l.debljina}µ`) : ""].filter(Boolean).join(" ")).join(" // "), [kasiranoLayers]);
+    const compositeVrste = useMemo(() => kasiranoLayers.map((l) => l.vrsta).filter(Boolean).join(" // "), [kasiranoLayers]);
+    const kasiranoKg = useMemo(() => kgFromMeters({ sirinaMm: form.sirina, duzinaM: form.duzina, gsm: compositeGsm }), [form.sirina, form.duzina, compositeGsm]);
+    const kasiranoM = useMemo(() => metersFromKg({ sirinaMm: form.sirina, kg: form.kg, gsm: compositeGsm }), [form.sirina, form.kg, compositeGsm]);
+    function syncKasirano(next) {
+        const merged = { ...form, ...next };
+        if (calcMode === "m_to_kg") merged.kg = kgFromMeters({ sirinaMm: merged.sirina, duzinaM: merged.duzina, gsm: compositeGsm });
+        else merged.duzina = metersFromKg({ sirinaMm: merged.sirina, kg: merged.kg, gsm: compositeGsm });
+        setForm(merged);
+    }
+
+    async function addCompositeRoll() {
+        if (kasiranoLayers.length < 2) { msg?.("Kaširana rolna mora imati bar 2 sloja", "err"); return; }
+        if (kasiranoLayers.some((l) => !String(l.vrsta || "").trim() || !number(l.debljina))) { msg?.("Svaki sloj mora imati vrstu i debljinu/gramaturu", "err"); return; }
+        if (!number(form.sirina)) { msg?.("Unesi širinu rolne", "err"); return; }
+        const finalKg = calcMode === "m_to_kg" ? kasiranoKg : number(form.kg);
+        const finalM = calcMode === "kg_to_m" ? kasiranoM : number(form.duzina);
+        if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
+        const brRolne = makeId("ROLNA");
+        const slojeviTxt = kasiranoLayers.map((l, i) => `${i + 1}) Vrsta: ${l.vrsta} | Pod vrsta: ${l.pod_vrsta || "—"} | Oznaka: ${l.oznaka || "—"} | ${l.debljina}${String(l.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"} = ${fmt(kasLayerGsm(l), 2)} g/m²`).join("  ;  ");
+        const napomenaFull = [form.napomena, `SPOJ ${kasiranoLayers.length} sloja — ${slojeviTxt}  ;  lepak ${kasiranoLepak} g/m² × ${kasiranoLayers.length - 1}  ;  UKUPNO ${fmt(compositeGsm, 2)} g/m², ${fmt(compositeDebljina, 2)} µ`].filter(Boolean).join(" — ");
+        let item = null;
+        try {
+            if (!supabase.__localDemo) {
+                const { data, error } = await supabase.from("magacin").insert({
+                    br_rolne: brRolne, tip: "SPOJ", vrsta: compositeVrste, pod_vrsta: null,
+                    oznaka_materijala: compositeName, deb: compositeDebljina,
+                    sirina: number(form.sirina), metraza: finalM, metraza_ost: finalM,
+                    kg_bruto: finalKg, kg_neto: finalKg, cena_kg: null, vrednost: null,
+                    lot: form.lot || null, dobavljac: null,
+                    datum: new Date().toISOString().slice(0, 10), datum_prijema: new Date().toISOString().slice(0, 10),
+                    datum_proizvodnje: form.datum_proizvodnje || null, status: "Na stanju",
+                    qr_code: brRolne, lokacija: form.lokacija || null, napomena: napomenaFull,
+                }).select("*").single();
+                if (error) throw error;
+                item = mapDbRollToEngine(data);
+            }
+        } catch (e) {
+            msg?.("Supabase upis kaširane rolne nije uspeo, čuvam lokalno: " + e.message, "err");
+        }
+        if (!item) {
+            item = addWarehouseRoll({
+                qr: brRolne, vrsta: compositeVrste, oznaka_materijala: compositeName, materijal: compositeVrste,
+                komercijalnaOznaka: compositeName, debljina: compositeDebljina, gsm: compositeGsm,
+                sirina: form.sirina, duzina: finalM, kg: finalKg,
+                lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: napomenaFull, status: "Na stanju",
+            }, "ULAZ U MAGACIN (KAŠIRANO)");
+        }
+        reload(); setLabelRoll(item); msg?.(`Kaširana rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
     }
 
     async function addRoll() {
@@ -2248,6 +2350,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <button onClick={() => setInputMode("rucno")} style={{ ...btn, background: inputMode === "rucno" ? "#0f172a" : "#f8fafc", color: inputMode === "rucno" ? "#fff" : "#334155" }}>Ručni unos</button>
                             <button onClick={() => setInputMode("pdf")} style={{ ...btn, background: inputMode === "pdf" ? "#0f172a" : "#f8fafc", color: inputMode === "pdf" ? "#fff" : "#334155" }}>Packing lista PDF</button>
                             <button onClick={() => setInputMode("excel")} style={{ ...btn, background: inputMode === "excel" ? "#0f172a" : "#f8fafc", color: inputMode === "excel" ? "#fff" : "#334155" }}>Packing lista Excel</button>
+                            <button onClick={() => setInputMode("kasirano")} style={{ ...btn, background: inputMode === "kasirano" ? "#0f172a" : "#f8fafc", color: inputMode === "kasirano" ? "#fff" : "#334155" }}>🧩 Kaširana (spoj)</button>
                         </div>
                     </div>
                     {inputMode === "rucno" ? (
@@ -2313,6 +2416,57 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(140px, 1fr))", gap: 10 }}>{[["Vrsta", selectedMat?.vrsta], ["Oznaka materijala", cleanOznaka(selectedMat?.oznaka || materialPick.oznaka || selectedMat?.komercijalnaOznaka, selectedMat?.vrsta)], ["Pod vrsta", form.pod_vrsta || "—"], ["Proizvođač", selectedMat?.proizvodjac || "—"], ["Debljina", selectedMat?.debljina ? `${selectedMat.debljina} µ` : "—"], ["Širina", `${form.sirina || 0} mm`], ["g/m²", fmt(liveGsm, 2)], ["Metara", fmt(calcMode === "kg_to_m" ? calculatedM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? calculatedKg : form.kg, 2)], ["Datum proizvodnje", form.datum_proizvodnje || "—"]].map(([a, b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
                         </div>
 
+                    ) : inputMode === "kasirano" ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
+                            <div style={card}>
+                                <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>🧩 Kaširana (spojena) rolna</div>
+                                <div style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>Spoj 2–4 sloja iz Material master baze. Sastav i ukupni g/m² se računaju automatski; kg ide po zbiru slojeva + lepak.</div>
+                                <datalist id="kas-vrste">{masterVrste.map((v) => <option key={v} value={v} />)}</datalist>
+                                <div style={{ display: "grid", gap: 10 }}>
+                                    {kasiranoLayers.map((l, i) => {
+                                        const podOpts = kasPodVrste(l.vrsta);
+                                        const oznOpts = kasOznake(l.vrsta, l.pod_vrsta);
+                                        const debOpts = kasDebljine(l.vrsta, l.pod_vrsta, l.oznaka);
+                                        return <div key={i} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
+                                                <div style={{ fontWeight: 900 }}>Sloj {i + 1}</div>
+                                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                                    <span style={{ fontSize: 12, color: "#0e7490", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 8, padding: "3px 8px" }}>{fmt(kasLayerGsm(l), 2)} g/m²</span>
+                                                    {kasiranoLayers.length > 2 && <button onClick={() => removeKasLayer(i)} style={{ ...btn, background: "#fee2e2", color: "#991b1b", padding: "4px 10px" }}>Ukloni</button>}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(130px, 1fr))", gap: 8 }}>
+                                                <label><span style={lbl}>Vrsta</span><input style={input} list="kas-vrste" value={l.vrsta} onChange={(e) => setKasLayer(i, { vrsta: e.target.value.toUpperCase(), pod_vrsta: "", oznaka: "" })} /></label>
+                                                <label><span style={lbl}>Pod vrsta</span><input style={input} list={`kas-pod-${i}`} value={l.pod_vrsta || ""} onChange={(e) => setKasLayer(i, { pod_vrsta: e.target.value, oznaka: "" })} /><datalist id={`kas-pod-${i}`}>{podOpts.map((v) => <option key={v} value={v} />)}</datalist></label>
+                                                <label><span style={lbl}>Oznaka</span><input style={input} list={`kas-ozn-${i}`} value={l.oznaka || ""} onChange={(e) => setKasLayer(i, { oznaka: e.target.value })} /><datalist id={`kas-ozn-${i}`}>{oznOpts.map((v) => <option key={v} value={v} />)}</datalist></label>
+                                                <label><span style={lbl}>{String(l.vrsta).toUpperCase() === "PAPIR" ? "Gramatura" : "Debljina µ"}</span><input style={input} type="number" step="0.01" list={`kas-deb-${i}`} value={l.debljina || ""} onChange={(e) => setKasLayer(i, { debljina: Number(e.target.value) })} /><datalist id={`kas-deb-${i}`}>{debOpts.map((d) => <option key={d} value={d} />)}</datalist></label>
+                                            </div>
+                                        </div>;
+                                    })}
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+                                        {kasiranoLayers.length < 4 && <button onClick={addKasLayer} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>+ Dodaj sloj</button>}
+                                        <label style={{ flex: "0 0 220px" }}><span style={lbl}>Lepak g/m² po spoju</span><input style={input} type="number" step="0.1" value={kasiranoLepak} onChange={(e) => setKasiranoLepak(e.target.value)} /></label>
+                                    </div>
+                                    <div style={{ background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 12, padding: 12, fontSize: 13 }}>
+                                        <b>{compositeName || "—"}</b><br />
+                                        Slojeva: {kasiranoLayers.length} ({Math.max(0, kasiranoLayers.length - 1)} spoja) · Ukupna debljina: {fmt(compositeDebljina, 2)} µ · Ukupni g/m²: <b>{fmt(compositeGsm, 2)}</b>
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 10 }}>
+                                        <label><span style={lbl}>Širina rolne mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncKasirano({ sirina: e.target.value })} /></label>
+                                        <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option></select></label>
+                                        <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncKasirano({ duzina: e.target.value })} /></label>
+                                        <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncKasirano({ kg: e.target.value })} /></label>
+                                        <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
+                                        <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
+                                        <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+                                        <label style={{ gridColumn: "1 / -1" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
+                                    </div>
+                                    <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontWeight: 900 }}>Live obračun (spoj)</div><div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>kg = širina(m) × dužina(m) × (Σ g/m² slojeva + lepak) / 1000</div><div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><div><b>{fmt(calcMode === "m_to_kg" ? kasiranoKg : number(form.kg), 2)} kg</b></div><div><b>{fmt(calcMode === "kg_to_m" ? kasiranoM : number(form.duzina), 0)} m</b></div></div></div>
+                                    <button onClick={addCompositeRoll} style={{ ...btn, background: "#059669", color: "#fff", padding: "13px" }}>+ Dodaj kaširanu rolnu i generiši QR</button>
+                                </div>
+                            </div>
+                            <div style={card}><div style={{ fontWeight: 900, marginBottom: 12 }}>Šta se upisuje na rolnu</div><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 10 }}>{[["Vrsta", compositeVrste || "—"], ["Sastav", compositeName || "—"], ["Slojeva", `${kasiranoLayers.length}`], ["Ukupna debljina", `${fmt(compositeDebljina, 2)} µ`], ["Ukupni g/m²", fmt(compositeGsm, 2)], ["Širina", `${form.sirina || 0} mm`], ["Metara", fmt(calcMode === "kg_to_m" ? kasiranoM : form.duzina, 0)], ["Kilograma", fmt(calcMode === "m_to_kg" ? kasiranoKg : form.kg, 2)]].map(([a, b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 900, marginTop: 3 }}>{b}</div></div>)}</div></div>
+                        </div>
                     ) : (
                         <ImportPackingTab {...{ card, input, btn, lbl, packingText, setPackingText, packingRows, setPackingRows, handlePackingFile, parseTextPackingList, importPackingRows, inputMode, materialDropdowns, materialMaster }} />
                     )}
