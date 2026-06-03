@@ -960,7 +960,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.qr || y.id) === String(x.qr || x.id)));
         }
 
-        setRolne(sourceRolls);
+        setRolne(sourceRolls.filter((r) => normalizeStatus(r.status) !== "obrisano"));
         if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
         setHistory(safeRead(LS_HISTORY, []));
         if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
@@ -1751,10 +1751,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     async function deleteRoll(r) {
         if (!adminMode) { msg?.("Brisanje je dostupno samo u admin režimu.", "err"); return; }
         if (normalizeStatus(r.status) !== "dostupna") { msg?.("Brisati se mogu samo rolne sa stanja (Na stanju).", "err"); return; }
-        if (!confirm(`Trajno obrisati rolnu ${r.qr} iz magacina? Ovo se ne može poništiti.`)) return;
+        if (!confirm(`Obrisati rolnu ${r.qr} sa stanja? Rolna se uklanja iz magacina (zadržava se trag zbog MES/popisa).`)) return;
         try {
             if (!supabase.__localDemo && r.id != null) {
-                const { error } = await supabase.from("magacin").delete().eq("id", r.id);
+                const { error } = await supabase.from("magacin").update({ status: "obrisano" }).eq("id", r.id);
                 if (error) throw error;
             }
         } catch (e) { msg?.("Brisanje u Supabase nije uspelo: " + e.message, "err"); return; }
@@ -1769,13 +1769,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const onStock = rolne.filter((r) => normalizeStatus(r.status) === "dostupna");
         if (!onStock.length) { msg?.("Nema rolni sa stanja za brisanje.", "err"); return; }
         if (!confirm(`Obrisati SVE rolne sa stanja (${onStock.length})? Rezervisane i iskorišćene se NE diraju.`)) return;
-        if (!confirm(`Poslednja potvrda: trajno brisanje ${onStock.length} rolni sa stanja. Sigurno?`)) return;
+        if (!confirm(`Poslednja potvrda: uklanjanje ${onStock.length} rolni sa stanja. Sigurno?`)) return;
         let okCount = onStock.length;
         try {
             if (!supabase.__localDemo) {
                 const ids = onStock.map((r) => r.id).filter((x) => x != null);
                 if (ids.length) {
-                    const { error } = await supabase.from("magacin").delete().in("id", ids);
+                    const { error } = await supabase.from("magacin").update({ status: "obrisano" }).in("id", ids);
                     if (error) throw error;
                 }
                 okCount = ids.length;
