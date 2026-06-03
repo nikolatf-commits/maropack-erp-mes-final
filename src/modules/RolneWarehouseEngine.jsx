@@ -817,6 +817,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [matFilter, setMatFilter] = useState("");
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
+    const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
     // V45: Jedini aktivni unos materijala ide preko Material Master logike.
@@ -1222,8 +1223,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     function syncFormByMode(next) {
         const merged = { ...form, ...next };
         if (calcMode === "m_to_kg") merged.kg = kgFromMeters({ sirinaMm: merged.sirina, duzinaM: merged.duzina, gsm: liveGsm });
-        else merged.duzina = metersFromKg({ sirinaMm: merged.sirina, kg: merged.kg, gsm: liveGsm });
+        else if (calcMode === "kg_to_m") merged.duzina = metersFromKg({ sirinaMm: merged.sirina, kg: merged.kg, gsm: liveGsm });
+        else if (calcMode === "precnik") {
+            merged.duzina = estimateMetersFromDiameter({ debljina: number(materialPick.debljina) }, precnikForm.spoljniPrecnik, precnikForm.hilzna);
+            merged.kg = kgFromMeters({ sirinaMm: merged.sirina, duzinaM: merged.duzina, gsm: liveGsm });
+        }
         setForm(merged);
+    }
+    function syncByDiameter(next) {
+        const pf = { ...precnikForm, ...next };
+        setPrecnikForm(pf);
+        const m = estimateMetersFromDiameter({ debljina: number(materialPick.debljina) }, pf.spoljniPrecnik, pf.hilzna);
+        const kg = kgFromMeters({ sirinaMm: form.sirina, duzinaM: m, gsm: liveGsm });
+        setForm((f) => ({ ...f, duzina: m, kg }));
     }
 
     const filteredMaterials = useMemo(() => {
@@ -2198,7 +2210,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div></div>
                 </div>
 
-                {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner: () => openMobileScanner("popis"), onOpenLocationScanner: () => openLocationScanner("popis"), locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
+                {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, estimateKgForMeters, onOpenScanner: () => openMobileScanner("popis"), onOpenLocationScanner: () => openLocationScanner("popis"), locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
                 {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat"), onOpenLocationScanner: () => openLocationScanner("povrat"), locationParts }} />}
                 {activeTab === "unos" && (
                     <div style={card}>
@@ -2209,9 +2221,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value, debljina: "" }))}><option value="">Izaberi oznaku</option>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
                             <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))}><option value="">Izaberi</option>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
                             <label><span style={lbl}>Širina mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
-                            <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option></select></label>
-                            <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
-                            <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
+                            <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option><option value="precnik">📐 Po prečniku (nemam m/kg)</option></select></label>
+                            {calcMode === "precnik" && (<>
+                                <label><span style={lbl}>Spoljni prečnik mm</span><input style={input} type="number" value={precnikForm.spoljniPrecnik} onChange={(e) => syncByDiameter({ spoljniPrecnik: e.target.value })} placeholder="npr. 320" /></label>
+                                <label><span style={lbl}>Hilzna (tulac)</span><select style={input} value={precnikForm.hilzna} onChange={(e) => syncByDiameter({ hilzna: e.target.value })}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                            </>)}
+                            <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
+                            <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
                             <label><span style={lbl}>LOT</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                             <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
@@ -2401,9 +2417,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     </div>
                                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
                                         <label><span style={lbl}>Širina rolne mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
-                                        <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option></select></label>
-                                        <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
-                                        <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
+                                        <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option><option value="precnik">📐 Po prečniku (nemam m/kg)</option></select></label>
+                                        <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
+                                        <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
+                                        {calcMode === "precnik" && (<>
+                                            <label><span style={lbl}>Spoljni prečnik mm</span><input style={input} type="number" value={precnikForm.spoljniPrecnik} onChange={(e) => syncByDiameter({ spoljniPrecnik: e.target.value })} placeholder="npr. 320" /></label>
+                                            <label><span style={lbl}>Hilzna (tulac)</span><select style={input} value={precnikForm.hilzna} onChange={(e) => syncByDiameter({ hilzna: e.target.value })}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                                        </>)}
                                         <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                                         <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
                                         <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
@@ -2698,7 +2718,7 @@ function MobileCameraScanner({ mode, onClose, onScan }) {
 }
 
 
-function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, onOpenScanner, onOpenLocationScanner, locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls = [], popisCountedRows = [], popisMissingRolls = [], popisExtraRows = [] }) {
+function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, estimateKgForMeters, onOpenScanner, onOpenLocationScanner, locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls = [], popisCountedRows = [], popisMissingRolls = [], popisExtraRows = [] }) {
     return <div style={{ display: "grid", gap: 14 }}>
         <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 20, marginBottom: 6 }}>📲 QR popis rolni</div>
@@ -2725,7 +2745,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
                 <div style={{ fontWeight: 950, marginBottom: 10 }}>{popisRoll.qr}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>{[["Materijal", `${popisRoll.vrsta} · ${popisRoll.komercijalnaOznaka || rollOznaka(popisRoll)}`], ["Širina", `${popisRoll.sirina} mm`], ["Knjig. m", fmt(popisRoll.duzina, 0)], ["Knjig. kg", fmt(popisRoll.kg, 2)]].map(([a, b]) => <div key={a} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 900 }}>{a}</div><div style={{ fontWeight: 950 }}>{b}</div></div>)}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                    <label><span style={lbl}>Stvarno metara</span><input style={input} type="number" value={popisForm.duzina} onChange={(e) => setPopisForm({ ...popisForm, duzina: e.target.value })} /></label>
+                    <label><span style={lbl}>Stvarno metara</span><input style={input} type="number" value={popisForm.duzina} onChange={(e) => { const m = e.target.value; setPopisForm({ ...popisForm, duzina: m, kg: Number(m) > 0 ? estimateKgForMeters(popisRoll, Number(m)) : "" }); }} /></label>
                     <label><span style={lbl}>Stvarno kg</span><input style={input} type="number" value={popisForm.kg} onChange={(e) => setPopisForm({ ...popisForm, kg: e.target.value })} /></label>
                     <label><span style={lbl}>Aktuelna lokacija rolne</span><input style={input} value={popisForm.lokacija || ""} onChange={(e) => setPopisForm({ ...popisForm, lokacija: e.target.value })} placeholder="npr. B-01-C-04" /></label>
                 </div>
