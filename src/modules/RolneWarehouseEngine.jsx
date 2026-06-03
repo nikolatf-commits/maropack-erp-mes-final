@@ -2355,6 +2355,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 </div>
             )}
 
+            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns }} />}
+
             {activeTab === "unos" && (
                 <div style={{ display: "grid", gap: 14 }}>
                     <div style={{ ...card, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
