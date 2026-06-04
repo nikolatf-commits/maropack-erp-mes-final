@@ -27,8 +27,8 @@ const OPERATER_IMENA = {
     "magacin2@maropack.rs": "Bosko",
     "magacin3@maropack.rs": "Dejan",
 };
-// Pun pristup (vidi sve, uključujući Predlog za nalog, Backup, Reset, brisanje).
-const ADMIN_EMAILS = ["admin@maropack.rs"];
+// Pun pristup (vide sve: Predlog za nalog, Backup, Reset, brisanje). Samo magacin2/magacin3 su ograničeni.
+const ADMIN_EMAILS = ["admin@maropack.rs", "magacin@maropack.rs"];
 function imeFromEmail(email) {
     const em = String(email || "").trim().toLowerCase();
     return OPERATER_IMENA[em] || em || "—";
