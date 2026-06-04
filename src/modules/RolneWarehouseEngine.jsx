@@ -988,7 +988,24 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         setRolne(sourceRolls.filter((r) => normalizeStatus(r.status) !== "obrisano"));
         if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
-        setHistory(safeRead(LS_HISTORY, []));
+        try {
+            if (!supabase?.__localDemo) {
+                const { data: hist, error: hErr } = await supabase.from("magacin_istorija").select("*").order("vreme", { ascending: false }).limit(300);
+                if (hErr) throw hErr;
+                setHistory((Array.isArray(hist) ? hist : []).map((h) => ({
+                    vreme: h.vreme ? new Date(h.vreme).toLocaleString("sr-RS") : "",
+                    operater: h.operater || "—",
+                    qr: h.qr_code || h.qr || "",
+                    event: h.dogadjaj || h.event || "",
+                    opis: h.opis || "",
+                    stanje: h.stanje || "",
+                })));
+            } else {
+                setHistory(safeRead(LS_HISTORY, []));
+            }
+        } catch (e) {
+            setHistory(safeRead(LS_HISTORY, []));
+        }
         if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
     }
     useEffect(() => { reload(); loadMaterialDropdowns(); loadMaterialMaster(); }, []);
@@ -1182,35 +1199,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
     // V46: dozvoljen unos NOVE kombinacije u rucnom unosu.
-    // Default popunjavamo samo kad je polje prazno; ne gazimo ono sto je korisnik otkucao.
-    useEffect(() => {
-        if (!masterVrste.length) return;
-        if (!String(materialPick.vrsta || "").trim()) {
-            setMaterialPick((p) => ({ ...p, vrsta: masterVrste[0] || "" }));
-        }
-    }, [masterVrste, materialPick.vrsta]);
-
-    useEffect(() => {
-        if (!materialPick.vrsta || !masterPodVrste.length) return;
-        if (!String(materialPick.pod_vrsta || "").trim()) {
-            setMaterialPick((p) => ({ ...p, pod_vrsta: masterPodVrste[0] || "" }));
-        }
-    }, [masterPodVrste, materialPick.vrsta, materialPick.pod_vrsta]);
-
-    useEffect(() => {
-        if (!materialPick.vrsta || !materialPick.pod_vrsta || !masterOznake.length) return;
-        if (!String(materialPick.oznaka || "").trim()) {
-            setMaterialPick((p) => ({ ...p, oznaka: masterOznake[0] || "" }));
-        }
-    }, [masterOznake, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
-
-    useEffect(() => {
-        if (!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka || !masterDebljine.length) return;
-        if (!Number(materialPick.debljina)) {
-            const nums = masterDebljine.map(Number);
-            setMaterialPick((p) => ({ ...p, debljina: Number(nums[0] || 0) }));
-        }
-    }, [masterDebljine, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
+    // Polja se NE popunjavaju automatski — magacioner slobodno briše i kuca (ili bira iz liste).
 
     useEffect(() => {
         setForm((f) => ({ ...f, pod_vrsta: materialPick.pod_vrsta || "" }));
@@ -1513,6 +1502,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 }).select("*").single();
                 if (error) throw error;
                 item = mapDbRollToEngine(data);
+                logHistory({ qr: item.qr, event: "ULAZ U MAGACIN (SPOJ)", opis: `${compositeName} · ${fmt(finalM, 0)} m / ${fmt(finalKg, 2)} kg · lokacija ${form.lokacija || "—"}`, stanje: "Na stanju" });
             }
         } catch (e) {
             msg?.("Supabase upis kaširane rolne nije uspeo, čuvam lokalno: " + e.message, "err");
@@ -1576,6 +1566,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 }).select("*").single();
                 if (error) throw error;
                 item = mapDbRollToEngine(data);
+                logHistory({ qr: item.qr, event: "ULAZ U MAGACIN", opis: `${materialDisplayName({ vrsta: selectedMat.vrsta, pod_vrsta: selectedMat.pod_vrsta || materialPick.pod_vrsta, oznaka: cleanCode, debljina: selectedMat.debljina })} · ${fmt(finalM, 0)} m / ${fmt(finalKg, 2)} kg · lokacija ${form.lokacija || "—"}`, stanje: "Na stanju" });
             }
         } catch (e) {
             msg?.("Supabase upis rolne nije uspeo, čuvam lokalno: " + e.message, "err");
