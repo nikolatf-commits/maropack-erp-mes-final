@@ -20,6 +20,16 @@ const MAGACIONERI = [
     { ime: "Magacioner 2", email: "magacioner2@maropack.rs", sifra: "2222" },
     { ime: "Magacioner 3", email: "magacioner3@maropack.rs", sifra: "3333" },
 ];
+// Prijava ide preko Supabase Authentication (Users). Ime za istoriju mapiramo iz mejla.
+const OPERATER_IMENA = {
+    "magacin@maropack.rs": "Đorđe",
+    "magacin2@maropack.rs": "Bosko",
+    "magacin3@maropack.rs": "Dejan",
+};
+function imeFromEmail(email) {
+    const em = String(email || "").trim().toLowerCase();
+    return OPERATER_IMENA[em] || em || "—";
+}
 const LS_PENDING_RESERVATION = "maropack_pending_roll_reservation";
 const WAREHOUSE_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -1795,26 +1805,38 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     async function loginOperater(email, sifra) {
         const em = String(email).trim().toLowerCase();
-        const pw = String(sifra).trim();
-        let found = null;
-        // 1) Provera u Supabase tabeli "magacioneri" (tu dodaješ nove magacionere).
+        if (supabase?.__localDemo) { msg?.("Supabase nije povezan.", "err"); return false; }
         try {
-            if (!supabase?.__localDemo) {
-                const { data, error } = await supabase.from("magacioneri").select("ime,email,sifra,aktivan").eq("email", em).eq("sifra", pw).limit(1);
-                if (!error && data && data.length && data[0].aktivan !== false) found = { ime: data[0].ime, email: data[0].email };
-            }
-        } catch (e) { /* fallback ispod */ }
-        // 2) Fallback na listu iz koda (radi i ako tabela još ne postoji).
-        if (!found) {
-            const local = MAGACIONERI.find((m) => m.email.trim().toLowerCase() === em && m.sifra === pw);
-            if (local) found = { ime: local.ime, email: local.email };
+            const { data, error } = await supabase.auth.signInWithPassword({ email: em, password: String(sifra) });
+            if (error || !data?.user) { msg?.("Pogrešan email ili šifra.", "err"); return false; }
+            const op = { ime: imeFromEmail(em), email: em };
+            setOperater(op); safeWrite(LS_OPERATER, op); setLoginForm({ email: "", sifra: "" });
+            msg?.(`Prijavljen: ${op.ime}`);
+            return true;
+        } catch (e) {
+            msg?.("Prijava nije uspela: " + (e?.message || e), "err");
+            return false;
         }
-        if (!found) { msg?.("Pogrešan email ili šifra.", "err"); return false; }
-        setOperater(found); safeWrite(LS_OPERATER, found); setLoginForm({ email: "", sifra: "" });
-        msg?.(`Prijavljen: ${found.ime}`);
-        return true;
     }
-    function logoutOperater() { setOperater(null); safeWrite(LS_OPERATER, null); }
+    async function logoutOperater() {
+        try { if (!supabase?.__localDemo) await supabase.auth.signOut(); } catch (e) { /* noop */ }
+        setOperater(null); safeWrite(LS_OPERATER, null);
+    }
+    // Obnova sesije pri otvaranju: ako je magacioner već ulogovan u Supabase Auth, ostaje prijavljen.
+    useEffect(() => {
+        if (supabase?.__localDemo) return;
+        let active = true;
+        (async () => {
+            try {
+                const { data } = await supabase.auth.getSession();
+                if (!active) return;
+                const email = data?.session?.user?.email;
+                if (email) { const op = { ime: imeFromEmail(email), email: String(email).toLowerCase() }; setOperater(op); safeWrite(LS_OPERATER, op); }
+                else { setOperater(null); safeWrite(LS_OPERATER, null); }
+            } catch (e) { /* noop */ }
+        })();
+        return () => { active = false; };
+    }, []);
 
     // Centralni upis istorije: lokalno + (best-effort) u Supabase magacin_istorija, sa imenom magacionera.
     function logHistory({ qr, event, opis, stanje }) {
