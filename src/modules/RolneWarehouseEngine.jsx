@@ -13,6 +13,13 @@ import {
 const LS_MATERIJALI = "maropack_baza_materijala_v30";
 const LS_ROLNE = "maropack_rolne_magacin";
 const LS_HISTORY = "maropack_rolne_istorija";
+const LS_OPERATER = "maropack_operater";
+// Magacioneri sa prijavom (email + šifra). Izmeni mejlove i šifre po potrebi.
+const MAGACIONERI = [
+    { ime: "Magacioner 1", email: "magacioner1@maropack.rs", sifra: "1111" },
+    { ime: "Magacioner 2", email: "magacioner2@maropack.rs", sifra: "2222" },
+    { ime: "Magacioner 3", email: "magacioner3@maropack.rs", sifra: "3333" },
+];
 const LS_PENDING_RESERVATION = "maropack_pending_roll_reservation";
 const WAREHOUSE_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -812,6 +819,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [materijali, setMaterijali] = useState([]);
     const [rolne, setRolne] = useState([]);
     const [history, setHistory] = useState([]);
+    const [operater, setOperater] = useState(() => safeRead(LS_OPERATER, null));
+    const [loginForm, setLoginForm] = useState({ email: "", sifra: "" });
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
     const [matFilter, setMatFilter] = useState("");
@@ -1568,8 +1577,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Promena statusa nije upisana u Supabase: " + (e?.message || e), "err");
         }
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        const hist = [{ vreme: now(), qr: r.qr, event: "PROMENA STATUSA", opis: `${r.status} → ${normalizedStatus}`, stanje: normalizedStatus }, ...history];
-        safeWrite(LS_HISTORY, hist); setHistory(hist);
+        const hist = logHistory({ qr: r.qr, event: "PROMENA STATUSA", opis: `${r.status} → ${normalizedStatus}`, stanje: normalizedStatus });
         msg?.(`Status rolne ${r.qr}: ${normalizedStatus}`);
         await reload();
     }
@@ -1587,8 +1595,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Rezervacija nije upisana u Supabase: " + (e?.message || e), "err");
         }
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        const hist = [{ vreme: now(), qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" }, ...history];
-        safeWrite(LS_HISTORY, hist); setHistory(hist);
+        logHistory({ qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" });
         msg?.(`Rolna ${r.qr} rezervisana za ${masterId}`);
         await reload();
     }
@@ -1610,8 +1617,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 const fresh = await fetchRollFromSupabaseByQr(r.qr || r.br_rolne || r.qr_code);
                 if (fresh) {
                     setRolne((prev) => prev.map((x) => String(x.id) === String(fresh.id) || x.qr === fresh.qr ? fresh : x));
-                    const hist = [{ vreme: now(), qr: fresh.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(fresh.duzina, 0)} m`, stanje: fresh.status }, ...history];
-                    safeWrite(LS_HISTORY, hist); setHistory(hist);
+                    logHistory({ qr: fresh.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(fresh.duzina, 0)} m`, stanje: fresh.status });
                     msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(fresh.duzina, 0)} m.`);
                 } else {
                     msg?.(`Skinuto ${fmt(usedM, 0)} m. Osvežavam stanje iz baze.`);
@@ -1630,8 +1636,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const status = remainM > 0 ? toDbStatus(r.status) : "Iskorišćeno";
         const updated = { ...r, duzina: remainM, metraza: remainM, metraza_ost: remainM, kg: remainKg, kg_neto: remainKg, status, datum_poslednje_promene: now() };
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        const hist = [{ vreme: now(), qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status }, ...history];
-        safeWrite(LS_HISTORY, hist); setHistory(hist);
+        logHistory({ qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status });
         msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(remainM, 0)} m.`);
     }
     function createReservationRequest() { safeWrite(LS_PENDING_RESERVATION, req); msg?.("Zahtev za izbor rolni je sačuvan. Kasnije ga povezujemo direktno sa master nalogom."); }
@@ -1786,6 +1791,42 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setSelectedRolls((prev) => prev.filter((q) => !qrs.has(q)));
         msg?.(`Obrisano ${okCount} rolni sa stanja.`);
         if (!supabase.__localDemo) reload();
+    }
+
+    async function loginOperater(email, sifra) {
+        const em = String(email).trim().toLowerCase();
+        const pw = String(sifra).trim();
+        let found = null;
+        // 1) Provera u Supabase tabeli "magacioneri" (tu dodaješ nove magacionere).
+        try {
+            if (!supabase?.__localDemo) {
+                const { data, error } = await supabase.from("magacioneri").select("ime,email,sifra,aktivan").eq("email", em).eq("sifra", pw).limit(1);
+                if (!error && data && data.length && data[0].aktivan !== false) found = { ime: data[0].ime, email: data[0].email };
+            }
+        } catch (e) { /* fallback ispod */ }
+        // 2) Fallback na listu iz koda (radi i ako tabela još ne postoji).
+        if (!found) {
+            const local = MAGACIONERI.find((m) => m.email.trim().toLowerCase() === em && m.sifra === pw);
+            if (local) found = { ime: local.ime, email: local.email };
+        }
+        if (!found) { msg?.("Pogrešan email ili šifra.", "err"); return false; }
+        setOperater(found); safeWrite(LS_OPERATER, found); setLoginForm({ email: "", sifra: "" });
+        msg?.(`Prijavljen: ${found.ime}`);
+        return true;
+    }
+    function logoutOperater() { setOperater(null); safeWrite(LS_OPERATER, null); }
+
+    // Centralni upis istorije: lokalno + (best-effort) u Supabase magacin_istorija, sa imenom magacionera.
+    function logHistory({ qr, event, opis, stanje }) {
+        const entry = { vreme: now(), operater: operater?.ime || "—", qr, event, opis, stanje };
+        setHistory((prev) => { const h = [entry, ...prev]; safeWrite(LS_HISTORY, h); return h; });
+        (async () => {
+            try {
+                if (!supabase?.__localDemo) {
+                    await supabase.from("magacin_istorija").insert({ qr_code: qr, dogadjaj: event, opis, operater: entry.operater, stanje, vreme: new Date().toISOString() });
+                }
+            } catch (e) { console.warn("Istorija nije upisana u Supabase:", e?.message || e); }
+        })();
     }
 
     async function resetWarehouseTestData() {
@@ -2077,7 +2118,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         br_rolne: targetRoll.br_rolne || targetRoll.qr,
                         stara_lokacija: oldLocation,
                         nova_lokacija: location,
-                        korisnik: "magacioner",
+                        korisnik: operater?.ime || "magacioner",
                         napomena: `Promena lokacije QR skeniranjem: ${oldLocation || "—"} → ${location}`,
                     });
                 }
@@ -2210,15 +2251,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 session_id: popisSessionId,
             };
 
-            const hist = [{
-                vreme: now(),
+            logHistory({
                 qr: updated.qr,
                 event: "POPIS QR",
                 opis: `Popis ${popisMagacin}: ${fmt(updated.duzina, 0)} m / ${fmt(updated.kg, 2)} kg · lokacija ${updated.lokacija || updatedLokacija}`,
                 stanje: updated.status
-            }, ...history];
-            safeWrite(LS_HISTORY, hist);
-            setHistory(hist);
+            });
             setPopisScanned((prev) => ({ ...prev, [qr]: countedRow }));
             setPopisQr("");
             setPopisRoll(null);
@@ -2317,7 +2355,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
                             <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
                             <label><span style={lbl}>LOT</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
-                            <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+                            <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
                                 <b>Live obračun:</b> {fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg · {fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m
                             </div>
@@ -2396,6 +2434,20 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         </div>
     ) : null;
 
+    if (!operater) {
+        return (
+            <div style={{ minHeight: "100vh", background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, color: "#0f172a" }}>
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 22, width: "100%", maxWidth: 360 }}>
+                    <div style={{ fontWeight: 950, fontSize: 20, marginBottom: 4 }}>🏭 Prijava magacionera</div>
+                    <div style={{ color: "#64748b", fontSize: 13, marginBottom: 16 }}>Uloguj se da bi se u istoriji videlo ko šta radi u magacinu.</div>
+                    <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Email</span><input style={input} type="email" autoComplete="username" value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} /></label>
+                    <label style={{ display: "block", marginBottom: 16 }}><span style={lbl}>Šifra</span><input style={input} type="password" autoComplete="current-password" value={loginForm.sifra} onChange={(e) => setLoginForm({ ...loginForm, sifra: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") loginOperater(loginForm.email, loginForm.sifra); }} /></label>
+                    <button onClick={() => loginOperater(loginForm.email, loginForm.sifra)} style={{ ...btn, background: "#0f172a", color: "#fff", width: "100%", padding: 12 }}>Prijava</button>
+                </div>
+            </div>
+        );
+    }
+
     if (forceMobile) return MobileShell();
 
     return (
@@ -2403,7 +2455,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             {LabelModal}{BulkModal}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
                 <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 900, color: "#0369a1", background: "#e0f2fe", borderRadius: 999, padding: "6px 12px" }}>👷 {operater?.ime || "—"}</span>
+                    <button onClick={logoutOperater} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Odjava</button>
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Osveži</button>
                     <button onClick={downloadBackup} style={{ ...btn, background: "#dcfce7", color: "#065f46" }}>⬇️ Backup (JSON)</button>
                     <button onClick={exportStockCsv} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>⬇️ CSV stanja</button>
@@ -2519,7 +2573,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                         </>)}
                                         <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                                         <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
-                                        <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+                                        <label><span style={lbl}>Datum proizvodnje rolne</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                                         <label style={{ gridColumn: "1 / -1" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
                                     </div>
                                     <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontWeight: 900 }}>Live obračun</div><div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>kg = širina(m) × dužina(m) × g/m² / 1000</div><div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><div><b>{fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg</b></div><div><b>{fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m</b></div></div></div>
@@ -2571,7 +2625,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                         <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncKasirano({ kg: e.target.value })} /></label>
                                         <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                                         <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
-                                        <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+                                        <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                                         <label style={{ gridColumn: "1 / -1" }}><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} /></label>
                                     </div>
                                     <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}><div style={{ fontWeight: 900 }}>Live obračun (spoj)</div><div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>kg = širina(m) × dužina(m) × (Σ g/m² slojeva + lepak) / 1000</div><div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><div><b>{fmt(calcMode === "m_to_kg" ? kasiranoKg : number(form.kg), 2)} kg</b></div><div><b>{fmt(calcMode === "kg_to_m" ? kasiranoM : number(form.duzina), 0)} m</b></div></div></div>
@@ -2633,7 +2687,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
 
             {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
-            {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 80).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
+            {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 80).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
         </div>
     );
 }
