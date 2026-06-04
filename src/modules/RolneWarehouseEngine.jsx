@@ -1284,10 +1284,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, [rolne, filter, columnFilters]);
 
     const stats = useMemo(() => {
-        const totalM = rolne.reduce((s, r) => s + number(r.metraza_ost ?? r.duzina ?? r.metraza), 0);
-        const totalKg = rolne.reduce((s, r) => s + number(r.kg_neto ?? r.kg), 0);
-        const totalValue = rolne.reduce((s, r) => s + (number(r.vrednost) || (number(r.kg_neto ?? r.kg) * number(r.cena_kg ?? r.cenaKg))), 0);
-        const byStatus = rolne.reduce((a, r) => {
+        // Statistika magacina gleda SAMO rolne koje su stvarno na stanju (iskorišćene/skinute se ne računaju).
+        const naStanjuRolne = rolne.filter(isRollVisibleOnStock);
+        const totalM = naStanjuRolne.reduce((s, r) => s + number(r.metraza_ost ?? r.duzina ?? r.metraza), 0);
+        const totalKg = naStanjuRolne.reduce((s, r) => s + number(r.kg_neto ?? r.kg), 0);
+        const totalValue = naStanjuRolne.reduce((s, r) => s + (number(r.vrednost) || (number(r.kg_neto ?? r.kg) * number(r.cena_kg ?? r.cenaKg))), 0);
+        const byStatus = naStanjuRolne.reduce((a, r) => {
             const st = normalizeStatus(r.status);
             a[st] = (a[st] || 0) + 1;
             return a;
@@ -1310,7 +1312,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             .sort((a, b) => b.manjak - a.manjak);
         const zaPorucivanje = ispodMinimuma.length;
 
-        return { total: rolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0, zaPorucivanje, ispodMinimuma };
+        return { total: naStanjuRolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0, zaPorucivanje, ispodMinimuma };
     }, [rolne, materialMaster]);
 
     const popisExpectedRolls = useMemo(() => {
