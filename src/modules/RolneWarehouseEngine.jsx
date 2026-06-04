@@ -22,12 +22,13 @@ const MAGACIONERI = [
 ];
 // Prijava ide preko Supabase Authentication (Users). Ime za istoriju mapiramo iz mejla.
 const OPERATER_IMENA = {
+    "admin@maropack.rs": "Admin",
     "magacin@maropack.rs": "Đorđe",
     "magacin2@maropack.rs": "Bosko",
     "magacin3@maropack.rs": "Dejan",
 };
-// Puni pristup (vide sve). Ostali magacioneri vide samo magacin (stanje + unos + popis/povrat).
-const ADMIN_EMAILS = ["magacin@maropack.rs"];
+// Pun pristup (vidi sve, uključujući Predlog za nalog, Backup, Reset, brisanje).
+const ADMIN_EMAILS = ["admin@maropack.rs"];
 function imeFromEmail(email) {
     const em = String(email || "").trim().toLowerCase();
     return OPERATER_IMENA[em] || em || "—";
@@ -836,7 +837,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [operater, setOperater] = useState(() => safeRead(LS_OPERATER, null));
     const [loginForm, setLoginForm] = useState({ email: "", sifra: "" });
     const isAdmin = ADMIN_EMAILS.includes(String(operater?.email || "").trim().toLowerCase());
-    useEffect(() => { if (operater && !isAdmin && ["materijali", "predlog", "istorija"].includes(activeTab)) setActiveTab("rolne"); }, [operater, isAdmin, activeTab]);
+    useEffect(() => { if (operater && !isAdmin && ["predlog"].includes(activeTab)) setActiveTab("rolne"); }, [operater, isAdmin, activeTab]);
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
     const [matFilter, setMatFilter] = useState("");
@@ -2517,9 +2518,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                 <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
                 <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
-                {isAdmin && <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>}
+                <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
                 {isAdmin && <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>}
-                {isAdmin && <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>}
+                <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
                 {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
