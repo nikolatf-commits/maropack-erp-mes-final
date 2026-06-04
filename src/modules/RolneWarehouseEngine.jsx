@@ -30,6 +30,8 @@ function imeFromEmail(email) {
     const em = String(email || "").trim().toLowerCase();
     return OPERATER_IMENA[em] || em || "—";
 }
+// Ime trenutno prijavljenog magacionera — da i top-level upisi istorije (ULAZ, UVOZ) hvataju ime.
+let _operaterIme = "—";
 const LS_PENDING_RESERVATION = "maropack_pending_roll_reservation";
 const WAREHOUSE_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -772,7 +774,7 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
         napomena: roll.napomena || "",
     };
     const next = [item, ...rolne.filter((r) => r.qr !== item.qr)];
-    const hist = [{ vreme: now(), qr: item.qr, event, opis: roll.napomena || event, stanje: item.status }, ...history];
+    const hist = [{ vreme: now(), operater: _operaterIme, qr: item.qr, event, opis: roll.napomena || event, stanje: item.status }, ...history];
     safeWrite(LS_ROLNE, next);
     safeWrite(LS_HISTORY, hist);
     return item;
@@ -1697,15 +1699,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 napomena,
             });
 
-            const hist = [{
-                vreme: now(),
+            logHistory({
                 qr: updated.qr,
                 event: "POVRAT U MAGACIN",
                 opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters, 0)} m / ${fmt(kg, 2)} kg, lokacija ${novaLokacija}`,
                 stanje: "Na stanju"
-            }, ...history];
-            safeWrite(LS_HISTORY, hist);
-            setHistory(hist);
+            });
             setPovratRoll(updated);
             setPovratForm((f) => ({ ...f, lokacija: novaLokacija }));
             setLabelRoll(updated);
@@ -1822,6 +1821,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         try { if (!supabase?.__localDemo) await supabase.auth.signOut(); } catch (e) { /* noop */ }
         setOperater(null); safeWrite(LS_OPERATER, null);
     }
+    useEffect(() => { _operaterIme = operater?.ime || "—"; }, [operater]);
     // Obnova sesije pri otvaranju: ako je magacioner već ulogovan u Supabase Auth, ostaje prijavljen.
     useEffect(() => {
         if (supabase?.__localDemo) return;
