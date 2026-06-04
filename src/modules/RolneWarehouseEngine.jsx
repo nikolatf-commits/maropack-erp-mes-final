@@ -26,6 +26,8 @@ const OPERATER_IMENA = {
     "magacin2@maropack.rs": "Bosko",
     "magacin3@maropack.rs": "Dejan",
 };
+// Puni pristup (vide sve). Ostali magacioneri vide samo magacin (stanje + unos + popis/povrat).
+const ADMIN_EMAILS = ["magacin@maropack.rs"];
 function imeFromEmail(email) {
     const em = String(email || "").trim().toLowerCase();
     return OPERATER_IMENA[em] || em || "—";
@@ -156,12 +158,12 @@ function parseLocationQr(value) {
     return null;
 }
 function buildLocationCode(parts = {}) {
-    const magacin = String(parts.magacin || "").toUpperCase();
-    const red = String(parts.red || "").padStart(2, "0");
-    const polica = String(parts.polica || "").toUpperCase();
-    const pozicija = String(parts.pozicija || "").padStart(2, "0");
+    const magacin = String(parts.magacin || "").toUpperCase().trim();
+    const red = String(parts.red || "").trim();
+    const polica = String(parts.polica || "").toUpperCase().trim();
+    const pozicija = String(parts.pozicija || "").trim();
     if (!magacin || !red || !polica || !pozicija) return "";
-    return `${magacin}-${red}-${polica}-${pozicija}`;
+    return `${magacin}-${red.padStart(2, "0")}-${polica}-${pozicija.padStart(2, "0")}`;
 }
 function locationProgressLabel(parts = {}) {
     return `Magacin ${parts.magacin || "—"} · Red ${parts.red || "—"} · Polica ${parts.polica || "—"} · Pozicija ${parts.pozicija || "—"}`;
@@ -833,6 +835,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [history, setHistory] = useState([]);
     const [operater, setOperater] = useState(() => safeRead(LS_OPERATER, null));
     const [loginForm, setLoginForm] = useState({ email: "", sifra: "" });
+    const isAdmin = ADMIN_EMAILS.includes(String(operater?.email || "").trim().toLowerCase());
+    useEffect(() => { if (operater && !isAdmin && ["materijali", "predlog", "istorija"].includes(activeTab)) setActiveTab("rolne"); }, [operater, isAdmin, activeTab]);
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
     const [matFilter, setMatFilter] = useState("");
@@ -1270,6 +1274,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const q = filter.toLowerCase().trim();
         const matchesText = (val, needle) => String(val ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase().trim());
         return rolne.filter((r) => {
+            if (!isRollVisibleOnStock(r)) return false;
             if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_proizvodnje, r.datum_popisa, r.vrsta, r.pod_vrsta, r.oznaka_materijala, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id].join(" ").toLowerCase().includes(q)) return false;
             if (columnFilters.datum && !matchesText(r.datum_ulaza || r.datum, columnFilters.datum)) return false;
             if (columnFilters.vrsta && !matchesText(r.vrsta, columnFilters.vrsta)) return false;
@@ -1485,6 +1490,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const finalKg = calcMode === "m_to_kg" ? kasiranoKg : number(form.kg);
         const finalM = calcMode === "kg_to_m" ? kasiranoM : number(form.duzina);
         if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
+        const lokK = String(form.lokacija || "").trim();
+        if (lokK && rolne.some((r) => isRollVisibleOnStock(r) && String(r.lokacija || "").trim().toUpperCase() === lokK.toUpperCase())) {
+            if (!confirm(`Lokacija ${lokK} je već zauzeta drugom rolnom. Potvrdi da na istu lokaciju ide više rolni?`)) return;
+        }
         const brRolne = makeId("ROLNA");
         const slojeviTxt = kasiranoLayers.map((l, i) => `${i + 1}) Vrsta: ${l.vrsta} | Pod vrsta: ${l.pod_vrsta || "—"} | Oznaka: ${l.oznaka || "—"} | ${l.debljina}${String(l.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"} = ${fmt(kasLayerGsm(l), 2)} g/m²`).join("  ;  ");
         const napomenaFull = [form.napomena, `SPOJ ${kasiranoLayers.length} sloja — ${slojeviTxt}  ;  lepak ${kasiranoLepak} g/m² × ${kasiranoLayers.length - 1}  ;  UKUPNO ${fmt(compositeGsm, 2)} g/m², ${fmt(compositeDebljina, 2)} µ`].filter(Boolean).join(" — ");
@@ -1515,6 +1524,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: napomenaFull, status: "Na stanju",
             }, "ULAZ U MAGACIN (KAŠIRANO)");
         }
+        if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Kaširana rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
     }
 
@@ -1530,6 +1540,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const finalKg = calcMode === "m_to_kg" ? calculatedKg : number(form.kg);
         const finalM = calcMode === "kg_to_m" ? calculatedM : number(form.duzina);
         if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
+        const lok = String(form.lokacija || "").trim();
+        if (lok && rolne.some((r) => isRollVisibleOnStock(r) && String(r.lokacija || "").trim().toUpperCase() === lok.toUpperCase())) {
+            if (!confirm(`Lokacija ${lok} je već zauzeta drugom rolnom. Potvrdi da na istu lokaciju ide više rolni?`)) return;
+        }
         const brRolne = makeId("ROLNA");
         const cleanCode = cleanOznaka(selectedMat.oznaka || materialPick.oznaka || selectedMat.komercijalnaOznaka, selectedMat.vrsta);
         let item = null;
@@ -1574,6 +1588,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: form.napomena, status: "Na stanju",
             }, "ULAZ U MAGACIN");
         }
+        if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
     }
     async function changeStatus(r, status) {
@@ -2364,10 +2379,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={card}>
                         <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
                         <div style={{ display: "grid", gap: 10 }}>
-                            <label><span style={lbl}>Vrsta</span><select style={input} value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value, pod_vrsta: "", oznaka: "", debljina: "" }))}>{masterVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                            <label><span style={lbl}>Pod vrsta</span><select style={input} value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "", debljina: "" }))}><option value="">Izaberi pod vrstu</option>{masterPodVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
-                            <label><span style={lbl}>Oznaka</span><select style={input} value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value, debljina: "" }))}><option value="">Izaberi oznaku</option>{masterOznake.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>
-                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><select style={input} value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))}><option value="">Izaberi</option>{masterDebljine.map((d) => <option key={d} value={d}>{d}{materialPick.vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></label>
+                            <datalist id="m-vrste">{masterVrste.map((v) => <option key={v} value={v} />)}</datalist>
+                            <datalist id="m-podvrste">{masterPodVrste.map((v) => <option key={v} value={v} />)}</datalist>
+                            <datalist id="m-oznake">{masterOznake.map((o) => <option key={o} value={o} />)}</datalist>
+                            <datalist id="m-debljine">{masterDebljine.map((d) => <option key={d} value={d} />)}</datalist>
+                            <label><span style={lbl}>Vrsta {selectedMasterMaterial ? "✅ u bazi" : "🆕 nova kombinacija"}</span><input style={input} list="m-vrste" value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value.toUpperCase(), pod_vrsta: "", oznaka: "" }))} placeholder="npr. BOPP" /></label>
+                            <label><span style={lbl}>Pod vrsta</span><input style={input} list="m-podvrste" value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "" }))} placeholder="npr. Transparent" /></label>
+                            <label><span style={lbl}>Oznaka</span><input style={input} list="m-oznake" value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value }))} placeholder="npr. FXC" /></label>
+                            <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina µ"}</span><input style={input} type="number" step="0.01" list="m-debljine" value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))} /></label>
+                            {!selectedMasterMaterial && (
+                                <div style={{ padding: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12 }}>
+                                    <div style={{ fontWeight: 900, color: "#92400e", marginBottom: 6, fontSize: 13 }}>Nova kombinacija — nije u bazi. Sačuvaj je da bi mogla na stanje.</div>
+                                    <label style={{ display: "block", marginBottom: 8 }}><span style={lbl}>Koeficijent</span><input style={input} type="number" step="0.001" value={materialPick.koeficijent} onChange={(e) => setMaterialPick({ ...materialPick, koeficijent: e.target.value })} placeholder={String(mmKoeficijent(materialPick.vrsta) || "npr. 0.91")} /></label>
+                                    <button onClick={() => saveMaterialMaster({ vrsta: materialPick.vrsta, pod_vrsta: materialPick.pod_vrsta, oznaka: materialPick.oznaka, proizvodjac: materialPick.proizvodjac, debljina: materialPick.debljina, koeficijent: number(materialPick.koeficijent) || selectedMat.koeficijent, gsm: liveGsm, cenaKg: materialPick.cenaKg })} disabled={!materialPick.vrsta || !materialPick.pod_vrsta || !materialPick.oznaka || !Number(materialPick.debljina)} style={{ ...btn, background: (materialPick.vrsta && materialPick.pod_vrsta && materialPick.oznaka && Number(materialPick.debljina)) ? "#059669" : "#cbd5e1", color: "#fff", width: "100%" }}>💾 Sačuvaj u bazu</button>
+                                </div>
+                            )}
                             <label><span style={lbl}>Širina mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncFormByMode({ sirina: e.target.value })} /></label>
                             <label><span style={lbl}>Obračun</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → kg</option><option value="kg_to_m">Unos kg → m</option><option value="precnik">📐 Po prečniku (nemam m/kg)</option></select></label>
                             {calcMode === "precnik" && (<>
@@ -2377,6 +2403,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ duzina: e.target.value })} /></label>
                             <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} readOnly={calcMode === "precnik"} onChange={(e) => syncFormByMode({ kg: e.target.value })} /></label>
                             <label><span style={lbl}>LOT</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
+                            <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} placeholder="A-01-A-01" /></label>
                             <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
                             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
                                 <b>Live obračun:</b> {fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg · {fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m
@@ -2481,18 +2508,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <span style={{ fontSize: 13, fontWeight: 900, color: "#0369a1", background: "#e0f2fe", borderRadius: 999, padding: "6px 12px" }}>👷 {operater?.ime || "—"}</span>
                     <button onClick={logoutOperater} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Odjava</button>
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff" }}>Osveži</button>
-                    <button onClick={downloadBackup} style={{ ...btn, background: "#dcfce7", color: "#065f46" }}>⬇️ Backup (JSON)</button>
-                    <button onClick={exportStockCsv} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>⬇️ CSV stanja</button>
-                    <button onClick={() => { if (adminMode) { setAdminMode(false); } else if (confirm("Uključiti admin režim? Omogućava trajno brisanje rolni sa stanja.")) setAdminMode(true); }} style={{ ...btn, background: adminMode ? "#fde68a" : "#f1f5f9", color: adminMode ? "#92400e" : "#334155" }}>{adminMode ? "🔓 Admin: uključen" : "🔒 Admin"}</button>
-                    <button onClick={resetWarehouseTestData} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Reset test podataka</button>
+                    {isAdmin && <button onClick={downloadBackup} style={{ ...btn, background: "#dcfce7", color: "#065f46" }}>⬇️ Backup (JSON)</button>}
+                    {isAdmin && <button onClick={exportStockCsv} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>⬇️ CSV stanja</button>}
+                    {isAdmin && <button onClick={() => { if (adminMode) { setAdminMode(false); } else if (confirm("Uključiti admin režim? Omogućava trajno brisanje rolni sa stanja.")) setAdminMode(true); }} style={{ ...btn, background: adminMode ? "#fde68a" : "#f1f5f9", color: adminMode ? "#92400e" : "#334155" }}>{adminMode ? "🔓 Admin: uključen" : "🔒 Admin"}</button>}
+                    {isAdmin && <button onClick={resetWarehouseTestData} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Reset test podataka</button>}
                 </div>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                 <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
                 <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
-                <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
-                <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>
-                <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
+                {isAdmin && <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>}
+                {isAdmin && <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>}
+                {isAdmin && <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
                 {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
