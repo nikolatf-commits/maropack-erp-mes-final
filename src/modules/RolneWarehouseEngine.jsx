@@ -788,7 +788,11 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
         napomena: roll.napomena || "",
     };
     const next = [item, ...rolne.filter((r) => r.qr !== item.qr)];
-    const hist = [{ vreme: now(), operater: _operaterIme, qr: item.qr, event, opis: roll.napomena || event, stanje: item.status }, ...history];
+    const opisDesc = [item.vrsta, item.pod_vrsta, item.oznaka_materijala, item.debljina ? `${item.debljina}${String(item.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"}` : null].filter(Boolean).join(" · ")
+        + ` · ${fmt(number(item.duzina), 0)} m / ${fmt(number(item.kg), 2)} kg`
+        + (item.lokacija ? ` · lokacija ${item.lokacija}` : "")
+        + (roll.napomena ? ` · ${roll.napomena}` : "");
+    const hist = [{ vreme: now(), operater: _operaterIme, qr: item.qr, event, opis: opisDesc, stanje: item.status }, ...history];
     safeWrite(LS_ROLNE, next);
     safeWrite(LS_HISTORY, hist);
     return item;
