@@ -158,6 +158,17 @@ function parseLocationQr(value) {
     if (pozicija) return { key: "pozicija", value: pozicija[1].padStart(2, "0") };
     return null;
 }
+// Pretvara ručno unet datum (DD.MM.GGGG, DD/MM/GGGG, GGGG-MM-DD) u ISO (YYYY-MM-DD); nečitljivo → null (da ne sruši upis).
+function toIsoDateOrNull(s) {
+    const v = String(s || "").trim();
+    if (!v) return null;
+    let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+    m = v.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})\.?$/);
+    if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+    return null;
+}
+
 function buildLocationCode(parts = {}) {
     const magacin = String(parts.magacin || "").toUpperCase().trim();
     const red = String(parts.red || "").trim();
@@ -1499,7 +1510,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     kg_bruto: finalKg, kg_neto: finalKg, cena_kg: null, vrednost: null,
                     lot: form.lot || null, dobavljac: null,
                     datum: new Date().toISOString().slice(0, 10), datum_prijema: new Date().toISOString().slice(0, 10),
-                    datum_proizvodnje: form.datum_proizvodnje || null, status: "Na stanju",
+                    datum_proizvodnje: toIsoDateOrNull(form.datum_proizvodnje), status: "Na stanju",
                     qr_code: brRolne, lokacija: form.lokacija || null, napomena: napomenaFull,
                 }).select("*").single();
                 if (error) throw error;
@@ -1507,9 +1518,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 logHistory({ qr: item.qr, event: "ULAZ U MAGACIN (SPOJ)", opis: `${compositeName} · ${fmt(finalM, 0)} m / ${fmt(finalKg, 2)} kg · lokacija ${form.lokacija || "—"}`, stanje: "Na stanju" });
             }
         } catch (e) {
-            msg?.("Supabase upis kaširane rolne nije uspeo, čuvam lokalno: " + e.message, "err");
+            msg?.("Upis kaširane rolne nije uspeo: " + e.message + " — rolna NIJE sačuvana.", "err");
+            return;
         }
-        if (!item) {
+        if (!item && supabase.__localDemo) {
             item = addWarehouseRoll({
                 qr: brRolne, vrsta: compositeVrste, oznaka_materijala: compositeName, materijal: compositeVrste,
                 komercijalnaOznaka: compositeName, debljina: compositeDebljina, gsm: compositeGsm,
@@ -1517,6 +1529,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: napomenaFull, status: "Na stanju",
             }, "ULAZ U MAGACIN (KAŠIRANO)");
         }
+        if (!item) { msg?.("Kaširana rolna nije sačuvana.", "err"); return; }
         if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Kaširana rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
         setForm((f) => ({ ...f, napomena: "" }));
@@ -1561,7 +1574,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     dobavljac: selectedMat.proizvodjac || null,
                     datum: new Date().toISOString().slice(0, 10),
                     datum_prijema: new Date().toISOString().slice(0, 10),
-                    datum_proizvodnje: form.datum_proizvodnje || null,
+                    datum_proizvodnje: toIsoDateOrNull(form.datum_proizvodnje),
                     status: "Na stanju",
                     qr_code: brRolne,
                     lokacija: form.lokacija || null,
@@ -1572,9 +1585,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 logHistory({ qr: item.qr, event: "ULAZ U MAGACIN", opis: `${materialDisplayName({ vrsta: selectedMat.vrsta, pod_vrsta: selectedMat.pod_vrsta || materialPick.pod_vrsta, oznaka: cleanCode, debljina: selectedMat.debljina })} · ${fmt(finalM, 0)} m / ${fmt(finalKg, 2)} kg · lokacija ${form.lokacija || "—"}`, stanje: "Na stanju" });
             }
         } catch (e) {
-            msg?.("Supabase upis rolne nije uspeo, čuvam lokalno: " + e.message, "err");
+            msg?.("Upis rolne nije uspeo: " + e.message + " — rolna NIJE sačuvana.", "err");
+            return;
         }
-        if (!item) {
+        if (!item && supabase.__localDemo) {
             item = addWarehouseRoll({
                 qr: brRolne, materijal_id: selectedMat.id, vrsta: selectedMat.vrsta, pod_vrsta: selectedMat.pod_vrsta || materialPick.pod_vrsta,
                 oznaka_materijala: cleanCode, materijal: selectedMat.vrsta,
@@ -1583,6 +1597,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 lot: form.lot, lokacija: form.lokacija, datum_proizvodnje: form.datum_proizvodnje, napomena: form.napomena, status: "Na stanju",
             }, "ULAZ U MAGACIN");
         }
+        if (!item) { msg?.("Rolna nije sačuvana.", "err"); return; }
         if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
         setForm((f) => ({ ...f, napomena: "" }));
