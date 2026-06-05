@@ -1783,6 +1783,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         } catch (e) { msg?.("Brisanje u Supabase nije uspelo: " + e.message, "err"); return; }
         setRolne((prev) => prev.filter((x) => !(String(x.id) === String(r.id) || x.qr === r.qr)));
         setSelectedRolls((prev) => prev.filter((q) => q !== r.qr));
+        logHistory({ qr: r.qr, event: "BRISANJE ROLNE", opis: `Uklonjena sa stanja: ${r.vrsta || ""} ${r.oznaka_materijala || r.oznaka || ""} · ${fmt(number(r.metraza_ost ?? r.duzina), 0)} m / ${fmt(number(r.kg_neto ?? r.kg), 2)} kg · lokacija ${r.lokacija || "—"}`, stanje: "obrisano" });
         msg?.(`Rolna ${r.qr} obrisana sa stanja.`);
         if (!supabase.__localDemo) reload();
     }
@@ -1805,6 +1806,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             }
         } catch (e) { msg?.("Grupno brisanje nije uspelo: " + e.message, "err"); return; }
         const qrs = new Set(onStock.map((r) => r.qr));
+        onStock.forEach((r) => logHistory({ qr: r.qr, event: "BRISANJE ROLNE", opis: `Grupno uklanjanje sa stanja: ${r.vrsta || ""} ${r.oznaka_materijala || r.oznaka || ""} · ${fmt(number(r.kg_neto ?? r.kg), 2)} kg`, stanje: "obrisano" }));
         setRolne((prev) => prev.filter((r) => !qrs.has(r.qr)));
         setSelectedRolls((prev) => prev.filter((q) => !qrs.has(q)));
         msg?.(`Obrisano ${okCount} rolni sa stanja.`);
@@ -2331,6 +2333,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             mobileActionBtn("povrat", "↩️", "Povrat u magacin", "Prečnik + hilzna"),
             mobileActionBtn("unos", "➕", "Unos rolne", "Ručni unos"),
             mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
+            mobileActionBtn("istorija", "🕘", "Istorija", "Ko je šta radio"),
         ];
 
         return (
@@ -2427,6 +2430,20 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             ))}
                             {filteredRolls.length === 0 && <div style={{ color: "#64748b", padding: 20, textAlign: "center" }}>Nema rolni za prikaz.</div>}
                         </div>
+                    </div>
+                )}
+
+                {activeTab === "istorija" && (
+                    <div style={card}>
+                        <div style={{ fontWeight: 950, marginBottom: 10 }}>🕘 Istorija rolni</div>
+                        {history.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>Još nema istorije.</div> :
+                            history.slice(0, 100).map((h, i) => (
+                                <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "10px 0", fontSize: 13 }}>
+                                    <div style={{ color: "#64748b" }}>{h.vreme} · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span></div>
+                                    <div style={{ marginTop: 2 }}><b>{h.qr}</b> · {h.event}</div>
+                                    <div style={{ color: "#475569" }}>{h.opis}</div>
+                                </div>
+                            ))}
                     </div>
                 )}
             </div>
