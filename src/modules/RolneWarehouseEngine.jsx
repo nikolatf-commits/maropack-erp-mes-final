@@ -1519,6 +1519,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
         if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Kaširana rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
+        setForm((f) => ({ ...f, napomena: "" }));
     }
 
     async function addRoll() {
@@ -1584,6 +1585,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
         if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
+        setForm((f) => ({ ...f, napomena: "" }));
     }
     async function changeStatus(r, status) {
         const normalizedStatus = toDbStatus(status);
@@ -2407,6 +2409,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <label><span style={lbl}>LOT</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                             <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} placeholder="A-01-A-01" /></label>
                             <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
+                            <label><span style={lbl}>Napomena</span><input style={input} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} placeholder="npr. dobavljač, nalog, paleta…" /></label>
                             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
                                 <b>Live obračun:</b> {fmt(calcMode === "m_to_kg" ? calculatedKg : number(form.kg), 2)} kg · {fmt(calcMode === "kg_to_m" ? calculatedM : number(form.duzina), 0)} m
                             </div>
@@ -2425,6 +2428,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span>{displayStatus(r.status)}</span></div>
+                                    {r.napomena && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {r.napomena}</div>}
                                     <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", width: "100%", marginTop: 10 }}>QR / Etiketa</button>
                                 </div>
                             ))}
@@ -2720,7 +2724,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                             <thead>
-                                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum ulaza", "Datum proiz.", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Akcije"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr>
+                                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum ulaza", "Datum proiz.", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Napomena", "Akcije"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr>
                                 <tr style={{ background: "#fff" }}>
                                     <th style={filterTh}></th><th style={filterTh}></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.datum} onChange={(e) => setColFilter("datum", e.target.value)} placeholder="Datum" /></th>
@@ -2736,12 +2740,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lot} onChange={(e) => setColFilter("lot", e.target.value)} placeholder="Lot" /></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lokacija} onChange={(e) => setColFilter("lokacija", e.target.value)} placeholder="Lokacija" /></th>
                                     <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
+                                    <th style={filterTh}></th>
                                     <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                                 </tr>
                             </thead>
                             <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
+                                <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
                                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
