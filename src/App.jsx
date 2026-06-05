@@ -28,47 +28,47 @@ import QRCode from "qrcode";
 // Upisuje grešku u Supabase tabelu public.frontend_errors
 // ============================================================================
 function stringifyFrontendError(value) {
-  try {
-    if (!value) return "";
-    if (typeof value === "string") return value;
-    if (value?.message) return String(value.message);
-    return JSON.stringify(value);
-  } catch (_) {
-    return String(value || "");
-  }
+    try {
+        if (!value) return "";
+        if (typeof value === "string") return value;
+        if (value?.message) return String(value.message);
+        return JSON.stringify(value);
+    } catch (_) {
+        return String(value || "");
+    }
 }
 
 async function logFrontendErrorToSupabase(message, stack = "") {
-  try {
-    if (!supabase || supabase.__localDemo) return;
-    await supabase.from("frontend_errors").insert({
-      message: stringifyFrontendError(message),
-      stack: stringifyFrontendError(stack),
-      url: String(window.location.href || ""),
-      user_agent: String(navigator.userAgent || "")
-    });
-  } catch (e) {
-    // Ne sme da ruši aplikaciju ako logovanje greške ne uspe.
-    console.error("Frontend error logging failed:", e);
-  }
+    try {
+        if (!supabase || supabase.__localDemo) return;
+        await supabase.from("frontend_errors").insert({
+            message: stringifyFrontendError(message),
+            stack: stringifyFrontendError(stack),
+            url: String(window.location.href || ""),
+            user_agent: String(navigator.userAgent || "")
+        });
+    } catch (e) {
+        // Ne sme da ruši aplikaciju ako logovanje greške ne uspe.
+        console.error("Frontend error logging failed:", e);
+    }
 }
 
 if (typeof window !== "undefined" && !window.__MAROPACK_FRONTEND_ERROR_LOGGER__) {
-  window.__MAROPACK_FRONTEND_ERROR_LOGGER__ = true;
+    window.__MAROPACK_FRONTEND_ERROR_LOGGER__ = true;
 
-  window.addEventListener("error", (event) => {
-    logFrontendErrorToSupabase(
-      event?.message || "window.error",
-      event?.error?.stack || `${event?.filename || ""}:${event?.lineno || ""}:${event?.colno || ""}`
-    );
-  });
+    window.addEventListener("error", (event) => {
+        logFrontendErrorToSupabase(
+            event?.message || "window.error",
+            event?.error?.stack || `${event?.filename || ""}:${event?.lineno || ""}:${event?.colno || ""}`
+        );
+    });
 
-  window.addEventListener("unhandledrejection", (event) => {
-    logFrontendErrorToSupabase(
-      event?.reason?.message || event?.reason || "unhandledrejection",
-      event?.reason?.stack || ""
-    );
-  });
+    window.addEventListener("unhandledrejection", (event) => {
+        logFrontendErrorToSupabase(
+            event?.reason?.message || event?.reason || "unhandledrejection",
+            event?.reason?.stack || ""
+        );
+    });
 }
 
 // ✅ AUTH SISTEM - NOVI IMPORT-I
@@ -1592,7 +1592,7 @@ function MainAppContent() {
     var scannerQR = urlParams.get("scanner"); // ?scanner=rolne
 
     if (scannerQR === "rolne" || scannerQR === "rolls") {
-        return <MobileRollScanner msg={function(m){ console.log(m); }} />;
+        return <MobileRollScanner msg={function (m) { console.log(m); }} />;
     }
 
     if (rolnaQR) {
@@ -1625,11 +1625,11 @@ function MainAppContent() {
     }, []);
 
     useEffect(function () {
-        if (isMagacioner) {
+        if (isMagacioner || userProfile?.uloga === "radnik") {
             setPage("rolne_engine");
             setOpenGroups(["magacin"]);
         }
-    }, [isMagacioner]); // ✅ ACCORDION STATE
+    }, [isMagacioner, userProfile?.uloga]); // ✅ ACCORDION STATE
     const [db, setDb] = useState({ proizvodi: [], ponude: [], nalozi: [], master_nalozi: [], rolne: [], masine: [], radnici: [], production_sessions: [], qc_zapisnici: [] });
     const [notif, setNotif] = useState(null);
     const [lIme, setLIme] = useState("");
@@ -1955,8 +1955,15 @@ function MainAppContent() {
 
     // ✅ FINAL CLEAN ACCORDION NAVIGATION STRUCTURE
     // Navigacija je izdvojena u src/config/navigation.js da App.jsx ne drži meni u sebi.
-    const navGroups = getNavGroups(isAdmin, userProfile?.uloga);
-    const mobileMagacionerMode = isMagacioner && isMobileViewport;
+    const navGroupsAll = getNavGroups(isAdmin, userProfile?.uloga);
+    // Magacioneri sa ulogom "radnik" (magacin2, magacin3) vide SAMO Magacin modul.
+    const samoMagacinRola = userProfile?.uloga === "radnik";
+    const navGroups = samoMagacinRola
+        ? navGroupsAll
+            .map(function (g) { return { ...g, items: (g.items || []).filter(function (it) { return it.k === "rolne_engine"; }) }; })
+            .filter(function (g) { return (g.items || []).length > 0; })
+        : navGroupsAll;
+    const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
 
     function toggleGroup(groupKey) {
         if (openGroups.includes(groupKey)) {
@@ -2116,7 +2123,7 @@ function MainAppContent() {
                             <div style={{ fontSize: 11, color: "#64748b" }}>
                                 {userProfile?.uloga === 'admin' ? '👑 Admin' :
                                     userProfile?.uloga === 'manager' ? '⭐ Manager' :
-                                    userProfile?.uloga === 'magacioner' ? '🏪 Magacioner' : '👷 User'}
+                                        userProfile?.uloga === 'magacioner' ? '🏪 Magacioner' : '👷 User'}
                             </div>
                         </div>
                     </div>
@@ -2291,7 +2298,7 @@ function MainAppContent() {
                 )}
 
                 {page === "rolne_engine" && (
-                    <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={isMagacioner && isMobileViewport} />
+                    <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={(isMagacioner || userProfile?.uloga === "radnik") && isMobileViewport} />
                 )}
 
                 {page === "kalkulator_maticnih" && (

@@ -2338,8 +2338,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 {LabelModal}{BulkModal}
                 {scannerMode && <MobileCameraScanner mode={scannerMode} onClose={() => setScannerMode(null)} onScan={handleMobileScan} />}
                 <div style={{ ...card, padding: 14, marginBottom: 12 }}>
-                    <div style={{ fontSize: 22, fontWeight: 950 }}>🏪 Magacin</div>
-                    <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>Mobilni režim za magacionera</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                        <div>
+                            <div style={{ fontSize: 22, fontWeight: 950 }}>🏪 Magacin</div>
+                            <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>👷 {operater?.ime || "—"}</div>
+                        </div>
+                        <button onClick={logoutOperater} style={{ ...btn, background: "#fee2e2", color: "#991b1b", fontWeight: 900 }}>Odjava</button>
+                    </div>
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff", marginTop: 12, width: "100%" }}>Osveži stanje</button>
                 </div>
 
