@@ -1018,20 +1018,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 if (hErr) throw hErr;
                 setHistory((Array.isArray(hist) ? hist : []).map((h) => ({
                     vreme: h.vreme ? new Date(h.vreme).toLocaleString("sr-RS") : "",
-                    operater: h.operater || h.operater_email || "—",
-                    operater_email: h.operater_email || "",
-                    user_id: h.user_id || "",
+                    operater: h.operater || "—",
                     qr: h.qr_code || h.qr || "",
                     event: h.dogadjaj || h.event || "",
                     opis: h.opis || "",
                     stanje: h.stanje || "",
-                    nalog_id: h.nalog_id || "",
-                    lokacija_pre: h.lokacija_pre || "",
-                    lokacija_posle: h.lokacija_posle || "",
-                    metara: h.metara ?? null,
-                    kg: h.kg ?? null,
-                    source: h.source || "",
-                    meta: h.meta || {},
                 })));
             } else {
                 setHistory(safeRead(LS_HISTORY, []));
@@ -1638,7 +1629,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Promena statusa nije upisana u Supabase: " + (e?.message || e), "err");
         }
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        await logHistory({ qr: r.qr, rolna_id: r.id, event: "PROMENA STATUSA", opis: `${r.status} → ${normalizedStatus}`, stanje: normalizedStatus, meta: { old_status: r.status, new_status: normalizedStatus } });
+        await logHistory({ qr: r.qr, event: "PROMENA STATUSA", opis: `${r.status} → ${normalizedStatus}`, stanje: normalizedStatus });
         msg?.(`Status rolne ${r.qr}: ${normalizedStatus}`);
         await reload();
     }
@@ -1656,7 +1647,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Rezervacija nije upisana u Supabase: " + (e?.message || e), "err");
         }
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        await logHistory({ qr: r.qr, rolna_id: r.id, nalog_id: masterId, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano", meta: { master_nalog_id: masterId } });
+        await logHistory({ qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" });
         msg?.(`Rolna ${r.qr} rezervisana za ${masterId}`);
         await reload();
     }
@@ -1678,7 +1669,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 const fresh = await fetchRollFromSupabaseByQr(r.qr || r.br_rolne || r.qr_code);
                 if (fresh) {
                     setRolne((prev) => prev.map((x) => String(x.id) === String(fresh.id) || x.qr === fresh.qr ? fresh : x));
-                    await logHistory({ qr: fresh.qr, rolna_id: fresh.id, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(fresh.duzina, 0)} m`, stanje: fresh.status, metara: usedM, kg: null, meta: { pre_m: currentM, posle_m: fresh.duzina } });
+                    await logHistory({ qr: fresh.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(fresh.duzina, 0)} m`, stanje: fresh.status });
                     msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(fresh.duzina, 0)} m.`);
                 } else {
                     msg?.(`Skinuto ${fmt(usedM, 0)} m. Osvežavam stanje iz baze.`);
@@ -1697,7 +1688,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const status = remainM > 0 ? toDbStatus(r.status) : "Iskorišćeno";
         const updated = { ...r, duzina: remainM, metraza: remainM, metraza_ost: remainM, kg: remainKg, kg_neto: remainKg, status, datum_poslednje_promene: now() };
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        await logHistory({ qr: r.qr, rolna_id: r.id, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status, metara: usedM, kg: remainKg, meta: { pre_m: currentM, posle_m: remainM } });
+        await logHistory({ qr: r.qr, event: "POTROŠNJA", opis: `Skinuto ${fmt(usedM, 0)} m, ostalo ${fmt(remainM, 0)} m`, stanje: status });
         msg?.(`Skinuto ${fmt(usedM, 0)} m. Novo stanje: ${fmt(remainM, 0)} m.`);
     }
     function createReservationRequest() { safeWrite(LS_PENDING_RESERVATION, req); msg?.("Zahtev za izbor rolni je sačuvan. Kasnije ga povezujemo direktno sa master nalogom."); }
@@ -1824,7 +1815,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         } catch (e) { msg?.("Brisanje u Supabase nije uspelo: " + e.message, "err"); return; }
         setRolne((prev) => prev.filter((x) => !(String(x.id) === String(r.id) || x.qr === r.qr)));
         setSelectedRolls((prev) => prev.filter((q) => q !== r.qr));
-        await logHistory({ qr: r.qr, rolna_id: r.id, event: "BRISANJE ROLNE", opis: `Uklonjena sa stanja: ${r.vrsta || ""} ${r.oznaka_materijala || r.oznaka || ""} · ${fmt(number(r.metraza_ost ?? r.duzina), 0)} m / ${fmt(number(r.kg_neto ?? r.kg), 2)} kg · lokacija ${r.lokacija || "—"}`, stanje: "obrisano", metara: number(r.metraza_ost ?? r.duzina), kg: number(r.kg_neto ?? r.kg), lokacija_pre: r.lokacija || null });
+        await logHistory({ qr: r.qr, event: "BRISANJE ROLNE", opis: `Uklonjena sa stanja: ${r.vrsta || ""} ${r.oznaka_materijala || r.oznaka || ""} · ${fmt(number(r.metraza_ost ?? r.duzina), 0)} m / ${fmt(number(r.kg_neto ?? r.kg), 2)} kg · lokacija ${r.lokacija || "—"}`, stanje: "obrisano" });
         msg?.(`Rolna ${r.qr} obrisana sa stanja.`);
         if (!supabase.__localDemo) reload();
     }
@@ -1893,31 +1884,15 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // Centralni upis istorije: jedan ulaz za SVE akcije (desktop + telefon).
     // Upis je optimistički u UI, zatim obavezno pokušava Supabase i osvežava istoriju.
     // Na telefonu se ne oslanjamo samo na realtime, jer browser često uspava tab/kameru.
-    async function logHistory({ qr, event, opis, stanje, meta = {}, rolna_id = null, nalog_id = null, lokacija_pre = null, lokacija_posle = null, metara = null, kg = null }) {
+    async function logHistory({ qr, event, opis, stanje, meta = {} }) {
         const cleanQr = String(qr || "").trim();
-        let sessionUser = null;
-        try {
-            if (!supabase?.__localDemo) {
-                const { data } = await supabase.auth.getSession();
-                sessionUser = data?.session?.user || null;
-            }
-        } catch (e) { /* ne ruši logovanje ako auth session nije dostupan */ }
-        const operaterEmail = String(sessionUser?.email || operater?.email || "").toLowerCase();
         const entry = {
             vreme: now(),
-            operater: operater?.ime || imeFromEmail(operaterEmail) || _operaterIme || "—",
-            operater_email: operaterEmail,
-            user_id: sessionUser?.id || "",
+            operater: operater?.ime || _operaterIme || "—",
             qr: cleanQr,
             event: event || "AKCIJA",
             opis: opis || "",
             stanje: stanje || "",
-            nalog_id: nalog_id || meta?.nalog_id || meta?.master_nalog_id || "",
-            lokacija_pre: lokacija_pre || meta?.lokacija_pre || "",
-            lokacija_posle: lokacija_posle || meta?.lokacija_posle || "",
-            metara,
-            kg,
-            source: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "") ? "mobile" : "desktop",
             meta,
         };
         setHistory((prev) => {
@@ -1929,22 +1904,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         try {
             if (!supabase?.__localDemo) {
                 const payload = {
-                    rolna_id: rolna_id || meta?.rolna_id || null,
                     qr_code: cleanQr,
                     dogadjaj: entry.event,
                     opis: entry.opis,
                     operater: entry.operater,
-                    operater_email: entry.operater_email || null,
-                    user_id: entry.user_id || null,
                     stanje: entry.stanje,
-                    nalog_id: entry.nalog_id || null,
-                    lokacija_pre: entry.lokacija_pre || null,
-                    lokacija_posle: entry.lokacija_posle || null,
-                    metara: Number.isFinite(Number(metara)) ? Number(metara) : null,
-                    kg: Number.isFinite(Number(kg)) ? Number(kg) : null,
-                    source: entry.source,
-                    device_info: navigator.userAgent || "",
-                    meta: entry.meta || {},
                     vreme: new Date().toISOString(),
                 };
                 const { error } = await supabase.from(HISTORY_TABLE).insert(payload);

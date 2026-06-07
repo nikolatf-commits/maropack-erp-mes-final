@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { NalogHeader, Section, QCFooter, IF, HC, C, val, fmt } from "./NalogShared.jsx";
 import { StampaKpdfPreview } from "./MPTPRollOrientation.jsx";
 
-export default function NalogStampa_Folija({ nalog }) {
+export default function NalogStampa_Folija({ nalog, embedded=false }) {
   const [imgUploaded, setImgUploaded] = useState(false);
   const t = nalog?.template || nalog?.templateData || {};
   const folija = nalog?.folija || t.folija || {};
@@ -32,7 +32,7 @@ export default function NalogStampa_Folija({ nalog }) {
 
   return (
     <div style={{ fontFamily:"Inter,system-ui,sans-serif", fontSize:12, color:C.navy, maxWidth:800, margin:"0 auto" }}>
-      <NalogHeader tip="Nalog za štampu" icon="🎨" nalog={nalog} />
+      {!embedded && <NalogHeader tip="Nalog za štampu" icon="🎨" nalog={nalog} />}
 
       {/* KPDF sekcija */}
       <Section title="KPDF / Dizajn i PDF perforacije" badge="priprema / štampa / perforacija" color={C.purple}>
@@ -114,12 +114,12 @@ export default function NalogStampa_Folija({ nalog }) {
         </table>
       </Section>
 
-      <QCFooter items={[
+      {!embedded && <QCFooter items={[
         ["Start","QR skeniranje naloga","Operator: ___________"],
         ["Ulazni materijal","QR rolne / magacin","Mašina: ___________"],
         ["Kontrola","nijansa, registar, boje","QC: ___________"],
         ["Kraj","stvarna kol. + otpad","Potpis: ___________"],
-      ]} />
+      ]} />}
     </div>
   );
 }

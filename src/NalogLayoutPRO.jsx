@@ -547,9 +547,26 @@ export default function NalogLayoutPRO({ nalog = {}, showAll = false }) {
           <Field label="Radnik" value={nalog.radnik || "—"} />
         </div>
 
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8, marginBottom: 14 }}>
+          {(tip === "folija"
+            ? [["Materijal","materijal"],["Štampa","stampa"],["Kaširanje","kasiranje"],["Perforacija + rezanje","perforacija_rezanje"],["QC","qc"]]
+            : tip === "kesa"
+              ? [["Materijal","materijal"],["Kaširanje","kasiranje"],["Kesa","kesa"],["QC","qc"]]
+              : [["Materijal","materijal"],["Formatiranje","formatiranje"],["Špulna","spulna"],["QC","qc"]]
+          ).map(([label,key]) => {
+            const active = vrstaNaloga === key || (vrstaNaloga === "opsti" && key === "materijal");
+            const done = String(nalog.status || "").toLowerCase().includes("zav");
+            return (
+              <div key={key} style={{ background: active ? "#eff6ff" : done ? "#f0fdf4" : "#f8fafc", border: "1px solid " + (active ? "#bfdbfe" : done ? "#bbf7d0" : "#e2e8f0"), borderRadius: 10, padding: "9px 10px", fontWeight: 900, color: active ? "#1d4ed8" : done ? "#059669" : "#64748b", textAlign: "center", fontSize: 12 }}>
+                {done ? "✅ " : active ? "🔵 " : "⚪ "}{label}
+              </div>
+            );
+          })}
+        </div>
+
         {shouldShow("materijal") && (
           tip === "folija"
-            ? <NalogMaterijal_Folija nalog={nalog} />
+            ? <NalogMaterijal_Folija nalog={nalog} embedded />
             : tip === "kesa"
               ? <NalogPotrebaMaterijala_Kesa nalog={nalog} />
               : <NalogPotrebaMaterijala_Spulna nalog={nalog} />
@@ -557,14 +574,9 @@ export default function NalogLayoutPRO({ nalog = {}, showAll = false }) {
 
         {tip === "folija" && (
           <>
-            {shouldShow("stampa") && <NalogStampa_Folija nalog={nalog} />}
-            {shouldShow("kasiranje") && <NalogKasiranje_Folija nalog={nalog} />}
-            {shouldShow("perforacija_rezanje") && <NalogPerforacijaRezanje_Folija nalog={nalog} />}
-            {showAll && <>
-              <NalogStampa_Folija nalog={nalog} />
-              <NalogKasiranje_Folija nalog={nalog} />
-              <NalogPerforacijaRezanje_Folija nalog={nalog} />
-            </>}
+            {shouldShow("stampa") && <NalogStampa_Folija nalog={nalog} embedded />}
+            {shouldShow("kasiranje") && <NalogKasiranje_Folija nalog={nalog} embedded />}
+            {shouldShow("perforacija_rezanje") && <NalogPerforacijaRezanje_Folija nalog={nalog} embedded />}
           </>
         )}
 

@@ -1,7 +1,7 @@
 import React from "react";
 import { NalogHeader, Section, QCFooter, IF, HC, C, val, fmt } from "./NalogShared.jsx";
 
-export default function NalogKasiranje_Folija({ nalog }) {
+export default function NalogKasiranje_Folija({ nalog, embedded=false }) {
   const t = nalog?.template || nalog?.templateData || {};
   const folija = nalog?.folija || t.folija || {};
   const k = folija.kasiranje || nalog?.kasiranje || {};
@@ -17,7 +17,7 @@ export default function NalogKasiranje_Folija({ nalog }) {
 
   return (
     <div style={{ fontFamily:"Inter,system-ui,sans-serif", fontSize:12, color:C.navy, maxWidth:800, margin:"0 auto" }}>
-      <NalogHeader tip="Nalog za kaširanje" icon="🔗" nalog={nalog} />
+      {!embedded && <NalogHeader tip="Nalog za kaširanje" icon="🔗" nalog={nalog} />}
 
       <Section title="Parametri kaširanja / laminiranja" badge="lepak · valjak · temperatura" color={C.amber}>
         {/* 6 highlight kartica */}
@@ -76,12 +76,12 @@ export default function NalogKasiranje_Folija({ nalog }) {
         </div>
       </Section>
 
-      <QCFooter items={[
+      {!embedded && <QCFooter items={[
         ["Start","QR skeniranje naloga","Operator: ___________"],
         ["Ulazni materijal","QR rolne / magacin","Mašina: ___________"],
         ["Kontrola","lepak, temperatura, čvrstoća","QC: ___________"],
         ["Kraj","stvarna kol. + otpad","Potpis: ___________"],
-      ]} />
+      ]} />}
     </div>
   );
 }

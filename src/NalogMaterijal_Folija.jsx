@@ -473,7 +473,7 @@ function MagacionerPogled({ nalog, layers, kolPlus, sir }) {
 }
 
 // ─── GLAVNI KOMPONENT ─────────────────────────────────────
-export default function NalogMaterijal_Folija({ nalog }) {
+export default function NalogMaterijal_Folija({ nalog, embedded=false }) {
   const { userProfile } = useAuth();
   const isMagacioner = userProfile?.uloga === "magacioner";
   const [view, setView] = useState(isMagacioner ? "magacioner" : "obradivac");
@@ -491,7 +491,7 @@ export default function NalogMaterijal_Folija({ nalog }) {
 
   return (
     <div style={{ fontFamily:"Inter,system-ui,sans-serif", fontSize:12, color:C.navy, maxWidth:800, margin:"0 auto" }}>
-      <NalogHeader tip="Nalog za materijal" icon="📦" nalog={nalog} />
+      {!embedded && <NalogHeader tip="Potreba materijala" icon="📦" nalog={nalog} />}
 
       {/* KPI strip + view switcher */}
       <div style={{ border:`1px solid ${C.blueBd}`, borderLeft:`4px solid ${C.blue}`, borderTop:"none", padding:"12px 16px", background:C.blueLt }}>
@@ -543,12 +543,6 @@ export default function NalogMaterijal_Folija({ nalog }) {
         </div>
       </div>
 
-      <QCFooter items={[
-        ["Start","QR skeniranje naloga","Operator: ___________"],
-        ["Ulazni materijal","QR rolne / magacin","Mašina: ___________"],
-        ["Kontrola","kg, metraža, serija, LOT","QC: ___________"],
-        ["Kraj","potvrda preuzimanja","Potpis: ___________"],
-      ]} />
     </div>
   );
 }
