@@ -109,21 +109,46 @@ function parseTemplateMaterialName(raw) {
 }
 
 function mapTemplateLayerToFolijaMaterial(layer, fallbackSirina) {
-    const rawName = layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka || "";
+    const rawName = layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka || layer.oznaka_materijala || "";
     const parsed = parseTemplateMaterialName(rawName);
-    const tip = layer.tip || layer.vrsta || layer.materijal || parsed.tip || "";
-    const debljina = Number(layer.debljina || layer.deb || layer.mic || parsed.debljina || 0);
+    const tip = layer.vrsta || layer.tip || layer.materijal || parsed.tip || "";
+    const podVrsta = layer.pod_vrsta || layer.podVrsta || layer.podvrsta || layer.subtype || "";
+    const oznaka = layer.oznaka_materijala || layer.oznaka || layer.grade || layer.sifra || "";
+    const debljina = Number(layer.debljina || layer.deb || layer.mic || layer.debljina_um || parsed.debljina || 0);
     const arr = MAT_DATA[tip] || MAT_DATA[parsed.tip] || [];
     const found = arr.find(x => Number(x.d) === Number(debljina));
-    const tezina = Number(layer.tezina || layer.t || layer.gsm || layer.gm2 || layer.gramatura || (found ? found.t : 0));
+    const tezina = Number(layer.tezina || layer.t || layer.gsm || layer.gm2 || layer.tezinaGm2 || layer.gramatura || (found ? found.t : 0));
+    const sirina = Number(layer.idealna_sirina || layer.idealnaSirina || layer.sirina || layer.sirinaMm || fallbackSirina || 0);
+    const koef = Number(layer.koeficijent || layer.koef || 0) || undefined;
     return {
+        ...layer,
+        vrsta: tip,
         tip,
+        materijal: tip,
+        pod_vrsta: podVrsta,
+        podVrsta,
+        oznaka_materijala: oznaka,
+        oznaka,
+        grade: oznaka,
+        proizvodjac: layer.proizvodjac || layer.proizvođač || layer.dobavljac || "",
+        dobavljac: layer.dobavljac || layer.proizvodjac || layer.proizvođač || "",
         debljina,
+        deb: debljina,
+        debljina_um: debljina,
+        koeficijent: koef || layer.koeficijent || layer.koef || "",
+        koef: koef || layer.koef || layer.koeficijent || "",
         tezina,
+        gm2: Number(layer.gm2 || layer.tezinaGm2 || tezina || 0),
+        tezinaGm2: Number(layer.tezinaGm2 || layer.gm2 || tezina || 0),
         cena: Number(layer.cena || layer.cena_kg || CENE[tip] || CENE[parsed.tip] || 0),
-        sirina: Number(layer.sirina || layer.idealna_sirina || layer.idealnaSirina || fallbackSirina || 0),
-        stampa: !!(layer.stampa || layer.stamp),
-        lakira: !!(layer.lakira || layer.lak)
+        sirina,
+        idealna_sirina: sirina,
+        idealnaSirina: sirina,
+        sirinaMm: sirina,
+        spoj_materijala: layer.spoj_materijala || layer.spojMaterijala || layer.spoj || "",
+        broj_spojeva: layer.broj_spojeva || layer.brojSpojeva || layer.spojeva || "",
+        stampa: !!(layer.stampa || layer.stamp || layer.Š),
+        lakira: !!(layer.lakira || layer.lak || layer.L)
     };
 }
 

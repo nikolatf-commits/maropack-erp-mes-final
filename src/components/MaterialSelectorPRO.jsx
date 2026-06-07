@@ -49,6 +49,32 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
   const [debljina, setDebljina] = useState(Number(init.debljina || (debljine.includes(20) ? 20 : (debljine[0] || 20))));
   const [idealnaSirina, setIdealnaSirina] = useState(init.idealna_sirina || "");
 
+  // Kada kalkulacija dobije slojeve iz sačuvanog template-a posle prvog rendera,
+  // MaterialSelector mora da osveži interno stanje. Bez ovoga ostaju default BOPP/FXCB/20.
+  useEffect(() => {
+    const next = buildLayerPayload(value || {});
+    setVrsta(next.vrsta || "BOPP");
+    setPodVrsta(next.pod_vrsta || "Transparent");
+    setOznaka(next.oznaka_materijala || "STANDARD");
+    setDebljina(Number(next.debljina || 20));
+    setIdealnaSirina(next.idealna_sirina || "");
+  }, [
+    value?.vrsta,
+    value?.tip,
+    value?.pod_vrsta,
+    value?.podVrsta,
+    value?.podvrsta,
+    value?.oznaka_materijala,
+    value?.oznaka,
+    value?.grade,
+    value?.debljina,
+    value?.deb,
+    value?.idealna_sirina,
+    value?.idealnaSirina,
+    value?.sirina,
+    value?.sirinaMm
+  ]);
+
   useEffect(() => {
     const available = getOznakeZaVrstu(vrsta);
     if (!available.includes(oznaka)) setOznaka(available.includes("FXCB") ? "FXCB" : (available[0] || "STANDARD"));
