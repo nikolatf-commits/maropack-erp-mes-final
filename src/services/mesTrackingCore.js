@@ -79,9 +79,9 @@ export function calculateMachineKpi(events = []) {
 
 export function buildTraceability({ nalog, rolls = [], events = [], qc = [] }) {
   return {
-    nalog_id: nalog?.id || nalog?.broj || 'DEMO-NALOG',
-    kupac: nalog?.kupac || 'Kupac demo',
-    proizvod: nalog?.naziv || nalog?.proizvod || 'Proizvod demo',
+    nalog_id: nalog?.id || nalog?.broj || 'N/A',
+    kupac: nalog?.kupac || '—',
+    proizvod: nalog?.naziv || nalog?.proizvod || '—',
     rolne: rolls,
     dogadjaji: events.filter(e => !nalog?.id || e.nalog_id === nalog.id || e.nalog_id === nalog.broj),
     kontrola_kvaliteta: qc,

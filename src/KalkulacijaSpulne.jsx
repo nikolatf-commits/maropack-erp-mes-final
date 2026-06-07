@@ -31,22 +31,22 @@ export default function KalkulacijaSpulne() {
     const { user } = useAuth();
 
     // Osnovni podaci
-    const [naziv, setNaziv] = useState('Trake 8 mm - 10000 m');
-    const [kupac, setKupac] = useState('Mavotape');
-    const [brPorudzbine, setBrPorudzbine] = useState('4664');
-    const [datumPorudzbine, setDatumPorudzbine] = useState('2026-04-28');
-    const [datumIsporuke, setDatumIsporuke] = useState('2026-05-30');
+    const [naziv, setNaziv] = useState('');
+    const [kupac, setKupac] = useState('');
+    const [brPorudzbine, setBrPorudzbine] = useState('');
+    const [datumPorudzbine, setDatumPorudzbine] = useState('');
+    const [datumIsporuke, setDatumIsporuke] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
 
     // Materijal
-    const [materijal, setMaterijal] = useState('PE30 / PET12 / PE 30');
-    const [tezinaGM2, setTezinaGM2] = useState(72);
-    const [cenaM2, setCenaM2] = useState(1.13);
+    const [materijal, setMaterijal] = useState('');
+    const [tezinaGM2, setTezinaGM2] = useState(0);
+    const [cenaM2, setCenaM2] = useState(0);
     const [troskoviM2, setTroskoviM2] = useState(0.05);
 
     // Dimenzije špulne
-    const [sirina, setSirina] = useState(8);  // mm
-    const [duzina, setDuzina] = useState(10000);  // m
+    const [sirina, setSirina] = useState(0);  // mm
+    const [duzina, setDuzina] = useState(0);  // m
 
     // Troškovi
     const [cenaKutije, setCenaKutije] = useState(2);
@@ -56,7 +56,7 @@ export default function KalkulacijaSpulne() {
 
     // Finalno
     const [marza, setMarza] = useState(40);
-    const [kolicina, setKolicina] = useState(189);
+    const [kolicina, setKolicina] = useState(0);
 
     // ✅ V26: Template → Kalkulacija realno mapiranje za špulne.
     useEffect(() => {

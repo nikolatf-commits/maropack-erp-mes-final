@@ -799,7 +799,7 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     safeWrite(LS_HISTORY, hist);
     (async () => {
         try {
-            if (!supabase?.__localDemo) {
+            if (!supabase?.__notConfigured) {
                 await supabase.from("magacin_istorija").insert({ qr_code: item.qr, dogadjaj: event, opis: opisDesc, operater: _operaterIme, stanje: item.status, vreme: new Date().toISOString() });
             }
         } catch (e) { /* noop */ }
@@ -907,7 +907,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [locationParts, setLocationParts] = useState({ magacin: "", red: "", polica: "", pozicija: "" });
 
     async function loadMaterialDropdowns() {
-        if (supabase?.__localDemo) {
+        if (supabase?.__notConfigured) {
             setMaterialDropdowns(FALLBACK_MATERIAL_DROPDOWNS);
             return;
         }
@@ -937,7 +937,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
 
     async function loadMaterialMaster() {
-        if (supabase?.__localDemo) {
+        if (supabase?.__notConfigured) {
             setMaterialMaster([]);
             setMaterialPrices({});
             return;
@@ -986,7 +986,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         let sourceRolls = [];
         let loadedFromSupabase = false;
         try {
-            if (!supabase?.__localDemo) {
+            if (!supabase?.__notConfigured) {
                 const { data, error } = await supabase
                     .from("magacin")
                     .select("*")
@@ -1013,7 +1013,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setRolne(sourceRolls.filter((r) => normalizeStatus(r.status) !== "obrisano"));
         if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
         try {
-            if (!supabase?.__localDemo) {
+            if (!supabase?.__notConfigured) {
                 const { data: hist, error: hErr } = await supabase.from(HISTORY_TABLE).select("*").order("vreme", { ascending: false }).limit(HISTORY_SYNC_LIMIT);
                 if (hErr) throw hErr;
                 setHistory((Array.isArray(hist) ? hist : []).map((h) => ({
@@ -1045,7 +1045,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // 3) ako kanal padne (CHANNEL_ERROR / TIMED_OUT / CLOSED) automatski se ponovo povezuje,
     // 4) sigurnosni interval povlaci stanje i kada realtime zakaze.
     useEffect(() => {
-        if (supabase?.__localDemo) return;
+        if (supabase?.__notConfigured) return;
 
         let channel = null;
         let retryTimer = null;
@@ -1103,7 +1103,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     async function fetchRollFromSupabaseByQr(qrValue) {
         const qr = extractQrFromScan(qrValue);
-        if (!qr || supabase?.__localDemo) return null;
+        if (!qr || supabase?.__notConfigured) return null;
         try {
             let { data, error } = await supabase
                 .from("magacin")
@@ -1169,7 +1169,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             payload.datum_poslednjeg_popisa = new Date().toISOString();
         }
 
-        if (!supabase?.__localDemo) {
+        if (!supabase?.__notConfigured) {
             const { data, error } = await supabase
                 .from("magacin")
                 .update(payload)
@@ -1404,7 +1404,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             return;
         }
         try {
-            if (supabase?.__localDemo) throw new Error("Supabase nije dostupan");
+            if (supabase?.__notConfigured) throw new Error("Supabase nije dostupan");
             const { data, error } = await supabase
                 .from("material_master")
                 .upsert(payload, { onConflict: "vrsta,pod_vrsta,oznaka,debljina" })
@@ -1516,7 +1516,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const napomenaFull = [form.napomena, `SPOJ ${kasiranoLayers.length} sloja — ${slojeviTxt}  ;  lepak ${kasiranoLepak} g/m² × ${kasiranoLayers.length - 1}  ;  UKUPNO ${fmt(compositeGsm, 2)} g/m², ${fmt(compositeDebljina, 2)} µ`].filter(Boolean).join(" — ");
         let item = null;
         try {
-            if (!supabase.__localDemo) {
+            if (!supabase.__notConfigured) {
                 const { data, error } = await supabase.from("magacin").insert({
                     br_rolne: brRolne, tip: "SPOJ", vrsta: compositeVrste, pod_vrsta: null,
                     oznaka_materijala: compositeName, deb: compositeDebljina,
@@ -1535,7 +1535,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Upis kaširane rolne nije uspeo: " + e.message + " — rolna NIJE sačuvana.", "err");
             return;
         }
-        if (!item && supabase.__localDemo) {
+        if (!item && supabase.__notConfigured) {
             item = addWarehouseRoll({
                 qr: brRolne, vrsta: compositeVrste, oznaka_materijala: compositeName, materijal: compositeVrste,
                 komercijalnaOznaka: compositeName, debljina: compositeDebljina, gsm: compositeGsm,
@@ -1569,7 +1569,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const cleanCode = cleanOznaka(selectedMat.oznaka || materialPick.oznaka || selectedMat.komercijalnaOznaka, selectedMat.vrsta);
         let item = null;
         try {
-            if (!supabase.__localDemo) {
+            if (!supabase.__notConfigured) {
                 const { data, error } = await supabase.from("magacin").insert({
                     br_rolne: brRolne,
                     tip: selectedMat.vrsta,
@@ -1602,7 +1602,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Upis rolne nije uspeo: " + e.message + " — rolna NIJE sačuvana.", "err");
             return;
         }
-        if (!item && supabase.__localDemo) {
+        if (!item && supabase.__notConfigured) {
             item = addWarehouseRoll({
                 qr: brRolne, materijal_id: selectedMat.id, vrsta: selectedMat.vrsta, pod_vrsta: selectedMat.pod_vrsta || materialPick.pod_vrsta,
                 oznaka_materijala: cleanCode, materijal: selectedMat.vrsta,
@@ -1620,7 +1620,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const normalizedStatus = toDbStatus(status);
         const updated = { ...r, status: normalizedStatus, datum_poslednje_promene: now() };
         try {
-            if (!supabase?.__localDemo && r.id) {
+            if (!supabase?.__notConfigured && r.id) {
                 const { error } = await supabase.from("magacin").update({ status: normalizedStatus, updated_at: new Date().toISOString() }).eq("id", r.id);
                 if (error) throw error;
             }
@@ -1638,7 +1638,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (masterId === null) return;
         const updated = { ...r, status: "Rezervisano", master_nalog_id: masterId, datum_poslednje_promene: now() };
         try {
-            if (!supabase?.__localDemo && r.id) {
+            if (!supabase?.__notConfigured && r.id) {
                 const { error } = await supabase.from("magacin").update({ status: "Rezervisano", master_nalog_id: masterId || null, updated_at: new Date().toISOString() }).eq("id", r.id);
                 if (error) throw error;
             }
@@ -1659,7 +1659,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (usedM <= 0) { msg?.("Unesi ispravnu metražu za skidanje", "err"); return; }
 
         try {
-            if (!supabase?.__localDemo && r.id) {
+            if (!supabase?.__notConfigured && r.id) {
                 const { error } = await supabase.rpc("skini_metre_rolne", {
                     p_rolna_id: Number(r.id),
                     p_skinuto: usedM,
@@ -1808,7 +1808,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (normalizeStatus(r.status) !== "dostupna") { msg?.("Brisati se mogu samo rolne sa stanja (Na stanju).", "err"); return; }
         if (!confirm(`Obrisati rolnu ${r.qr} sa stanja? Rolna se uklanja iz magacina (zadržava se trag zbog MES/popisa).`)) return;
         try {
-            if (!supabase.__localDemo && r.id != null) {
+            if (!supabase.__notConfigured && r.id != null) {
                 const { error } = await supabase.from("magacin").update({ status: "obrisano", updated_at: new Date().toISOString() }).eq("id", r.id);
                 if (error) throw error;
             }
@@ -1817,7 +1817,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setSelectedRolls((prev) => prev.filter((q) => q !== r.qr));
         await logHistory({ qr: r.qr, event: "BRISANJE ROLNE", opis: `Uklonjena sa stanja: ${r.vrsta || ""} ${r.oznaka_materijala || r.oznaka || ""} · ${fmt(number(r.metraza_ost ?? r.duzina), 0)} m / ${fmt(number(r.kg_neto ?? r.kg), 2)} kg · lokacija ${r.lokacija || "—"}`, stanje: "obrisano" });
         msg?.(`Rolna ${r.qr} obrisana sa stanja.`);
-        if (!supabase.__localDemo) reload();
+        if (!supabase.__notConfigured) reload();
     }
 
     async function deleteAllStockRolls() {
@@ -1828,7 +1828,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!confirm(`Poslednja potvrda: uklanjanje ${onStock.length} rolni sa stanja. Sigurno?`)) return;
         let okCount = onStock.length;
         try {
-            if (!supabase.__localDemo) {
+            if (!supabase.__notConfigured) {
                 const ids = onStock.map((r) => r.id).filter((x) => x != null);
                 if (ids.length) {
                     const { error } = await supabase.from("magacin").update({ status: "obrisano", updated_at: new Date().toISOString() }).in("id", ids);
@@ -1842,12 +1842,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setRolne((prev) => prev.filter((r) => !qrs.has(r.qr)));
         setSelectedRolls((prev) => prev.filter((q) => !qrs.has(q)));
         msg?.(`Obrisano ${okCount} rolni sa stanja.`);
-        if (!supabase.__localDemo) reload();
+        if (!supabase.__notConfigured) reload();
     }
 
     async function loginOperater(email, sifra) {
         const em = String(email).trim().toLowerCase();
-        if (supabase?.__localDemo) { msg?.("Supabase nije povezan.", "err"); return false; }
+        if (supabase?.__notConfigured) { msg?.("Supabase nije povezan.", "err"); return false; }
         try {
             const { data, error } = await supabase.auth.signInWithPassword({ email: em, password: String(sifra) });
             if (error || !data?.user) { msg?.("Pogrešan email ili šifra.", "err"); return false; }
@@ -1861,13 +1861,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
     }
     async function logoutOperater() {
-        try { if (!supabase?.__localDemo) await supabase.auth.signOut(); } catch (e) { /* noop */ }
+        try { if (!supabase?.__notConfigured) await supabase.auth.signOut(); } catch (e) { /* noop */ }
         setOperater(null); safeWrite(LS_OPERATER, null);
     }
     useEffect(() => { _operaterIme = operater?.ime || "—"; }, [operater]);
     // Obnova sesije pri otvaranju: ako je magacioner već ulogovan u Supabase Auth, ostaje prijavljen.
     useEffect(() => {
-        if (supabase?.__localDemo) return;
+        if (supabase?.__notConfigured) return;
         let active = true;
         (async () => {
             try {
@@ -1902,7 +1902,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         });
 
         try {
-            if (!supabase?.__localDemo) {
+            if (!supabase?.__notConfigured) {
                 const payload = {
                     qr_code: cleanQr,
                     dogadjaj: entry.event,
@@ -2140,7 +2140,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             const cleanCode = cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta);
             let item = null;
             try {
-                if (!supabase?.__localDemo) {
+                if (!supabase?.__notConfigured) {
                     const { data, error } = await supabase.from("magacin").insert({
                         br_rolne: brRolne,
                         tip: mat.vrsta,
@@ -2206,7 +2206,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         try {
             const finalRoll = await persistRollState(targetRoll, { location }, { reload: false });
             try {
-                if (!supabase?.__localDemo) {
+                if (!supabase?.__notConfigured) {
                     await supabase.from("istorija_lokacija_rolni").insert({
                         rolna_id: targetRoll.id,
                         br_rolne: targetRoll.br_rolne || targetRoll.qr,

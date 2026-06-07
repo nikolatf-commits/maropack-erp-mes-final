@@ -1,4 +1,4 @@
-// supabase.js - Supabase konfiguracija sa lokalnim fallback režimom
+// supabase.js - produkciona Supabase konfiguracija BEZ demo/localStorage fallback režima
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -15,8 +15,18 @@ function isValidUrl(url) {
   return typeof url === 'string' && url.startsWith('https://') && url.includes('.supabase.co');
 }
 
-function ok(data = []) { return Promise.resolve({ data, error: null }); }
-function makeQuery(data = []) {
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl) && isValidKey(supabaseAnonKey)
+);
+
+function notConfiguredError() {
+  return {
+    message: 'Supabase nije podešen. Postavi VITE_SUPABASE_URL i VITE_SUPABASE_ANON_KEY u .env / Vercel Environment Variables.',
+    code: 'SUPABASE_NOT_CONFIGURED'
+  };
+}
+
+function makeDisabledQuery() {
   const q = {
     select: () => q,
     insert: () => q,
@@ -30,40 +40,36 @@ function makeQuery(data = []) {
     or: () => q,
     gte: () => q,
     lte: () => q,
+    not: () => q,
     range: () => q,
     limit: () => q,
     order: () => q,
-    single: () => Promise.resolve({ data: data[0] || null, error: data[0] ? null : { code: 'PGRST116', message: 'Local demo: no row' } }),
-    then: (resolve) => ok(data).then(resolve)
+    single: () => Promise.resolve({ data: null, error: notConfiguredError() }),
+    maybeSingle: () => Promise.resolve({ data: null, error: notConfiguredError() }),
+    then: (resolve) => Promise.resolve({ data: null, error: notConfiguredError() }).then(resolve)
   };
   return q;
 }
 
-function createLocalSupabaseMock() {
-  console.warn('⚠️ Supabase nije podešen. Aplikacija radi u lokalnom demo režimu preko localStorage-a.');
+function createDisabledSupabaseClient() {
+  console.error('Supabase nije podešen. aplikacija mora koristiti pravu bazu.');
   return {
-    __localDemo: true,
-    from(table) {
-      let rows = [];
-      try {
-        const db = JSON.parse(window.localStorage.getItem('maropack_db') || '{}');
-        rows = Array.isArray(db[table]) ? db[table] : [];
-      } catch (_) {}
-      return makeQuery(rows);
-    },
-    rpc() { return Promise.resolve({ data: null, error: { message: 'RPC nije dostupan u lokalnom demo režimu.' } }); },
+    __notConfigured: true,
+    from() { return makeDisabledQuery(); },
+    rpc() { return Promise.resolve({ data: null, error: notConfiguredError() }); },
     channel() { return { on() { return this; }, subscribe() { return this; } }; },
     removeChannel() {},
-    storage: { from() { return { upload: () => Promise.resolve({ error: null }), getPublicUrl: (path) => ({ data: { publicUrl: path } }) }; } },
+    storage: { from() { return { upload: () => Promise.resolve({ data: null, error: notConfiguredError() }), getPublicUrl: () => ({ data: { publicUrl: '' } }) }; } },
     auth: {
-      async getSession() { return { data: { session: { user: { id: 'local-admin', email: 'admin@local.demo' } } }, error: null }; },
+      async getSession() { return { data: { session: null }, error: notConfiguredError() }; },
       onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
-      async getUser() { return { data: { user: { id: 'local-admin', email: 'admin@local.demo' } }, error: null }; },
-      async signInWithPassword({ email }) { return { data: { user: { id: 'local-admin', email: email || 'admin@local.demo' } }, error: null }; },
+      async getUser() { return { data: { user: null }, error: notConfiguredError() }; },
+      async signInWithPassword() { return { data: null, error: notConfiguredError() }; },
       async signOut() { return { error: null }; }
     }
   };
 }
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl) && isValidKey(supabaseAnonKey));
-export const supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : createLocalSupabaseMock();
+export const supabase = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : createDisabledSupabaseClient();

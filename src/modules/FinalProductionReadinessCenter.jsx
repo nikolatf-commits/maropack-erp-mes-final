@@ -137,7 +137,7 @@ export default function FinalProductionReadinessCenter({ msg }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 14 }}>
           {[
             ['Start sistema', 'npm install --legacy-peer-deps → npm run build → deploy na Vercel/server.'],
-            ['Env', 'Obavezno: VITE_SUPABASE_URL i VITE_SUPABASE_ANON_KEY. Bez toga radi demo fallback.'],
+            ['Env', 'Obavezno: VITE_SUPABASE_URL i VITE_SUPABASE_ANON_KEY. Bez toga aplikacija ne koristi podatke.'],
             ['Backup', 'Pre svake veće izmene: export Supabase + ZIP trenutnog projekta.'],
             ['Incident', 'Ako modul pukne: ErrorBoundary zadržava aplikaciju, proveriti audit i browser console.'],
             ['AI pravilo', 'AI ne sme automatski skidati magacin bez potvrde korisnika.'],

@@ -180,11 +180,11 @@ export default function KalkulacijaFolijeSmart() {
     const [mod, setMod] = useState("normal");
 
     // OSNOVNI PODACI
-    const [naziv, setNaziv] = useState("Magnezijum 3g");
-    const [kupac, setKupac] = useState("Medomix");
-    const [sirina, setSirina] = useState(85);
-    const [metraza, setMetraza] = useState(1000);
-    const [nalog, setNalog] = useState(120);
+    const [naziv, setNaziv] = useState("");
+    const [kupac, setKupac] = useState("");
+    const [sirina, setSirina] = useState(0);
+    const [metraza, setMetraza] = useState(0);
+    const [nalog, setNalog] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(40);
     const [zeljenaCena, setZeljenaCena] = useState(86.37);
@@ -192,9 +192,6 @@ export default function KalkulacijaFolijeSmart() {
 
     // MATERIJALI (4)
     const [materijali, setMaterijali] = useState([
-        { tip: "Papir sigmakraft", debljina: 70, tezina: 70, cena: 3.5, sirina: 8, stampa: true, lakira: false },
-        { tip: "ALU", debljina: 7, tezina: 18.97, cena: 7.5, sirina: 2, stampa: false, lakira: false },
-        { tip: "PA/PE koestruzija", debljina: 30, tezina: 30, cena: 1.8, sirina: 2, stampa: false, lakira: false },
         { tip: "", debljina: 0, tezina: 0, cena: 0, sirina: 0, stampa: false, lakira: false }
     ]);
 

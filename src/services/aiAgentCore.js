@@ -207,7 +207,7 @@ export async function runAIAgent(question, options = {}) {
   return result;
 }
 
-export async function executeAIAgentAction(action, user = 'local-admin') {
+export async function executeAIAgentAction(action, user = 'system') {
   if (!action?.type) return { ok: false, message: 'Nema akcije za izvršenje.' };
   const now = new Date().toISOString();
   try {

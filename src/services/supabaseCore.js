@@ -161,7 +161,7 @@ export async function fetchCoreData() {
     ]);
 
     // Novi izvor istine: radni_nalozi + operativni_nalozi.
-    // Stara tabela nalozi se koristi samo kao fallback ako operativni_nalozi još nisu popunjeni.
+    // Primarni izvor naloga je operativni_nalozi; stara tabela nalozi je samo kompatibilnost za migraciju.
     const mappedOperativni = operativniRaw.map(mapDbNalog);
     const mappedNaloziStari = naloziRaw.map(mapDbNalog);
     const sviNalozi = mappedOperativni.length ? mappedOperativni : mappedNaloziStari;
@@ -182,7 +182,7 @@ export async function fetchCoreData() {
 
 export async function generateMasterFromPonuda(ponuda) {
     if (!ponuda?.id) {
-        return { usedRpc: false, data: null, error: new Error("Ponuda nema id, koristi se lokalni fallback.") };
+        return { usedRpc: false, data: null, error: new Error("Ponuda nema id.") };
     }
 
     // Novi MAROPACK tok: ponude(bigint) -> radni_nalozi -> operativni_nalozi

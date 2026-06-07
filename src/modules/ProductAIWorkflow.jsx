@@ -60,7 +60,7 @@ function writeLocalOffer(offer) {
 
 export default function ProductAIWorkflow({ db = {}, setDb, msg, setPage }) {
   const products = useMemo(() => (db.proizvodi || []).map(normalizeProduct), [db.proizvodi]);
-  const [command, setCommand] = useState("Napravi ponudu za Medomix Magnezijum 3g za 2000 kg");
+  const [command, setCommand] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [customer, setCustomer] = useState("");
   const parsed = parseQuantity(command);

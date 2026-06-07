@@ -45,7 +45,7 @@ export default function UserManagement() {
     setSuccess('');
 
     try {
-      if (supabase.__demo) {
+      if (supabase.__notConfigured) {
         setError('Demo mode - ne možeš kreirati prave korisnike. Postavi pravu Supabase bazu.');
         return;
       }

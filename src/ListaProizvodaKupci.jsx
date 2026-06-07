@@ -1,11 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase.js';
 
-const demoProducts = [
-  { id: 'p1', naziv: 'FIT MIX 85g', kupac: 'Kupac A', sifra: 'FM-85', tip: 'Folija', idealna_sirina: 840, template: { layers: [ { sloj: 1, vrsta: 'BOPP', oznaka: 'FXCB', debljina: 20, sirina: 840, gm2: 18.2 }, { sloj: 2, vrsta: 'ALU', oznaka: 'ALU', debljina: 7, sirina: 840, gm2: 18.9 }, { sloj: 3, vrsta: 'CPP', oznaka: 'PLC', debljina: 35, sirina: 840, gm2: 31.5 } ] } },
-  { id: 'p2', naziv: 'Smurfit SigmaKraft', kupac: 'Smurfit', sifra: 'SM-060', tip: 'Folija', idealna_sirina: 755, template: { layers: [ { sloj: 1, vrsta: 'Papir', oznaka: 'SigmaKraft', debljina: 60, sirina: 840, gm2: 60 }, { sloj: 2, vrsta: 'ALU', oznaka: 'ALU', debljina: 7, sirina: 755, gm2: 18.9 }, { sloj: 3, vrsta: 'PE', oznaka: 'LDPE', debljina: 30, sirina: 750, gm2: 27.6 } ] } },
-  { id: 'p3', naziv: 'Doypack Protein', kupac: 'Kupac B', sifra: 'DP-120', tip: 'Kesa', idealna_sirina: 620, template: { layers: [ { sloj: 1, vrsta: 'PET', oznaka: 'PETP', debljina: 12, sirina: 620, gm2: 16.8 }, { sloj: 2, vrsta: 'PE', oznaka: 'PEW', debljina: 70, sirina: 620, gm2: 64.4 } ] } }
-];
+const initialProducts = [];
 
 function safeJson(v) {
   if (!v) return {};
@@ -48,11 +44,11 @@ export default function ListaProizvodaKupci({ msg }) {
       try {
         const { data, error } = await supabase.from('proizvodi').select('*').order('kupac', { ascending: true }).limit(1000);
         if (error) throw error;
-        if (alive) setProducts(data && data.length ? data : demoProducts);
+        if (alive) setProducts(data || []);
       } catch (e) {
-        console.warn('Lista proizvoda: koristim demo podatke', e);
-        if (alive) setProducts(demoProducts);
-        if (msg) msg('Lista proizvoda: tabela proizvodi nije dostupna, prikazani su demo podaci.');
+        console.warn('Lista proizvoda: podaci nisu dostupni', e);
+        if (alive) setProducts(initialProducts);
+        if (msg) msg('Lista proizvoda: tabela proizvodi nije dostupna.');
       } finally { if (alive) setLoading(false); }
     }
     load();

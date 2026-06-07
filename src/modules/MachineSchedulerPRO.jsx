@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { DEFAULT_MACHINES, DEMO_ORDERS, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
+import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 
 const styles = {
   page: { padding: 24, background: '#f1f5f9', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' },
@@ -65,7 +65,7 @@ function MachineEditModal({ machine, onClose, onSave }) {
 
 export default function MachineSchedulerPRO({ msg }) {
   const [machines, setMachines] = useState(DEFAULT_MACHINES);
-  const [orders] = useState(DEMO_ORDERS);
+  const [orders] = useState([]);
   const [plan, setPlan] = useState({});
   const [filter, setFilter] = useState('sve');
   const [editing, setEditing] = useState(null);
@@ -112,7 +112,7 @@ export default function MachineSchedulerPRO({ msg }) {
     <div style={styles.hero}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
         <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>10 rezača · 15 mašina za kese · 2 špulne · 1 kaširka · kartice mašina · drag/drop plan.</p></div>
-        <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset 28 mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan u lokalni demo/Supabase režim')}>Sačuvaj plan</button></div>
+        <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset 28 mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
       </div>
     </div>
 

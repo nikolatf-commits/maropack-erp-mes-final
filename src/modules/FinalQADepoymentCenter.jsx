@@ -90,7 +90,7 @@ const sections = [
 ];
 
 const smokeTests = [
-  { name: "Login / demo režim", expected: "Aplikacija ne puca bez Supabase .env; prikazuje demo/fallback." },
+  { name: "Login / Supabase režim", expected: "Aplikacija zahteva Supabase .env i prikazuje samo podatke iz baze." },
   { name: "Magacin rolni", expected: "Rolna se vidi, može se rezervisati i ažurirati metraža." },
   { name: "Planer rezanja", expected: "Plan bira rolnu, računa otpad i priprema QR za ostatak." },
   { name: "Mašine + scheduler", expected: "Nalog može da se prevuče na kompatibilnu mašinu." },

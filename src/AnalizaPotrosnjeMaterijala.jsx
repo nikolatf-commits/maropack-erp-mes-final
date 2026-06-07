@@ -1,24 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase.js';
 
-const demoNalozi = [
-  {
-    id: 'demo-1', naziv: 'FIT MIX doypack', kupac: 'Kupac A', sifra: 'FM-001', tip_proizvoda: 'Folija', idealna_sirina: 840, datum: '2026-05-20', status: 'zavrseno',
-    izabrane_rolne: [
-      { sloj: 1, materijal: 'BOPP', oznaka: 'FXCB', debljina: 20, sirina: 860, metraza: 24000, br_rolne: 'BOPP-24-001', lot: 'IT-5501' },
-      { sloj: 2, materijal: 'ALU', oznaka: 'ALU', debljina: 7, sirina: 840, metraza: 24000, br_rolne: 'ALU-24-018', lot: 'AL-981' },
-      { sloj: 3, materijal: 'CPP', oznaka: 'PLC', debljina: 35, sirina: 840, metraza: 24000, br_rolne: 'CPP-24-044', lot: 'CPP-442' }
-    ]
-  },
-  {
-    id: 'demo-2', naziv: 'SigmaKraft triplex', kupac: 'Smurfit', sifra: 'SK-TR-060', tip_proizvoda: 'Folija', idealna_sirina: 755, datum: '2026-05-22', status: 'u radu',
-    izabrane_rolne: [
-      { sloj: 1, materijal: 'Papir', oznaka: 'SigmaKraft', debljina: 60, sirina: 840, metraza: 18000, br_rolne: 'PAP-24-003', lot: 'SK-60-22' },
-      { sloj: 2, materijal: 'ALU', oznaka: 'ALU', debljina: 7, sirina: 755, metraza: 18000, br_rolne: 'ALU-24-021', lot: 'AL-1002' },
-      { sloj: 3, materijal: 'PE', oznaka: 'LDPE', debljina: 30, sirina: 750, metraza: 18000, br_rolne: 'PE-24-044', lot: 'PE-442' }
-    ]
-  }
-];
+const initialRows = [];
 
 function safeNumber(v, fallback = 0) {
   const n = Number(v);
@@ -81,11 +64,11 @@ export default function AnalizaPotrosnjeMaterijala({ msg }) {
           .order('created_at', { ascending: false })
           .limit(500);
         if (error) throw error;
-        if (alive) setRows((data && data.length ? data : demoNalozi));
+        if (alive) setRows(data || []);
       } catch (e) {
-        console.warn('Analiza potrosnje: koristim demo podatke', e);
-        if (alive) setRows(demoNalozi);
-        if (msg) msg('Analiza potrošnje: tabela nalozi_materijal nije dostupna, prikazani su demo podaci.');
+        console.warn('Analiza potrosnje: podaci nisu dostupni', e);
+        if (alive) setRows(initialRows);
+        if (msg) msg('Analiza potrošnje: tabela nalozi_materijal nije dostupna.');
       } finally {
         if (alive) setLoading(false);
       }

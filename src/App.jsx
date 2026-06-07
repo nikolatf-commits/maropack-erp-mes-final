@@ -37,7 +37,7 @@ function stringifyFrontendError(value) {
 
 async function logFrontendErrorToSupabase(message, stack = "") {
     try {
-        if (!supabase || supabase.__localDemo) return;
+        if (!supabase || supabase.__notConfigured) return;
         await supabase.from("frontend_errors").insert({
             message: stringifyFrontendError(message),
             stack: stringifyFrontendError(stack),
@@ -1656,38 +1656,24 @@ function MainAppContent() {
                 try {
                     core = await fetchCoreData();
                 } catch (coreError) {
-                    console.warn("Supabase Core tabele nisu dostupne ili RLS blokira čitanje, koristim lokalni fallback:", coreError.message);
+                    console.warn("Supabase Core tabele nisu dostupne ili RLS blokira čitanje, podaci iz baze nisu dostupni:", coreError.message);
                 }
 
-                let lokalniDb = { proizvodi: [], ponude: [], nalozi: [], master_nalozi: [], rolne: [], masine: [], radnici: [], production_sessions: [], qc_zapisnici: [] };
-                try { lokalniDb = JSON.parse(window.localStorage.getItem("maropack_db") || "{}"); } catch (e) { }
-                let lokalniNalozi = [];
-                let lokalniMasteri = [];
-                try { lokalniNalozi = JSON.parse(window.localStorage.getItem("maropack_nalozi_trajno") || "[]"); } catch (e) { }
-                try { lokalniMasteri = JSON.parse(window.localStorage.getItem("maropack_master_nalozi") || "[]"); } catch (e) { }
-
-                const spojNalozi = [...(core.nalozi || []), ...lokalniNalozi, ...(lokalniDb.nalozi || [])]
-                    .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.id || y.broj_naloga || y.broj) === String(x.id || x.broj_naloga || x.broj)));
-                const spojPonude = [...(core.ponude || []), ...(lokalniDb.ponude || [])]
-                    .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.id || y.broj) === String(x.id || x.broj)));
-                const spojMasteri = [...(core.master_nalozi || []), ...lokalniMasteri, ...(lokalniDb.master_nalozi || [])]
-                    .filter((x, i, arr) => x && i === arr.findIndex(y => String(y.id || y.broj || y.broj_naloga) === String(x.id || x.broj || x.broj_naloga)));
-
                 setDb({
-                    proizvodi: (core.proizvodi || []).length ? core.proizvodi : (lokalniDb.proizvodi || []),
-                    ponude: spojPonude,
-                    nalozi: spojNalozi,
-                    master_nalozi: spojMasteri,
-                    rolne: (core.rolne || []).length ? core.rolne : (lokalniDb.rolne || []),
-                    masine: (core.masine || []).length ? core.masine : (lokalniDb.masine || []),
-                    radnici: (core.radnici || []).length ? core.radnici : (lokalniDb.radnici || []),
-                    production_sessions: (core.production_sessions || []).length ? core.production_sessions : (lokalniDb.production_sessions || []),
-                    qc_zapisnici: (core.qc_zapisnici || []).length ? core.qc_zapisnici : (lokalniDb.qc_zapisnici || [])
+                    proizvodi: core.proizvodi || [],
+                    ponude: core.ponude || [],
+                    nalozi: core.nalozi || [],
+                    master_nalozi: core.master_nalozi || [],
+                    rolne: core.rolne || [],
+                    masine: core.masine || [],
+                    radnici: core.radnici || [],
+                    production_sessions: core.production_sessions || [],
+                    qc_zapisnici: core.qc_zapisnici || []
                 });
             } catch (e) { console.error(e); }
         }
         loadData();
-        if (supabase.__localDemo) return undefined;
+        if (supabase.__notConfigured) return undefined;
         const ch = supabase.channel('maropack-changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'proizvodi' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'ponude' }, function () { loadData(); })
@@ -1749,7 +1735,7 @@ function MainAppContent() {
 
         // V14: ako ponuda postoji u Supabase Core tabeli, prvo koristi RPC funkciju
         // public.generate_master_nalog_from_ponuda(). Ako RPC nije dostupan ili ponuda
-        // nema UUID, automatski nastavlja stari lokalni fallback da test ne stane.
+        // nema UUID, automatski nastavlja novi Supabase RPC tok.
         try {
             const rpcResult = await generateMasterFromPonuda(pon);
             if (rpcResult.usedRpc && !rpcResult.error) {
@@ -1759,10 +1745,10 @@ function MainAppContent() {
                 return;
             }
             if (rpcResult.usedRpc && rpcResult.error) {
-                console.warn("RPC generate_master_nalog_from_ponuda nije uspeo, koristim fallback:", rpcResult.error.message);
+                console.warn("RPC generate_master_nalog_from_ponuda nije uspeo, RPC greška:", rpcResult.error.message);
             }
         } catch (rpcFatal) {
-            console.warn("RPC tok nije dostupan, koristim fallback:", rpcFatal.message);
+            console.warn("RPC tok nije dostupan, RPC greška:", rpcFatal.message);
         }
 
         var vm = Array.isArray(pon.mats) ? pon.mats : (Array.isArray(pon.struktura) ? pon.struktura : []);
@@ -1815,7 +1801,7 @@ function MainAppContent() {
             operacije_iz_template: linkedBase.operacije_iz_template
         };
 
-        // Spreči dupliranje naloga za istu ponudu/broj - proverava i Supabase i lokalni fallback.
+        // Spreči dupliranje naloga za istu ponudu/broj.
         try {
             var lokalniPostojeci = [];
             try { lokalniPostojeci = JSON.parse(window.localStorage.getItem("maropack_nalozi_trajno") || "[]"); } catch (e) { lokalniPostojeci = []; }

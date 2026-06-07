@@ -9,13 +9,7 @@ const C={
   th:{textAlign:'left',padding:10,fontSize:12,color:'#475569',background:'#f1f5f9'},
   td:{padding:10,borderBottom:'1px solid #e2e8f0',fontSize:13}
 };
-const demoRolls=[
-  { id:'R-001', materijal:'BOPP FXCB', tip:'BOPP', debljina:20, sirina:1000, metara:32000, kg:420, lot:'A12', lokacija:'A-01', status:'na stanju' },
-  { id:'R-002', materijal:'CPP PLC', tip:'CPP', debljina:25, sirina:840, metara:18000, kg:390, lot:'B3', lokacija:'B-02', status:'na stanju' },
-  { id:'R-003', materijal:'PET', tip:'PET', debljina:12, sirina:1285, metara:22000, kg:510, lot:'P7', lokacija:'C-01', status:'na stanju' },
-  { id:'R-004', materijal:'PE', tip:'PE', debljina:30, sirina:1570, metara:14000, kg:650, lot:'PE2', lokacija:'A-03', status:'rezervisano' },
-  { id:'R-005', materijal:'BOPP FXCB', tip:'BOPP', debljina:20, sirina:1190, metara:26000, kg:455, lot:'A15', lokacija:'A-04', status:'na stanju' }
-];
+
 function num(v,d=0){ const x=Number(String(v??'').replace(',','.')); return Number.isFinite(x)?x:d; }
 function pickDbArray(db){
   if(Array.isArray(db)) return db;
@@ -24,7 +18,7 @@ function pickDbArray(db){
   return [];
 }
 function normalizeRolls(db){
-  const src=pickDbArray(db); const list=(src.length?src:demoRolls).map((r,i)=>({
+  const src=pickDbArray(db); const list=src.map((r,i)=>({
     id:String(r.br_rolne||r.broj_rolne||r.brojRolne||r.oznaka||r.code||r.id||`R-${i+1}`),
     materijal:String(r.materijal||r.naziv_materijala||r.naziv||r.tip||r.vrsta||'Materijal'),
     tip:String(r.tip||r.vrsta||r.materijal||'Materijal'),

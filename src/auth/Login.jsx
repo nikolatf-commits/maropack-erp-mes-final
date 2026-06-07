@@ -165,7 +165,7 @@ export default function Login() {
         </form>
 
         <div style={{ marginTop: 20, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-          Demo: admin@maropack.rs / Admin123!
+          Unesi korisnički nalog iz Supabase Auth
         </div>
       </div>
     </div>

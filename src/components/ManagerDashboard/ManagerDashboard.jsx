@@ -78,7 +78,7 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      <div style={styles.syncInfo}>Isti izvor kao PRO: <b>nalozi, magacin, nalog_aktivnosti</b> · Period: <b>{days} dana</b> · Demo radnici su isključeni</div>
+      <div style={styles.syncInfo}>Isti izvor kao PRO: <b>nalozi, magacin, nalog_aktivnosti</b> · Period: <b>{days} dana</b> · Test/demo radnici nisu prikazani</div>
 
       <div style={styles.bigGrid}>
         <BigCard color="#0f766e" label="Ukupno radnika" value={kpi.aktivniRadnici} sub={`Aktivnih: ${kpi.aktivniRadnici}`} />

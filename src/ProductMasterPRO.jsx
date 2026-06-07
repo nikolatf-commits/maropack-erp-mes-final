@@ -6,58 +6,7 @@ const ORANGE = "#f59e0b";
 const PURPLE = "#7c3aed";
 const RED = "#dc2626";
 
-const sampleProducts = [
-  {
-    id: "PRD-DEMO-FOLIJA",
-    naziv: "MWI DUPLEX PA15 / PE40 CRNI",
-    kupac: "Demo kupac",
-    tip: "folija",
-    status: "aktivan",
-    verzija: "V1",
-    sifra: "AFL2601122",
-    datum: "23.05.2026",
-    materijali: [
-      { vrsta: "OPA", oznaka: "PA15", debljina: "15", koef: "1.10", gsm: "16.50", sirina: "420", cena: "3.50", stampa: true, lak: false },
-      { vrsta: "LDPE", oznaka: "PE40 CRNI", debljina: "40", koef: "0.925", gsm: "37.00", sirina: "420", cena: "2.80", stampa: false, lak: false }
-    ],
-    stampa: { boje: "4", klise: "info", lak: "Ne", napomena: "Kliše se vodi informativno." },
-    perforacija: { tip: "Nema", odnos: "—", pozicija: "—" },
-    finalnaRolna: { smer: "Na glavu", hilzna: "152 mm", precnik: "400 mm", duzina: "15000 m" },
-    dokumentacija: { kpdf: "Nije dodat", tehnickiList: "Spreman za povezivanje", slike: "0" }
-  },
-  {
-    id: "PRD-DEMO-KESA",
-    naziv: "Ravna kesa sa klapnom",
-    kupac: "Demo kupac",
-    tip: "kesa",
-    status: "razvoj",
-    verzija: "V2",
-    sifra: "KES-DEMO-001",
-    materijali: [
-      { vrsta: "OPP", oznaka: "OPP15", debljina: "15", koef: "0.91", gsm: "13.65", sirina: "200", cena: "2.90", stampa: true, lak: false }
-    ],
-    stampa: { boje: "2", klise: "info", lak: "Da", napomena: "Proveriti poziciju štampe." },
-    perforacija: { tip: "Eurozumba", odnos: "—", pozicija: "Klapna" },
-    finalnaRolna: { smer: "—", hilzna: "—", precnik: "—", duzina: "—" },
-    dokumentacija: { kpdf: "Nije dodat", tehnickiList: "Nacrt", slike: "1" }
-  },
-  {
-    id: "PRD-DEMO-SPULNA",
-    naziv: "Špulna 25 mm / 8000 m",
-    kupac: "Demo kupac",
-    tip: "spulna",
-    status: "aktivan",
-    verzija: "V1",
-    sifra: "SPU-DEMO-025",
-    materijali: [
-      { vrsta: "Papir", oznaka: "SIL 60g", debljina: "—", koef: "—", gsm: "60", sirina: "25", cena: "1.20", stampa: false, lak: false }
-    ],
-    stampa: { boje: "0", klise: "—", lak: "Ne", napomena: "Bez štampe." },
-    perforacija: { tip: "Nema", odnos: "—", pozicija: "—" },
-    finalnaRolna: { smer: "Gap winding", hilzna: "152 mm", precnik: "380 mm", duzina: "8000 m" },
-    dokumentacija: { kpdf: "Nije dodat", tehnickiList: "Spreman", slike: "0" }
-  }
-];
+const sampleProducts = [];
 
 function normalizeTip(tip) {
   const t = String(tip || "").toLowerCase();
@@ -355,7 +304,7 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
     const fromDb = Array.isArray(db?.proizvodi) ? db.proizvodi : [];
     const fromLocal = readLocalTemplates();
     const merged = [...fromLocal, ...fromDb].map(mapProduct);
-    return merged.length ? merged : sampleProducts;
+    return merged;
   }, [db]);
 
   const filtered = useMemo(() => products.filter((p) => {
@@ -469,7 +418,7 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
             {tab === "perforacija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Perforacija / KPDF" /><InfoRow label="Tip" value={selected.perforacija.tip} /><InfoRow label="Odnos" value={selected.perforacija.odnos} /><InfoRow label="Pozicija" value={selected.perforacija.pozicija} /></Card>}
             {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
             {tab === "dok" && <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}><DocCard title="KPDF" value={selected.dokumentacija.kpdf} /><DocCard title="Tehnički list" value={selected.dokumentacija.tehnickiList} /><DocCard title="Slike / crteži" value={selected.dokumentacija.slike} /></div>}
-            {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Istorija" note="Priprema za povezivanje sa kalkulacijama, nalozima, izmenama i korisnicima." /><ActionRow text="Nema upisane istorije za demo prikaz." /></Card>}
+            {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Istorija" note="Priprema za povezivanje sa kalkulacijama, nalozima, izmenama i korisnicima." /><ActionRow text="Nema upisane istorije za ovaj proizvod." /></Card>}
           </div>
         </> : <div style={{ padding: 40, color: "#64748b", fontWeight: 800 }}>Nema proizvoda za prikaz.</div>}
       </Card>

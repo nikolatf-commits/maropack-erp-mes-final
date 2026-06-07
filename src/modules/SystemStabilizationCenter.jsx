@@ -94,9 +94,9 @@ export default function SystemStabilizationCenter({ db = {}, msg }) {
   async function checkTables() {
     setChecking(true);
     if (!isSupabaseConfigured || !supabase) {
-      setTableResults(REQUIRED_TABLES.map(t => ({ table: t, ok: false, note: 'Demo režim / .env nije podešen' })));
+      setTableResults(REQUIRED_TABLES.map(t => ({ table: t, ok: false, note: 'Supabase .env nije podešen' })));
       setChecking(false);
-      msg && msg('Supabase nije podešen — prikazujem demo proveru tabela.', 'err');
+      msg && msg('Supabase nije podešen — provera tabela nije dostupna.', 'err');
       return;
     }
     const out = [];
@@ -184,7 +184,7 @@ export default function SystemStabilizationCenter({ db = {}, msg }) {
       <h3 style={{ marginTop: 0 }}>Obavezna pravila profesionalnog sistema</h3>
       <ol style={{ lineHeight: 1.9, color: '#334155', fontWeight: 650 }}>
         <li>Ne postoje dva aktivna magacina — jedan modul je glavni.</li>
-        <li>Planer rezanja koristi samo stvarne rolne iz magacina ili jasno označene demo podatke.</li>
+        <li>Planer rezanja koristi samo stvarne rolne iz magacina iz produkcione baze.</li>
         <li>Svaki ostatak rolne dobija novi broj, QR, lokaciju i vezu ka originalnoj rolni.</li>
         <li>Svaka potrošnja materijala vezuje se za nalog, proizvod, kupca, radnika i mašinu.</li>
         <li>AI ne sme sam brisati ili menjati stanje bez potvrde korisnika.</li>

@@ -81,13 +81,7 @@ export const DEFAULT_MACHINES = [
   }
 ];
 
-export const DEMO_ORDERS = [
-  { id: 'N-2451', title: 'Medomix Magnezijum 3g', customer: 'Medomix', type: 'rezanje', width: 840, meters: 22000, priority: 'visok', status: 'materijal_rezervisan', durationMin: 150 },
-  { id: 'N-2452', title: 'Doypack 140x210', customer: 'Kupac A', type: 'kese', width: 420, meters: 12000, priority: 'normalan', status: 'priprema', durationMin: 210 },
-  { id: 'N-2453', title: 'Špulne 20mm / 8000m', customer: 'Kupac B', type: 'spulne', width: 20, meters: 8000, priority: 'normalan', status: 'kreiran', durationMin: 180 },
-  { id: 'N-2454', title: 'Triplex BOPP+ALU+CPP', customer: 'Kupac C', type: 'kasiranje', width: 755, meters: 18000, priority: 'hitno', status: 'spreman_stampa', durationMin: 260 },
-  { id: 'N-2455', title: 'Rezanje PET 185mm', customer: 'Kupac D', type: 'rezanje', width: 185, meters: 30000, priority: 'normalan', status: 'priprema', durationMin: 120 }
-];
+export const INITIAL_ORDERS = [];
 
 const ls = {
   get(key, fallback) {
@@ -99,13 +93,7 @@ const ls = {
 };
 
 export function getDefaultSchedule() {
-  return {
-    'rezac-1': ['N-2451'],
-    'rezac-2': ['N-2455'],
-    'kesa-1': ['N-2452'],
-    'spulna-1': ['N-2453'],
-    'kasirka-1': ['N-2454']
-  };
+  return {};
 }
 
 export async function loadMachines() {

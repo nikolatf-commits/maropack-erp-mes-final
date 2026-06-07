@@ -1232,9 +1232,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     const [nalogSaving, setNalogSaving] = useState(false);
     const [nalogSaved, setNalogSaved] = useState(false);
     const [rucniUnos, setRucniUnos] = useState({});
-    const [saved, setSaved] = useState(() => {
-        try { return JSON.parse(localStorage.getItem("maropack_product_templates_v25") || localStorage.getItem("maropack_product_templates_v23") || "[]"); } catch { return []; }
-    });
+    const [saved, setSaved] = useState([]);
 
     function update(path, value) {
         setForm(prev => {
@@ -1492,11 +1490,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     };
                 });
                 setSaved(mapped);
-                localStorage.setItem("maropack_product_templates_v25", JSON.stringify(mapped));
             }
         } catch (e) {
-            // baza nedostupna -> ostaje localStorage fallback
-            console.warn("Učitavanje templejta iz baze:", e?.message || e);
+            setSaved([]);
+            msg && msg("Template baza nije dostupna: " + (e?.message || e), "err");
         }
     }
 
@@ -1505,12 +1502,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     async function saveTemplate() {
         const record = makeTemplateRecord();
         if (!record.naziv) { msg && msg("Unesi naziv proizvoda", "err"); return; }
-        // odmah lokalno (brz odziv + offline fallback)
-        const list = [record, ...saved.filter(x => x.id !== record.id)];
-        setSaved(list);
-        localStorage.setItem("maropack_product_templates_v25", JSON.stringify(list));
-        if (setDb) setDb(prev => ({ ...prev, proizvodi: [record, ...(prev?.proizvodi || [])] }));
-        // u bazu: slojevi -> materijali_struktura, sve ostalo -> standardi (jsonb)
+        // Produkcija: template se čuva u Supabase; bez lokalnog fallback-a.
         try {
             const aktivni = record.data?.[record.tip] || {};
             const layers = aktivni.layers || [];
@@ -1528,9 +1520,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 },
             }]);
             await loadTemplates(); // povuci nazad sa pravim DB id-jem
+            if (setDb) setDb(prev => ({ ...prev, proizvodi: [record, ...(prev?.proizvodi || [])] }));
             msg && msg("Template sačuvan u bazu (proizvodi_template)");
         } catch (e) {
-            msg && msg("Sačuvano lokalno (baza nedostupna): " + (e?.message || e), "err");
+            msg && msg("Template nije sačuvan — baza nije dostupna: " + (e?.message || e), "err");
         }
     }
 
@@ -1593,13 +1586,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 konacna_cena: 0,
                 verzija: 1,
                 status: "draft_template",
+                product_master_id: kal.product_master_id || null,
+                template_id: kal.template_id || null,
+                template_version: kal.template_version || null,
+                operacije: kal.operacije || [],
             }]).select();
             if (error) throw error;
             const novId = data && data[0] && data[0].id;
             if (novId) localStorage.setItem("maropack_pending_template_calculation", JSON.stringify({ ...kal, kalkulacija_id: novId, db_id: novId }));
             msg && msg("Kalkulacija sačuvana u bazu i otvorena u kalkulatoru");
         } catch (e) {
-            msg && msg("Kalkulacija otvorena (lokalno) — baza: " + (e?.message || e), "err");
+            msg && msg("Kalkulacija nije sačuvana u bazu: " + (e?.message || e), "err");
         }
         const targetPage = kal.tip === "folija" ? "kalk_folija" : kal.tip === "kesa" ? "kalk_kesa" : "kalk_spulna";
         setPage && setPage(targetPage);
@@ -1634,11 +1631,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 mats: layers,
                 status: "draft_template",
                 nap: ponuda.nap,
+                product_master_id: ponuda.product_master_id || null,
+                template_id: ponuda.template_id || null,
+                template_version: ponuda.template_version || null,
+                res: { template: clone(sourceForm), operacije: ponuda.operacije || [] },
             }]);
             if (error) throw error;
             msg && msg("Draft ponuda sačuvana u bazu");
         } catch (e) {
-            msg && msg("Draft ponuda kreirana (lokalno) — baza: " + (e?.message || e), "err");
+            msg && msg("Draft ponuda nije sačuvana u bazu: " + (e?.message || e), "err");
         }
         setPage && setPage("ponude");
     }
@@ -2003,7 +2004,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
                         <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
-                        <button onClick={async () => { const next = saved.filter(x => x.id !== t.id); setSaved(next); localStorage.setItem("maropack_product_templates_v25", JSON.stringify(next)); try { await supabase.from("proizvodi_template").delete().eq("id", t.id); } catch (e) { /* lokalno obrisano */ } msg && msg("Template obrisan"); }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
+                        <button onClick={async () => { const next = saved.filter(x => x.id !== t.id); setSaved(next); try { await supabase.from("proizvodi_template").delete().eq("id", t.id); } catch (e) { msg && msg("Brisanje u bazi nije uspelo: " + (e?.message || e), "err"); } msg && msg("Template obrisan"); }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
                     </div>
                 </div>)}
             </div>}

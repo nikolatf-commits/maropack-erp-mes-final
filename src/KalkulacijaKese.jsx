@@ -45,9 +45,9 @@ export default function KalkulacijaKese({ setPage }) {
     const [opts, setOpts] = useState({});
 
     // Osnovni podaci
-    const [naziv, setNaziv] = useState('Kesa sa klapnom 200x400+50');
-    const [kupac, setKupac] = useState('Medomix doo');
-    const [kolicina, setKolicina] = useState(10000);
+    const [naziv, setNaziv] = useState('');
+    const [kupac, setKupac] = useState('');
+    const [kolicina, setKolicina] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(30);
     const [datumIsp, setDatumIsp] = useState('');
@@ -57,14 +57,14 @@ export default function KalkulacijaKese({ setPage }) {
     const { user } = useAuth();
 
     // Dimenzije
-    const [sirina, setSirina] = useState(200);
-    const [duzina, setDuzina] = useState(400);
+    const [sirina, setSirina] = useState(0);
+    const [duzina, setDuzina] = useState(0);
     const [klapna, setKlapna] = useState(50);
     const [falta, setFalta] = useState(50);
     const [takta, setTakta] = useState(50);
     const [ban, setBan] = useState(1);
     const [tolerancija, setTolerancija] = useState('±10%');
-    const [grafika, setGrafika] = useState('Novi posao');
+    const [grafika, setGrafika] = useState('');
 
     // Materijali
     const [materijali, setMaterijali] = useState([
