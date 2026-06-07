@@ -47,14 +47,62 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
       if (!brojNaloga) return;
       setLoading(true);
       try {
-        const safeBroj = String(brojNaloga).replace(/[,()]/g, "");
-        const { data, error } = await supabase
-          .from("nalozi")
+        const safeBroj = String(brojNaloga).replace(/[,()]/g, "").trim();
+
+        // Novi izvor istine: radni_nalozi + operativni_nalozi.
+        // 1) Prvo tražimo glavni nalog po broju.
+        const masterResp = await supabase
+          .from("radni_nalozi")
           .select("*")
-          .or(`ponBr.eq.${safeBroj},broj_naloga.eq.${safeBroj},broj.eq.${safeBroj}`)
-          .order("id", { ascending: true });
-        if (error) throw error;
-        setNalozi((data || []).map(enrichNalogForPrint));
+          .eq("broj_naloga", safeBroj)
+          .maybeSingle();
+
+        if (masterResp.error && masterResp.error.code !== "PGRST116") throw masterResp.error;
+
+        let ops = [];
+        if (masterResp.data?.id) {
+          const { data, error } = await supabase
+            .from("operativni_nalozi")
+            .select("*")
+            .eq("glavni_nalog_id", masterResp.data.id)
+            .order("redosled", { ascending: true });
+          if (error) throw error;
+          ops = data || [];
+        }
+
+        // 2) Ako je otvoren direktno operativni broj, npr. 0000001/2026-MATERIJAL.
+        if (!ops.length) {
+          const { data, error } = await supabase
+            .from("operativni_nalozi")
+            .select("*")
+            .eq("broj_naloga", safeBroj)
+            .order("redosled", { ascending: true });
+          if (error) throw error;
+          ops = data || [];
+        }
+
+        // 3) Ako je prosleđen samo osnovni broj, učitaj sve podnaloge sa tim prefiksom.
+        if (!ops.length) {
+          const { data, error } = await supabase
+            .from("operativni_nalozi")
+            .select("*")
+            .ilike("broj_naloga", `${safeBroj}-%`)
+            .order("redosled", { ascending: true });
+          if (error) throw error;
+          ops = data || [];
+        }
+
+        const mapped = (ops || []).map(n => enrichNalogForPrint({
+          ...n,
+          ...(n.parametri || {}),
+          ...(n.parametri_operacije || {}),
+          master_nalog: masterResp.data || null,
+          ponBr: masterResp.data?.broj_naloga || String(n.broj_naloga || "").split("-")[0],
+          prod: n.proizvod || n.parametri?.proizvod || n.parametri?.naziv,
+          mats: n.parametri?.mats || n.parametri?.struktura || [],
+          res: n.parametri?.res || null,
+        }));
+        setNalozi(mapped);
       } catch (e) {
         console.error("Greška pri učitavanju naloga:", e);
       }

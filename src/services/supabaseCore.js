@@ -37,60 +37,73 @@ export function mapDbPonuda(p) {
 
 export function mapDbNalog(n) {
     if (!n) return n;
-    const podaci = n.podaci || {};
+    const parametri = n.parametri || n.podaci || {};
+    const opParams = n.parametri_operacije || {};
+    const podaci = { ...parametri, ...opParams };
     const master = n.master_nalog || podaci.master_nalog || null;
     return {
         ...podaci,
         ...n,
-        broj_naloga: n.broj || podaci.broj_naloga || podaci.ponBr,
-        ponBr: n.pon_br || podaci.ponBr || n.broj,
-        pon_br: n.pon_br || podaci.ponBr,
-        master_nalog_id: n.master_nalog_id || podaci.master_nalog_id,
-        master_broj: master?.broj || podaci.master_broj || podaci.ponBr || n.broj,
+        broj_naloga: n.broj_naloga || n.broj || podaci.broj_naloga || podaci.ponBr,
+        ponBr: n.broj_naloga || n.pon_br || podaci.ponBr || n.broj,
+        pon_br: n.pon_br || podaci.ponBr || n.broj_naloga,
+        glavni_nalog_id: n.glavni_nalog_id || podaci.glavni_nalog_id,
+        master_nalog_id: n.glavni_nalog_id || n.master_nalog_id || podaci.master_nalog_id,
+        master_broj: master?.broj || podaci.master_broj || podaci.ponBr || n.broj_naloga || n.broj,
         naziv: n.naziv || podaci.naziv || podaci.operacija,
-        operacija: podaci.operacija || n.naziv,
-        tip: normalizeTip(n.tip || podaci.tip || podaci.tip_proizvoda),
-        tip_proizvoda: normalizeTip(n.tip || podaci.tip || podaci.tip_proizvoda),
-        tip_naloga: n.tip_naloga || podaci.tip_naloga || podaci.vrsta,
-        vrsta: n.tip_naloga || podaci.vrsta,
-        status: n.status || podaci.status || "aktivno",
+        operacija: podaci.operacija || n.tip_naloga || n.naziv,
+        tip: normalizeTip(n.tip_proizvoda || n.tip || podaci.tip || podaci.tip_proizvoda),
+        tip_proizvoda: normalizeTip(n.tip_proizvoda || n.tip || podaci.tip || podaci.tip_proizvoda),
+        tip_naloga: n.tip_naloga || podaci.tip_naloga || podaci.vrsta || podaci.operacija,
+        vrsta: n.tip_naloga || podaci.vrsta || podaci.operacija,
+        status: n.status || podaci.status || "ceka",
+        redosled: n.redosled ?? podaci.redosled,
         kol: n.kolicina ?? podaci.kol ?? podaci.kolicina,
         kolicina: n.kolicina ?? podaci.kolicina ?? podaci.kol,
-        prod: podaci.prod || podaci.proizvod || podaci.naziv || "",
-        proizvod: podaci.proizvod || podaci.prod || podaci.naziv || "",
-        kupac: podaci.kupac || podaci.klijent || "",
-        mats: podaci.mats || podaci.struktura || podaci.specifikacija || [],
-        struktura: podaci.struktura || podaci.mats || [],
-        res: podaci.res || podaci.rezultat || null,
-        qr_kod: n.qr_code || podaci.qr_kod || podaci.qr_code,
+        prod: n.proizvod || podaci.prod || podaci.proizvod || podaci.naziv || n.naziv || "",
+        proizvod: n.proizvod || podaci.proizvod || podaci.prod || podaci.naziv || n.naziv || "",
+        kupac: n.kupac || podaci.kupac || podaci.klijent || "",
+        mats: podaci.mats || n.materijali_struktura || podaci.struktura || podaci.specifikacija || [],
+        struktura: podaci.struktura || podaci.mats || n.materijali_struktura || [],
+        res: podaci.res || podaci.rezultat || n.rezultati || null,
+        qr_kod: n.qr_code || n.qr_kod || podaci.qr_kod || podaci.qr_code,
+        product_master_id: n.product_master_id || podaci.product_master_id,
+        template_id: n.template_id || podaci.template_id,
+        template_version: n.template_version || podaci.template_version,
+        kalkulacija_id: n.kalkulacija_id || podaci.kalkulacija_id,
+        ponuda_id: n.ponuda_id || podaci.ponuda_id,
         master_nalog: master,
     };
 }
 
 export function mapDbMaster(m, nalozi = []) {
     if (!m) return m;
-    const podaci = m.podaci || {};
-    const mappedNalozi = nalozi.filter((n) => String(n.master_nalog_id) === String(m.id));
+    const podaci = m.parametri || m.podaci || {};
+    const mappedNalozi = nalozi.filter((n) => String(n.glavni_nalog_id || n.master_nalog_id) === String(m.id));
     return {
         ...podaci,
         ...m,
         id: m.id,
         broj: m.broj || m.broj_naloga || podaci.broj || podaci.ponBr,
         broj_naloga: m.broj_naloga || m.broj || podaci.broj_naloga || podaci.ponBr,
-        ponBr: m.broj || m.broj_naloga || podaci.ponBr,
+        ponBr: m.broj_naloga || m.broj || podaci.ponBr,
         master_nalog_id: m.id,
-        master_broj: m.broj || podaci.master_broj,
+        master_broj: m.broj_naloga || m.broj || podaci.master_broj,
         naziv: m.naziv || podaci.naziv || podaci.prod || podaci.proizvod,
-        prod: podaci.prod || podaci.proizvod || m.naziv,
-        proizvod: podaci.proizvod || podaci.prod || m.naziv,
-        tip: normalizeTip(m.tip || podaci.tip || podaci.tip_proizvoda),
-        tip_proizvoda: normalizeTip(m.tip || podaci.tip || podaci.tip_proizvoda),
+        prod: m.proizvod || podaci.prod || podaci.proizvod || m.naziv,
+        proizvod: m.proizvod || podaci.proizvod || podaci.prod || m.naziv,
+        tip: normalizeTip(m.tip_proizvoda || m.tip || podaci.tip || podaci.tip_proizvoda),
+        tip_proizvoda: normalizeTip(m.tip_proizvoda || m.tip || podaci.tip || podaci.tip_proizvoda),
         kol: m.kolicina ?? podaci.kol ?? podaci.kolicina,
         kolicina: m.kolicina ?? podaci.kolicina ?? podaci.kol,
-        kupac: podaci.kupac || podaci.klijent || "",
-        mats: podaci.mats || podaci.struktura || [],
-        struktura: podaci.struktura || podaci.mats || [],
-        res: podaci.res || podaci.rezultat || null,
+        kupac: m.kupac || podaci.kupac || podaci.klijent || "",
+        mats: podaci.mats || m.materijali_struktura || podaci.struktura || [],
+        struktura: podaci.struktura || podaci.mats || m.materijali_struktura || [],
+        res: m.rezultati || podaci.res || podaci.rezultat || null,
+        product_master_id: m.product_master_id || podaci.product_master_id,
+        template_id: m.template_id || podaci.template_id,
+        template_version: m.template_version || podaci.template_version,
+        ponuda_id: m.ponuda_id || podaci.ponuda_id,
         nalozi: mappedNalozi,
     };
 }
@@ -138,7 +151,7 @@ export async function fetchCoreData() {
         safeSelect("proizvodi"),
         safeSelect("ponude"),
         safeSelect("nalozi"),
-        safeSelect("radni_nalozi_glavni"),
+        safeSelect("radni_nalozi"),
         safeSelect("operativni_nalozi"),
         safeSelect("magacin"),
         safeSelect("masine"),
@@ -147,10 +160,11 @@ export async function fetchCoreData() {
         safeSelect("qc_kontrole"),
     ]);
 
-    // Operativni nalozi se vezuju na glavni preko glavni_nalog_id; spajamo i stare "nalozi".
+    // Novi izvor istine: radni_nalozi + operativni_nalozi.
+    // Stara tabela nalozi se koristi samo kao fallback ako operativni_nalozi još nisu popunjeni.
     const mappedOperativni = operativniRaw.map(mapDbNalog);
     const mappedNaloziStari = naloziRaw.map(mapDbNalog);
-    const sviNalozi = [...mappedOperativni, ...mappedNaloziStari];
+    const sviNalozi = mappedOperativni.length ? mappedOperativni : mappedNaloziStari;
     const mappedMasters = glavniRaw.map((m) => mapDbMaster(m, mappedOperativni));
 
     return {
@@ -167,10 +181,20 @@ export async function fetchCoreData() {
 }
 
 export async function generateMasterFromPonuda(ponuda) {
-    if (!ponuda?.id || !isUuid(ponuda.id)) {
-        return { usedRpc: false, data: null, error: new Error("Ponuda nema Supabase UUID id, koristi se lokalni fallback.") };
+    if (!ponuda?.id) {
+        return { usedRpc: false, data: null, error: new Error("Ponuda nema id, koristi se lokalni fallback.") };
     }
-    const { data, error } = await supabase.rpc("generate_master_nalog_from_ponuda", { p_ponuda_id: ponuda.id });
-    if (error) return { usedRpc: true, data: null, error };
-    return { usedRpc: true, data, error: null };
+
+    // Novi MAROPACK tok: ponude(bigint) -> radni_nalozi -> operativni_nalozi
+    const { data, error } = await supabase.rpc("kreiraj_naloge_iz_ponude", { p_ponuda_id: ponuda.id });
+    if (!error) return { usedRpc: true, data, error: null };
+
+    // Kompatibilnost sa starom UUID RPC funkcijom ako postoji u nekoj bazi.
+    if (isUuid(ponuda.id)) {
+        const legacy = await supabase.rpc("generate_master_nalog_from_ponuda", { p_ponuda_id: ponuda.id });
+        if (legacy.error) return { usedRpc: true, data: null, error: legacy.error };
+        return { usedRpc: true, data: legacy.data, error: null };
+    }
+
+    return { usedRpc: true, data: null, error };
 }

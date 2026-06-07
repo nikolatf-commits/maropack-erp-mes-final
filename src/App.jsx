@@ -1692,6 +1692,8 @@ function MainAppContent() {
             .on('postgres_changes', { event: '*', schema: 'public', table: 'proizvodi' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'ponude' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'nalozi' }, function () { loadData(); })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'radni_nalozi' }, function () { loadData(); })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'master_nalozi' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'rolne' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'production_sessions' }, function () { loadData(); })
@@ -1752,7 +1754,7 @@ function MainAppContent() {
             const rpcResult = await generateMasterFromPonuda(pon);
             if (rpcResult.usedRpc && !rpcResult.error) {
                 msg("Master nalog i operativni nalozi kreirani preko Supabase RPC funkcije.");
-                setPage("master_nalozi");
+                setPage("nalozi");
                 setPregPonuda(null);
                 return;
             }
