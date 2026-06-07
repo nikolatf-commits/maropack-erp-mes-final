@@ -1806,7 +1806,11 @@ function MainAppContent() {
             ponuda_payload: linkedBase.ponuda_payload,
             order_data: linkedBase.order_data,
             source_chain: linkedBase.source_chain,
-            source_status: linkedBase.source_status
+            source_status: linkedBase.source_status,
+            product_master_id: linkedBase.product_master_id,
+            template_version: linkedBase.template_version,
+            template_locked: linkedBase.template_locked,
+            operacije_iz_template: linkedBase.operacije_iz_template
         };
 
         // Spreči dupliranje naloga za istu ponudu/broj - proverava i Supabase i lokalni fallback.
@@ -1896,6 +1900,10 @@ function MainAppContent() {
                 order_data: linked.order_data,
                 source_chain: linked.source_chain,
                 source_status: linked.source_status,
+                product_master_id: linked.product_master_id,
+                template_version: linked.template_version,
+                template_locked: linked.template_locked,
+                operacije_iz_template: linked.operacije_iz_template,
                 qr_kod: qrCodeBase64,
                 radnik: "",
                 nap: pon.nap || pon.napomena || "",

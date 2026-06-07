@@ -81,6 +81,27 @@ function tipColor(tip) {
   return BLUE;
 }
 
+function makeProductMasterId(source = {}) {
+  const raw = source.product_master_id || source.productMasterId || source.id || source.sifra || source.naziv;
+  if (raw && String(raw).startsWith('PROD-')) return String(raw);
+  if (raw && String(raw).startsWith('PRD-')) return 'PROD-' + String(raw).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12).toUpperCase();
+  const seed = [source.kupac, source.naziv, source.sifra, source.tip].filter(Boolean).join('-') || String(Date.now());
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  return 'PROD-' + Math.abs(h).toString().padStart(6, '0').slice(0, 6);
+}
+
+function inferOperations(template = {}, tip = 'folija') {
+  if (tip === 'kesa') return ['materijal', 'kasiranje', 'kesa'];
+  if (tip === 'spulna') return ['materijal', 'formatiranje', 'spulna'];
+  const layers = template.folija?.layers || [];
+  const ops = ['materijal'];
+  if (layers.some(l => l?.stampa || l?.stamp || l?.Š) || template.folija?.stampa?.brojBoja) ops.push('stampa');
+  if (layers.length > 1 || template.folija?.kasiranje?.brojKasiranja) ops.push('kasiranje');
+  ops.push('perforacija_rezanje');
+  return ops;
+}
+
 function readLocalTemplates() {
   try {
     const raw = localStorage.getItem("maropack_product_templates_v25") || localStorage.getItem("maropack_product_templates_v23") || "[]";
@@ -98,6 +119,7 @@ function mapProduct(p, index) {
   const layers = section.layers || data.folija?.layers || data.kesa?.layers || (data.spulna?.layers ? data.spulna.layers : []);
   return {
     id: p.id || `PRD-${index}`,
+    product_master_id: p.product_master_id || data.product_master_id || makeProductMasterId({ ...p, ...data, id: p.id }),
     naziv: p.naziv || p.proizvod || section.naziv || data.naziv || "Bez naziva",
     kupac: p.kupac || data.kupac || "Bez kupca",
     tip,
@@ -165,7 +187,7 @@ function buildTemplateFromProduct(product) {
   const raw = product?.raw || {};
   const existing = raw.data || raw.template || null;
   if (existing && typeof existing === "object") {
-    return { ...existing, type: normalizeTip(existing.type || raw.tip || product.tip), naziv: existing.naziv || product.naziv, kupac: existing.kupac || product.kupac };
+    return { ...existing, product_master_id: product.product_master_id || existing.product_master_id || makeProductMasterId(product), template_version: product.verzija || existing.template_version || 'V1', template_locked: true, type: normalizeTip(existing.type || raw.tip || product.tip), naziv: existing.naziv || product.naziv, kupac: existing.kupac || product.kupac };
   }
 
   const tip = normalizeTip(product?.tip);
@@ -175,6 +197,9 @@ function buildTemplateFromProduct(product) {
     naziv: product?.naziv || "",
     kupac: product?.kupac || "",
     sifra: product?.sifra || "",
+    product_master_id: product?.product_master_id || makeProductMasterId(product || {}),
+    template_version: product?.verzija || "V1",
+    template_locked: true,
     napomena: "Kreirano iz Baze proizvoda PRO"
   };
 
@@ -259,6 +284,12 @@ function makeCalculationRecordFromProduct(product) {
     status: "Draft iz Baze proizvoda",
     verzija: 1,
     source_product_id: product?.id || null,
+    product_master_id: product?.product_master_id || template.product_master_id || makeProductMasterId(product || template),
+    template_id: product?.id || null,
+    product_template_id: product?.id || null,
+    template_version: product?.verzija || template.template_version || "V1",
+    template_locked: true,
+    operacije: inferOperations(template, tip),
     materijali: layers,
     mats: layers,
     osnovna_cena: 0,

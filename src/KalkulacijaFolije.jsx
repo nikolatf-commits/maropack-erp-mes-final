@@ -188,6 +188,7 @@ export default function KalkulacijaFolijeSmart() {
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(40);
     const [zeljenaCena, setZeljenaCena] = useState(86.37);
+    const [sourceLink, setSourceLink] = useState(null);
 
     // MATERIJALI (4)
     const [materijali, setMaterijali] = useState([
@@ -229,6 +230,17 @@ export default function KalkulacijaFolijeSmart() {
     useEffect(() => {
         const tpl = readPendingTemplateCalculation("folija");
         if (!tpl) return;
+        try {
+            const rawMeta = JSON.parse(localStorage.getItem("maropack_pending_template_calculation") || "{}");
+            setSourceLink({
+                product_master_id: rawMeta.product_master_id || tpl.product_master_id || null,
+                template_id: rawMeta.template_id || rawMeta.source_template_id || null,
+                product_template_id: rawMeta.product_template_id || rawMeta.source_template_id || null,
+                template_version: rawMeta.template_version || tpl.template_version || "V25",
+                template_locked: !!rawMeta.template_locked || !!tpl.template_locked,
+                operacije: rawMeta.operacije || []
+            });
+        } catch {}
 
         try {
             console.log("✅ V28 template prefill za foliju:", tpl);
@@ -580,6 +592,13 @@ export default function KalkulacijaFolijeSmart() {
                 materijali,
                 materijali_struktura,
                 rezultati,
+                source_chain: 'template → kalkulacija → ponuda → nalog',
+                product_master_id: sourceLink?.product_master_id || null,
+                template_id: sourceLink?.template_id || null,
+                product_template_id: sourceLink?.product_template_id || null,
+                template_version: sourceLink?.template_version || null,
+                template_locked: !!sourceLink?.template_locked,
+                operacije: sourceLink?.operacije || [],
                 created_at: new Date().toISOString()
             }));
             const { error } = await supabase.from('kalkulacije_folije').insert([{

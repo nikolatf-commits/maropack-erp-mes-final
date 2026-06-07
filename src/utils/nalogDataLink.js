@@ -3,6 +3,46 @@
 
 function isObj(v) { return v && typeof v === 'object' && !Array.isArray(v); }
 
+
+export function makeProductMasterId(source = {}) {
+  const s = safeJson(source, {}) || {};
+  const raw = first(
+    s.product_master_id,
+    s.productMasterId,
+    s.product_id,
+    s.source_product_id,
+    s.sifra,
+    s.code,
+    s.id
+  );
+  if (raw && String(raw).startsWith('PROD-')) return String(raw);
+  if (raw) return 'PROD-' + String(raw).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12).toUpperCase();
+  const seed = [s.kupac, s.klijent, s.naziv, s.proizvod, s.prod, s.tip, s.tip_proizvoda].filter(Boolean).join('-') || String(Date.now());
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  return 'PROD-' + Math.abs(h).toString().padStart(6, '0').slice(0, 6);
+}
+
+export function extractTemplateVersion(source = {}, template = null) {
+  const s = safeJson(source, {}) || {};
+  const t = template || extractTemplate(s) || {};
+  return first(s.template_version, s.verzija, t.template_version, t.verzija, t.data?.template_version, 'V1');
+}
+
+export function inferOperationsFromTemplate(template = {}, tipFallback = 'folija') {
+  const { data, active, tip } = activeTemplateData(template, tipFallback);
+  if (tip === 'kesa') return ['materijal', 'kasiranje', 'kesa'];
+  if (tip === 'spulna') return ['materijal', 'formatiranje', 'spulna'];
+  const layers = active?.layers || data?.folija?.layers || [];
+  const hasPrint = layers.some(l => !!(l.stampa || l.stamp || l.Š)) || !!active?.stampa?.brojBoja;
+  const hasKas = layers.length > 1 || !!active?.kasiranje?.brojKasiranja;
+  const ops = ['materijal'];
+  if (hasPrint) ops.push('stampa');
+  if (hasKas) ops.push('kasiranje');
+  ops.push('perforacija_rezanje');
+  return ops;
+}
+
 export function safeJson(v, fallback = null) {
   if (v === undefined || v === null || v === '') return fallback;
   if (typeof v === 'string') {
@@ -171,14 +211,22 @@ export function buildOrderSourcePack({ ponuda = {}, tipOperacije = 'materijal', 
   };
   const { data, active } = activeTemplateData(template, tip);
   const materijali = normalizeLayers(pon, tip);
+  const productMasterId = makeProductMasterId({ ...pon, ...(template || {}), ...(template?.data || {}) });
+  const templateVersion = extractTemplateVersion(pon, template);
+  const operacije = inferOperationsFromTemplate(template || { data }, tip);
   return {
     source_chain: 'template → kalkulacija → ponuda → nalog',
+    product_master_id: productMasterId,
+    template_version: templateVersion,
+    template_locked: !!template,
+    operacije_iz_template: operacije,
     source_status: {
       template: !!template,
       kalkulacija: !!kalkulacija,
       ponuda: !!ponudaPayload,
     },
     template_id: template?.id || pon.template_id || pon.product_template_id || null,
+    source_product_id: pon.source_product_id || pon.product_id || null,
     product_template_id: template?.id || pon.product_template_id || pon.template_id || null,
     product_template: template,
     templateData: data,
@@ -194,6 +242,9 @@ export function buildOrderSourcePack({ ponuda = {}, tipOperacije = 'materijal', 
       kalkulacija,
       ponuda: ponudaPayload,
       proizvod: {
+        product_master_id: productMasterId,
+        template_version: templateVersion,
+        template_locked: !!template,
         kupac: first(pon.kupac, template?.kupac, ponudaPayload?.kupac),
         naziv: first(pon.prod, pon.proizvod, pon.naziv, template?.naziv, ponudaPayload?.naziv),
         sifra: first(active?.sifra, data?.sifra, pon.sifra),
@@ -201,6 +252,7 @@ export function buildOrderSourcePack({ ponuda = {}, tipOperacije = 'materijal', 
         porucena_kolicina: first(data?.porucenaKolicina, active?.porucenaKolicina, pon.kol, pon.kolicina),
       },
       materijali,
+      operacije,
       folija: data?.folija || (tip === 'folija' ? active : {}),
       kesa: data?.kesa || (tip === 'kesa' ? active : {}),
       spulna: data?.spulna || data?.spulne || (tip === 'spulna' ? active : {}),

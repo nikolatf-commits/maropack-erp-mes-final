@@ -1203,6 +1203,25 @@ function SmartFolijaTemplateEngine({ form, update }) {
     </Section>;
 }
 
+function makeProductMasterIdFromTemplate(source = {}) {
+    const seed = [source.kupac, source.naziv, source.sifra, source.type].filter(Boolean).join('-') || String(Date.now());
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+    return 'PROD-' + Math.abs(h).toString().padStart(6, '0').slice(0, 6);
+}
+
+function inferTemplateOperations(tpl = {}) {
+    const tip = tpl.type || 'folija';
+    if (tip === 'kesa') return ['materijal', 'kasiranje', 'kesa'];
+    if (tip === 'spulna') return ['materijal', 'formatiranje', 'spulna'];
+    const layers = tpl.folija?.layers || [];
+    const ops = ['materijal'];
+    if (layers.some(l => l?.stampa || l?.stamp || l?.Š) || tpl.folija?.stampa?.brojBoja) ops.push('stampa');
+    if (layers.length > 1 || tpl.folija?.kasiranje?.brojKasiranja) ops.push('kasiranje');
+    ops.push('perforacija_rezanje');
+    return ops;
+}
+
 function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
@@ -1296,13 +1315,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     function makeTemplateRecord(sourceForm = form) {
         const sourceActiveData = sourceForm[sourceForm.type] || {};
         const naziv = sourceForm.naziv || sourceActiveData.naziv;
+        const templateId = "TPL-" + Date.now();
+        const productMasterId = sourceForm.product_master_id || makeProductMasterIdFromTemplate({ ...sourceForm, naziv });
+        const version = sourceForm.template_version || "V25";
+        const data = { ...clone(sourceForm), product_master_id: productMasterId, template_version: version, template_locked: true };
         return {
-            id: "TPL-" + Date.now(),
+            id: templateId,
+            product_master_id: productMasterId,
             naziv,
             kupac: sourceForm.kupac,
             tip: sourceForm.type,
-            template_version: "V25",
-            data: clone(sourceForm),
+            template_version: version,
+            template_locked: true,
+            operacije: inferTemplateOperations(data),
+            data,
             created_at: new Date().toISOString()
         };
     }
@@ -1527,6 +1553,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             status: "Draft iz template-a",
             verzija: 1,
             source_template_id: record?.id || null,
+            template_id: record?.id || null,
+            product_template_id: record?.id || null,
+            product_master_id: record?.product_master_id || tpl.product_master_id || makeProductMasterIdFromTemplate({ ...tpl, naziv }),
+            template_version: record?.template_version || tpl.template_version || "V25",
+            template_locked: true,
+            operacije: record?.operacije || inferTemplateOperations(tpl),
             materijali: layers,
             mats: layers,
             osnovna_cena: 0,
@@ -1582,7 +1614,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const layers = sourceActiveData.layers || [];
         const ponuda = {
             id: "PON-TPL-" + Date.now(), broj,
-            datum: new Date().toLocaleDateString("sr-RS"), kupac: sourceForm.kupac || record?.kupac || "", naziv, tip: sourceForm.type, status: "Draft iz template-a", template: clone(sourceForm),
+            datum: new Date().toLocaleDateString("sr-RS"), kupac: sourceForm.kupac || record?.kupac || "", naziv, tip: sourceForm.type, status: "Draft iz template-a", product_master_id: record?.product_master_id || sourceForm.product_master_id || makeProductMasterIdFromTemplate(sourceForm), template_id: record?.id || null, product_template_id: record?.id || null, template_version: record?.template_version || sourceForm.template_version || "V25", template_locked: true, operacije: inferTemplateOperations(sourceForm), template: clone(sourceForm),
             kol, nap: "Kreirano iz Product Template Engine"
         };
         const existing = JSON.parse(localStorage.getItem("maropack_template_ponude") || "[]");

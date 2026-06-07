@@ -112,12 +112,17 @@ export default function KalkulacijaKese({ setPage }) {
     const [trCena, setTrCena] = useState(0.35);
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
     const [napomena, setNapomena] = useState('');
+    const [sourceLink, setSourceLink] = useState(null);
 
     // ✅ V26: Template → Kalkulacija realno mapiranje za kese.
     // Više ne otvara default OPP ako template ima druge slojeve/opcije.
     useEffect(() => {
         const tpl = readPendingTemplateCalculation('kesa');
         if (!tpl) return;
+        try {
+            const rawMeta = JSON.parse(localStorage.getItem('maropack_pending_template_calculation') || '{}');
+            setSourceLink({ product_master_id: rawMeta.product_master_id || tpl.product_master_id || null, template_id: rawMeta.template_id || rawMeta.source_template_id || null, product_template_id: rawMeta.product_template_id || rawMeta.source_template_id || null, template_version: rawMeta.template_version || tpl.template_version || 'V25', template_locked: !!rawMeta.template_locked || !!tpl.template_locked, operacije: rawMeta.operacije || [] });
+        } catch {}
         const k = tpl.kesa || {};
         setNaziv(tpl.naziv || k.naziv || '');
         setKupac(tpl.kupac || '');
@@ -395,6 +400,13 @@ export default function KalkulacijaKese({ setPage }) {
                 materijali,
                 materijali_struktura,
                 rezultati: rez,
+                source_chain: 'template → kalkulacija → ponuda → nalog',
+                product_master_id: sourceLink?.product_master_id || null,
+                template_id: sourceLink?.template_id || null,
+                product_template_id: sourceLink?.product_template_id || null,
+                template_version: sourceLink?.template_version || null,
+                template_locked: !!sourceLink?.template_locked,
+                operacije: sourceLink?.operacije || [],
                 created_at: new Date().toISOString()
             }));
             const { error } = await supabase.from('kalkulacije_kese').insert([{
