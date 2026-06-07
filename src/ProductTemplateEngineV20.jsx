@@ -1471,29 +1471,45 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
     async function loadTemplates() {
         try {
-            const { data, error } = await supabase.from("proizvodi_template")
+            // Product Master je tabela proizvodi. Ne koristimo vise proizvodi_template.
+            const { data, error } = await supabase.from("proizvodi")
                 .select("*").order("created_at", { ascending: false });
             if (error) throw error;
-            if (Array.isArray(data) && data.length) {
-                const mapped = data.map(r => {
-                    const std = r.standardi || {};
-                    const rec = std.record || {};
-                    const tip = std.tip || rec.tip || "folija";
-                    return {
-                        id: r.id,
-                        naziv: r.naziv || rec.naziv || "",
-                        tip,
-                        kupac: std.kupac || rec.kupac || "",
-                        template_version: std.template_version || rec.template_version || "V26",
-                        created_at: r.created_at || rec.created_at,
-                        data: rec.data || { type: tip, [tip]: { layers: r.materijali_struktura || [] } },
-                    };
-                });
-                setSaved(mapped);
-            }
+            const mapped = (Array.isArray(data) ? data : []).map(r => {
+                const std = r.standardi || {};
+                const rec = std.record || {};
+                const tip = r.tip || std.tip || rec.tip || rec.data?.type || "folija";
+                const layers = r.materijali_struktura || r.mats || rec.data?.[tip]?.layers || [];
+                const dataForm = rec.data || {
+                    type: tip,
+                    naziv: r.naziv || "",
+                    kupac: r.kupac || "",
+                    sifra: r.sku || "",
+                    product_master_id: r.product_master_id || ('PROD-' + r.id),
+                    template_id: r.template_id || ('TPL-' + r.id),
+                    template_version: r.template_version || 'V1',
+                    idealnaSirinaMaterijala: r.sir || r.sirina || "",
+                    [tip]: { layers }
+                };
+                return {
+                    id: r.id,
+                    db_id: r.id,
+                    product_master_id: r.product_master_id || ('PROD-' + r.id),
+                    template_id: r.template_id || ('TPL-' + r.id),
+                    naziv: r.naziv || rec.naziv || "",
+                    tip,
+                    kupac: r.kupac || std.kupac || rec.kupac || "",
+                    sku: r.sku || "",
+                    template_version: r.template_version || std.template_version || rec.template_version || "V1",
+                    operacije: r.operacije || rec.operacije || inferTemplateOperations(dataForm),
+                    created_at: r.created_at || rec.created_at,
+                    data: dataForm,
+                };
+            });
+            setSaved(mapped);
         } catch (e) {
             setSaved([]);
-            msg && msg("Template baza nije dostupna: " + (e?.message || e), "err");
+            msg && msg("Product Master baza nije dostupna: " + (e?.message || e), "err");
         }
     }
 
@@ -1502,28 +1518,46 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     async function saveTemplate() {
         const record = makeTemplateRecord();
         if (!record.naziv) { msg && msg("Unesi naziv proizvoda", "err"); return; }
-        // Produkcija: template se čuva u Supabase; bez lokalnog fallback-a.
         try {
             const aktivni = record.data?.[record.tip] || {};
             const layers = aktivni.layers || [];
-            const sastav = layers.map(l => l.material || l.materijal || "").filter(Boolean).join(" / ");
-            await supabase.from("proizvodi_template").insert([{
+            const productMasterId = record.product_master_id || makeProductMasterIdFromTemplate(record.data);
+            const templateId = record.template_id || record.id || ('TPL-' + Date.now());
+            const payload = {
+                tip: record.tip,
                 naziv: record.naziv,
-                sastav,
-                sirina: Number(record.data?.idealnaSirinaMaterijala) || null,
+                kupac: record.kupac || null,
+                sku: record.data?.sifra || null,
+                status: "Aktivan",
+                sir: Number(record.data?.idealnaSirinaMaterijala || record.data?.dimenzijaSirina) || null,
+                met: Number(record.data?.porucenaKolicina) || null,
+                mats: layers,
+                res: { template: record.data, operacije: record.operacije || [] },
+                product_master_id: productMasterId,
+                template_id: templateId,
+                template_version: record.template_version || "V1",
+                operacije: record.operacije || inferTemplateOperations(record.data),
                 materijali_struktura: layers,
                 standardi: {
                     tip: record.tip,
-                    kupac: record.kupac,
-                    template_version: record.template_version,
-                    record,
+                    kupac: record.kupac || null,
+                    template_version: record.template_version || "V1",
+                    record: { ...record, product_master_id: productMasterId, template_id: templateId },
                 },
-            }]);
-            await loadTemplates(); // povuci nazad sa pravim DB id-jem
-            if (setDb) setDb(prev => ({ ...prev, proizvodi: [record, ...(prev?.proizvodi || [])] }));
-            msg && msg("Template sačuvan u bazu (proizvodi_template)");
+                datum: new Date().toLocaleDateString("sr-RS"),
+            };
+
+            const existingDbId = record.db_id || (typeof record.id === 'number' ? record.id : null);
+            const query = existingDbId
+                ? supabase.from("proizvodi").update(payload).eq("id", existingDbId).select()
+                : supabase.from("proizvodi").insert([payload]).select();
+            const { data, error } = await query;
+            if (error) throw error;
+            await loadTemplates();
+            if (setDb) setDb(prev => ({ ...prev, proizvodi: data?.[0] ? [data[0], ...(prev?.proizvodi || [])] : (prev?.proizvodi || []) }));
+            msg && msg("Template sačuvan u Product Master bazu (proizvodi)");
         } catch (e) {
-            msg && msg("Template nije sačuvan — baza nije dostupna: " + (e?.message || e), "err");
+            msg && msg("Template nije sačuvan u Product Master bazu: " + (e?.message || e), "err");
         }
     }
 
@@ -1545,9 +1579,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             kolicina,
             status: "Draft iz template-a",
             verzija: 1,
-            source_template_id: record?.id || null,
-            template_id: record?.id || null,
-            product_template_id: record?.id || null,
+            source_template_id: record?.template_id || record?.id || null,
+            template_id: record?.template_id || record?.id || null,
+            product_template_id: record?.template_id || record?.id || null,
             product_master_id: record?.product_master_id || tpl.product_master_id || makeProductMasterIdFromTemplate({ ...tpl, naziv }),
             template_version: record?.template_version || tpl.template_version || "V25",
             template_locked: true,
@@ -1611,7 +1645,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const layers = sourceActiveData.layers || [];
         const ponuda = {
             id: "PON-TPL-" + Date.now(), broj,
-            datum: new Date().toLocaleDateString("sr-RS"), kupac: sourceForm.kupac || record?.kupac || "", naziv, tip: sourceForm.type, status: "Draft iz template-a", product_master_id: record?.product_master_id || sourceForm.product_master_id || makeProductMasterIdFromTemplate(sourceForm), template_id: record?.id || null, product_template_id: record?.id || null, template_version: record?.template_version || sourceForm.template_version || "V25", template_locked: true, operacije: inferTemplateOperations(sourceForm), template: clone(sourceForm),
+            datum: new Date().toLocaleDateString("sr-RS"), kupac: sourceForm.kupac || record?.kupac || "", naziv, tip: sourceForm.type, status: "Draft iz template-a", product_master_id: record?.product_master_id || sourceForm.product_master_id || makeProductMasterIdFromTemplate(sourceForm), template_id: record?.template_id || record?.id || null, product_template_id: record?.template_id || record?.id || null, template_version: record?.template_version || sourceForm.template_version || "V25", template_locked: true, operacije: inferTemplateOperations(sourceForm), template: clone(sourceForm),
             kol, nap: "Kreirano iz Product Template Engine"
         };
         const existing = JSON.parse(localStorage.getItem("maropack_template_ponude") || "[]");
@@ -1990,7 +2024,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Kese</div><div style={{ fontSize: 24, fontWeight: 950, color: ORANGE }}>{saved.filter(t => t.tip === "kesa").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Špulne</div><div style={{ fontSize: 24, fontWeight: 950, color: "#7c3aed" }}>{saved.filter(t => t.tip === "spulna").length}</div></div>
             </div>
-            {saved.length === 0 ? <div style={{ color: "#64748b" }}>Još nema sačuvanih V26 template-a. Popuni foliju/kesu/špulnu i klikni „Sačuvaj template”.</div> : <div style={{ display: "grid", gap: 10 }}>
+            {saved.length === 0 ? <div style={{ color: "#64748b" }}>Još nema sačuvanih template-a u Product Master bazi. Popuni foliju/kesu/špulnu i klikni „Sačuvaj template”.</div> : <div style={{ display: "grid", gap: 10 }}>
                 {saved.map(t => <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, background: "#fff" }}>
                     <div>
                         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -1998,13 +2032,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <span style={{ borderRadius: 999, padding: "4px 9px", fontSize: 11, fontWeight: 900, background: t.tip === "folija" ? "#eef2ff" : t.tip === "kesa" ? "#fff7ed" : "#f5f3ff", color: t.tip === "folija" ? BLUE : t.tip === "kesa" ? "#c2410c" : "#7c3aed" }}>{t.tip}</span>
                             <span style={{ color: "#64748b", fontSize: 12 }}>{t.kupac || "bez kupca"}</span>
                         </div>
-                        <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>ID: {t.id} · verzija: {t.template_version || "V26"} · sačuvano: {t.created_at ? new Date(t.created_at).toLocaleDateString("sr-RS") : "—"}</div>
+                        <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>ID: {t.product_master_id || t.id} · verzija: {t.template_version || "V26"} · sačuvano: {t.created_at ? new Date(t.created_at).toLocaleDateString("sr-RS") : "—"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
                         <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
-                        <button onClick={async () => { const next = saved.filter(x => x.id !== t.id); setSaved(next); try { await supabase.from("proizvodi_template").delete().eq("id", t.id); } catch (e) { msg && msg("Brisanje u bazi nije uspelo: " + (e?.message || e), "err"); } msg && msg("Template obrisan"); }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
+                        <button onClick={async () => { const next = saved.filter(x => x.id !== t.id); setSaved(next); try { await supabase.from("proizvodi").delete().eq("id", t.id); } catch (e) { msg && msg("Brisanje u bazi nije uspelo: " + (e?.message || e), "err"); } msg && msg("Template obrisan"); }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
                     </div>
                 </div>)}
             </div>}
