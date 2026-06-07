@@ -9,18 +9,75 @@ function safeJson(v) {
   return typeof v === 'object' ? v : {};
 }
 
+function firstValue(...values) {
+  for (const v of values) {
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return '-';
+}
+
+function normalizeArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }
+  return [];
+}
+
 function layersFromProduct(p) {
-  const t = safeJson(p.template ?? p.template_json ?? p.data ?? p.sastav);
-  const arrays = [t.layers, t.materijali, t.folija?.layers, t.folija?.materijali, p.layers, p.materijali, p.slojevi];
-  const arr = arrays.find(Array.isArray) || [];
-  return arr.map((l, i) => ({
-    sloj: l.sloj ?? l.layer ?? i + 1,
-    vrsta: l.vrsta ?? l.materijal ?? l.material ?? l.tip ?? '-',
-    oznaka: l.oznaka ?? l.oznaka_materijala ?? l.code ?? '-',
-    debljina: l.debljina ?? l.mic ?? l.thickness ?? '-',
-    sirina: l.sirina ?? l.width ?? p.idealna_sirina ?? '-',
-    gm2: l.gm2 ?? l.gramatura ?? l.g_m2 ?? '-'
-  }));
+  const t = safeJson(p.template ?? p.template_json ?? p.data ?? p.sastav ?? p.standardi);
+  const nestedRecord = safeJson(t.record);
+  const tip = p.tip || t.tip || nestedRecord.tip || nestedRecord.data?.type || 'folija';
+  const arrays = [
+    p.materijali_struktura,
+    p.mats,
+    t.materijali_struktura,
+    t.mats,
+    t.layers,
+    t.materijali,
+    t.folija?.layers,
+    t.folija?.materijali,
+    t.kesa?.layers,
+    t.spulna?.layers,
+    nestedRecord.data?.[tip]?.layers,
+    p.layers,
+    p.materijali,
+    p.slojevi,
+  ];
+  const arr = arrays.map(normalizeArray).find(a => a.length) || [];
+
+  return arr.map((l, i) => {
+    const idealnaSirina = firstValue(
+      l.idealna_sirina,
+      l.idealnaSirina,
+      l.sirina,
+      l.width,
+      p.sir,
+      p.sirina,
+      p.idealna_sirina
+    );
+    return {
+      sloj: firstValue(l.sloj, l.layer, i + 1),
+      vrsta: firstValue(l.vrsta, l.tip, l.materijal, l.material),
+      pod_vrsta: firstValue(l.pod_vrsta, l.podVrsta, l.podvrsta, l.subtype, l.sub_type),
+      oznaka: firstValue(l.oznaka_materijala, l.oznaka, l.code, l.komercijalnaOznaka),
+      proizvodjac: firstValue(l.proizvodjac, l.proizvođač, l.proizvodac, l.proizvodjač, l.dobavljac),
+      debljina: firstValue(l.debljina, l.deb, l.mic, l.thickness),
+      sirina: idealnaSirina,
+      spoj_materijala: firstValue(l.spoj_materijala, l.spojMaterijala, l.spoj, l.kasiranje, l.kas),
+      broj_spojeva: firstValue(l.broj_spojeva, l.brojSpojeva, l.spojevi, l.kas, l.broj_spoja),
+      gm2: firstValue(l.gm2, l.gramatura, l.g_m2),
+    };
+  });
+}
+
+function materialLabel(l) {
+  const parts = [l.vrsta, l.pod_vrsta, l.oznaka, l.debljina !== '-' ? `${l.debljina}µ` : ''].filter(x => x && x !== '-');
+  return parts.join(' ') || '-';
 }
 
 const shell = { padding: 22, background: '#f8fafc', minHeight: '100vh', color: '#0f172a' };
@@ -82,7 +139,7 @@ export default function ListaProizvodaKupci({ msg }) {
         <div>
           <div style={{ fontSize: 12, fontWeight: 900, color: '#bbf7d0', letterSpacing: 1 }}>BAZA / KATALOG</div>
           <h1 style={{ margin: '6px 0 4px', fontSize: 28 }}>🗂️ Lista proizvoda po kupcima</h1>
-          <div style={{ color: '#dcfce7' }}>Za svaki proizvod: kupac, vrsta materijala, oznaka materijala, debljina, širina i sastav.</div>
+          <div style={{ color: '#dcfce7' }}>Za svaki proizvod i sloj: vrsta, pod-vrsta, oznaka, proizvođač, idealna širina, spoj materijala i broj spojeva.</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setView('kartice')} style={{ ...btn, background: view === 'kartice' ? '#fff' : 'rgba(255,255,255,.14)', color: view === 'kartice' ? '#0f172a' : '#fff' }}>Kartice</button>
@@ -102,7 +159,7 @@ export default function ListaProizvodaKupci({ msg }) {
     </div>
 
     {loading ? <div style={{ ...card, padding: 30 }}>Učitavanje...</div> : view === 'tabela' ? <div style={{ ...card, overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th style={th}>Naziv</th><th style={th}>Kupac</th><th style={th}>Šifra</th><th style={th}>Tip</th><th style={th}>Idealna širina</th><th style={th}>Materijali</th><th style={th}>Broj slojeva</th></tr></thead><tbody>{filtered.map(p => { const ls = layersFromProduct(p); return <tr key={p.id}><td style={td}><b>{p.naziv || p.proizvod || '-'}</b></td><td style={td}>{p.kupac || p.klijent || '-'}</td><td style={td}>{p.sifra || '-'}</td><td style={td}>{p.tip || p.tip_proizvoda || '-'}</td><td style={td}>{p.idealna_sirina || p.sirina || '-'} mm</td><td style={td}>{ls.map(l => `${l.vrsta} ${l.oznaka} ${l.debljina}µ`).join(' + ')}</td><td style={td}>{ls.length}</td></tr>; })}</tbody></table>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th style={th}>Naziv</th><th style={th}>Kupac</th><th style={th}>Šifra</th><th style={th}>Tip</th><th style={th}>Sloj</th><th style={th}>Vrsta materijala</th><th style={th}>Pod vrsta</th><th style={th}>Oznaka</th><th style={th}>Proizvođač</th><th style={th}>Idealna širina</th><th style={th}>Spoj materijala</th><th style={th}>Broj spojeva</th></tr></thead><tbody>{filtered.flatMap(p => { const ls = layersFromProduct(p); const rows = ls.length ? ls : [{ sloj: 1, vrsta: '-', pod_vrsta: '-', oznaka: '-', proizvodjac: '-', sirina: p.sir || p.sirina || '-', spoj_materijala: '-', broj_spojeva: '-' }]; return rows.map((l, idx) => <tr key={`${p.id}-${idx}`}><td style={td}><b>{p.naziv || p.proizvod || '-'}</b></td><td style={td}>{p.kupac || p.klijent || '-'}</td><td style={td}>{p.sku || p.sifra || '-'}</td><td style={td}>{p.tip || p.tip_proizvoda || '-'}</td><td style={td}>{l.sloj}</td><td style={td}><b>{l.vrsta}</b></td><td style={td}>{l.pod_vrsta}</td><td style={td}>{l.oznaka}</td><td style={td}>{l.proizvodjac}</td><td style={td}>{l.sirina !== '-' ? `${l.sirina} mm` : '-'}</td><td style={td}>{l.spoj_materijala}</td><td style={td}>{l.broj_spojeva}</td></tr>); })}</tbody></table>
     </div> : <div style={{ display: 'grid', gap: 18 }}>
       {groups.map(([group, arr]) => <div key={group} style={{ ...card, padding: 18 }}>
         <h2 style={{ margin: '0 0 14px', fontSize: 20 }}>🏢 {group}</h2>
@@ -110,10 +167,10 @@ export default function ListaProizvodaKupci({ msg }) {
           {arr.map(p => { const ls = layersFromProduct(p); const isOpen = !!open[p.id]; return <div key={p.id} style={{ border: '1px solid #e2e8f0', borderRadius: 16, padding: 15, background: '#fff' }}>
             <div onClick={()=>setOpen(o=>({ ...o, [p.id]: !o[p.id] }))} style={{ cursor: 'pointer' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><b style={{ fontSize: 17 }}>{p.naziv || p.proizvod || '-'}</b><span style={{ background: '#ecfdf5', color: '#047857', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 900 }}>{p.tip || p.tip_proizvoda || '-'}</span></div>
-              <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>{p.kupac || p.klijent || '-'} · šifra {p.sifra || '-'} · idealna širina {p.idealna_sirina || p.sirina || '-'} mm</div>
-              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{ls.map((l,i)=><span key={i} style={{ background: '#f1f5f9', borderRadius: 999, padding: '6px 9px', fontSize: 12, fontWeight: 850 }}>{l.vrsta} {l.oznaka} {l.debljina}µ</span>)}</div>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>{p.kupac || p.klijent || '-'} · šifra {p.sku || p.sifra || '-'} · idealna širina {p.sir || p.sirina || '-'} mm · slojeva {ls.length}</div>
+              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{ls.map((l,i)=><span key={i} style={{ background: '#f1f5f9', borderRadius: 999, padding: '6px 9px', fontSize: 12, fontWeight: 850 }}>{materialLabel(l)}</span>)}</div>
             </div>
-            {isOpen && <div style={{ marginTop: 12, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th style={th}>Sloj</th><th style={th}>Vrsta</th><th style={th}>Oznaka</th><th style={th}>Debljina</th><th style={th}>Širina</th><th style={th}>g/m²</th></tr></thead><tbody>{ls.map((l,i)=><tr key={i}><td style={td}>{l.sloj}</td><td style={td}><b>{l.vrsta}</b></td><td style={td}>{l.oznaka}</td><td style={td}>{l.debljina}µ</td><td style={td}>{l.sirina} mm</td><td style={td}>{l.gm2}</td></tr>)}</tbody></table></div>}
+            {isOpen && <div style={{ marginTop: 12, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th style={th}>Sloj</th><th style={th}>Vrsta</th><th style={th}>Pod vrsta</th><th style={th}>Oznaka</th><th style={th}>Proizvođač</th><th style={th}>Idealna širina</th><th style={th}>Spoj materijala</th><th style={th}>Broj spojeva</th></tr></thead><tbody>{ls.map((l,i)=><tr key={i}><td style={td}>{l.sloj}</td><td style={td}><b>{l.vrsta}</b></td><td style={td}>{l.pod_vrsta}</td><td style={td}>{l.oznaka}</td><td style={td}>{l.proizvodjac}</td><td style={td}>{l.sirina !== '-' ? `${l.sirina} mm` : '-'}</td><td style={td}>{l.spoj_materijala}</td><td style={td}>{l.broj_spojeva}</td></tr>)}</tbody></table></div>}
           </div>; })}
         </div>
       </div>)}
