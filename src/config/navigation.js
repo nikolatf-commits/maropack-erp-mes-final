@@ -53,14 +53,10 @@ export function getNavGroups(isAdmin, userRole) {
             label: 'Proizvodnja',
             icon: '🏭',
             items: [
-                { k: 'master_nalozi', l: 'Glavni nalozi', i: '🏭' },
-                { k: 'nalozi_pro', l: 'Nalozi PRO / MES', i: '🧾' },
-                { k: 'mes_workflow_pro', l: 'QR + Materijal + Live MES', i: '🔳' },
-                { k: 'nalozi', l: 'Aktivni nalozi', i: '📋' },
+                { k: 'nalozi', l: 'Glavni nalozi', i: '🏭' },
                 { k: 'ponude', l: 'Ponude', i: '📄' },
-                { k: 'plan_proizvodnje', l: 'Mašine + Plan proizvodnje PRO', i: '🏭' },
+                { k: 'plan_proizvodnje', l: 'Plan proizvodnje', i: '📅' },
                 { k: 'live_production', l: 'Praćenje proizvodnje', i: '🔴' },
-                { k: 'mes_tracking_quality', l: 'MES tracking + QC PRO', i: '🧑‍🏭' },
                 { k: 'quality_control', l: 'Kontrola kvaliteta', i: '✅' },
                 { k: 'tehnicki_list', l: 'Tehnički listovi', i: '📄' }
             ]

@@ -11,8 +11,6 @@ import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
 import ListaProizvodaKupci from './ListaProizvodaKupci.jsx';
 import AnalizaPotrosnjeMaterijala from './AnalizaPotrosnjeMaterijala.jsx';
-import NaloziProMES from "./NaloziProMES.jsx";
-import MESWorkflowPRO from "./MESWorkflowPRO.jsx";
 import PonudePRO from "./PonudePRO.jsx";
 import KalkulacijaFolije from "./KalkulacijaFolije.jsx";
 import KalkulacijaKese from "./KalkulacijaKese.jsx";
@@ -107,7 +105,6 @@ import DocumentAIWorkflow from './modules/DocumentAIWorkflow.jsx';
 import SystemStatusPRO from './modules/SystemStatusPRO.jsx';
 import BackupSecurityCenter from './modules/BackupSecurityCenter.jsx';
 import MachineSchedulerPRO from './modules/MachineSchedulerPRO.jsx';
-import MESTrackingQualityPRO from './modules/MESTrackingQualityPRO.jsx';
 import AIAgentCommandCenter from './modules/AIAgentCommandCenter.jsx';
 import SystemStabilizationCenter from './modules/SystemStabilizationCenter.jsx';
 import ProductionHardeningCenter from './modules/ProductionHardeningCenter.jsx';
@@ -2241,13 +2238,6 @@ function MainAppContent() {
                 )}
 
 
-                {page === "nalozi_pro" && (
-                    <NaloziProMES db={db} setPage={setPage} msg={msg} />
-                )}
-
-                {page === "mes_workflow_pro" && (
-                    <MESWorkflowPRO msg={msg} />
-                )}
 
                 {page === "plan_proizvodnje" && (
                     <MachineSchedulerPRO msg={msg} />
@@ -2257,9 +2247,6 @@ function MainAppContent() {
                     <LiveProductionMES db={db} msg={msg} />
                 )}
 
-                {page === "mes_tracking_quality" && (
-                    <MESTrackingQualityPRO db={db} msg={msg} />
-                )}
 
                 {page === "quality_control" && (
                     <QualityControlPRO db={db} msg={msg} />
@@ -2290,7 +2277,7 @@ function MainAppContent() {
                 {page === "nalozi" && (
                     <div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-                            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🔧 Radni nalozi</h2>
+                            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
                             <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { return n.status !== "Završeno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
                         </div>
                         {pregNalog ? (
