@@ -1,16 +1,6 @@
 import React from "react";
-import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
-import NalogMaterijal_Folija from "./NalogMaterijal_Folija.jsx";
-import NalogStampa_Folija from "./NalogStampa_Folija.jsx";
-import NalogKasiranje_Folija from "./NalogKasiranje_Folija.jsx";
-import NalogPerforacijaRezanje_Folija from "./NalogPerforacijaRezanje_Folija.jsx";
-import NalogPotrebaMaterijala_Kesa from "./NalogPotrebaMaterijala_Kesa.jsx";
-import NalogKesa_Kesa from "./NalogKesa_Kesa.jsx";
-import NalogPotrebaMaterijala_Spulna from "./NalogPotrebaMaterijala_Spulna.jsx";
-import NalogFormatiranje_Spulna from "./NalogFormatiranje_Spulna.jsx";
-import NalogSpulne_Spulna from "./NalogSpulne_Spulna.jsx";
 
-const QR = (text, size = 94) =>
+const QR = (text, size = 84) =>
   "https://api.qrserver.com/v1/create-qr-code/?size=" + size + "x" + size + "&data=" + encodeURIComponent(text || "MAROPACK");
 
 function val(v, fallback = "—") {
@@ -30,6 +20,25 @@ function pick(obj, keys, fallback = "") {
   return fallback;
 }
 
+function normTip(t) {
+  const x = String(t || "folija").toLowerCase();
+  if (x.includes("kes")) return "kesa";
+  if (x.includes("spul") || x.includes("špul")) return "spulna";
+  return "folija";
+}
+
+function normNalog(t, naziv, activeTab) {
+  const x = String(activeTab || t || naziv || "").toLowerCase();
+  if (x.includes("mater")) return "materijal";
+  if (x.includes("štamp") || x.includes("stamp")) return "stampa";
+  if (x.includes("kaš") || x.includes("kas")) return "kasiranje";
+  if (x.includes("rez") || x.includes("perf")) return "perforacija_rezanje";
+  if (x.includes("format")) return "formatiranje";
+  if (x.includes("kes")) return "kesa";
+  if (x.includes("spul") || x.includes("špul")) return "spulna";
+  return "materijal";
+}
+
 function getData(nalog) {
   const t = nalog.template || nalog.product_template || nalog.templateData || {};
   const folija = nalog.folija || t.folija || {};
@@ -40,568 +49,345 @@ function getData(nalog) {
   return { t, folija, kesa, spulna, tehnicki, pdf };
 }
 
-function Field({ label, value, strong }) {
+function getMaterijali(nalog) {
+  const { t, folija, kesa, spulna } = getData(nalog);
+  const arr =
+    (Array.isArray(nalog.struktura) && nalog.struktura) ||
+    (Array.isArray(nalog.mats) && nalog.mats) ||
+    (Array.isArray(nalog.materijali) && nalog.materijali) ||
+    (Array.isArray(folija.layers) && folija.layers) ||
+    (Array.isArray(kesa.layers) && kesa.layers) ||
+    (Array.isArray(spulna.layers) && spulna.layers) ||
+    (Array.isArray(t.layers) && t.layers) ||
+    [];
+  if (arr.length) {
+    return arr.slice(0, 5).map((m, i) => ({
+      sloj: m.sloj || String.fromCharCode(65 + i),
+      materijal: m.naziv || m.material || m.materijal || [m.vrsta, m.oznaka, m.debljina ? `${m.debljina}µ` : ""].filter(Boolean).join(" ") || "Materijal",
+      sirina: m.sirina || m.sirina_mm || nalog.sirina || nalog.sir,
+      potrebno: m.metraza || m.m || nalog.metraza || nalog.kol,
+      kg: m.kg || m.potrebnoKg || nalog.kg,
+      lot: m.lot || m.LOT || "",
+      status: m.status || "za rezervaciju",
+    }));
+  }
+  return [{
+    sloj: "A",
+    materijal: nalog.materijal || nalog.sastav || nalog.prod || "Materijal",
+    sirina: nalog.sirina || nalog.sir,
+    potrebno: nalog.metraza || nalog.kol,
+    kg: nalog.kg,
+    lot: nalog.lot,
+    status: "za rezervaciju",
+  }];
+}
+
+function getRolne(nalog) {
+  const arr = nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || nalog.selectedRolls || [];
+  return (Array.isArray(arr) ? arr : []).slice(0, 6).map((r) => ({
+    qr: r.qr || r.qr_kod || r.id || r.rola || "—",
+    lot: r.lot || r.LOT || "—",
+    lokacija: r.lokacija || r.location || "—",
+    sirina: r.sirina || r.width || "—",
+    m: r.duzina || r.metraza || r.m || "—",
+    kg: r.kg || "—",
+  }));
+}
+
+function Field({ label, value, strong = false }) {
   return (
-    <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 11px" }}>
-      <div style={{ fontSize: 10, color: "#64748b", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: strong ? 15 : 13, color: "#0f172a", fontWeight: strong ? 900 : 700, marginTop: 3 }}>{val(value)}</div>
+    <div className="a4-field">
+      <div className="a4-label">{label}</div>
+      <div className={strong ? "a4-value strong" : "a4-value"}>{val(value)}</div>
     </div>
   );
 }
 
-function Badge({ children, color = "#1d4ed8" }) {
+function Section({ title, children, compact = false }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: color + "15", color, border: "1px solid " + color + "35", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 900 }}>
-      {children}
-    </span>
-  );
-}
-
-function Section({ title, color = "#1d4ed8", children, subtitle }) {
-  return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden", background: "#fff", marginBottom: 14, boxShadow: "0 8px 24px rgba(15,23,42,.04)" }}>
-      <div style={{ background: `linear-gradient(135deg, ${color}, #0f172a)`, color: "#fff", padding: "10px 14px", fontWeight: 950, fontSize: 13, letterSpacing: 0.3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>{title}</span>
-        {subtitle ? <span style={{ fontSize: 10, opacity: .85, fontWeight: 800 }}>{subtitle}</span> : null}
-      </div>
-      <div style={{ padding: 14 }}>{children}</div>
-    </div>
+    <section className={compact ? "a4-section compact" : "a4-section"}>
+      <div className="a4-section-title">{title}</div>
+      <div className="a4-section-body">{children}</div>
+    </section>
   );
 }
 
 function MiniTable({ columns, rows }) {
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-      <thead>
-        <tr>{columns.map(c => <th key={c} style={{ textAlign: "left", padding: 8, background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", color: "#334155" }}>{c}</th>)}</tr>
-      </thead>
+    <table className="a4-table">
+      <thead><tr>{columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
       <tbody>
-        {(rows || []).map((r, i) => (
-          <tr key={i}>{columns.map((c, j) => <td key={j} style={{ padding: 8, borderBottom: "1px solid #f1f5f9", color: "#0f172a", fontWeight: j === 0 ? 800 : 600 }}>{r[j] ?? "—"}</td>)}</tr>
+        {(rows && rows.length ? rows : [columns.map(() => "—")]).map((r, i) => (
+          <tr key={i}>{columns.map((c, j) => <td key={c + j}>{r[j] ?? "—"}</td>)}</tr>
         ))}
       </tbody>
     </table>
   );
 }
 
-function normTip(t) {
-  const x = String(t || "folija").toLowerCase();
-  if (x.includes("kes")) return "kesa";
-  if (x.includes("spul") || x.includes("špul")) return "spulna";
-  return "folija";
-}
-
-function normNalog(t, naziv) {
-  const x = String(t || naziv || "").toLowerCase();
-  if (x.includes("mater")) return "materijal";
-  if (x.includes("štamp") || x.includes("stamp")) return "stampa";
-  if (x.includes("kaš") || x.includes("kas")) return "kasiranje";
-  if (x.includes("rez") || x.includes("perf")) return "perforacija_rezanje";
-  if (x.includes("format")) return "formatiranje";
-  if (x.includes("kes")) return "kesa";
-  if (x.includes("spul") || x.includes("špul")) return "spulna";
-  if (x.includes("qc") || x.includes("kontrol")) return "qc";
-  return "opsti";
-}
-
-function getStruktura(nalog) {
-  const { t, folija } = getData(nalog);
-  const direct = Array.isArray(nalog.struktura) ? nalog.struktura : [];
-  if (direct.length) return direct;
-  const mats =
-    Array.isArray(nalog.mats) ? nalog.mats :
-    Array.isArray(nalog.materijali) ? nalog.materijali :
-    Array.isArray(folija.layers) ? folija.layers :
-    Array.isArray(t.layers) ? t.layers :
-    [];
-  return mats.map((m, i) => ({
-    sloj: i + 1,
-    naziv: m.naziv || m.tip || m.vrsta || m.materijal,
-    tip: m.tip || m.vrsta || m.materijal,
-    debljina: m.debljina || m.deb || m.mikron,
-    gsm: m.gsm || m.gm2,
-    sirina: m.sirina || m.sirina_mm || nalog.sirina,
-    metraza: m.metraza || m.m || nalog.metraza,
-    kg: m.kg,
-    uloga: m.uloga || (i === 0 ? "Spolja / štampa" : i === mats.length - 1 ? "Unutrašnji sloj / var" : "Srednji / barijerni sloj")
-  }));
-}
-
-function materijaliRows(nalog) {
-  const struktura = getStruktura(nalog);
-  if (struktura.length) return struktura.map((m, i) => [
-    i + 1,
-    val(m.naziv || m.tip),
-    val(m.debljina ? m.debljina + " µ" : ""),
-    val(m.gsm ? m.gsm + " g/m²" : ""),
-    val(m.sirina ? m.sirina + " mm" : ""),
-    val(m.metraza ? fmt(m.metraza, " m") : ""),
-    val(m.kg ? fmt(m.kg, " kg") : ""),
-    val(m.uloga || "")
-  ]);
-  return [[1, val(nalog.materijal || nalog.sastav || nalog.prod), val(nalog.debljina), "", val(nalog.sirina), val(nalog.kol), val(nalog.kg), ""]];
-}
-
-function Header({ nalog }) {
-  const broj = nalog.ponBr || nalog.broj_naloga || nalog.broj || "MP-2026-0001";
-  const tip = normTip(nalog.tip || nalog.tip_proizvoda);
-  const qrText = window.location.origin + "?nalog=" + encodeURIComponent(broj);
-  const qrSrc = nalog.qr_kod || QR(qrText, 95);
+function Header({ nalog, title, icon }) {
+  const broj = nalog.ponBr || nalog.broj_naloga || nalog.broj || "MP-2026-XXXX";
+  const qrData = JSON.stringify({ nalog: broj, tip: title, kupac: nalog.kupac, proizvod: nalog.prod || nalog.proizvod });
   return (
-    <div style={{ background: "linear-gradient(135deg,#0f172a,#1e40af)", color: "#fff", borderRadius: 16, padding: 18, display: "grid", gridTemplateColumns: "1fr 115px", gap: 16, marginBottom: 16 }}>
+    <header className="a4-header">
       <div>
-        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: "#bfdbfe", fontWeight: 900 }}>MAROPACK d.o.o. — PROFESIONALNI PROIZVODNI RADNI NALOG</div>
-        <div style={{ fontSize: 25, fontWeight: 950, marginTop: 4 }}>{val(nalog.naziv, "Radni nalog")}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(120px, 1fr))", gap: 8, marginTop: 14 }}>
+        <div className="a4-company">MAROPACK D.O.O. — RADNI NALOG</div>
+        <div className="a4-title">{icon} {title}</div>
+        <div className="a4-header-grid">
           <Field label="Broj naloga" value={broj} strong />
           <Field label="Kupac" value={nalog.kupac} strong />
-          <Field label="Proizvod" value={nalog.prod || nalog.proizvod || nalog.naziv_proizvoda} strong />
-          <Field label="Tip" value={tip.toUpperCase()} strong />
+          <Field label="Proizvod" value={nalog.prod || nalog.proizvod} strong />
+          <Field label="Tip" value={String(nalog.tip_proizvoda || nalog.tip || "").toUpperCase()} />
         </div>
       </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 8, textAlign: "center", alignSelf: "start" }}>
-        <img src={qrSrc} alt="QR" style={{ width: 95, height: 95, display: "block", margin: "0 auto" }} />
-        <div style={{ color: "#334155", fontSize: 9, fontWeight: 900, marginTop: 4 }}>QR NALOGA</div>
-      </div>
-    </div>
+      <div className="a4-qr"><img src={QR(qrData)} alt="QR naloga" /><span>QR NALOGA</span></div>
+    </header>
   );
 }
 
-function StrukturaFolije({ nalog, color = "#f59e0b" }) {
-  const struktura = getStruktura(nalog);
-  if (!struktura.length) return null;
-  const ukupnaDebljina = struktura.reduce((s, x) => s + Number(x.debljina || 0), 0);
+function ProcessBar({ tip, active }) {
+  const items = tip === "kesa"
+    ? [["materijal", "Materijal"], ["kasiranje", "Kaširanje"], ["kesa", "Kesa"]]
+    : tip === "spulna"
+      ? [["materijal", "Materijal"], ["formatiranje", "Formatiranje"], ["spulna", "Špulna"]]
+      : [["materijal", "Materijal"], ["stampa", "Štampa"], ["kasiranje", "Kaširanje"], ["perforacija_rezanje", "Perforacija + rezanje"]];
+  return <div className="a4-process">{items.map(([k, l]) => <div key={k} className={k === active ? "active" : ""}>{k === active ? "●" : "○"} {l}</div>)}</div>;
+}
 
+function SignatureFooter() {
   return (
-    <div style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 14, background: "#fffdf5", marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 950, color, textTransform: "uppercase", marginBottom: 12 }}>
-        📐 Struktura iz template-a / kalkulacije
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-        {struktura.map((s, i) => (
-          <React.Fragment key={i}>
-            <div style={{ minWidth: 155, border: "1.5px solid " + color, borderRadius: 12, background: "#fff7ed", padding: "12px 14px", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Sloj {s.sloj}</div>
-              <div style={{ fontSize: 15, color: "#0f172a", fontWeight: 950, marginTop: 4 }}>{val(s.naziv || s.tip)}</div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800, marginTop: 4 }}>
-                {val(s.debljina ? s.debljina + " µ" : "")} {s.kg ? " · " + fmt(s.kg, " kg") : ""}
-              </div>
-              <div style={{ fontSize: 10, color: "#64748b", marginTop: 5 }}>{val(s.uloga)}</div>
-            </div>
-            {i < struktura.length - 1 && (
-              <div style={{ textAlign: "center", color, fontWeight: 950 }}>
-                →<div style={{ fontSize: 9, textTransform: "uppercase" }}>lepak</div>
-              </div>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-      <div style={{ marginTop: 12, textAlign: "center", background: "#fff", borderRadius: 10, padding: 8, fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
-        Sastav: {nalog.sastav || struktura.map(s => `${s.tip || s.naziv} ${s.debljina ? s.debljina + "µ" : ""}`.trim()).join(" / ")}
-        {ukupnaDebljina ? ` · ukupna debljina: ${ukupnaDebljina} µ` : ""}
-      </div>
-    </div>
+    <footer className="a4-signatures">
+      <div>Operater<br /><b>________________</b></div>
+      <div>Mašina<br /><b>________________</b></div>
+      <div>Kontrola<br /><b>________________</b></div>
+      <div>Potpis<br /><b>________________</b></div>
+    </footer>
   );
 }
 
-function MaterialSection({ nalog }) {
+function MaterijalOrder({ nalog }) {
+  const materijali = getMaterijali(nalog);
+  const rolne = getRolne(nalog);
   return (
-    <Section title="📦 NALOG ZA POTREBU MATERIJALA" color="#f59e0b" subtitle="magacin / rezervacija rolni">
-      <StrukturaFolije nalog={nalog} color="#f59e0b" />
-      <MiniTable columns={["RB", "Materijal", "Debljina", "g/m²", "Širina", "Metraža", "Kg", "Uloga"]} rows={materijaliRows(nalog)} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 12 }}>
-        <Field label="Ukupno kg" value={nalog.ukupnoKg || nalog.kg || "po kalkulaciji"} />
-        <Field label="Ukupno m²" value={nalog.m2 || "po kalkulaciji"} />
-        <Field label="Predlog rolni" value="iz magacina po materijalu/širini" />
-        <Field label="Napomena magacinu" value={nalog.nap || nalog.napomena || "Rezervisati materijal pre proizvodnje"} />
-      </div>
-    </Section>
+    <>
+      <Section title="Potreba materijala">
+        <MiniTable columns={["Sloj", "Materijal", "Širina", "Potrebno", "Kg", "LOT", "Status"]} rows={materijali.map(m => [m.sloj, m.materijal, m.sirina ? `${m.sirina} mm` : "—", m.potrebno ? fmt(m.potrebno, " m") : "—", m.kg ? fmt(m.kg, " kg") : "—", val(m.lot), val(m.status)])} />
+      </Section>
+      <Section title="Rezervisane / predložene role" compact>
+        <MiniTable columns={["QR", "LOT", "Lokacija", "Širina", "Metara", "Kg"]} rows={(rolne.length ? rolne : [{ qr: "upis iz magacina", lot: "—", lokacija: "—", sirina: "—", m: "—", kg: "—" }]).map(r => [r.qr, r.lot, r.lokacija, r.sirina ? `${r.sirina} mm` : "—", r.m ? fmt(r.m, " m") : "—", r.kg ? fmt(r.kg, " kg") : "—"])} />
+      </Section>
+      <Section title="Napomena za magacin" compact>
+        <div className="a4-note">Rezervacija, skidanje i istorija rolne ostaju kroz Magacin / QR sistem. Ovaj nalog je štampani prikaz potrebe materijala.</div>
+      </Section>
+    </>
   );
 }
 
-function KPDFSection({ nalog }) {
-  const { folija, pdf, t } = getData(nalog);
-  const kpdf = pick(nalog, ["kpdf", "kpdf_dizajn", "dizajn_pdf"], pick(folija, ["kpdf", "dizajn_pdf"], pick(pdf, ["kpdf", "dizajn"])));
-  const perfPdf = pick(nalog, ["pdf_perforacije", "perforacija_pdf"], pick(folija, ["pdf_perforacije", "perforacija_pdf"], pick(pdf, ["perforacija"])));
-  const verzija = pick(nalog, ["verzija_dizajna"], pick(folija, ["verzija_dizajna"], pick(t, ["verzija"], "—")));
+function StampaOrder({ nalog }) {
+  const { folija, pdf } = getData(nalog);
+  const stampa = folija.stampa || nalog.stampa || {};
+  const boje = stampa.boje || nalog.boje || [];
   return (
-    <Section title="📄 KPDF / DIZAJN I PDF PERFORACIJE" color="#0ea5e9" subtitle="priprema / štampa / perforacija">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="KPDF dizajn" value={kpdf || "nije dodat / dodati u template"} />
-        <Field label="Verzija dizajna" value={verzija} />
-        <Field label="PDF perforacije" value={perfPdf || "nije dodat / po specifikaciji"} />
-        <Field label="Odobrenje" value={pick(nalog, ["odobrenje_dizajna"], pick(folija, ["odobrenje"], "pre proizvodnje"))} />
-      </div>
-      <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ border: "1px dashed #38bdf8", borderRadius: 12, padding: 14, background: "#f0f9ff" }}>
-          <div style={{ fontWeight: 950, color: "#0369a1" }}>Preview dizajna / KPDF</div>
-          <div style={{ fontSize: 12, color: "#475569", marginTop: 6 }}>U realnom radu ovde se prikazuje link/thumbnail PDF dizajna koji je ubačen u template proizvoda.</div>
+    <>
+      <Section title="Parametri štampe">
+        <div className="a4-grid-4">
+          <Field label="Mašina" value={stampa.masina || nalog.masina} />
+          <Field label="Strana štampe" value={stampa.strana || nalog.strana_stampe || "unutrašnja / spoljašnja"} />
+          <Field label="PDF / KPDF" value={pdf.naziv || nalog.kpdf || "priložiti"} />
+          <Field label="Smer odmotavanja" value={nalog.smer || stampa.smer} />
+          <Field label="Kliše" value={stampa.klise || nalog.klise} />
+          <Field label="Aniloks" value={stampa.aniloks || nalog.aniloks} />
+          <Field label="Brzina" value={stampa.brzina} />
+          <Field label="Kontrola" value="boja, tekst, bar kod, pozicija" />
         </div>
-        <div style={{ border: "1px dashed #a78bfa", borderRadius: 12, padding: 14, background: "#f5f3ff" }}>
-          <div style={{ fontWeight: 950, color: "#6d28d9" }}>Preview PDF perforacije</div>
-          <div style={{ fontSize: 12, color: "#475569", marginTop: 6 }}>Perforacija se prikazuje u nalogu za perforaciju i u finalnom prikazu rolne.</div>
-        </div>
-      </div>
-    </Section>
+      </Section>
+      <Section title="Boje / lak / napomena" compact>
+        <MiniTable columns={["R.br", "Boja", "Aniloks", "Kliše", "Napomena"]} rows={(Array.isArray(boje) && boje.length ? boje : [{ boja: "po KPDF", aniloks: "—", klise: "—", napomena: "kontrola prvog otiska" }]).slice(0, 8).map((b, i) => [i + 1, b.boja || b.name || "—", b.aniloks || "—", b.klise || "—", b.napomena || "—"])} />
+      </Section>
+    </>
   );
 }
 
-function StampaSection({ nalog }) {
-  const struktura = getStruktura(nalog);
-  return (
-    <Section title="🖨️ NALOG ZA ŠTAMPU" color="#3b82f6" subtitle="flexo / kontrola grafike">
-      {struktura.length ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
-          <Field label="Materijal za štampu" value={nalog.sloj_stampa || struktura[0]?.naziv || struktura[0]?.tip} />
-          <Field label="Sloj" value="Sloj 1 / spoljašnji" />
-          <Field label="Širina" value={struktura[0]?.sirina ? struktura[0].sirina + " mm" : nalog.sirina} />
-          <Field label="Metraža" value={struktura[0]?.metraza ? fmt(struktura[0].metraza, " m") : nalog.metraza} />
-        </div>
-      ) : null}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Mašina" value={nalog.masina_stampe || "UTECO / po izboru"} />
-        <Field label="Broj boja" value={nalog.broj_boja || nalog.boje || "—"} />
-        <Field label="Strana štampe" value={nalog.strana_stampe || "Spoljna/Unutrašnja"} />
-        <Field label="Raport / cilindar" value={nalog.raport || nalog.obim || "—"} />
-        <Field label="Smer odmotavanja" value={nalog.smer || "po specifikaciji"} />
-        <Field label="Kontrola" value="nijansa, registar, prianjanje" />
-        <Field label="KPDF" value={pick(nalog, ["kpdf", "kpdf_dizajn"], pick(getData(nalog).folija, ["kpdf"], "po template-u"))} />
-        <Field label="Napomena" value={nalog.napomena_stampe || nalog.nap || "—"} />
-      </div>
-    </Section>
-  );
-}
-
-function KasiranjeSection({ nalog }) {
-  return (
-    <Section title="🔗 NALOG ZA KAŠIRANJE" color="#1d4ed8" subtitle="redosled slojeva / lepak">
-      <StrukturaFolije nalog={nalog} color="#1d4ed8" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Kaširanje" value={nalog.kasiranje || "prema strukturi folije"} />
-        <Field label="Lepak" value={nalog.lepak || "SF724A / 324CA"} />
-        <Field label="Nanos" value={nalog.nanos_lepka || "1.8 g/m²"} />
-        <Field label="Zrenje" value={nalog.zrenje || "48h"} />
-        <Field label="Temperatura" value={nalog.temperatura || "po tehnologiji"} />
-        <Field label="Pritisak" value={nalog.pritisak || "po tehnologiji"} />
-        <Field label="Brzina" value={nalog.brzina || "po mašini"} />
-        <Field label="Kontrola" value="delaminacija, mehurići, prijanjanje" />
-      </div>
-    </Section>
-  );
-}
-
-function SlittingVisual({ nalog }) {
+function KasiranjeOrder({ nalog }) {
+  const materijali = getMaterijali(nalog);
   const { folija } = getData(nalog);
-  const widths = nalog.sirine_traka || nalog.formati || folija.sirine_traka || folija.formati || [];
-  const arr = Array.isArray(widths) && widths.length ? widths.map((w) => typeof w === "object" ? Number(w.sirina || w.width || 0) : Number(w || 0)).filter(Boolean) : [Number(nalog.sirina_trake || nalog.format || 0)].filter(Boolean);
-  const total = Number(nalog.sirina_ulaz || folija.sirina_maticne || nalog.sirina || arr.reduce((s, x) => s + x, 0) || 1000);
-  const sum = arr.reduce((s, x) => s + x, 0);
-  const waste = Math.max(0, total - sum);
-  const segments = arr.concat(waste ? [waste] : []);
+  const kas = folija.kasiranje || nalog.kasiranje || {};
   return (
-    <div style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 14, background: "#f8fafc", marginTop: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontWeight: 950, color: "#334155" }}>
-        <span>Grafički prikaz rezanja na matičnoj roli</span>
-        <span>{total} mm</span>
-      </div>
-      <div style={{ display: "flex", height: 72, border: "2px solid #0f172a", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-        {segments.map((w, i) => {
-          const pct = Math.max(4, (w / total) * 100);
-          const isWaste = waste && i === segments.length - 1;
-          return (
-            <div key={i} style={{ width: pct + "%", borderRight: i < segments.length - 1 ? "1px solid #0f172a" : "none", display: "flex", alignItems: "center", justifyContent: "center", background: isWaste ? "#fee2e2" : i % 2 ? "#dbeafe" : "#bfdbfe", color: isWaste ? "#991b1b" : "#1e3a8a", fontWeight: 950, fontSize: 12, textAlign: "center" }}>
-              {isWaste ? "OTPAD " : "TRAKA "}{w}mm
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-        <Badge color="#1d4ed8">Iskorišćeno: {sum} mm</Badge>
-        <Badge color={waste ? "#dc2626" : "#059669"}>Otpad: {waste} mm</Badge>
-        <Badge color="#6366f1">Broj traka: {arr.length}</Badge>
-      </div>
-    </div>
-  );
-}
-
-function RezanjeSection({ nalog }) {
-  const formati = nalog.formati || [];
-  return (
-    <Section title="✂️ NALOG ZA REZANJE / SLITTING" color="#6366f1" subtitle="plan rezanja / finalne rolne">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
-        <Field label="Ulazna širina" value={nalog.sirina_ulaz || nalog.sirina || "—"} />
-        <Field label="Format / širina trake" value={nalog.format || nalog.sirina_trake || "—"} />
-        <Field label="Broj traka" value={nalog.broj_traka || "—"} />
-        <Field label="Metraža po roli" value={nalog.metraza_po_rolni || "—"} />
-      </div>
-      {formati.length ? <MiniTable columns={["Format", "Širina", "Metraža", "Br. rolni", "Izlaz"]} rows={formati.map((f, i) => [i + 1, f.sirina, f.metraza, f.brRolni, f.izlaz || "Magacin"])} /> : null}
-      <SlittingVisual nalog={nalog} />
-    </Section>
-  );
-}
-
-function PerforacijaSection({ nalog }) {
-  const { folija } = getData(nalog);
-  return (
-    <Section title="🔵 NALOG ZA PERFORACIJU" color="#8b5cf6" subtitle="KPDF / mikro / makro perforacija">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Tip perforacije" value={nalog.tip_perforacije || folija.tip_perforacije || nalog.perforacija || "po specifikaciji"} />
-        <Field label="Odnos / šema" value={nalog.odnos_perforacije || folija.odnos_perforacije || "30/60 ili po PDF-u"} />
-        <Field label="Pozicija" value={nalog.pozicija_perforacije || folija.pozicija_perforacije || "po skici"} />
-        <Field label="Razmak" value={nalog.razmak_perforacije || folija.razmak_perforacije || "—"} />
-        <Field label="PDF perforacije" value={nalog.pdf_perforacije || folija.pdf_perforacije || "dodati u template"} />
-        <Field label="Smer" value={nalog.smer_perforacije || folija.smer_perforacije || "po smeru odmotavanja"} />
-        <Field label="Kontrola" value="pozicija, prohodnost, kontinuitet" />
-        <Field label="Napomena" value={nalog.napomena_perforacije || "kontrola pre serije"} />
-      </div>
-      <div style={{ marginTop: 12, border: "1px dashed #8b5cf6", borderRadius: 12, padding: 14, background: "#f5f3ff" }}>
-        <div style={{ fontWeight: 950, color: "#6d28d9" }}>Prikaz perforacije na roli</div>
-        <svg viewBox="0 0 640 90" style={{ width: "100%", height: 90, marginTop: 8 }}>
-          <rect x="20" y="20" width="600" height="45" rx="10" fill="#ffffff" stroke="#7c3aed" strokeWidth="2" />
-          <line x1="35" y1="42" x2="605" y2="42" stroke="#7c3aed" strokeWidth="3" strokeDasharray="12 8" />
-          <text x="320" y="82" textAnchor="middle" fontSize="13" fontWeight="800" fill="#4c1d95">perforacija — pozicija prema PDF/KPDF specifikaciji</text>
-        </svg>
-      </div>
-    </Section>
-  );
-}
-
-function IzgledRolneSection({ nalog }) {
-  const { folija } = getData(nalog);
-  return (
-    <Section title="🎞️ IZGLED FINALNE ROLNE" color="#0ea5e9" subtitle="smer / namotavanje / etiketa">
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr .8fr", gap: 14 }}>
-        <div style={{ border: "1px solid #bae6fd", borderRadius: 14, padding: 16, minHeight: 160, background: "#f0f9ff" }}>
-          <div style={{ fontWeight: 950, color: "#0369a1", marginBottom: 8 }}>Live tehnički prikaz finalne rolne</div>
-          <svg viewBox="0 0 640 190" style={{ width: "100%", height: 190 }}>
-            <defs>
-              <linearGradient id="rollG" x1="0" x2="1"><stop offset="0%" stopColor="#bae6fd"/><stop offset="100%" stopColor="#0ea5e9"/></linearGradient>
-            </defs>
-            <ellipse cx="180" cy="95" rx="105" ry="60" fill="url(#rollG)" stroke="#075985" strokeWidth="3"/>
-            <ellipse cx="180" cy="95" rx="42" ry="24" fill="#fff" stroke="#075985" strokeWidth="3"/>
-            <rect x="180" y="35" width="280" height="120" fill="#e0f2fe" stroke="#075985" strokeWidth="3"/>
-            <ellipse cx="460" cy="95" rx="105" ry="60" fill="#e0f2fe" stroke="#075985" strokeWidth="3"/>
-            <ellipse cx="460" cy="95" rx="42" ry="24" fill="#fff" stroke="#075985" strokeWidth="3"/>
-            <path d="M70 168 C140 142, 215 142, 290 168" fill="none" stroke="#0369a1" strokeWidth="4" markerEnd="url(#arrow)" />
-            <text x="320" y="25" textAnchor="middle" fontSize="14" fontWeight="900" fill="#075985">FINALNA ROLNA — smer odmotavanja: {val(nalog.smer || folija.smer_odmotavanja, "po template-u")}</text>
-            <line x1="220" y1="48" x2="420" y2="48" stroke="#7c3aed" strokeWidth="3" strokeDasharray="10 7"/>
-            <text x="320" y="175" textAnchor="middle" fontSize="13" fontWeight="800" fill="#0f172a">štampa {val(nalog.stampa_unutra || folija.stampa_strana, "unutra/spolja")} • hilzna {val(nalog.hilzna || folija.hilzna, "76/152")}</text>
-          </svg>
+    <>
+      <Section title="Slojevi za kaširanje">
+        <MiniTable columns={["Sloj", "Materijal", "Širina", "LOT", "Napomena"]} rows={materijali.map(m => [m.sloj, m.materijal, m.sirina ? `${m.sirina} mm` : "—", val(m.lot), m.sloj === "A" ? "spoljašnji" : "kaširanje"])} />
+      </Section>
+      <Section title="Parametri kaširanja" compact>
+        <div className="a4-grid-4">
+          <Field label="Mašina" value={kas.masina || nalog.masina} />
+          <Field label="Valjak" value={kas.valjak || nalog.valjak || nalog.valjak_kasiranja} />
+          <Field label="Lepak" value={kas.lepak || nalog.lepak} />
+          <Field label="Brzina" value={kas.brzina} />
+          <Field label="Temperatura" value={kas.temperatura} />
+          <Field label="Dozacija" value={kas.dozacija} />
+          <Field label="Corona" value={kas.corona} />
+          <Field label="Kontrola" value="adhezija, ravnina, tuneli" />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
-          <Field label="Hilzna" value={nalog.hilzna || folija.hilzna || "fi 76 / 152"} />
-          <Field label="Prečnik rolne" value={nalog.precnik_rolne || folija.precnik_rolne || "—"} />
-          <Field label="Štampa" value={nalog.stampa_unutra || folija.stampa_strana || "unutra/spolja"} />
-          <Field label="Etiketa" value="QR + broj rolne" />
-          <Field label="Dužina rolne" value={nalog.duzina_rolne || folija.duzina_rolne || "—"} />
-          <Field label="Smer" value={nalog.smer || folija.smer_odmotavanja || "—"} />
-          <Field label="Pozicija perforacije" value={nalog.pozicija_perforacije || folija.pozicija_perforacije || "—"} />
-          <Field label="QC" value="ivice, prečnik, namotavanje" />
-        </div>
-      </div>
-    </Section>
+      </Section>
+    </>
   );
 }
 
-function KesaSection({ nalog }) {
+function RezanjeOrder({ nalog }) {
+  const { folija } = getData(nalog);
+  const rez = folija.rezanje || nalog.rezanje || {};
+  const sirina = rez.sirinaMaterijala || nalog.sirina || nalog.sir;
+  const trake = rez.trake || nalog.trake || nalog.pozicije || [];
+  const rows = Array.isArray(trake) && trake.length
+    ? trake.slice(0, 12).map((t, i) => [i + 1, t.sirina || t.width || "—", t.kom || t.kolicina || 1, t.duzina || t.m || nalog.kol || "—", t.napomena || "—"])
+    : [[1, nalog.sirina_trake || nalog.finalna_sirina || "po planu", nalog.kom || nalog.kolicina || "—", nalog.kol || nalog.metraza || "—", "perforacija po specifikaciji"]];
+  return (
+    <>
+      <Section title="Plan perforacije i rezanja">
+        <div className="a4-grid-4" style={{ marginBottom: 8 }}>
+          <Field label="Ulazna širina" value={sirina ? `${sirina} mm` : "—"} />
+          <Field label="Noževi / pozicije" value={rez.nozevi || nalog.nozevi} />
+          <Field label="Otpad L/D" value={rez.otpad || nalog.otpad || "upisati"} />
+          <Field label="Perforacija" value={rez.perforacija || nalog.perforacija || "po specifikaciji"} />
+        </div>
+        <MiniTable columns={["R.br", "Širina trake", "Kom", "Metara", "Napomena"]} rows={rows} />
+      </Section>
+      <Section title="Parent → Child role / novi QR" compact>
+        <MiniTable columns={["Parent QR", "Child QR", "Širina", "Metara", "Status"]} rows={[[nalog.parent_qr || "ulazna rolna", "generiše se po završetku", nalog.finalna_sirina || "—", nalog.kol || "—", "za štampu etikete"]]} />
+      </Section>
+    </>
+  );
+}
+
+function KesaOrder({ nalog }) {
   const { kesa } = getData(nalog);
-  const opcije = [
-    ["Eurozumba", nalog.eurozumba || kesa.eurozumba],
-    ["Anleger", nalog.anleger || kesa.anleger],
-    ["Duplofan", nalog.duplofan || kesa.duplofan],
-    ["ADH traka", nalog.adh || kesa.adh_traka],
-    ["Kosa klapna", nalog.kosa_klapna || kesa.kosa_klapna],
-    ["Perforacija", nalog.perforacija || kesa.perforacija],
-    ["Bočni var", nalog.bocni_var || kesa.bocni_var],
-    ["Donji var", nalog.donji_var || kesa.donji_var]
-  ];
   return (
-    <Section title="🛍️ NALOG ZA KESU PRO" color="#b91c1c" subtitle="CAD crtež / operacije / pakovanje">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Tip kese" value={nalog.tip_kese || kesa.tip || "ravna / po template-u"} />
-        <Field label="Dimenzija" value={nalog.dimenzija || `${val(nalog.sirina || kesa.sirina)} × ${val(nalog.visina || nalog.duzina || kesa.duzina)}`} />
-        <Field label="Klapna" value={nalog.klapna || kesa.klapna || "—"} />
-        <Field label="Falta" value={nalog.falta || kesa.falta || "—"} />
-        <Field label="Količina" value={nalog.komada || nalog.kol || nalog.kolicina} />
-        <Field label="Pakovanje" value={nalog.pakovanje || kesa.pakovanje || "po nalogu"} />
-        <Field label="Mašina" value={nalog.masina_kese || kesa.masina || "po planu"} />
-        <Field label="Tolerancija" value={nalog.tolerancija || "+/- 10%"} />
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-        {opcije.map(([label, on]) => <Badge key={label} color={on ? "#b91c1c" : "#64748b"}>{on ? "✓" : "—"} {label}</Badge>)}
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <PrikazKesePRO nalog={{ ...nalog, ...kesa }} />
-      </div>
-    </Section>
+    <>
+      <Section title="Parametri kese">
+        <div className="a4-grid-4">
+          <Field label="Tip kese" value={kesa.tip || nalog.tip_kese || "ravna / doypack / konusna"} />
+          <Field label="Širina" value={kesa.sirina || nalog.sirina_kese} />
+          <Field label="Dužina" value={kesa.duzina || nalog.duzina_kese} />
+          <Field label="Količina" value={nalog.kom || nalog.kolicina || nalog.kol} />
+          <Field label="Zumba / euro" value={kesa.zumba || nalog.zumba} />
+          <Field label="Var" value={kesa.var || nalog.var} />
+          <Field label="Falta / dno" value={kesa.dno || nalog.dno} />
+          <Field label="Kontrola" value="dimenzija, var, perforacija" />
+        </div>
+      </Section>
+      <Section title="Crtež / dorada" compact>
+        <div className="a4-drawing">CRTEŽ KESE / PDF / SKICA — priložiti uz nalog</div>
+      </Section>
+    </>
   );
 }
 
-function FormatiranjeSection({ nalog }) {
+function FormatiranjeOrder({ nalog }) {
   return (
-    <Section title="🎞️ NALOG ZA FORMATIRANJE ROLNI" color="#7c3aed" subtitle="parent → child rolne / QR">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
-        <Field label="Ulazna rola" value={nalog.ulazna_rola || nalog.br_rolne || "QR rola iz magacina"} />
-        <Field label="Ulazna širina" value={nalog.sirina_ulaz || nalog.sirina || "—"} />
-        <Field label="Plan formatiranja" value={nalog.plan_formatiranja || nalog.format || "prema planu rezanja"} />
-        <Field label="Nove rolne" value="generisati QR etikete" />
-        <Field label="Stvarna metraža" value="upis posle završetka" />
-        <Field label="Otpad" value="evidencija otpada" />
-        <Field label="Kontrola" value="širina, metraža, ivice" />
-        <Field label="Napomena" value={nalog.nap || nalog.napomena || "—"} />
-      </div>
-      <SlittingVisual nalog={nalog} />
-    </Section>
+    <>
+      <Section title="Plan formatiranja rolne">
+        <div className="a4-grid-4" style={{ marginBottom: 8 }}>
+          <Field label="Parent širina" value={nalog.parent_sirina || nalog.sirina || "—"} />
+          <Field label="Parent metraža" value={nalog.parent_m || nalog.metraza || nalog.kol || "—"} />
+          <Field label="Broj skidanja" value={nalog.broj_skidanja || "—"} />
+          <Field label="Otpad" value={nalog.otpad || "upisati"} />
+        </div>
+        <MiniTable columns={["R.br", "Nova širina", "Metara", "Child QR", "Napomena"]} rows={[[1, nalog.format_sirina || "po planu", nalog.kol || nalog.metraza || "—", "generiše se", "nova formatna rolna"]]} />
+      </Section>
+      <Section title="Šema formatiranja" compact><div className="a4-drawing">PARENT ROLNA → FORMATNE ROLE / prikaz širina</div></Section>
+    </>
   );
 }
 
-function SpulnaDrawing({ nalog }) {
-  const { spulna } = getData(nalog);
-  const W = pick(nalog, ["W", "sirina_trake", "sirina"], pick(spulna, ["W", "sirina", "sirina_trake"], "W"));
-  const D = pick(nalog, ["D", "precnik"], pick(spulna, ["D", "precnik"], "D"));
-  const Di = pick(nalog, ["DI", "di", "unutrasnji_precnik", "hilzna"], pick(spulna, ["DI", "di", "hilzna"], "Di"));
-  const Da = pick(nalog, ["DA", "da", "spoljasnji_precnik"], pick(spulna, ["DA", "da"], "Da"));
-  const gap = pick(nalog, ["gap"], pick(spulna, ["gap"], "G"));
-  return (
-    <div style={{ border: "1px solid #bbf7d0", borderRadius: 14, background: "#f0fdf4", padding: 14, marginTop: 12 }}>
-      <div style={{ fontWeight: 950, color: "#047857", marginBottom: 8 }}>Tehnički crtež špulne iz template-a</div>
-      <svg viewBox="0 0 680 240" style={{ width: "100%", height: 240 }}>
-        <defs>
-          <linearGradient id="spoolG" x1="0" x2="1"><stop offset="0%" stopColor="#d1fae5"/><stop offset="100%" stopColor="#10b981"/></linearGradient>
-        </defs>
-        <rect x="160" y="70" width="360" height="100" rx="18" fill="url(#spoolG)" stroke="#065f46" strokeWidth="3"/>
-        <ellipse cx="160" cy="120" rx="72" ry="86" fill="#ecfdf5" stroke="#065f46" strokeWidth="4"/>
-        <ellipse cx="520" cy="120" rx="72" ry="86" fill="#ecfdf5" stroke="#065f46" strokeWidth="4"/>
-        <ellipse cx="160" cy="120" rx="30" ry="38" fill="#fff" stroke="#065f46" strokeWidth="3"/>
-        <ellipse cx="520" cy="120" rx="30" ry="38" fill="#fff" stroke="#065f46" strokeWidth="3"/>
-        <line x1="160" y1="28" x2="520" y2="28" stroke="#0f172a" strokeWidth="2"/>
-        <text x="340" y="22" textAnchor="middle" fontSize="13" fontWeight="900" fill="#0f172a">W = {W}</text>
-        <line x1="585" y1="35" x2="585" y2="205" stroke="#0f172a" strokeWidth="2"/>
-        <text x="610" y="123" fontSize="13" fontWeight="900" fill="#0f172a">D = {D}</text>
-        <text x="160" y="218" textAnchor="middle" fontSize="12" fontWeight="900" fill="#065f46">Di = {Di}</text>
-        <text x="520" y="218" textAnchor="middle" fontSize="12" fontWeight="900" fill="#065f46">Da = {Da}</text>
-        <text x="340" y="190" textAnchor="middle" fontSize="12" fontWeight="900" fill="#065f46">Gap / overlap = {gap}</text>
-      </svg>
-    </div>
-  );
-}
-
-function SpulnaSection({ nalog }) {
+function SpulnaOrder({ nalog }) {
   const { spulna } = getData(nalog);
   return (
-    <Section title="🧵 NALOG ZA ŠPULNE PRO" color="#059669" subtitle="tehnički crtež / namotavanje / pakovanje">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Širina trake" value={nalog.sirina_trake || spulna.sirina_trake || nalog.sirina} />
-        <Field label="Metraža po špulni" value={nalog.metraza_spulne || spulna.metraza_spulne || nalog.metraza_po_spulni || "—"} />
-        <Field label="Broj špulni" value={nalog.broj_spulni || spulna.broj_spulni || nalog.komada || nalog.kolicina} />
-        <Field label="Hilzna / Di" value={nalog.hilzna || spulna.hilzna || spulna.DI || "po nalogu"} />
-        <Field label="Smer namotavanja" value={nalog.smer || spulna.smer || "po specifikaciji"} />
-        <Field label="Gap / overlap" value={nalog.gap || spulna.gap || "—"} />
-        <Field label="Pakovanje" value={nalog.pakovanje || spulna.pakovanje || "kutija / streč"} />
-        <Field label="QR etiketa" value="svaka špulna / paket" />
-      </div>
-      <SpulnaDrawing nalog={nalog} />
-    </Section>
+    <>
+      <Section title="Nalog za špulnu">
+        <div className="a4-grid-4">
+          <Field label="Širina trake" value={spulna.sirina || nalog.sirina_trake || nalog.sirina} />
+          <Field label="Dužina špulne" value={spulna.duzina || nalog.duzina_spulne || nalog.metraza} />
+          <Field label="Broj komada" value={spulna.kom || nalog.kom || nalog.kolicina} />
+          <Field label="Hilzna" value={spulna.hilzna || nalog.hilzna} />
+          <Field label="Max OD" value={spulna.max_od || nalog.max_od} />
+          <Field label="Pakovanje" value={spulna.pakovanje || nalog.pakovanje || "24 kom / paleta"} />
+          <Field label="Etiketa" value="QR na paket / špulnu" />
+          <Field label="Kontrola" value="širina, metraža, namotaj" />
+        </div>
+      </Section>
+      <Section title="Plan rezanja traka" compact><MiniTable columns={["Ulaz", "Traka", "Kom", "Otpad", "Napomena"]} rows={[[nalog.ulazna_sirina || "formatna rolna", nalog.sirina_trake || "—", nalog.kom || "—", nalog.otpad || "—", "noževi provereni"]]} /></Section>
+    </>
   );
 }
 
-function QCSection({ nalog }) {
-  return (
-    <Section title="✅ QC / KONTROLA I ZAVRŠETAK" color="#0f172a" subtitle="operator / QC / potpis">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-        <Field label="Start" value="QR skeniranje naloga" />
-        <Field label="Ulazni materijal" value="QR rolne / magacin" />
-        <Field label="Kontrola" value="dimenzija, štampa, var, perforacija" />
-        <Field label="Kraj" value="stvarna količina + otpad" />
-      </div>
-      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, fontSize: 12, color: "#334155", fontWeight: 800 }}>
-        <div>Operator: ____________________</div>
-        <div>Mašina: ____________________</div>
-        <div>QC: ____________________</div>
-        <div>Potpis: ____________________</div>
-      </div>
-    </Section>
-  );
+function Body({ nalog, vrsta }) {
+  if (vrsta === "stampa") return <StampaOrder nalog={nalog} />;
+  if (vrsta === "kasiranje") return <KasiranjeOrder nalog={nalog} />;
+  if (vrsta === "perforacija_rezanje") return <RezanjeOrder nalog={nalog} />;
+  if (vrsta === "kesa") return <KesaOrder nalog={nalog} />;
+  if (vrsta === "formatiranje") return <FormatiranjeOrder nalog={nalog} />;
+  if (vrsta === "spulna") return <SpulnaOrder nalog={nalog} />;
+  return <MaterijalOrder nalog={nalog} />;
 }
 
-export default function NalogLayoutPRO({ nalog = {}, showAll = false }) {
-  const tip = normTip(nalog.tip || nalog.tip_proizvoda);
-  const vrstaNaloga = normNalog(nalog.vrsta || nalog.tip_naloga || nalog.tipOperacije || nalog.tip, nalog.naziv);
+const TITLES = {
+  materijal: ["Potreba materijala", "📦"],
+  stampa: ["Nalog za štampu", "🖨️"],
+  kasiranje: ["Nalog za kaširanje", "🔗"],
+  perforacija_rezanje: ["Nalog za perforaciju i rezanje", "✂️"],
+  kesa: ["Nalog za kesu", "🛍️"],
+  formatiranje: ["Nalog za formatiranje", "🎞️"],
+  spulna: ["Nalog za špulnu", "🧵"],
+};
 
-  function shouldShow(name) {
-    if (showAll) return true;
-    if (vrstaNaloga === "opsti") return true;
-    return vrstaNaloga === name || (name === "materijal" && vrstaNaloga === "materijal");
-  }
+export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
+  const tip = normTip(nalog.tip_proizvoda || nalog.tip);
+  const vrsta = normNalog(nalog.vrsta || nalog.tip_naloga || nalog.tipOperacije || nalog.tip, nalog.naziv, activeTab);
+  const [title, icon] = TITLES[vrsta] || TITLES.materijal;
 
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto", fontFamily: "Inter, Arial, sans-serif" }}>
-      <style>{`@media print { body * { visibility: hidden; } .nalog-pro-print, .nalog-pro-print * { visibility: visible; } .nalog-pro-print { position: absolute; left: 0; top: 0; width: 100%; max-width: none !important; } @page { size: A4; margin: 10mm; } }`}</style>
-      <div className="nalog-pro-print">
-        <Header nalog={nalog} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 14 }}>
+    <div className="a4-screen">
+      <style>{`
+        .a4-screen{font-family:Inter,Arial,sans-serif;color:#0f172a;}
+        .a4-page{width:210mm;min-height:297mm;max-height:297mm;overflow:hidden;background:#fff;margin:0 auto 18px auto;padding:10mm;box-sizing:border-box;border:1px solid #e5e7eb;box-shadow:0 16px 40px rgba(15,23,42,.10);position:relative;}
+        .a4-header{display:grid;grid-template-columns:1fr 92px;gap:12px;align-items:start;background:linear-gradient(135deg,#0f172a,#1e3a8a);border-radius:12px;padding:12px;color:#fff;margin-bottom:7px;}
+        .a4-company{font-size:8px;font-weight:900;letter-spacing:.9px;opacity:.8;text-transform:uppercase;margin-bottom:4px;}
+        .a4-title{font-size:20px;font-weight:950;letter-spacing:-.2px;margin-bottom:8px;}
+        .a4-header-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+        .a4-header .a4-field{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);padding:6px 8px;}
+        .a4-header .a4-label{color:#cbd5e1;}.a4-header .a4-value{color:#fff;}
+        .a4-qr{background:#fff;border-radius:8px;text-align:center;padding:6px;color:#0f172a;font-size:8px;font-weight:900;}
+        .a4-qr img{width:72px;height:72px;display:block;margin:0 auto 3px;}
+        .a4-meta{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:7px;}
+        .a4-process{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:7px;}
+        .a4-process div{border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:6px 7px;text-align:center;font-size:10px;font-weight:900;color:#64748b;}
+        .a4-process div.active{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;}
+        .a4-field{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 8px;min-width:0;}
+        .a4-label{font-size:8px;color:#64748b;font-weight:900;text-transform:uppercase;letter-spacing:.45px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .a4-value{font-size:11px;font-weight:800;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.a4-value.strong{font-size:12px;font-weight:950;}
+        .a4-section{border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;overflow:hidden;margin-bottom:7px;}.a4-section.compact{margin-bottom:6px;}
+        .a4-section-title{background:#eff6ff;color:#1d4ed8;padding:6px 9px;font-size:10px;font-weight:950;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #dbeafe;}
+        .a4-section-body{padding:8px;}
+        .a4-table{width:100%;border-collapse:collapse;font-size:9.5px;}.a4-table th{text-align:left;background:#f1f5f9;color:#334155;font-size:8.5px;text-transform:uppercase;letter-spacing:.3px;padding:5px;border-bottom:1px solid #e2e8f0;}.a4-table td{padding:5px;border-bottom:1px solid #f1f5f9;font-weight:700;color:#0f172a;}.a4-table tr:last-child td{border-bottom:0;}
+        .a4-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+        .a4-note{font-size:10px;font-weight:800;color:#475569;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px;}
+        .a4-drawing{height:70mm;border:1px dashed #94a3b8;background:#f8fafc;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:12px;font-weight:900;text-align:center;}
+        .a4-signatures{position:absolute;left:10mm;right:10mm;bottom:8mm;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;border-top:2px solid #e2e8f0;padding-top:8px;font-size:9px;color:#334155;font-weight:800;}
+        @media print{body *{visibility:hidden!important}.a4-page,.a4-page *{visibility:visible!important}.a4-page{position:absolute;left:0;top:0;margin:0!important;border:0!important;box-shadow:none!important;width:210mm!important;height:297mm!important;max-height:297mm!important;page-break-after:always}.a4-screen{margin:0!important}@page{size:A4 portrait;margin:0}}
+      `}</style>
+      <div className="a4-page">
+        <Header nalog={{ ...nalog, tip_proizvoda: tip }} title={title} icon={icon} />
+        <div className="a4-meta">
           <Field label="Datum" value={nalog.datum || new Date().toLocaleDateString("sr-RS")} />
           <Field label="Rok isporuke" value={nalog.rok || nalog.datumIsp || nalog.datum_isporuke} />
           <Field label="Status" value={nalog.status || "Čeka"} />
           <Field label="Izvor" value={nalog.izvor || "template / kalkulacija / ponuda"} />
-          <Field label="Radnik" value={nalog.radnik || "—"} />
+          <Field label="Radnik" value={nalog.radnik || nalog.ko || "—"} />
         </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8, marginBottom: 14 }}>
-          {(tip === "folija"
-            ? [["Materijal","materijal"],["Štampa","stampa"],["Kaširanje","kasiranje"],["Perforacija + rezanje","perforacija_rezanje"],["QC","qc"]]
-            : tip === "kesa"
-              ? [["Materijal","materijal"],["Kaširanje","kasiranje"],["Kesa","kesa"],["QC","qc"]]
-              : [["Materijal","materijal"],["Formatiranje","formatiranje"],["Špulna","spulna"],["QC","qc"]]
-          ).map(([label,key]) => {
-            const active = vrstaNaloga === key || (vrstaNaloga === "opsti" && key === "materijal");
-            const done = String(nalog.status || "").toLowerCase().includes("zav");
-            return (
-              <div key={key} style={{ background: active ? "#eff6ff" : done ? "#f0fdf4" : "#f8fafc", border: "1px solid " + (active ? "#bfdbfe" : done ? "#bbf7d0" : "#e2e8f0"), borderRadius: 10, padding: "9px 10px", fontWeight: 900, color: active ? "#1d4ed8" : done ? "#059669" : "#64748b", textAlign: "center", fontSize: 12 }}>
-                {done ? "✅ " : active ? "🔵 " : "⚪ "}{label}
-              </div>
-            );
-          })}
-        </div>
-
-        {shouldShow("materijal") && (
-          tip === "folija"
-            ? <NalogMaterijal_Folija nalog={nalog} embedded />
-            : tip === "kesa"
-              ? <NalogPotrebaMaterijala_Kesa nalog={nalog} />
-              : <NalogPotrebaMaterijala_Spulna nalog={nalog} />
-        )}
-
-        {tip === "folija" && (
-          <>
-            {shouldShow("stampa") && <NalogStampa_Folija nalog={nalog} embedded />}
-            {shouldShow("kasiranje") && <NalogKasiranje_Folija nalog={nalog} embedded />}
-            {shouldShow("perforacija_rezanje") && <NalogPerforacijaRezanje_Folija nalog={nalog} embedded />}
-          </>
-        )}
-
-        {tip === "kesa" && (
-          <>
-            {shouldShow("kasiranje") && <KasiranjeSection nalog={nalog} />}
-            {shouldShow("kesa") && <NalogKesa_Kesa nalog={nalog} />}
-          </>
-        )}
-
-        {tip === "spulna" && (
-          <>
-            {shouldShow("formatiranje") && <NalogFormatiranje_Spulna nalog={nalog} />}
-            {shouldShow("spulna") && <NalogSpulne_Spulna nalog={nalog} />}
-          </>
-        )}
-
-        <QCSection nalog={nalog} />
+        <ProcessBar tip={tip} active={vrsta} />
+        <Body nalog={nalog} vrsta={vrsta} />
+        <SignatureFooter />
       </div>
     </div>
   );
 }
-
-
-// V46_MATERIAL_MASTER_EVERYWHERE: ovaj fajl je pripremljen za MaterialSelectorPRO / MaterialText.
-
-
-// V47_NALOG_FULL_MATERIAL_NAME: nalozi treba da prikazuju pun naziv materijala: VRSTA + OZNAKA + DEBLJINA, npr. BOPP FXCB 20µ.
