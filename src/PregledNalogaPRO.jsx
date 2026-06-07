@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
+import { enrichNalogForPrint } from "./utils/nalogDataLink";
 
 const TABOVI = [
   { tip: "materijal", naziv: "Potreba materijala", ik: "📦", boja: "#f59e0b" },
@@ -38,7 +39,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
   const [tab, setTab] = useState("materijal");
 
   useEffect(() => {
-    setNalozi(naloziProp || []);
+    setNalozi((naloziProp || []).map(enrichNalogForPrint));
   }, [naloziProp]);
 
   useEffect(() => {
@@ -53,7 +54,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
           .or(`ponBr.eq.${safeBroj},broj_naloga.eq.${safeBroj},broj.eq.${safeBroj}`)
           .order("id", { ascending: true });
         if (error) throw error;
-        setNalozi(data || []);
+        setNalozi((data || []).map(enrichNalogForPrint));
       } catch (e) {
         console.error("Greška pri učitavanju naloga:", e);
       }
@@ -76,7 +77,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
   }, [dostupni, tab]);
 
   const aktivni = {
-    ...(nalozi.find(n => nalogType(n) === tab) || osnovniNalog),
+    ...enrichNalogForPrint(nalozi.find(n => nalogType(n) === tab) || osnovniNalog),
     ponBr: brojNaloga || osnovniNalog.ponBr,
     tip_proizvoda: tipProizvoda,
     tip_naloga: tab,

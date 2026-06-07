@@ -1,4 +1,5 @@
 import React from "react";
+import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 
 const QR = (text, size = 84) =>
   "https://api.qrserver.com/v1/create-qr-code/?size=" + size + "x" + size + "&data=" + encodeURIComponent(text || "MAROPACK");
@@ -40,33 +41,31 @@ function normNalog(t, naziv, activeTab) {
 }
 
 function getData(nalog) {
-  const t = nalog.template || nalog.product_template || nalog.templateData || {};
-  const folija = nalog.folija || t.folija || {};
-  const kesa = nalog.kesa || t.kesa || {};
-  const spulna = nalog.spulna || t.spulna || t.spulne || {};
-  const tehnicki = nalog.tehnicki || t.tehnicki || {};
-  const pdf = nalog.pdf || t.pdf || {};
-  return { t, folija, kesa, spulna, tehnicki, pdf };
+  const linked = enrichNalogForPrint(nalog || {});
+  const od = safeJson(linked.order_data, {}) || {};
+  const tpl = safeJson(linked.product_template || linked.template || od.template, {}) || {};
+  const templateData = safeJson(linked.templateData || tpl.data || od.templateData, {}) || {};
+  const t = templateData && Object.keys(templateData).length ? templateData : tpl;
+  const folija = linked.folija || od.folija || t.folija || {};
+  const kesa = linked.kesa || od.kesa || t.kesa || {};
+  const spulna = linked.spulna || od.spulna || t.spulna || t.spulne || {};
+  const tehnicki = linked.tehnicki || od.tehnicki || t.tehnicki || {};
+  const pdf = linked.pdf || od.pdf || t.pdf || {};
+  const proizvod = od.proizvod || {};
+  return { linked, od, t, folija, kesa, spulna, tehnicki, pdf, proizvod };
 }
 
 function getMaterijali(nalog) {
-  const { t, folija, kesa, spulna } = getData(nalog);
-  const arr =
-    (Array.isArray(nalog.struktura) && nalog.struktura) ||
-    (Array.isArray(nalog.mats) && nalog.mats) ||
-    (Array.isArray(nalog.materijali) && nalog.materijali) ||
-    (Array.isArray(folija.layers) && folija.layers) ||
-    (Array.isArray(kesa.layers) && kesa.layers) ||
-    (Array.isArray(spulna.layers) && spulna.layers) ||
-    (Array.isArray(t.layers) && t.layers) ||
-    [];
+  const { od } = getData(nalog);
+  const normalized = normalizeLayers(nalog, nalog.tip_proizvoda || nalog.tip);
+  const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : normalized) || [];
   if (arr.length) {
     return arr.slice(0, 5).map((m, i) => ({
       sloj: m.sloj || String.fromCharCode(65 + i),
-      materijal: m.naziv || m.material || m.materijal || [m.vrsta, m.oznaka, m.debljina ? `${m.debljina}µ` : ""].filter(Boolean).join(" ") || "Materijal",
+      materijal: m.naziv || m.material || m.materijal || [m.vrsta, m.oznaka || m.oznaka_materijala, m.debljina ? `${m.debljina}µ` : ""].filter(Boolean).join(" ") || "Materijal",
       sirina: m.sirina || m.sirina_mm || nalog.sirina || nalog.sir,
-      potrebno: m.metraza || m.m || nalog.metraza || nalog.kol,
-      kg: m.kg || m.potrebnoKg || nalog.kg,
+      potrebno: m.potrebno || m.metraza || m.m || nalog.metraza || nalog.kol,
+      kg: m.kg || m.potrebnoKg || m.tkg_nalog || nalog.kg,
       lot: m.lot || m.LOT || "",
       status: m.status || "za rezervaciju",
     }));
@@ -126,8 +125,11 @@ function MiniTable({ columns, rows }) {
 }
 
 function Header({ nalog, title, icon }) {
+  const { proizvod } = getData(nalog);
   const broj = nalog.ponBr || nalog.broj_naloga || nalog.broj || "MP-2026-XXXX";
-  const qrData = JSON.stringify({ nalog: broj, tip: title, kupac: nalog.kupac, proizvod: nalog.prod || nalog.proizvod });
+  const kupac = nalog.kupac || proizvod.kupac;
+  const prod = nalog.prod || nalog.proizvod || proizvod.naziv;
+  const qrData = JSON.stringify({ nalog: broj, tip: title, kupac, proizvod: prod });
   return (
     <header className="a4-header">
       <div>
@@ -135,8 +137,8 @@ function Header({ nalog, title, icon }) {
         <div className="a4-title">{icon} {title}</div>
         <div className="a4-header-grid">
           <Field label="Broj naloga" value={broj} strong />
-          <Field label="Kupac" value={nalog.kupac} strong />
-          <Field label="Proizvod" value={nalog.prod || nalog.proizvod} strong />
+          <Field label="Kupac" value={kupac} strong />
+          <Field label="Proizvod" value={prod} strong />
           <Field label="Tip" value={String(nalog.tip_proizvoda || nalog.tip || "").toUpperCase()} />
         </div>
       </div>
@@ -381,7 +383,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
           <Field label="Datum" value={nalog.datum || new Date().toLocaleDateString("sr-RS")} />
           <Field label="Rok isporuke" value={nalog.rok || nalog.datumIsp || nalog.datum_isporuke} />
           <Field label="Status" value={nalog.status || "Čeka"} />
-          <Field label="Izvor" value={nalog.izvor || "template / kalkulacija / ponuda"} />
+          <Field label="Izvor" value={nalog.source_chain || nalog.izvor || "template → kalkulacija → ponuda"} />
           <Field label="Radnik" value={nalog.radnik || nalog.ko || "—"} />
         </div>
         <ProcessBar tip={tip} active={vrsta} />

@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { buildOrderSourcePack, extractTemplate, normalizeTip } from './nalogDataLink';
 
 /**
  * Čuva novu kalkulaciju u bazu
@@ -119,24 +120,35 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
     try {
         console.log('🎯 Kreiram ponudu iz kalkulacije:', kalkulacija);
 
+        const template = extractTemplate(kalkulacija);
+        const tip = normalizeTip(kalkulacija.tip || template?.tip);
+        const kolicina = kalkulacija.kolicina || kalkulacija.kol || (Number(kalkulacija.nalog || 0) * 1000) || template?.data?.porucenaKolicina || 0;
+        const cena = kalkulacija.konacnaCena || kalkulacija.konacna_cena || kalkulacija.rezultat?.k1 || kalkulacija.res?.k1 || kalkulacija.c1 || 0;
+
         const ponuda = {
             broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
             datum: new Date().toLocaleDateString('sr-RS'),
             vaz: new Date(Date.now() + 30 * 24 * 3600000).toLocaleDateString('sr-RS'),
-            kupac: kalkulacija.kupac || kalkulacija.klijent,
-            naziv: kalkulacija.naziv,
-            tip: kalkulacija.tip,
-            kol: kalkulacija.kolicina || (kalkulacija.nalog * 1000),
-            c1: kalkulacija.konacnaCena || kalkulacija.rezultat?.k1 || kalkulacija.res?.k1,
-            uk: (kalkulacija.konacnaCena || kalkulacija.rezultat?.k1 || kalkulacija.res?.k1) * (kalkulacija.kolicina || (kalkulacija.nalog * 1000)) / 1000,
-            mats: kalkulacija.materijali || kalkulacija.mats || [],
-            kalkulacija_id: null,
+            kupac: kalkulacija.kupac || kalkulacija.klijent || template?.kupac,
+            naziv: kalkulacija.naziv || template?.naziv,
+            tip,
+            kol: kolicina,
+            c1: cena,
+            uk: Number(cena || 0) * Number(kolicina || 0) / 1000,
+            mats: kalkulacija.materijali || kalkulacija.mats || template?.data?.[tip]?.layers || template?.data?.layers || [],
+            kalkulacija_id: kalkulacija.id || kalkulacija.kalkulacija_id || null,
+            template_id: template?.id || kalkulacija.template_id || kalkulacija.product_template_id || null,
+            product_template_id: template?.id || kalkulacija.product_template_id || kalkulacija.template_id || null,
+            template,
+            product_template: template,
+            kalkulacija_payload: kalkulacija,
             status: 'Aktivna',
             jez: 'sr',
             ko: 'Admin',
             res: kalkulacija.rezultat || kalkulacija.res,
             struktura: kalkulacija.data || kalkulacija.rezultat || kalkulacija.res
         };
+        Object.assign(ponuda, buildOrderSourcePack({ ponuda, tipOperacije: 'ponuda', tipProizvoda: tip }));
 
         const { data: novaPonuda, error: ponudaError } = await supabase
             .from('ponude')
@@ -156,22 +168,30 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
         console.error('💥 Exception:', err);
 
         // Lokalni fallback za template/dev režim kada Supabase/RLS tabela nije spremna
+        const fallbackTemplate = extractTemplate(kalkulacija);
+        const fallbackTip = normalizeTip(kalkulacija.tip || fallbackTemplate?.tip);
         const fallbackPonuda = {
             id: 'PON-KAL-' + Date.now(),
             broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
             datum: new Date().toLocaleDateString('sr-RS'),
-            kupac: kalkulacija.kupac || kalkulacija.klijent || '',
-            naziv: kalkulacija.naziv,
-            tip: kalkulacija.tip,
-            kol: kalkulacija.kolicina || 0,
-            c1: kalkulacija.konacna_cena || kalkulacija.konacnaCena || 0,
+            kupac: kalkulacija.kupac || kalkulacija.klijent || fallbackTemplate?.kupac || '',
+            naziv: kalkulacija.naziv || fallbackTemplate?.naziv,
+            tip: fallbackTip,
+            kol: kalkulacija.kolicina || kalkulacija.kol || fallbackTemplate?.data?.porucenaKolicina || 0,
+            c1: kalkulacija.konacna_cena || kalkulacija.konacnaCena || kalkulacija.c1 || 0,
             uk: kalkulacija.konacna_cena || kalkulacija.konacnaCena || 0,
-            mats: kalkulacija.materijali || kalkulacija.mats || [],
+            mats: kalkulacija.materijali || kalkulacija.mats || fallbackTemplate?.data?.[fallbackTip]?.layers || [],
+            kalkulacija_id: kalkulacija.id || null,
+            template_id: fallbackTemplate?.id || kalkulacija.template_id || null,
+            product_template_id: fallbackTemplate?.id || kalkulacija.product_template_id || null,
+            template: fallbackTemplate,
+            product_template: fallbackTemplate,
+            kalkulacija_payload: kalkulacija,
             status: 'Draft iz kalkulacije',
-            template: kalkulacija.template || kalkulacija.data || null,
             res: kalkulacija.rezultat || kalkulacija.res || null,
             nap: 'Lokalna ponuda kreirana iz kalkulacije/template-a'
         };
+        Object.assign(fallbackPonuda, buildOrderSourcePack({ ponuda: fallbackPonuda, tipOperacije: 'ponuda', tipProizvoda: fallbackTip }));
         const existing = JSON.parse(localStorage.getItem('maropack_template_ponude') || '[]');
         localStorage.setItem('maropack_template_ponude', JSON.stringify([fallbackPonuda, ...existing]));
         return { success: true, data: fallbackPonuda, fallback: true };

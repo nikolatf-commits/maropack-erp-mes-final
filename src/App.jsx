@@ -83,6 +83,7 @@ import ManagerDashboard from './components/ManagerDashboard/ManagerDashboard';
 // ✅ LISTA KALKULACIJA
 import ListaKalkulacija from './ListaKalkulacija';
 import { kreirajPonuduIzKalkulacije } from './utils/kalkulacijeHelpers';
+import { buildOrderSourcePack, extractTemplate, extractKalkulacija } from './utils/nalogDataLink';
 
 // ✅ PRO MODULI
 import DashboardPRO from './DashboardPRO.jsx';
@@ -1772,6 +1773,9 @@ function MainAppContent() {
         var kupac = pon.kupac || pon.klijent || "Kupac";
         var kol = pon.kol || pon.kolicina || pon.količina || 0;
         var masterId = "MASTER-" + String(broj).replace(/[^a-zA-Z0-9_-]/g, "-");
+        var linkedBase = buildOrderSourcePack({ ponuda: pon, tipOperacije: 'master', tipProizvoda: tipProizvoda });
+        var templatePayload = linkedBase.product_template || extractTemplate(pon);
+        var kalkulacijaPayload = linkedBase.kalkulacija_payload || extractKalkulacija(pon);
         var masterNalog = {
             id: masterId,
             master_nalog_id: masterId,
@@ -1793,7 +1797,16 @@ function MainAppContent() {
             struktura: vm,
             res: pon.res || pon.rezultat || null,
             nap: pon.nap || pon.napomena || "",
-            izvor: "ponuda"
+            izvor: "ponuda",
+            template_id: linkedBase.template_id,
+            product_template_id: linkedBase.product_template_id,
+            product_template: templatePayload,
+            template: templatePayload,
+            kalkulacija_payload: kalkulacijaPayload,
+            ponuda_payload: linkedBase.ponuda_payload,
+            order_data: linkedBase.order_data,
+            source_chain: linkedBase.source_chain,
+            source_status: linkedBase.source_status
         };
 
         // Spreči dupliranje naloga za istu ponudu/broj - proverava i Supabase i lokalni fallback.
@@ -1843,6 +1856,7 @@ function MainAppContent() {
         } catch (e) { console.warn("QR nije kreiran:", e.message); }
 
         var novi = tipovi.map(function (t) {
+            var linked = buildOrderSourcePack({ ponuda: pon, tipOperacije: t.tip, tipProizvoda: tipProizvoda });
             return {
                 // NOVI STANDARD
                 broj_naloga: broj,
@@ -1872,6 +1886,16 @@ function MainAppContent() {
                 struktura: vm,
                 res: pon.res || pon.rezultat || null,
                 specifikacija: pon.specifikacija || pon.struktura || vm,
+                template_id: linked.template_id,
+                product_template_id: linked.product_template_id,
+                product_template: linked.product_template,
+                template: linked.product_template,
+                templateData: linked.templateData,
+                kalkulacija_payload: linked.kalkulacija_payload,
+                ponuda_payload: linked.ponuda_payload,
+                order_data: linked.order_data,
+                source_chain: linked.source_chain,
+                source_status: linked.source_status,
                 qr_kod: qrCodeBase64,
                 radnik: "",
                 nap: pon.nap || pon.napomena || "",
