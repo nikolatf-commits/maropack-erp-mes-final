@@ -1316,9 +1316,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const templateId = "TPL-" + Date.now();
         const productMasterId = sourceForm.product_master_id || makeProductMasterIdFromTemplate({ ...sourceForm, naziv });
         const version = sourceForm.template_version || "V25";
-        const data = { ...clone(sourceForm), product_master_id: productMasterId, template_version: version, template_locked: true };
+        const data = { ...clone(sourceForm), product_master_id: productMasterId, template_id: sourceForm.template_id || templateId, db_id: sourceForm.db_id || null, template_version: version, template_locked: true };
         return {
-            id: templateId,
+            id: sourceForm.db_id || templateId,
+            db_id: sourceForm.db_id || null,
+            template_id: sourceForm.template_id || templateId,
             product_master_id: productMasterId,
             naziv,
             kupac: sourceForm.kupac,
@@ -1514,6 +1516,24 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     }
 
     useEffect(() => { loadTemplates(); /* eslint-disable-next-line */ }, []);
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem("maropack_pending_template_edit");
+            if (!raw) return;
+            const payload = JSON.parse(raw);
+            const tpl = payload?.template;
+            if (!tpl || typeof tpl !== "object") return;
+            const next = { ...clone(tpl), db_id: payload.product_id || tpl.db_id || null, template_locked: true };
+            setForm(next);
+            setActiveTab(next.type || "folija");
+            localStorage.removeItem("maropack_pending_template_edit");
+            msg && msg("Template učitan iz Product Master baze");
+        } catch (e) {
+            msg && msg("Template nije učitan: " + (e?.message || e), "err");
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     async function saveTemplate() {
         const record = makeTemplateRecord();

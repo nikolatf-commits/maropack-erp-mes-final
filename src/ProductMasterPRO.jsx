@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { supabase } from "./supabase.js";
 
 const BLUE = "#2563eb";
 const GREEN = "#059669";
@@ -51,42 +52,99 @@ function inferOperations(template = {}, tip = 'folija') {
   return ops;
 }
 
-function readLocalTemplates() {
-  try {
-    const raw = localStorage.getItem("maropack_product_templates_v25") || localStorage.getItem("maropack_product_templates_v23") || "[]";
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
+function normalizeLayer(l = {}, product = {}) {
+  const ideal = l.idealna_sirina || l.idealnaSirina || l.sirina || product.sir || product.sirina || product.idealna_sirina || "";
+  return {
+    vrsta: l.vrsta || l.tip || l.material || l.materijal || "—",
+    pod_vrsta: l.pod_vrsta || l.podVrsta || l.podvrsta || l.subtype || "—",
+    oznaka: l.oznaka || l.oznaka_materijala || l.sifra || l.material || "—",
+    proizvodjac: l.proizvodjac || l.proizvođač || l.dobavljac || "—",
+    debljina: l.debljina || l.deb || "—",
+    koef: l.koef || l.koeficijent || "—",
+    gsm: l.gsm || l.tezina || l.gm2 || "—",
+    sirina: ideal || "—",
+    cena: l.cena || l.price || "—",
+    spoj_materijala: l.spoj_materijala || l.spojMaterijala || l.spoj || "—",
+    broj_spojeva: l.broj_spojeva || l.brojSpojeva || l.spojeva || "—",
+    stampa: !!(l.stampa || l.stamp || l.Š),
+    lak: !!(l.lak || l.L)
+  };
+}
+
+function productDataForm(p = {}, tip = normalizeTip(p.tip)) {
+  const std = p.standardi || {};
+  const rec = std.record || {};
+  const existing = p.data || p.template || rec.data;
+  if (existing && typeof existing === "object") {
+    return {
+      ...existing,
+      type: normalizeTip(existing.type || p.tip || tip),
+      naziv: existing.naziv || p.naziv || "",
+      kupac: existing.kupac || p.kupac || "",
+      sifra: existing.sifra || p.sku || "",
+      product_master_id: p.product_master_id || existing.product_master_id || ('PROD-' + p.id),
+      template_id: p.template_id || existing.template_id || ('TPL-' + p.id),
+      template_version: p.template_version || existing.template_version || "V1",
+      db_id: p.id,
+      template_locked: true
+    };
   }
+  const layersRaw = Array.isArray(p.materijali_struktura) ? p.materijali_struktura : (Array.isArray(p.mats) ? p.mats : []);
+  const layers = layersRaw.map(l => ({
+    ...l,
+    vrsta: l.vrsta || l.tip || l.materijal || "",
+    pod_vrsta: l.pod_vrsta || l.podVrsta || l.podvrsta || "",
+    oznaka: l.oznaka || l.oznaka_materijala || "",
+    proizvodjac: l.proizvodjac || l.dobavljac || "",
+    debljina: l.debljina || l.deb || "",
+    sirina: l.sirina || p.sir || p.sirina || "",
+    stampa: !!(l.stampa || l.stamp),
+    lak: !!(l.lak || l.L)
+  }));
+  return {
+    type: tip,
+    naziv: p.naziv || "",
+    kupac: p.kupac || "",
+    sifra: p.sku || "",
+    product_master_id: p.product_master_id || ('PROD-' + p.id),
+    template_id: p.template_id || ('TPL-' + p.id),
+    template_version: p.template_version || "V1",
+    db_id: p.id,
+    template_locked: true,
+    idealnaSirinaMaterijala: p.sir || p.sirina || "",
+    porucenaKolicina: p.met || "",
+    [tip]: {
+      naziv: p.naziv || "",
+      layers,
+      rezanje: { sirinaMaterijala: p.sir || p.sirina || "" },
+      kolicina: p.nal || p.kolicina || "",
+      sirina: p.kesa_sirina || "",
+      duzina: p.kesa_duzina || "",
+      klapna: p.kesa_klapna || ""
+    }
+  };
 }
 
 function mapProduct(p, index) {
-  const data = p.data || p.template || p;
-  const tip = normalizeTip(p.tip || data.type || p.tip_proizvoda);
+  const tip = normalizeTip(p.tip || p.tip_proizvoda);
+  const data = productDataForm(p, tip);
   const section = data[tip] || {};
-  const layers = section.layers || data.folija?.layers || data.kesa?.layers || (data.spulna?.layers ? data.spulna.layers : []);
+  const layersRaw = section.layers || data.folija?.layers || data.kesa?.layers || data.spulna?.layers || p.materijali_struktura || p.mats || [];
+  const layers = Array.isArray(layersRaw) ? layersRaw : [];
   return {
     id: p.id || `PRD-${index}`,
+    db_id: p.id || null,
     product_master_id: p.product_master_id || data.product_master_id || makeProductMasterId({ ...p, ...data, id: p.id }),
+    template_id: p.template_id || data.template_id || (p.id ? 'TPL-' + p.id : null),
     naziv: p.naziv || p.proizvod || section.naziv || data.naziv || "Bez naziva",
     kupac: p.kupac || data.kupac || "Bez kupca",
     tip,
     status: p.status || section.status || "aktivan",
-    verzija: p.template_version || p.verzija || "V1",
-    sifra: p.sifra || data.sifra || "—",
+    verzija: p.template_version || data.template_version || p.verzija || "V1",
+    sifra: p.sku || p.sifra || data.sifra || "—",
     datum: p.datum || (p.created_at ? new Date(p.created_at).toLocaleDateString("sr-RS") : "—"),
-    materijali: (layers || []).map((l) => ({
-      vrsta: l.vrsta || l.tip || l.material || l.materijal || "—",
-      oznaka: l.oznaka || l.sifra || l.material || "—",
-      debljina: l.debljina || l.deb || "—",
-      koef: l.koef || l.koeficijent || "—",
-      gsm: l.gsm || l.tezina || l.gm2 || "—",
-      sirina: l.sirina || l.width || "—",
-      cena: l.cena || l.price || "—",
-      stampa: !!(l.stampa || l.stamp || l.Š),
-      lak: !!(l.lak || l.L)
-    })),
+    operacije: Array.isArray(p.operacije) ? p.operacije : inferOperations(data, tip),
+    materijali: layers.map((l) => normalizeLayer(l, p)),
     stampa: {
       boje: section.stampa?.brojBoja || section.brojBoja || "—",
       klise: section.stampa?.klise || "info",
@@ -109,7 +167,7 @@ function mapProduct(p, index) {
       tehnickiList: "Priprema",
       slike: "—"
     },
-    raw: p
+    raw: { ...p, data }
   };
 }
 
@@ -120,13 +178,17 @@ function materialRowsToTemplateLayers(rows = []) {
     material: [r.vrsta, r.oznaka].filter(Boolean).join(" ").trim(),
     materijal: r.vrsta || "",
     vrsta: r.vrsta || "",
+    pod_vrsta: r.pod_vrsta || "",
     oznaka: r.oznaka || "",
+    proizvodjac: r.proizvodjac || "",
     debljina: r.debljina || "",
     koef: r.koef || "",
     gsm: r.gsm || "",
     tezina: r.gsm || "",
     sirina: r.sirina || "",
     cena: r.cena || "",
+    spoj_materijala: r.spoj_materijala || "",
+    broj_spojeva: r.broj_spojeva || "",
     stampa: !!r.stampa,
     lak: !!r.lak
   }));
@@ -136,7 +198,7 @@ function buildTemplateFromProduct(product) {
   const raw = product?.raw || {};
   const existing = raw.data || raw.template || null;
   if (existing && typeof existing === "object") {
-    return { ...existing, product_master_id: product.product_master_id || existing.product_master_id || makeProductMasterId(product), template_version: product.verzija || existing.template_version || 'V1', template_locked: true, type: normalizeTip(existing.type || raw.tip || product.tip), naziv: existing.naziv || product.naziv, kupac: existing.kupac || product.kupac };
+    return { ...existing, db_id: product.db_id || raw.id || existing.db_id, product_master_id: product.product_master_id || existing.product_master_id || makeProductMasterId(product), template_id: product.template_id || existing.template_id || (product.id ? 'TPL-' + product.id : null), template_version: product.verzija || existing.template_version || 'V1', template_locked: true, type: normalizeTip(existing.type || raw.tip || product.tip), naziv: existing.naziv || product.naziv, kupac: existing.kupac || product.kupac };
   }
 
   const tip = normalizeTip(product?.tip);
@@ -294,7 +356,7 @@ function tdStyle(center = false) {
   return { padding: "11px 10px", borderBottom: "1px solid #eef2f7", color: "#334155", fontWeight: 700, textAlign: center ? "center" : "left", whiteSpace: "nowrap" };
 }
 
-export default function ProductMasterPRO({ db, setPage, msg }) {
+export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
   const [query, setQuery] = useState("");
   const [tipFilter, setTipFilter] = useState("sve");
   const [statusFilter, setStatusFilter] = useState("sve");
@@ -302,9 +364,7 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
 
   const products = useMemo(() => {
     const fromDb = Array.isArray(db?.proizvodi) ? db.proizvodi : [];
-    const fromLocal = readLocalTemplates();
-    const merged = [...fromLocal, ...fromDb].map(mapProduct);
-    return merged;
+    return fromDb.map(mapProduct);
   }, [db]);
 
   const filtered = useMemo(() => products.filter((p) => {
@@ -332,15 +392,93 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
     setPage && setPage("template_engine");
   }
 
-  function createCalculationFromProduct(product = selected) {
-    if (!product) return;
+  async function createCalculationFromProduct(product = selected) {
+    if (!product) return null;
     const kal = makeCalculationRecordFromProduct(product);
-    const existing = JSON.parse(localStorage.getItem("maropack_template_kalkulacije") || "[]");
-    localStorage.setItem("maropack_template_kalkulacije", JSON.stringify([kal, ...existing]));
-    localStorage.setItem("maropack_pending_template_calculation", JSON.stringify(kal));
-    const targetPage = kal.tip === "kesa" ? "kalk_kesa" : kal.tip === "spulna" ? "kalk_spulna" : "kalk_folija";
-    msg && msg("Kalkulacija je kreirana iz Baze proizvoda i podaci su poslati u kalkulator");
-    setPage && setPage(targetPage);
+    try {
+      const { data, error } = await supabase.from("kalkulacije").insert([{
+        tip: kal.tip,
+        naziv: kal.naziv,
+        klijent: kal.klijent || kal.kupac || null,
+        data: kal.data,
+        materijali_struktura: kal.materijali || [],
+        kolicina: Number(kal.kolicina) || null,
+        osnovna_cena: 0,
+        konacna_cena: 0,
+        verzija: 1,
+        status: "draft_product_master",
+        product_master_id: kal.product_master_id || null,
+        template_id: kal.template_id || null,
+        template_version: kal.template_version || null,
+        operacije: kal.operacije || []
+      }]).select();
+      if (error) throw error;
+      const dbId = data?.[0]?.id;
+      const nextKal = { ...kal, id: dbId || kal.id, kalkulacija_id: dbId || null, db_id: dbId || null };
+      localStorage.setItem("maropack_pending_template_calculation", JSON.stringify(nextKal));
+      localStorage.setItem("editKalkulacija", JSON.stringify(nextKal));
+      if (setDb && data?.[0]) setDb(prev => ({ ...prev, kalkulacije: [data[0], ...(prev?.kalkulacije || [])] }));
+      const targetPage = kal.tip === "kesa" ? "kalk_kesa" : kal.tip === "spulna" ? "kalk_spulna" : "kalk_folija";
+      msg && msg("Kalkulacija je kreirana iz sačuvanog template-a i sačuvana u bazu");
+      setPage && setPage(targetPage);
+      return nextKal;
+    } catch (e) {
+      msg && msg("Kalkulacija nije kreirana: " + (e?.message || e), "err");
+      return null;
+    }
+  }
+
+  async function createOfferFromProduct(product = selected, options = {}) {
+    if (!product) return null;
+    const template = buildTemplateFromProduct(product);
+    const tip = normalizeTip(product.tip || template.type);
+    const section = template[tip] || {};
+    const layers = section.layers || template.folija?.layers || template.kesa?.layers || template.spulna?.layers || [];
+    const broj = "PON-" + new Date().getFullYear() + "-" + Math.floor(Math.random() * 9000 + 1000);
+    const kol = Number(template.porucenaKolicina || section.kolicina || section.maxMetara || section.rezanje?.duzinaRolne || product.raw?.met || product.raw?.nal || 0) || null;
+    try {
+      const { data, error } = await supabase.from("ponude").insert([{
+        broj,
+        datum: new Date().toLocaleDateString("sr-RS"),
+        vaz: new Date(Date.now() + 30 * 86400000).toLocaleDateString("sr-RS"),
+        kupac: product.kupac || "—",
+        naziv: product.naziv || "Proizvod",
+        proizvod: product.naziv || "Proizvod",
+        tip,
+        kol,
+        kolicina: kol,
+        mats: layers,
+        struktura: layers,
+        status: options.accepted ? "prihvaceno" : "draft_product_master",
+        nap: "Kreirano iz Product Master template-a",
+        product_master_id: product.product_master_id || template.product_master_id || null,
+        template_id: product.template_id || template.template_id || null,
+        template_version: product.verzija || template.template_version || "V1",
+        res: { template, operacije: product.operacije || inferOperations(template, tip) }
+      }]).select();
+      if (error) throw error;
+      if (setDb && data?.[0]) setDb(prev => ({ ...prev, ponude: [data[0], ...(prev?.ponude || [])] }));
+      msg && msg(options.accepted ? "Ponuda je kreirana i označena kao prihvaćena" : "Ponuda je kreirana iz sačuvanog template-a");
+      if (!options.silent) setPage && setPage("ponude");
+      return data?.[0] || null;
+    } catch (e) {
+      msg && msg("Ponuda nije kreirana: " + (e?.message || e), "err");
+      return null;
+    }
+  }
+
+  async function createOrdersFromProduct(product = selected) {
+    if (!product) return;
+    const ponuda = await createOfferFromProduct(product, { accepted: true, silent: true });
+    if (!ponuda?.id) return;
+    try {
+      const { error } = await supabase.rpc("kreiraj_naloge_iz_ponude", { p_ponuda_id: ponuda.id });
+      if (error) throw error;
+      msg && msg("Glavni nalog i A4 operativni nalozi su kreirani iz template-a");
+      setPage && setPage("master_nalozi");
+    } catch (e) {
+      msg && msg("Nalozi nisu kreirani. Proveri SQL funkciju kreiraj_naloge_iz_ponude: " + (e?.message || e), "err");
+    }
   }
 
   const tabs = [
@@ -402,6 +540,8 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <button onClick={() => openTemplateFromProduct(selected)} style={btnStyle("#fff", "#334155", "#cbd5e1")}>Otvori template</button>
                 <button onClick={() => createCalculationFromProduct(selected)} style={btnStyle(GREEN, "#fff", GREEN)}>Kreiraj kalkulaciju</button>
+                <button onClick={() => createOfferFromProduct(selected)} style={btnStyle(BLUE, "#fff", BLUE)}>Kreiraj ponudu</button>
+                <button onClick={() => createOrdersFromProduct(selected)} style={btnStyle(PURPLE, "#fff", PURPLE)}>Kreiraj naloge</button>
               </div>
             </div>
           </div>
@@ -411,7 +551,7 @@ export default function ProductMasterPRO({ db, setPage, msg }) {
           <div style={{ padding: 18 }}>
             {tab === "osnovno" && <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 320px", gap: 16 }}>
               <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Osnovni podaci" /><InfoRow label="Naziv" value={selected.naziv} /><InfoRow label="Kupac" value={selected.kupac} /><InfoRow label="Tip" value={selected.tip} /><InfoRow label="Šifra" value={selected.sifra} /><InfoRow label="Verzija" value={selected.verzija} /><InfoRow label="Datum" value={selected.datum} /></Card>
-              <Card style={{ boxShadow: "none", padding: 16, background: "#f8fafc" }}><SectionTitle title="Brze akcije" /><ActionRow text="Kreiraj kalkulaciju iz proizvoda" onClick={() => createCalculationFromProduct(selected)} /><ActionRow text="Kreiraj nalog iz proizvoda" /><ActionRow text="Dodaj KPDF / PDF dokument" /><ActionRow text="Pogledaj istoriju izmena" /></Card>
+              <Card style={{ boxShadow: "none", padding: 16, background: "#f8fafc" }}><SectionTitle title="Brze akcije" /><ActionRow text="Otvori template" onClick={() => openTemplateFromProduct(selected)} /><ActionRow text="Kreiraj kalkulaciju iz proizvoda" onClick={() => createCalculationFromProduct(selected)} /><ActionRow text="Kreiraj ponudu iz proizvoda" onClick={() => createOfferFromProduct(selected)} /><ActionRow text="Kreiraj naloge iz proizvoda" onClick={() => createOrdersFromProduct(selected)} /><ActionRow text="Dodaj KPDF / PDF dokument" /><ActionRow text="Pogledaj istoriju izmena" /></Card>
             </div>}
             {tab === "materijali" && <><SectionTitle title="Materijali proizvoda" note="Ista Material PRO tabela kao u kalkulacijama i template-ima. Bez Žuta, ostaju samo Š i L." /><MaterialTable rows={selected.materijali} /></>}
             {tab === "stampa" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Štampa / lak / kliše" /><InfoRow label="Broj boja" value={selected.stampa.boje} /><InfoRow label="Kliše" value={selected.stampa.klise} /><InfoRow label="Lak" value={selected.stampa.lak} /><InfoRow label="Napomena" value={selected.stampa.napomena} /></Card>}

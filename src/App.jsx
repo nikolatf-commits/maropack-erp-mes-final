@@ -2365,7 +2365,7 @@ function MainAppContent() {
 
                 {/* BAZA / TEMPLATE MODULI */}
                 {page === "baza_materijala" && <MaterialMasterPRO msg={msg} />}
-                {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setPage={setPage} msg={msg} />)}
+                {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
                 {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                 {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
 
