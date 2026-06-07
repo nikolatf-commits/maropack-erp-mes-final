@@ -1,10 +1,14 @@
 import React from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
-import PrikazKesePRO from "./PrikazKesePRO.jsx";
 import NalogMaterijal_Folija from "./NalogMaterijal_Folija.jsx";
 import NalogStampa_Folija from "./NalogStampa_Folija.jsx";
 import NalogKasiranje_Folija from "./NalogKasiranje_Folija.jsx";
-import NalogRezanje_Folija from "./NalogRezanje_Folija.jsx";
+import NalogPerforacijaRezanje_Folija from "./NalogPerforacijaRezanje_Folija.jsx";
+import NalogPotrebaMaterijala_Kesa from "./NalogPotrebaMaterijala_Kesa.jsx";
+import NalogKesa_Kesa from "./NalogKesa_Kesa.jsx";
+import NalogPotrebaMaterijala_Spulna from "./NalogPotrebaMaterijala_Spulna.jsx";
+import NalogFormatiranje_Spulna from "./NalogFormatiranje_Spulna.jsx";
+import NalogSpulne_Spulna from "./NalogSpulne_Spulna.jsx";
 
 const QR = (text, size = 94) =>
   "https://api.qrserver.com/v1/create-qr-code/?size=" + size + "x" + size + "&data=" + encodeURIComponent(text || "MAROPACK");
@@ -92,12 +96,9 @@ function normNalog(t, naziv) {
   if (x.includes("mater")) return "materijal";
   if (x.includes("štamp") || x.includes("stamp")) return "stampa";
   if (x.includes("kaš") || x.includes("kas")) return "kasiranje";
-  if (x.includes("rez")) return "rezanje";
-  if (x.includes("perf")) return "perforacija";
-  if (x.includes("roln")) return "izgled_rolne";
+  if (x.includes("rez") || x.includes("perf")) return "perforacija_rezanje";
   if (x.includes("format")) return "formatiranje";
   if (x.includes("kes")) return "kesa";
-  if (x.includes("skic") || x.includes("prikaz")) return "prikaz_kese";
   if (x.includes("spul") || x.includes("špul")) return "spulna";
   if (x.includes("qc") || x.includes("kontrol")) return "qc";
   return "opsti";
@@ -549,34 +550,35 @@ export default function NalogLayoutPRO({ nalog = {}, showAll = false }) {
         {shouldShow("materijal") && (
           tip === "folija"
             ? <NalogMaterijal_Folija nalog={nalog} />
-            : <MaterialSection nalog={nalog} />
+            : tip === "kesa"
+              ? <NalogPotrebaMaterijala_Kesa nalog={nalog} />
+              : <NalogPotrebaMaterijala_Spulna nalog={nalog} />
         )}
 
         {tip === "folija" && (
           <>
             {shouldShow("stampa") && <NalogStampa_Folija nalog={nalog} />}
             {shouldShow("kasiranje") && <NalogKasiranje_Folija nalog={nalog} />}
-            {(shouldShow("rezanje") || shouldShow("perforacija")) && <NalogRezanje_Folija nalog={nalog} />}
+            {shouldShow("perforacija_rezanje") && <NalogPerforacijaRezanje_Folija nalog={nalog} />}
             {showAll && <>
               <NalogStampa_Folija nalog={nalog} />
               <NalogKasiranje_Folija nalog={nalog} />
-              <NalogRezanje_Folija nalog={nalog} />
+              <NalogPerforacijaRezanje_Folija nalog={nalog} />
             </>}
           </>
         )}
 
         {tip === "kesa" && (
           <>
-            {shouldShow("stampa") && <StampaSection nalog={nalog} />}
-            {shouldShow("kesa") && <KesaSection nalog={nalog} />}
-            {shouldShow("prikaz_kese") && <KesaSection nalog={nalog} />}
+            {shouldShow("kasiranje") && <KasiranjeSection nalog={nalog} />}
+            {shouldShow("kesa") && <NalogKesa_Kesa nalog={nalog} />}
           </>
         )}
 
         {tip === "spulna" && (
           <>
-            {shouldShow("formatiranje") && <FormatiranjeSection nalog={nalog} />}
-            {shouldShow("spulna") && <SpulnaSection nalog={nalog} />}
+            {shouldShow("formatiranje") && <NalogFormatiranje_Spulna nalog={nalog} />}
+            {shouldShow("spulna") && <NalogSpulne_Spulna nalog={nalog} />}
           </>
         )}
 

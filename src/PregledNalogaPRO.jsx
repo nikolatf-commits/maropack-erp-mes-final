@@ -4,16 +4,13 @@ import { supabase } from "./supabase";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
 
 const TABOVI = [
-  { tip: "materijal", naziv: "Materijal", ik: "📦", boja: "#f59e0b" },
+  { tip: "materijal", naziv: "Potreba materijala", ik: "📦", boja: "#f59e0b" },
   { tip: "stampa", naziv: "Štampa", ik: "🖨️", boja: "#3b82f6" },
   { tip: "kasiranje", naziv: "Kaširanje", ik: "🔗", boja: "#1d4ed8" },
-  { tip: "rezanje", naziv: "Rezanje", ik: "✂️", boja: "#6366f1" },
-  { tip: "perforacija", naziv: "Perforacija", ik: "🔵", boja: "#8b5cf6" },
-  { tip: "izgled_rolne", naziv: "Izgled na rolni", ik: "🎞️", boja: "#0ea5e9" },
+  { tip: "perforacija_rezanje", naziv: "Perforacija i rezanje", ik: "✂️", boja: "#6366f1" },
   { tip: "kesa", naziv: "Kesa", ik: "🛍️", boja: "#b91c1c" },
-  { tip: "prikaz_kese", naziv: "Prikaz kese", ik: "📐", boja: "#7c2d12" },
   { tip: "formatiranje", naziv: "Formatiranje", ik: "🎞️", boja: "#7c3aed" },
-  { tip: "spulna", naziv: "Špulne", ik: "🧵", boja: "#059669" },
+  { tip: "spulna", naziv: "Špulna", ik: "🧵", boja: "#059669" },
 ];
 
 function nalogType(n) {
@@ -21,10 +18,7 @@ function nalogType(n) {
   if (x.includes("mater")) return "materijal";
   if (x.includes("štamp") || x.includes("stamp")) return "stampa";
   if (x.includes("kaš") || x.includes("kas")) return "kasiranje";
-  if (x.includes("rez")) return "rezanje";
-  if (x.includes("perf")) return "perforacija";
-  if (x.includes("roln") || x.includes("izgled_rolne")) return "izgled_rolne";
-  if (x.includes("prikaz") || x.includes("skic")) return "prikaz_kese";
+  if (x.includes("rez") || x.includes("perf")) return "perforacija_rezanje";
   if (x.includes("kes")) return "kesa";
   if (x.includes("format")) return "formatiranje";
   if (x.includes("spul") || x.includes("špul")) return "spulna";
@@ -33,9 +27,9 @@ function nalogType(n) {
 
 function productTabs(tipProizvoda) {
   const tip = String(tipProizvoda || "folija").toLowerCase();
-  if (tip.includes("kes")) return ["materijal", "stampa", "kesa", "prikaz_kese"];
+  if (tip.includes("kes")) return ["materijal", "kasiranje", "kesa"];
   if (tip.includes("spul") || tip.includes("špul")) return ["materijal", "formatiranje", "spulna"];
-  return ["materijal", "stampa", "kasiranje", "rezanje", "perforacija", "izgled_rolne"];
+  return ["materijal", "stampa", "kasiranje", "perforacija_rezanje"];
 }
 
 export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose }) {

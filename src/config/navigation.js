@@ -72,11 +72,9 @@ export function getNavGroups(isAdmin, userRole) {
             items: [
                 { k: 'rolne_engine', l: 'Magacin rolni i materijala', i: '🏪' },
                 { k: 'analiza_potrosnje_materijala', l: 'Analiza potrošnje materijala', i: '📊' },
-                { k: 'mobile_roll_scanner', l: 'Mobilni QR skener rolni', i: '📱' },
                 { k: 'kalkulator_maticnih', l: 'Kalkulator matičnih rolni', i: '📊' },
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
-                { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' },
-                { k: 'qr_workflow', l: 'QR Skeniranje', i: '🔳' }
+                { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' }
             ]
         },
         {

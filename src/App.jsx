@@ -4,7 +4,6 @@ import { supabase } from "./supabase.js";
 import { LOGO_B64, SPULNA_B64 } from "./constants.js";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import NalogFolija from "./NalogFolija.jsx";
 import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
 import MaterialMasterPRO from "./components/MaterialMasterPRO.jsx";
@@ -96,12 +95,9 @@ import AIProductionPlanner from './AIProductionPlanner.jsx';
 import AIChatAssistant from './AIChatAssistant.jsx';
 import AIWasteOptimizer from './AIWasteOptimizer.jsx';
 import AIQualityInspector from './AIQualityInspector.jsx';
-import MasterNalogEngine from './modules/MasterNalogEngine.jsx';
-import QRWorkflow from './modules/QRWorkflow.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
-import MobileRollScanner from './modules/MobileRollScanner.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';
 import QualityControlPRO from './modules/QualityControlPRO.jsx';
 import FinansijeKPI_PRO from './modules/FinansijeKPI_PRO.jsx';
@@ -492,7 +488,7 @@ function KalkulatorFolije({ user, db, setDb, setPage, msg, inp, card, lbl }) {
             tipLepka: "PU solventni", lepakOdnos: "3:1", lepakNanos: "3,5",
             rezFormati: [], res: res,
         };
-        var NAZIVI = { mat: "Nalog za materijal", stm: "Nalog za stampu", kas: "Nalog za kasiranje", rez: "Nalog za rezanje" };
+        var NAZIVI = { mat: "Nalog za potrebu materijala", stm: "Nalog za štampu", kas: "Nalog za kaširanje", rez: "Nalog za perforaciju i rezanje" };
         var inserts = Object.keys(NAZIVI).map(function (k) {
             return {
                 ponBr: brN, kupac: pkupac, prod: naziv, tip: "folija", kol: +nal * 1000,
@@ -512,7 +508,7 @@ function KalkulatorFolije({ user, db, setDb, setPage, msg, inp, card, lbl }) {
     }
 
     if (nalogFolija) {
-        return <NalogFolija nalog={nalogFolija} onClose={function () { setNalogFolija(null); }} msg={msg} />;
+        return <PregledNalogaPRO osnovniNalog={nalogFolija} brojNaloga={nalogFolija.ponBr || nalogFolija.broj_naloga} onBack={function () { setNalogFolija(null); }} />;
     }
 
     const calc = useCallback(function () {
@@ -623,18 +619,15 @@ function KalkulatorFolije({ user, db, setDb, setPage, msg, inp, card, lbl }) {
         var tipovi = [];
         tipovi.push({ tip: "materijal", naziv: "Nalog za potrebu materijala", ik: "box", boj: "#f59e0b" });
         if (tipProizvoda === "kesa") {
-            tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
             tipovi.push({ tip: "kesa", naziv: "Nalog za kesu", ik: "bag", boj: "#b91c1c" });
-            tipovi.push({ tip: "prikaz_kese", naziv: "Prikaz kese", ik: "image", boj: "#7c2d12" });
         } else if (tipProizvoda === "spulna" || tipProizvoda === "špulna") {
-            tipovi.push({ tip: "spulna", naziv: "Nalog za špulne", ik: "roll", boj: "#059669" });
+            tipovi.push({ tip: "formatiranje", naziv: "Nalog za formatiranje", ik: "roll", boj: "#7c3aed" });
+            tipovi.push({ tip: "spulna", naziv: "Nalog za špulnu", ik: "roll", boj: "#059669" });
         } else {
-            if (hasSt) tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
-            for (var i = 1; i <= brKas; i++)tipovi.push({ tip: "kasiranje" + i, naziv: "Nalog za kaširanje " + i, ik: "link", boj: "#1d4ed8" });
-            tipovi.push({ tip: "rezanje", naziv: "Nalog za rezanje", ik: "cut", boj: "#6366f1" });
-            tipovi.push({ tip: "perforacija", naziv: "Nalog za perforaciju", ik: "circle", boj: "#8b5cf6" });
-            tipovi.push({ tip: "izgled_rolne", naziv: "Izgled na rolni", ik: "roll", boj: "#0ea5e9" });
-            if (brLak > 0) tipovi.push({ tip: "lakiranje", naziv: "Nalog za lakiranje", ik: "star", boj: "#7c3aed" });
+            tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
+            tipovi.push({ tip: "perforacija_rezanje", naziv: "Nalog za perforaciju i rezanje", ik: "cut", boj: "#6366f1" });
         }
         var novi = tipovi.map(function (t) { return { ponBr: pon.broj, ponId: pon.id, kupac: pon.kupac, prod: pon.naziv, naziv: t.naziv, ik: t.ik, boj: t.boj, status: "Ceka", datum: dnow(), radnik: "", nap: "", kol: pon.kol, mats: pon.mats, tip: tipProizvoda, tip_proizvoda: tipProizvoda, tip_naloga: t.tip, vrsta: t.tip, operacija: t.naziv }; });
         try {
@@ -1589,11 +1582,6 @@ function MainAppContent() {
     var rolnaQR = urlParams.get("rolna"); // ?rolna=R-2026-001
     var nalogQR = urlParams.get("nalog"); // ?nalog=MP-2026-0001
 
-    var scannerQR = urlParams.get("scanner"); // ?scanner=rolne
-
-    if (scannerQR === "rolne" || scannerQR === "rolls") {
-        return <MobileRollScanner msg={function (m) { console.log(m); }} />;
-    }
 
     if (rolnaQR) {
         return <MobilniMagacin brRolne={rolnaQR} />;
@@ -1841,19 +1829,15 @@ function MainAppContent() {
         tipovi.push({ tip: "materijal", naziv: "Nalog za potrebu materijala", ik: "box", boj: "#f59e0b" });
 
         if (tipProizvoda === "kesa") {
-            if (hasSt || true) tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
             tipovi.push({ tip: "kesa", naziv: "Nalog za kesu", ik: "bag", boj: "#b91c1c" });
-            tipovi.push({ tip: "prikaz_kese", naziv: "Prikaz / crtež kese", ik: "image", boj: "#7c2d12" });
         } else if (tipProizvoda === "spulna") {
             tipovi.push({ tip: "formatiranje", naziv: "Nalog za formatiranje", ik: "roll", boj: "#7c3aed" });
-            tipovi.push({ tip: "spulna", naziv: "Nalog za špulne", ik: "roll", boj: "#059669" });
+            tipovi.push({ tip: "spulna", naziv: "Nalog za špulnu", ik: "roll", boj: "#059669" });
         } else {
-            if (hasSt) tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
-            for (var i = 1; i <= brKas; i++) tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje " + i, ik: "link", boj: "#1d4ed8", redni_broj: i });
-            tipovi.push({ tip: "rezanje", naziv: "Nalog za rezanje", ik: "cut", boj: "#6366f1" });
-            tipovi.push({ tip: "perforacija", naziv: "Nalog za perforaciju", ik: "circle", boj: "#8b5cf6" });
-            tipovi.push({ tip: "izgled_rolne", naziv: "Izgled na rolni", ik: "roll", boj: "#0ea5e9" });
-            if (brLak > 0) tipovi.push({ tip: "lakiranje", naziv: "Nalog za lakiranje", ik: "star", boj: "#7c3aed" });
+            tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
+            tipovi.push({ tip: "perforacija_rezanje", naziv: "Nalog za perforaciju i rezanje", ik: "cut", boj: "#6366f1" });
         }
 
         var qrCodeBase64 = null;
@@ -2257,10 +2241,6 @@ function MainAppContent() {
                 )}
 
 
-                {page === "master_nalozi" && (
-                    <MasterNalogEngine db={db} setPage={setPage} setPregNalog={setPregNalog} msg={msg} />
-                )}
-
                 {page === "nalozi_pro" && (
                     <NaloziProMES db={db} setPage={setPage} msg={msg} />
                 )}
@@ -2289,13 +2269,6 @@ function MainAppContent() {
                     <TehnickiListPRO db={db} msg={msg} />
                 )}
 
-                {page === "qr_workflow" && (
-                    <QRWorkflow db={db} msg={msg} />
-                )}
-
-                {page === "mobile_roll_scanner" && (
-                    <MobileRollScanner msg={msg} />
-                )}
 
                 {page === "rolne_engine" && (
                     <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={(isMagacioner || userProfile?.uloga === "radnik") && isMobileViewport} />
