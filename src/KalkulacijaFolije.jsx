@@ -109,18 +109,19 @@ function parseTemplateMaterialName(raw) {
 }
 
 function mapTemplateLayerToFolijaMaterial(layer, fallbackSirina) {
-    const parsed = parseTemplateMaterialName(layer.material || layer.tip || layer.naziv);
-    const tip = layer.tip || parsed.tip || "";
-    const debljina = Number(layer.debljina || layer.deb || parsed.debljina || 0);
-    const arr = MAT_DATA[tip] || [];
+    const rawName = layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka || "";
+    const parsed = parseTemplateMaterialName(rawName);
+    const tip = layer.tip || layer.vrsta || layer.materijal || parsed.tip || "";
+    const debljina = Number(layer.debljina || layer.deb || layer.mic || parsed.debljina || 0);
+    const arr = MAT_DATA[tip] || MAT_DATA[parsed.tip] || [];
     const found = arr.find(x => Number(x.d) === Number(debljina));
-    const tezina = Number(layer.tezina || layer.t || layer.gsm || (found ? found.t : 0));
+    const tezina = Number(layer.tezina || layer.t || layer.gsm || layer.gm2 || layer.gramatura || (found ? found.t : 0));
     return {
         tip,
         debljina,
         tezina,
-        cena: Number(layer.cena || CENE[tip] || 0),
-        sirina: Number(layer.sirina || fallbackSirina || 0),
+        cena: Number(layer.cena || layer.cena_kg || CENE[tip] || CENE[parsed.tip] || 0),
+        sirina: Number(layer.sirina || layer.idealna_sirina || layer.idealnaSirina || fallbackSirina || 0),
         stampa: !!(layer.stampa || layer.stamp),
         lakira: !!(layer.lakira || layer.lak)
     };
@@ -242,7 +243,7 @@ export default function KalkulacijaFolijeSmart() {
         try {
             console.log("✅ V28 template prefill za foliju:", tpl);
             const folija = tpl.folija || tpl.data?.folija || tpl;
-            const layers = Array.isArray(folija.layers) ? folija.layers : [];
+            const layers = Array.isArray(folija.layers) ? folija.layers : (Array.isArray(tpl.materijali_struktura) ? tpl.materijali_struktura : (Array.isArray(tpl.mats) ? tpl.mats : []));
             const fallbackSirina = Number(
                 folija.rezanje?.sirinaMaterijala ||
                 folija.rezanje?.sirinaTrake ||

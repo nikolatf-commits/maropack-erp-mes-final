@@ -29,12 +29,12 @@ function parseTemplateMaterialName(raw) {
     return { tip, debljina };
 }
 function mapTemplateLayerToKesaMaterial(layer) {
-    const parsed = parseTemplateMaterialName(layer.material || layer.tip || layer.naziv);
+    const parsed = parseTemplateMaterialName(layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka);
     return {
-        tip: layer.tip || parsed.tip || 'OPP',
-        debljina: String(layer.debljina || layer.deb || parsed.debljina || '30'),
-        tezina: Number(layer.tezina || layer.t || layer.gsm || 0),
-        cena: Number(layer.cena || 0)
+        tip: layer.tip || layer.vrsta || layer.materijal || parsed.tip || 'OPP',
+        debljina: String(layer.debljina || layer.deb || layer.mic || parsed.debljina || '30'),
+        tezina: Number(layer.tezina || layer.t || layer.gsm || layer.gm2 || layer.gramatura || 0),
+        cena: Number(layer.cena || layer.cena_kg || 0)
     };
 }
 
@@ -138,7 +138,7 @@ export default function KalkulacijaKese({ setPage }) {
         setBan(Number(k.ban || 1));
         setTolerancija(k.tolerancija || '±10%');
         setGrafika(k.grafika || 'Novi posao');
-        setMaterijali((k.layers || []).map(mapTemplateLayerToKesaMaterial).filter(m => m.tip));
+        setMaterijali(((k.layers || tpl.materijali_struktura || tpl.mats || [])).map(mapTemplateLayerToKesaMaterial).filter(m => m.tip));
         setOpts(k.options || {});
         setTrCena(Number(k.transportKg || 0));
         setPakovanje(k.pakovanje || '');

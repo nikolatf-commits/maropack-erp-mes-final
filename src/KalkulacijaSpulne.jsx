@@ -69,8 +69,10 @@ export default function KalkulacijaSpulne() {
         const sp = tpl.spulna || {};
         setNaziv(tpl.naziv || sp.naziv || '');
         setKupac(tpl.kupac || '');
-        setMaterijal(sp.materijal || '');
-        setSirina(Number(sp.W || sp.sirina || 0));
+        const layers = Array.isArray(sp.layers) ? sp.layers : (Array.isArray(tpl.materijali_struktura) ? tpl.materijali_struktura : (Array.isArray(tpl.mats) ? tpl.mats : []));
+        const matLabel = layers.map(l => [l.vrsta || l.tip || l.materijal || l.material, l.oznaka || l.oznaka_materijala, l.debljina || l.deb].filter(Boolean).join(' ')).filter(Boolean).join(' / ');
+        setMaterijal(sp.materijal || matLabel || '');
+        setSirina(Number(sp.W || sp.sirina || layers[0]?.sirina || layers[0]?.idealna_sirina || 0));
         setDuzina(Number(sp.maxMetara || sp.duzina || 0));
         setKolicina(Number(sp.kolicina || 1));
         setSkart(Number(sp.skart || 2));
