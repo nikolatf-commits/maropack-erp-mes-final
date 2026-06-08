@@ -104,7 +104,7 @@ function parseTemplateMaterialName(raw) {
     let tip = value.replace(/\s*\d+(?:[.,]\d+)?\s*(?:µ|um|mik|mic|micron)?\s*$/i, "").trim();
     if (!tip && value) tip = value;
     const known = Object.keys(MAT_DATA).find(k => k.toLowerCase() === tip.toLowerCase()) ||
-                  Object.keys(MAT_DATA).find(k => tip.toLowerCase().includes(k.toLowerCase())) || tip;
+        Object.keys(MAT_DATA).find(k => tip.toLowerCase().includes(k.toLowerCase())) || tip;
     return { tip: known, debljina };
 }
 
@@ -263,7 +263,7 @@ export default function KalkulacijaFolijeSmart() {
                 template_locked: !!rawMeta.template_locked || !!tpl.template_locked,
                 operacije: rawMeta.operacije || []
             });
-        } catch {}
+        } catch { }
 
         try {
             console.log("✅ V28 template prefill za foliju:", tpl);
@@ -274,8 +274,18 @@ export default function KalkulacijaFolijeSmart() {
                 folija.rezanje?.sirinaTrake ||
                 folija.sirina ||
                 tpl.sirina ||
+                layers[0]?.sirina ||
+                layers[0]?.idealna_sirina ||
                 0
             );
+            const fallbackMetraza = Number(String(
+                folija.rezanje?.duzinaRolne ||
+                folija.finalRoll?.duzina ||
+                folija.maxMetara ||
+                tpl.metraza ||
+                tpl.duzina ||
+                ""
+            ).replace(/[^0-9.]/g, ""));
 
             setNaziv(tpl.naziv || folija.naziv || "");
             setKupac(tpl.kupac || "");
@@ -283,7 +293,7 @@ export default function KalkulacijaFolijeSmart() {
             if (folija.rezanje?.sirinaTrake) setSirina(Number(folija.rezanje.sirinaTrake) || fallbackSirina || 0);
             else if (fallbackSirina) setSirina(fallbackSirina);
 
-            if (folija.rezanje?.duzinaRolne) setMetraza(Number(folija.rezanje.duzinaRolne) || 1000);
+            if (fallbackMetraza) setMetraza(fallbackMetraza);
 
             if (layers.length > 0) {
                 const mapped = layers
@@ -649,7 +659,7 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     return (
         <div style={{ background: "#f1f5f9", minHeight: "100vh", padding: 20 }}>
-{/* HEADER */}
+            {/* HEADER */}
             <div style={{ background: "linear-gradient(135deg, #0d9488 0%, #115e59 100%)", padding: 40, borderRadius: 16, color: "white", marginBottom: 20, position: "relative" }}>
                 <div style={{ position: "absolute", top: 40, right: 40, display: "flex", gap: 8, background: "rgba(255,255,255,0.2)", padding: 6, borderRadius: 50 }}>
                     <button onClick={() => setMod("normal")} style={{ background: mod === "normal" ? "white" : "transparent", color: mod === "normal" ? "#0d9488" : "white", border: "none", padding: "12px 24px", borderRadius: 50, fontWeight: 700, cursor: "pointer" }}>
