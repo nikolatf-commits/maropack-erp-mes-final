@@ -798,20 +798,7 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     const hist = [{ vreme: now(), operater: _operaterIme, qr: item.qr, event, opis: opisDesc, stanje: item.status }, ...history];
     safeWrite(LS_ROLNE, next);
     safeWrite(LS_HISTORY, hist);
-    (async () => {
-        try {
-            if (!supabase?.__notConfigured) {
-                await logMagacinIstorija({
-                    rolna_id: (item.id != null && !Number.isNaN(Number(item.id))) ? Number(item.id) : null,
-                    br_rolne: item.br_rolne || item.qr,
-                    akcija: event,
-                    nova_vrednost: { stanje: item.status, opis: opisDesc },
-                    napomena: opisDesc,
-                    operater: _operaterIme,
-                });
-            }
-        } catch (e) { /* noop */ }
-    })();
+    // NE upisujemo u magacin_istorija — DB trigger beleži INSERT rolne ('kreirana') sa user_id.
     return item;
 }
 
@@ -1904,32 +1891,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         });
 
         try {
+            // NE upisujemo u magacin_istorija iz aplikacije — DB trigger (log_magacin_promene)
+            // već beleži svaku promenu rolne (sa user_id, br_rolne, materijalom). App-upis bi pravio duplikate.
+            // Zadržavamo samo osvežavanje iz baze da se trigger-ov zapis odmah prikaže (bitno za telefon).
             if (!supabase?.__notConfigured) {
-                // pronađi rolnu da dobijemo rolna_id (bigint) i tačan br_rolne
-                const roll = (Array.isArray(rolne) ? rolne : []).find((r) =>
-                    String(r.qr) === cleanQr || String(r.qr_code) === cleanQr || String(r.br_rolne) === cleanQr || String(r.id) === cleanQr
-                );
-                const res = await logMagacinIstorija({
-                    rolna_id: roll?.id ?? null,
-                    br_rolne: roll?.br_rolne || cleanQr,
-                    akcija: entry.event,
-                    nalog_ponbr: meta.nalog_ponbr || meta.masterId || null,
-                    nalog_id: meta.nalog_id || null,
-                    metraza_pre: meta.metraza_pre ?? null,
-                    metraza_posle: meta.metraza_posle ?? null,
-                    promena_m: meta.promena_m ?? null,
-                    stara_vrednost: meta.stara_vrednost ?? null,
-                    nova_vrednost: { stanje: entry.stanje, opis: entry.opis, ...(meta.nova_vrednost || {}) },
-                    napomena: entry.opis,
-                    operater: entry.operater,
-                });
-                if (!res.ok) throw new Error(res.error || "upis nije uspeo");
-                // Kritično za telefon: odmah povuci istoriju posle upisa, ne čekaj realtime.
                 await reloadRef.current?.();
             }
         } catch (e) {
-            console.warn("Istorija nije upisana u Supabase:", e?.message || e);
-            msg?.("UPOZORENJE: akcija je urađena, ali istorija nije upisana u bazu: " + (e?.message || e), "err");
+            console.warn("Osvežavanje istorije nije uspelo:", e?.message || e);
         }
     }
 
