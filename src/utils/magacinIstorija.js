@@ -89,10 +89,37 @@ const AKCIJA_LABELE = {
     promena_lokacije: "Promena lokacije",
 };
 
+function _num(v, dec = 0) {
+    const n = Number(v);
+    if (!isFinite(n)) return null;
+    return n.toLocaleString("sr-RS", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+/** Pun opis rolne iz reda (jsonb): vrsta · pod vrsta · oznaka · proizvođač · deb · širina · metraža · kg · LOT */
+function _specRolne(o) {
+    if (!o || typeof o !== "object") return "";
+    const deb = o.deb ?? o.debljina;
+    const jed = String(o.vrsta || "").toUpperCase() === "PAPIR" ? "g/m²" : "µ";
+    const m = o.metraza_ost ?? o.metraza;
+    const kg = o.kg_neto ?? o.kg ?? o.kg_bruto;
+    return [
+        o.vrsta,
+        o.pod_vrsta,
+        o.oznaka_materijala || o.oznaka,
+        o.dobavljac || o.proizvodjac,
+        deb != null ? `${deb}${jed}` : null,
+        o.sirina != null ? `${_num(o.sirina)} mm` : null,
+        m != null ? `${_num(m)} m` : null,
+        kg != null ? `${_num(kg, 2)} kg` : null,
+        o.lot ? `LOT ${o.lot}` : null,
+    ].filter(Boolean).join(" · ");
+}
+
 /** Normalizuje red iz magacin_istorija za prikaz — radi i sa trigger redovima (old/new jsonb) i sa app redovima. */
 export function mapIstorijaRow(h = {}) {
     const nv = (h.nova_vrednost && typeof h.nova_vrednost === "object") ? h.nova_vrednost : {};
     const sv = (h.stara_vrednost && typeof h.stara_vrednost === "object") ? h.stara_vrednost : {};
+    const izvor = Object.keys(nv).length ? nv : sv;
 
     const br = h.br_rolne || nv.br_rolne || sv.br_rolne || nv.qr_code || sv.qr_code || h.qr_code
         || (h.rolna_id != null ? "#" + h.rolna_id : "");
@@ -100,37 +127,28 @@ export function mapIstorijaRow(h = {}) {
     const akcijaRaw = String(h.akcija || h.tip_promene || h.dogadjaj || "");
     const event = AKCIJA_LABELE[akcijaRaw.toLowerCase()] || akcijaRaw || "Akcija";
 
-    const delovi = [];
-    if (h.napomena) delovi.push(h.napomena);
-
-    const stStat = sv.status, nvStat = nv.status;
-    if (nvStat && stStat && nvStat !== stStat) delovi.push(`${stStat} → ${nvStat}`);
-    else if (nvStat && akcijaRaw.toLowerCase().includes("status")) delovi.push(`→ ${nvStat}`);
-
-    const mPre = h.metraza_pre ?? sv.metraza_ost ?? sv.duzina;
-    const mPosle = h.metraza_posle ?? nv.metraza_ost ?? nv.duzina;
-    if (h.promena_m != null) delovi.push(`Δ ${h.promena_m} m`);
-    else if (mPre != null && mPosle != null && Number(mPre) !== Number(mPosle)) delovi.push(`${mPre} → ${mPosle} m`);
-
+    // detalj akcije (status promena / metraža / nalog / lokacija / napomena)
+    const detalj = [];
+    if (h.napomena) detalj.push(h.napomena);
+    if (nv.status && sv.status && nv.status !== sv.status) detalj.push(`${sv.status} → ${nv.status}`);
+    else if (nv.status && akcijaRaw.toLowerCase().includes("status")) detalj.push(`→ ${nv.status}`);
+    const mPre = h.metraza_pre ?? sv.metraza_ost, mPosle = h.metraza_posle ?? nv.metraza_ost;
+    if (h.promena_m != null) detalj.push(`Δ ${h.promena_m} m`);
+    else if (mPre != null && mPosle != null && Number(mPre) !== Number(mPosle)) detalj.push(`${_num(mPre)} → ${_num(mPosle)} m`);
     const nalog = h.nalog_ponbr || nv.dodeljeno_nalogu || nv.za_nalog || sv.dodeljeno_nalogu;
-    if (nalog) delovi.push(`nalog ${nalog}`);
+    if (nalog) detalj.push(`nalog ${nalog}`);
+    if (nv.lokacija && sv.lokacija && nv.lokacija !== sv.lokacija) detalj.push(`lok ${sv.lokacija} → ${nv.lokacija}`);
 
-    const lokPre = sv.lokacija, lokPosle = nv.lokacija;
-    if (lokPosle && lokPre && lokPosle !== lokPre) delovi.push(`lok ${lokPre} → ${lokPosle}`);
-
-    if (!delovi.length) {
-        const mat = [nv.vrsta || sv.vrsta, nv.oznaka_materijala || nv.oznaka || sv.oznaka_materijala,
-        (nv.debljina || sv.debljina) ? (nv.debljina || sv.debljina) + "µ" : ""].filter(Boolean).join(" ");
-        if (mat) delovi.push(mat);
-    }
+    const spec = _specRolne(izvor);
+    const opis = [detalj.join(" · "), spec].filter(Boolean).join("  ·  ");
 
     return {
         vreme: h.created_at ? new Date(h.created_at).toLocaleString("sr-RS") : "",
         operater: nv.operater || sv.operater || h.operater || "—",
         qr: br,
         event,
-        opis: delovi.join(" · "),
-        stanje: nvStat || h.stanje || "",
+        opis,
+        stanje: nv.status || h.stanje || "",
         nalog_ponbr: nalog || "",
         rolna_id: h.rolna_id ?? null,
     };
