@@ -321,6 +321,9 @@ export default function KalkulacijaFolijeSmart() {
             }
 
             setRezultati(null);
+            // Sveži templejt-prefill je merodavan: ukloni eventualni stari editKalkulacija
+            // (iz prethodne kalkulacije) da ne pregazi tek napunjene slojeve/koef/širinu.
+            localStorage.removeItem("editKalkulacija");
         } catch (err) {
             console.error("❌ Greška V28 template prefill:", err);
         }
@@ -349,14 +352,29 @@ export default function KalkulacijaFolijeSmart() {
                 if (kal.materijali && Array.isArray(kal.materijali)) {
                     console.log('📦 RAW Materijali:', kal.materijali);
 
-                    // Konvertuj sve brojeve u materijalima
-                    const materijaliFix = kal.materijali.map(m => ({
-                        ...m,
-                        debljina: Number(m.debljina) || 0,
-                        tezina: Number(m.tezina) || 0,
-                        cena: Number(m.cena) || 0,
-                        sirina: Number(m.sirina) || 0
-                    }));
+                    // Konvertuj sve brojeve u materijalima + uskladi nazive polja (koef/koeficijent, gm2/gsm/tezina, vrsta/tip)
+                    const materijaliFix = kal.materijali.map(m => {
+                        const koef = m.koef ?? m.koeficijent ?? "";
+                        const gm2 = m.gm2 ?? m.gsm ?? m.tezina ?? "";
+                        const vrsta = m.vrsta || m.tip || m.materijal || "";
+                        return {
+                            ...m,
+                            vrsta,
+                            tip: vrsta,
+                            oznaka: m.oznaka || m.oznaka_materijala || "",
+                            oznaka_materijala: m.oznaka_materijala || m.oznaka || "",
+                            debljina: Number(m.debljina) || 0,
+                            koef: (Number(koef) || koef || ""),
+                            koeficijent: (Number(koef) || koef || ""),
+                            tezina: Number(gm2) || 0,
+                            gm2: Number(gm2) || 0,
+                            gsm: Number(gm2) || 0,
+                            cena: Number(m.cena) || 0,
+                            sirina: Number(m.sirina) || 0,
+                            stampa: !!(m.stampa || m.stamp || m.Š),
+                            lakira: !!(m.lakira || m.lak || m.L)
+                        };
+                    });
 
                     console.log('✅ FIXED Materijali:', materijaliFix);
                     setMaterijali(materijaliFix);
