@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
-import { logMagacinIstorija, mapIstorijaRow } from "../utils/magacinIstorija.js";
+import { logMagacinIstorija, mapIstorijaRow, loadOperateriMap } from "../utils/magacinIstorija.js";
 import {
     getVrsteMaterijala,
     getOznakeZaVrstu,
@@ -1024,7 +1024,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (!supabase?.__notConfigured) {
                 const { data: hist, error: hErr } = await supabase.from(HISTORY_TABLE).select("*").order("created_at", { ascending: false }).limit(HISTORY_SYNC_LIMIT);
                 if (hErr) throw hErr;
-                setHistory((Array.isArray(hist) ? hist : []).map(mapIstorijaRow));
+                const imeMap = await loadOperateriMap();
+                setHistory((Array.isArray(hist) ? hist : []).map((h) => mapIstorijaRow(h, imeMap)));
             } else {
                 setHistory(safeRead(LS_HISTORY, []));
             }

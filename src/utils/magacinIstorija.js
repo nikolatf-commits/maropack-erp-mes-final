@@ -67,6 +67,29 @@ export async function logMagacinIstorija({
     }
 }
 
+let _imeMapCache = null;
+/** Učitava mapu uuid/email -> ime iz tabela users (pa radnici kao rezerva). Kešira se. */
+export async function loadOperateriMap(force = false) {
+    if (_imeMapCache && !force) return _imeMapCache;
+    const map = {};
+    try {
+        const { data } = await supabase.from("users").select("id, ime, email");
+        (data || []).forEach((u) => {
+            const ime = u.ime || u.email;
+            if (u.id) map[u.id] = ime;
+            if (u.email) map[String(u.email).toLowerCase()] = ime;
+        });
+    } catch { /* tabela možda ne postoji */ }
+    try {
+        const { data } = await supabase.from("radnici").select("id, ime, prezime");
+        (data || []).forEach((r) => {
+            if (r.id && !map[r.id]) map[r.id] = [r.ime, r.prezime].filter(Boolean).join(" ");
+        });
+    } catch { /* ignore */ }
+    _imeMapCache = map;
+    return map;
+}
+
 /** Lepše labele za akcije (i trigger i app pišu u istu tabelu). */
 const AKCIJA_LABELE = {
     kreirana: "Uneta na stanje",
@@ -116,7 +139,7 @@ function _specRolne(o) {
 }
 
 /** Normalizuje red iz magacin_istorija za prikaz — radi i sa trigger redovima (old/new jsonb) i sa app redovima. */
-export function mapIstorijaRow(h = {}) {
+export function mapIstorijaRow(h = {}, imeMap = {}) {
     const nv = (h.nova_vrednost && typeof h.nova_vrednost === "object") ? h.nova_vrednost : {};
     const sv = (h.stara_vrednost && typeof h.stara_vrednost === "object") ? h.stara_vrednost : {};
     const izvor = Object.keys(nv).length ? nv : sv;
@@ -142,9 +165,13 @@ export function mapIstorijaRow(h = {}) {
     const spec = _specRolne(izvor);
     const opis = [detalj.join(" · "), spec].filter(Boolean).join("  ·  ");
 
+    const operater = nv.operater || sv.operater || h.operater
+        || imeMap[h.user_id] || imeMap[nv.kreirao_user_id] || imeMap[sv.kreirao_user_id]
+        || imeMap[String(nv.email || sv.email || "").toLowerCase()] || "—";
+
     return {
         vreme: h.created_at ? new Date(h.created_at).toLocaleString("sr-RS") : "",
-        operater: nv.operater || sv.operater || h.operater || "—",
+        operater,
         qr: br,
         event,
         opis,
