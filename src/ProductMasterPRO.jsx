@@ -285,7 +285,13 @@ function makeCalculationRecordFromProduct(product) {
     const template = buildTemplateFromProduct(product);
     const tip = normalizeTip(product?.tip || template.type);
     const section = template[tip] || {};
-    const layers = section.layers || template.folija?.layers || template.kesa?.layers || template.spulna?.layers || [];
+    let layers = section.layers || template.folija?.layers || template.kesa?.layers || template.spulna?.layers || [];
+    // Rezerva: ako templejt nema slojeve u sekciji, uzmi ih iz proizvoda (materijali_struktura)
+    if ((!Array.isArray(layers) || !layers.length) && Array.isArray(product?.materijali) && product.materijali.length) {
+        layers = product.materijali;
+    }
+    // Ubaci slojeve u template[tip].layers da ih kalkulacija (koja čita folija.layers) sigurno nađe
+    template[tip] = { ...(template[tip] || {}), layers };
     return {
         id: "KAL-PROD-" + Date.now(),
         created_at: new Date().toISOString(),

@@ -268,7 +268,11 @@ export default function KalkulacijaFolijeSmart() {
         try {
             console.log("✅ V28 template prefill za foliju:", tpl);
             const folija = tpl.folija || tpl.data?.folija || tpl;
-            const layers = Array.isArray(folija.layers) ? folija.layers : (Array.isArray(tpl.materijali_struktura) ? tpl.materijali_struktura : (Array.isArray(tpl.mats) ? tpl.mats : []));
+            const layers = (Array.isArray(folija.layers) && folija.layers.length) ? folija.layers
+                : (Array.isArray(tpl.materijali_struktura) && tpl.materijali_struktura.length) ? tpl.materijali_struktura
+                    : (Array.isArray(tpl.mats) && tpl.mats.length) ? tpl.mats
+                        : (Array.isArray(tpl.materijali) && tpl.materijali.length) ? tpl.materijali
+                            : [];
             const fallbackSirina = Number(
                 folija.rezanje?.sirinaMaterijala ||
                 folija.rezanje?.sirinaTrake ||
