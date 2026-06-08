@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
+import { logMagacinIstorija, mapIstorijaRow } from "../utils/magacinIstorija.js";
 import {
     getVrsteMaterijala,
     getOznakeZaVrstu,
@@ -800,7 +801,14 @@ export function addWarehouseRoll(roll, event = "ULAZ") {
     (async () => {
         try {
             if (!supabase?.__notConfigured) {
-                await supabase.from("magacin_istorija").insert({ qr_code: item.qr, dogadjaj: event, opis: opisDesc, operater: _operaterIme, stanje: item.status, vreme: new Date().toISOString() });
+                await logMagacinIstorija({
+                    rolna_id: (item.id != null && !Number.isNaN(Number(item.id))) ? Number(item.id) : null,
+                    br_rolne: item.br_rolne || item.qr,
+                    akcija: event,
+                    nova_vrednost: { stanje: item.status, opis: opisDesc },
+                    napomena: opisDesc,
+                    operater: _operaterIme,
+                });
             }
         } catch (e) { /* noop */ }
     })();
@@ -1014,16 +1022,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
         try {
             if (!supabase?.__notConfigured) {
-                const { data: hist, error: hErr } = await supabase.from(HISTORY_TABLE).select("*").order("vreme", { ascending: false }).limit(HISTORY_SYNC_LIMIT);
+                const { data: hist, error: hErr } = await supabase.from(HISTORY_TABLE).select("*").order("created_at", { ascending: false }).limit(HISTORY_SYNC_LIMIT);
                 if (hErr) throw hErr;
-                setHistory((Array.isArray(hist) ? hist : []).map((h) => ({
-                    vreme: h.vreme ? new Date(h.vreme).toLocaleString("sr-RS") : "",
-                    operater: h.operater || "—",
-                    qr: h.qr_code || h.qr || "",
-                    event: h.dogadjaj || h.event || "",
-                    opis: h.opis || "",
-                    stanje: h.stanje || "",
-                })));
+                setHistory((Array.isArray(hist) ? hist : []).map(mapIstorijaRow));
             } else {
                 setHistory(safeRead(LS_HISTORY, []));
             }
@@ -1903,16 +1904,25 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         try {
             if (!supabase?.__notConfigured) {
-                const payload = {
-                    qr_code: cleanQr,
-                    dogadjaj: entry.event,
-                    opis: entry.opis,
+                // pronađi rolnu da dobijemo rolna_id (bigint) i tačan br_rolne
+                const roll = (Array.isArray(rolne) ? rolne : []).find((r) =>
+                    String(r.qr) === cleanQr || String(r.qr_code) === cleanQr || String(r.br_rolne) === cleanQr || String(r.id) === cleanQr
+                );
+                const res = await logMagacinIstorija({
+                    rolna_id: roll?.id ?? null,
+                    br_rolne: roll?.br_rolne || cleanQr,
+                    akcija: entry.event,
+                    nalog_ponbr: meta.nalog_ponbr || meta.masterId || null,
+                    nalog_id: meta.nalog_id || null,
+                    metraza_pre: meta.metraza_pre ?? null,
+                    metraza_posle: meta.metraza_posle ?? null,
+                    promena_m: meta.promena_m ?? null,
+                    stara_vrednost: meta.stara_vrednost ?? null,
+                    nova_vrednost: { stanje: entry.stanje, opis: entry.opis, ...(meta.nova_vrednost || {}) },
+                    napomena: entry.opis,
                     operater: entry.operater,
-                    stanje: entry.stanje,
-                    vreme: new Date().toISOString(),
-                };
-                const { error } = await supabase.from(HISTORY_TABLE).insert(payload);
-                if (error) throw error;
+                });
+                if (!res.ok) throw new Error(res.error || "upis nije uspeo");
                 // Kritično za telefon: odmah povuci istoriju posle upisa, ne čekaj realtime.
                 await reloadRef.current?.();
             }

@@ -264,7 +264,9 @@ export function buildOrderSourcePack({ ponuda = {}, tipOperacije = 'materijal', 
 }
 
 export function enrichNalogForPrint(nalog = {}) {
-  const n = safeJson(nalog, {}) || {};
+  const n0 = safeJson(nalog, {}) || {};
+  const meta = safeJson(n0.link_meta, {}) || {};
+  const n = { ...meta, ...n0 };
   const pack = buildOrderSourcePack({ ponuda: n, tipOperacije: n.tip_naloga || n.vrsta, tipProizvoda: n.tip_proizvoda || n.tip });
   return { ...n, ...pack, order_data: { ...(pack.order_data || {}), ...(safeJson(n.order_data, {}) || {}) } };
 }

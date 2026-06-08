@@ -114,6 +114,44 @@ import FinalProductionReadinessCenter from './modules/FinalProductionReadinessCe
 import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import { fetchCoreData, generateMasterFromPonuda } from './services/supabaseCore.js';
 
+// Mapira "bogati" nalog objekat na STVARNE kolone tabele nalozi.
+// Sve nepoznato (payload-ovi, source_chain, aliasi…) ide u jsonb link_meta,
+// pa se pri čitanju vraća nazad (enrichNalogForPrint).
+const NALOG_CONSUMED = new Set([
+  "broj_naloga", "ponBr", "broj", "tip_proizvoda", "tip", "naziv_proizvoda", "proizvod", "prod", "naziv",
+  "kupac", "kolicina", "kol", "status", "qr_kod", "qr_code", "kalkulacija_id", "ponuda_id", "ponId",
+  "specifikacija", "struktura", "mats", "tip_naloga", "vrsta", "operacija", "materijali_struktura",
+  "template_id", "product_master_id", "datum_kreiranja", "datum_isporuke", "link_meta", "id", "created_at"
+]);
+function toNalogRow(o = {}) {
+  const x = o || {};
+  const kalkId = (x.kalkulacija_id != null && x.kalkulacija_id !== "" && !Number.isNaN(Number(x.kalkulacija_id))) ? Number(x.kalkulacija_id) : null;
+  const row = {
+    broj_naloga: x.broj_naloga || x.ponBr || x.broj || null,
+    tip_proizvoda: x.tip_proizvoda || x.tip || null,
+    naziv_proizvoda: x.naziv_proizvoda || x.proizvod || x.prod || x.naziv || null,
+    kupac: x.kupac || null,
+    kolicina: Number(x.kolicina ?? x.kol) || null,
+    status: x.status || "Ceka",
+    qr_kod: x.qr_kod || x.qr_code || null,
+    qr_code: x.qr_code || x.qr_kod || null,
+    kalkulacija_id: kalkId,
+    ponuda_id: x.ponuda_id ?? x.ponId ?? null,
+    proizvod: x.proizvod || x.prod || x.naziv_proizvoda || null,
+    specifikacija: x.specifikacija || x.struktura || x.mats || null,
+    tip_naloga: x.tip_naloga || x.vrsta || null,
+    vrsta: x.vrsta || x.tip_naloga || null,
+    operacija: x.operacija || x.naziv || null,
+    materijali_struktura: x.materijali_struktura || x.struktura || x.mats || null,
+    template_id: x.template_id != null ? String(x.template_id) : null,
+    product_master_id: x.product_master_id || null,
+  };
+  const meta = {};
+  for (const k in x) { if (!NALOG_CONSUMED.has(k) && x[k] !== undefined) meta[k] = x[k]; }
+  row.link_meta = Object.keys(meta).length ? meta : null;
+  return row;
+}
+
 // ==================== PROFESIONALNI NALOZI ====================
 // Glavni prikaz je PregledNalogaPRO + NalogLayoutPRO.
 // Stari posebni print importi su uklonjeni iz App.jsx da se ne mešaju dva izgleda naloga.
@@ -495,7 +533,7 @@ function KalkulatorFolije({ user, db, setDb, setPage, msg, inp, card, lbl }) {
             };
         });
         try {
-            var r = await supabase.from("nalozi").insert(inserts);
+            var r = await supabase.from("nalozi").insert(inserts.map(toNalogRow));
             if (r.error) throw r.error;
             msg("Kreirano " + inserts.length + " naloga! Br: " + brN);
             setNalogFolija(Object.assign({}, nalogData, {
@@ -629,7 +667,7 @@ function KalkulatorFolije({ user, db, setDb, setPage, msg, inp, card, lbl }) {
         }
         var novi = tipovi.map(function (t) { return { ponBr: pon.broj, ponId: pon.id, kupac: pon.kupac, prod: pon.naziv, naziv: t.naziv, ik: t.ik, boj: t.boj, status: "Ceka", datum: dnow(), radnik: "", nap: "", kol: pon.kol, mats: pon.mats, tip: tipProizvoda, tip_proizvoda: tipProizvoda, tip_naloga: t.tip, vrsta: t.tip, operacija: t.naziv }; });
         try {
-            const { error: e1 } = await supabase.from('nalozi').insert(novi); if (e1) throw e1;
+            const { error: e1 } = await supabase.from('nalozi').insert(novi.map(toNalogRow)); if (e1) throw e1;
             const { error: e2 } = await supabase.from('ponude').update({ status: "Odobrena" }).eq('id', pon.id); if (e2) throw e2;
             msg("Kreirano " + novi.length + " radnih naloga!"); setPage("nalozi");
         } catch (e) { msg("Greska: " + e.message, "err"); }
@@ -1905,7 +1943,7 @@ function MainAppContent() {
             } catch (masterErr) {
                 console.warn("Master nalog tabela nije dostupna ili RLS blokira upis, nastavljam preko nalozi/localStorage:", masterErr.message);
             }
-            const { error: e1 } = await supabase.from('nalozi').insert(novi);
+            const { error: e1 } = await supabase.from('nalozi').insert(novi.map(toNalogRow));
             if (e1) throw e1;
             if (pon.id) {
                 await supabase.from('ponude').update({ status: "prihvaceno" }).eq('id', pon.id);

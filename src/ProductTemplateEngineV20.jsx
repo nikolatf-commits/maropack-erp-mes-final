@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName } from "./data/materialMaster.js";
 import { supabase } from "./supabase.js";
+import { logMagacinIstorija } from "./utils/magacinIstorija.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 
 // =====================================================================
@@ -1440,6 +1441,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     await supabase.from("magacin")
                         .update({ status: "Rezervisano", dodeljeno_nalogu: ref, rezervisano: Number(item.alocirano_m) || null })
                         .eq("id", item.rolna_id);
+                    await logMagacinIstorija({
+                        rolna_id: item.rolna_id,
+                        br_rolne: item.br_rolne,
+                        akcija: "REZERVACIJA",
+                        nalog_ponbr: ref,
+                        metraza_posle: item.alocirano_m || null,
+                        nova_vrednost: { stanje: "Rezervisano", za_nalog: ref },
+                        napomena: `Rezervisano za nalog ${ref}` + (item.alocirano_m ? ` · ${item.alocirano_m} m` : ""),
+                    });
                 }
             }
 
