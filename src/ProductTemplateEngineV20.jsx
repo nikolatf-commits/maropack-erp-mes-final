@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
+import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 
@@ -1858,10 +1859,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <Section title="Parametri štampanja" color={BLUE}>
                     <Grid cols={4}>
-                        {Object.keys(form.folija.stampa).map(k => (
+                        {Object.keys(form.folija.stampa).filter(k => k !== "dizajn").map(k => (
                             <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
                         ))}
                     </Grid>
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                        <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
+                        <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
+                    </div>
                 </Section>
 
                 <Section title="Parametri kaširanja / laminiranja" color={BLUE}>
@@ -1947,6 +1952,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <Input key={k} label={k} value={form.folija.kpdf[k]} onChange={v => update(`folija.kpdf.${k}`, v)} />
                         ))}
                     </Grid>
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #fed7aa" }}>
+                        <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
+                        <PerforacijaEditor value={form.folija.perforacija} onChange={v => update("folija.perforacija", v)} />
+                    </div>
                 </Section>
             </>
         )}

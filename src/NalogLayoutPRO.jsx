@@ -1,5 +1,6 @@
 import React from "react";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
+import { RolnaDizajn, PerforacijaCrtez } from "./components/RolnaPerfViews.jsx";
 
 const QR = (text, size = 84) =>
     "https://api.qrserver.com/v1/create-qr-code/?size=" + size + "x" + size + "&data=" + encodeURIComponent(text || "MAROPACK");
@@ -256,6 +257,16 @@ function StampaOrder({ nalog }) {
             <Section title="Boje / lak / napomena" compact>
                 <MiniTable columns={["R.br", "Boja", "Aniloks", "Kliše", "Napomena"]} rows={(Array.isArray(boje) && boje.length ? boje : [{ boja: "po KPDF", aniloks: "—", klise: "—", napomena: "kontrola prvog otiska" }]).slice(0, 8).map((b, i) => [i + 1, b.boja || b.name || "—", b.aniloks || "—", b.klise || "—", b.napomena || "—"])} />
             </Section>
+            {(() => {
+                const dz = folija.stampa?.dizajn || nalog.stampaDizajn || (typeof nalog.dizajn === "object" ? nalog.dizajn : {}) || {};
+                const url = dz.url || dz.slika || stampa.dizajnUrl || nalog.dizajn_url || "";
+                return (
+                    <Section title="Dizajn na finalnoj rolni" compact>
+                        <RolnaDizajn dizajnUrl={url} rotacija={dz.rotacija || stampa.rotacija || 0} zrcalo={dz.zrcalo ?? stampa.zrcalo ?? 1} maxWidth={300} />
+                        {!url && <div className="a4-note" style={{ marginTop: 6 }}>Dizajn nije priložen u templejtu — prikaz orijentacije rolne.</div>}
+                    </Section>
+                );
+            })()}
         </>
     );
 }
@@ -309,6 +320,19 @@ function RezanjeOrder({ nalog }) {
             <Section title="Parent → Child role / novi QR" compact>
                 <MiniTable columns={["Parent QR", "Child QR", "Širina", "Metara", "Status"]} rows={[[nalog.parent_qr || "ulazna rolna", "generiše se po završetku", nalog.finalna_sirina || "—", nalog.kol || "—", "za štampu etikete"]]} />
             </Section>
+            {(() => {
+                const p = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija
+                    : (nalog.perforacija && typeof nalog.perforacija === "object") ? nalog.perforacija : null;
+                if (!p) return null;
+                return (
+                    <Section title="Crtež perforacije (kotirano)" compact>
+                        <PerforacijaCrtez
+                            tip={p.tip || "linija"} kolone={p.kolone ?? p.brojKolona ?? 4}
+                            odVrha={p.odVrha ?? 50} odDna={p.odDna ?? 50} odLeve={p.odLeve ?? 20} odDesne={p.odDesne ?? 20}
+                            sirina={p.sirina || sirina || 270} visina={p.visina || 600} razmakRupa={p.razmakRupa ?? 5} maxWidth={300} />
+                    </Section>
+                );
+            })()}
         </>
     );
 }
