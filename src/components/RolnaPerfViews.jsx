@@ -43,16 +43,17 @@ function dimV(x, y1, y2, txt) {
 const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',', '.')); return isNaN(n) ? (d ?? 0) : n; };
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
     if (dizajnUrl) {
         const aspect = (num(w) > 0 && num(h) > 0) ? num(w) / num(h) : 1.4;
         const r = ((Math.round(num(rotacija)) % 360) + 360) % 360;
+        const sW = (num(sirinaPct, 100) || 100) / 100, sH = (num(visinaPct, 100) || 100) / 100;
         let IW, IH;
-        if (r === 90 || r === 270) { IH = webW; IW = webW * aspect; }  // ekran-širina = IH = puna širina
-        else { IW = webW; IH = webW / aspect; }                        // ekran-širina = IW = puna širina
+        if (r === 90 || r === 270) { IH = webW * sW; IW = (webW / aspect) * sH; }  // ekran-širina = IH
+        else { IW = webW * sW; IH = (webW / aspect) * sH; }                        // ekran-širina = IW
         const onH = (r === 90 || r === 270) ? IW : IH;                 // visina jedne pločice na ekranu
         const slot = Math.max(20, onH);
         const n = Math.max(1, Math.round(webH / slot));
@@ -165,13 +166,18 @@ export function RolnaDizajnEditor({ value = {}, onChange }) {
                 {busy && <span style={{ fontSize: 12, color: "#64748b" }}>Učitavam…</span>}
                 {v.naziv && !busy && <span style={{ fontSize: 12, color: "#64748b" }}>{v.naziv}</span>}
             </div>
-            <RolnaDizajn dizajnUrl={v.url} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} maxWidth={320} />
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                <div style={{ minWidth: 110 }}><label style={_lab}>Širina (%)</label><input style={_inp} type="number" value={v.sirinaPct ?? 100} onChange={(e) => set({ sirinaPct: e.target.value })} /></div>
+                <div style={{ minWidth: 110 }}><label style={_lab}>Visina (%)</label><input style={_inp} type="number" value={v.visinaPct ?? 100} onChange={(e) => set({ visinaPct: e.target.value })} /></div>
+                <div style={{ alignSelf: "end" }}><button type="button" style={_ebtn} onClick={() => set({ sirinaPct: 100, visinaPct: 100 })}>Puna širina</button></div>
+            </div>
+            <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={320} />
         </div>
     );
 }
 
 // Editor za templejt: parametri perforacije + živi kotirani crtež
-export function PerforacijaEditor({ value = {}, onChange }) {
+export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
     const v = { tip: "linija", kolone: 4, odVrha: 50, odDna: 50, odLeve: 20, odDesne: 20, sirina: 270, visina: 600, razmakRupa: 5, ...(value || {}) };
     const set = (k, val) => onChange && onChange({ ...v, [k]: val });
     const F = (label, key, type) => (
@@ -194,7 +200,23 @@ export function PerforacijaEditor({ value = {}, onChange }) {
                 {F("Visina prikaza (mm)", "visina")}
                 {F("Razmak rupa (mm)", "razmakRupa")}
             </div>
-            <PerforacijaCrtez {...v} maxWidth={320} />
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div style={{ flex: "1 1 280px", minWidth: 260 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>PERFORACIJA (kotirano)</div>
+                    <PerforacijaCrtez {...v} maxWidth={320} />
+                </div>
+                <div style={{ flex: "1 1 280px", minWidth: 260 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8" }}>DIZAJN NA FINALNOJ ROLNI</span>
+                        <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 270) % 360))}>↺</button>
+                        <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 90) % 360))}>↻</button>
+                    </div>
+                    <RolnaDizajn dizajnUrl={dizajn && dizajn.url} w={dizajn && dizajn.w} h={dizajn && dizajn.h}
+                        rotacija={v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0} zrcalo={(dizajn && dizajn.zrcalo) ?? 1}
+                        sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100} maxWidth={320} />
+                    {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
+                </div>
+            </div>
         </div>
     );
 }

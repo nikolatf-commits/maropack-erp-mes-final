@@ -1954,7 +1954,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </Grid>
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #fed7aa" }}>
                         <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
-                        <PerforacijaEditor value={form.folija.perforacija} onChange={v => update("folija.perforacija", v)} />
+                        <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} onChange={v => update("folija.perforacija", v)} />
                     </div>
                 </Section>
             </>
