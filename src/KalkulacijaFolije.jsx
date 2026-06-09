@@ -311,7 +311,7 @@ export default function KalkulacijaFolijeSmart() {
                 }
             }
 
-            const brKasiranja = Number(folija.kasiranje?.brojKasiranja || 0);
+            const brKasiranja = Math.max(Number(folija.kasiranje?.brojKasiranja || 0), Math.max(0, layers.length - 1));
             if (brKasiranja > 0) {
                 setLepak([
                     { potrosnja: 0.002, utrosak: 0.36, prolazi: brKasiranja, cena: 6 },

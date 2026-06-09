@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName } from "./data/materialMaster.js";
+import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 
@@ -1575,6 +1575,28 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const { data, error } = await query;
             if (error) throw error;
             await loadTemplates();
+            // Nove kombinacije materijala iz templejta -> trajno u material_master (deljeno)
+            try {
+                let dodato = 0;
+                for (const l of layers) {
+                    const vrsta = l?.vrsta || l?.tip;
+                    if (!vrsta) continue;
+                    const oznaka = l.oznaka_materijala || l.oznaka;
+                    const debljina = l.debljina ?? l.deb;
+                    if (masterHasCombo({ vrsta, oznaka, debljina })) continue;
+                    const ok = await upsertMaterialToDb({
+                        vrsta,
+                        pod_vrsta: l.pod_vrsta,
+                        oznaka,
+                        debljina,
+                        koeficijent: l.koeficijent ?? l.koef,
+                        gsm: l.gm2 ?? l.gsm ?? l.tezina,
+                        proizvodjac: l.proizvodjac || l.dobavljac,
+                    });
+                    if (ok) dodato++;
+                }
+                if (dodato) msg && msg(`Dodato u listu materijala: ${dodato} nov(ih)`, "ok");
+            } catch (e) { /* nije kritično za čuvanje templejta */ }
             if (setDb) setDb(prev => ({ ...prev, proizvodi: data?.[0] ? [data[0], ...(prev?.proizvodi || [])] : (prev?.proizvodi || []) }));
             msg && msg("Template sačuvan u Product Master bazu (proizvodi)");
         } catch (e) {
