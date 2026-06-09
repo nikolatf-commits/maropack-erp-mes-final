@@ -262,7 +262,7 @@ function StampaOrder({ nalog }) {
                 const url = dz.url || dz.slika || stampa.dizajnUrl || nalog.dizajn_url || "";
                 return (
                     <Section title="Dizajn na finalnoj rolni" compact>
-                        <RolnaDizajn dizajnUrl={url} rotacija={dz.rotacija || stampa.rotacija || 0} zrcalo={dz.zrcalo ?? stampa.zrcalo ?? 1} maxWidth={300} />
+                        <RolnaDizajn dizajnUrl={url} w={dz.w} h={dz.h} rotacija={dz.rotacija || stampa.rotacija || 0} zrcalo={dz.zrcalo ?? stampa.zrcalo ?? 1} maxWidth={300} />
                         {!url && <div className="a4-note" style={{ marginTop: 6 }}>Dizajn nije priložen u templejtu — prikaz orijentacije rolne.</div>}
                     </Section>
                 );
