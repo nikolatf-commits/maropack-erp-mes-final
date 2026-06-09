@@ -165,9 +165,9 @@ export function mapIstorijaRow(h = {}, imeMap = {}) {
     const spec = _specRolne(izvor);
     const opis = [detalj.join(" · "), spec].filter(Boolean).join("  ·  ");
 
-    const operater = nv.operater || sv.operater || h.operater
-        || imeMap[h.user_id] || imeMap[nv.kreirao_user_id] || imeMap[sv.kreirao_user_id]
-        || imeMap[String(nv.email || sv.email || "").toLowerCase()] || "—";
+    const operater = imeMap[h.user_id] || imeMap[nv.kreirao_user_id] || imeMap[sv.kreirao_user_id]
+        || imeMap[String(nv.email || sv.email || "").toLowerCase()]
+        || nv.operater || sv.operater || h.operater || "—";
 
     return {
         vreme: h.created_at ? new Date(h.created_at).toLocaleString("sr-RS") : "",
