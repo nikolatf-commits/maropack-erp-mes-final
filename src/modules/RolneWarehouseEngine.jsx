@@ -2559,8 +2559,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ fontWeight: 950 }}>{r.qr}</div>
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
-                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span>{displayStatus(r.status)}</span></div>
-                                    {r.napomena && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {r.napomena}</div>}
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} style={{ color: statusColor(r.status), fontWeight: 900 }}>{displayStatus(r.status)}</span></div>
+                                    {String(r.status || "").toLowerCase().includes("rez") ? (
+                                        <div style={{ fontSize: 12, color: "#92400e", marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "7px 9px" }}>
+                                            <div><b>Rezervisano za:</b> {r.dodeljeno_nalogu || r.master_nalog_id || "—"}</div>
+                                            {r.napomena && <div style={{ marginTop: 2 }}>📝 {r.napomena}</div>}
+                                            {r.rezervisao && <div style={{ marginTop: 2 }}>👤 Rezervisao: {r.rezervisao}</div>}
+                                        </div>
+                                    ) : (r.napomena && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {r.napomena}</div>)}
                                     <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", width: "100%", marginTop: 10 }}>QR / Etiketa</button>
                                 </div>
                             ))}
