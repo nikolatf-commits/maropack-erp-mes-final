@@ -153,6 +153,7 @@ export function mapIstorijaRow(h = {}, imeMap = {}) {
     // detalj akcije (status promena / metraža / nalog / lokacija / napomena)
     const detalj = [];
     if (h.napomena) detalj.push(h.napomena);
+    if (nv.napomena && nv.napomena !== sv.napomena) detalj.push(`„${nv.napomena}”`);
     if (nv.status && sv.status && nv.status !== sv.status) detalj.push(`${sv.status} → ${nv.status}`);
     else if (nv.status && akcijaRaw.toLowerCase().includes("status")) detalj.push(`→ ${nv.status}`);
     const mPre = h.metraza_pre ?? sv.metraza_ost, mPosle = h.metraza_posle ?? nv.metraza_ost;

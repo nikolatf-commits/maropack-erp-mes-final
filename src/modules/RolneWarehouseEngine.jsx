@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
 import { logMagacinIstorija, mapIstorijaRow, loadOperateriMap } from "../utils/magacinIstorija.js";
+import { useAuth } from "../auth/AuthProvider";
 import {
     getVrsteMaterijala,
     getOznakeZaVrstu,
@@ -142,8 +143,12 @@ function locationLabel(value) {
     return v || "Bez lokacije";
 }
 function parseLocationQr(value) {
-    const raw = String(value || "").trim().toUpperCase();
+    const orig = String(value || "").trim();
+    const raw = orig.toUpperCase();
     if (!raw) return null;
+    // Direktna lokacija u jednom skeniranju: "LOK:Magacin A1" ili "MAROPACK|LOK|Magacin A1"
+    const dm = orig.match(/^\s*(?:MAROPACK\s*\|\s*)?(?:LOK|LOKACIJA)\s*[:|]\s*(.+)$/i);
+    if (dm && dm[1].trim()) return { direct: true, value: dm[1].trim() };
     const parts = raw.split("|").map((x) => x.trim());
     if (parts[0] === "MAROPACK" && parts.length >= 3) {
         const type = parts[1];
@@ -856,6 +861,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [operater, setOperater] = useState(() => safeRead(LS_OPERATER, null));
     const [loginForm, setLoginForm] = useState({ email: "", sifra: "" });
     const isAdmin = ADMIN_EMAILS.includes(String(operater?.email || "").trim().toLowerCase());
+    const { userProfile, userRole } = useAuth();
+    const canReserve = true; // svi prijavljeni korisnici mogu da rezervišu
+    const reserverName = userProfile?.ime || operater?.ime || userProfile?.email || operater?.email || "";
     useEffect(() => { if (operater && !isAdmin && ["predlog"].includes(activeTab)) setActiveTab("rolne"); }, [operater, isAdmin, activeTab]);
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
@@ -1489,6 +1497,37 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setForm(merged);
     }
 
+    async function lotVecPostoji(lot) {
+        const L = String(lot || "").trim();
+        if (!L) return false;
+        if (rolne.some((r) => isRollVisibleOnStock(r) && String(r.lot || "").trim().toLowerCase() === L.toLowerCase())) return true;
+        try {
+            if (!supabase?.__notConfigured) {
+                const { data } = await supabase.from("magacin").select("id,lot,status").ilike("lot", L).neq("status", "obrisano").limit(1);
+                if (data && data.length) return true;
+            }
+        } catch (e) { /* oslanjamo se na lokalnu proveru */ }
+        return false;
+    }
+
+    async function brRolneVecPostoji(br) {
+        const B = String(br || "").trim();
+        if (!B) return false;
+        if (rolne.some((r) => String(r.br_rolne || r.qr || "").trim().toLowerCase() === B.toLowerCase())) return true;
+        try {
+            if (!supabase?.__notConfigured) {
+                const { data } = await supabase.from("magacin").select("id").or(`br_rolne.eq.${B},qr_code.eq.${B}`).limit(1);
+                if (data && data.length) return true;
+            }
+        } catch (e) { /* oslanjamo se na lokalnu proveru */ }
+        return false;
+    }
+    async function uniqueBrRolne() {
+        let br = makeId("ROLNA");
+        for (let i = 0; i < 6 && (await brRolneVecPostoji(br)); i++) br = makeId("ROLNA");
+        return br;
+    }
+
     async function addCompositeRoll() {
         if (kasiranoLayers.length < 2) { msg?.("Kaširana rolna mora imati bar 2 sloja", "err"); return; }
         if (kasiranoLayers.some((l) => !String(l.vrsta || "").trim() || !number(l.debljina))) { msg?.("Svaki sloj mora imati vrstu i debljinu/gramaturu", "err"); return; }
@@ -1496,11 +1535,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const finalKg = calcMode === "m_to_kg" ? kasiranoKg : number(form.kg);
         const finalM = calcMode === "kg_to_m" ? kasiranoM : number(form.duzina);
         if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
+        if (await lotVecPostoji(form.lot)) { msg?.(`LOT „${form.lot}" već postoji u magacinu — LOT ne može da se duplira.`, "err"); return; }
         const lokK = String(form.lokacija || "").trim();
         if (lokK && rolne.some((r) => isRollVisibleOnStock(r) && String(r.lokacija || "").trim().toUpperCase() === lokK.toUpperCase())) {
             if (!confirm(`Lokacija ${lokK} je već zauzeta drugom rolnom. Potvrdi da na istu lokaciju ide više rolni?`)) return;
         }
-        const brRolne = makeId("ROLNA");
+        const brRolne = await uniqueBrRolne();
         const slojeviTxt = kasiranoLayers.map((l, i) => `${i + 1}) Vrsta: ${l.vrsta} | Pod vrsta: ${l.pod_vrsta || "—"} | Oznaka: ${l.oznaka || "—"} | ${l.debljina}${String(l.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"} = ${fmt(kasLayerGsm(l), 2)} g/m²`).join("  ;  ");
         const napomenaFull = [form.napomena, `SPOJ ${kasiranoLayers.length} sloja — ${slojeviTxt}  ;  lepak ${kasiranoLepak} g/m² × ${kasiranoLayers.length - 1}  ;  UKUPNO ${fmt(compositeGsm, 2)} g/m², ${fmt(compositeDebljina, 2)} µ`].filter(Boolean).join(" — ");
         let item = null;
@@ -1550,11 +1590,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const finalKg = calcMode === "m_to_kg" ? calculatedKg : number(form.kg);
         const finalM = calcMode === "kg_to_m" ? calculatedM : number(form.duzina);
         if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
+        if (await lotVecPostoji(form.lot)) { msg?.(`LOT „${form.lot}" već postoji u magacinu — LOT ne može da se duplira.`, "err"); return; }
         const lok = String(form.lokacija || "").trim();
         if (lok && rolne.some((r) => isRollVisibleOnStock(r) && String(r.lokacija || "").trim().toUpperCase() === lok.toUpperCase())) {
             if (!confirm(`Lokacija ${lok} je već zauzeta drugom rolnom. Potvrdi da na istu lokaciju ide više rolni?`)) return;
         }
-        const brRolne = makeId("ROLNA");
+        const brRolne = await uniqueBrRolne();
         const cleanCode = cleanOznaka(selectedMat.oznaka || materialPick.oznaka || selectedMat.komercijalnaOznaka, selectedMat.vrsta);
         let item = null;
         try {
@@ -1623,12 +1664,16 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         await reload();
     }
     async function reserveForMaster(r) {
-        const masterId = prompt("Unesi master_nalog_id / broj naloga za rezervaciju:", r.master_nalog_id || "");
-        if (masterId === null) return;
-        const updated = { ...r, status: "Rezervisano", master_nalog_id: masterId, datum_poslednje_promene: now() };
+        if (!canReserve) { msg?.("Nemate dozvolu za rezervaciju rolni (mogu admin, menadžer ili magacioner).", "err"); return; }
+        const ref = prompt("Za koji nalog/proizvod se rezerviše? (broj naloga ili naziv)", r.dodeljeno_nalogu || r.master_nalog_id || "");
+        if (ref === null) return;
+        const napomena = prompt("Komentar / za šta je rezervisano (opciono):", r.napomena || "") || "";
+        const updated = { ...r, status: "Rezervisano", dodeljeno_nalogu: ref, napomena, rezervisao: reserverName, datum_poslednje_promene: now() };
         try {
             if (!supabase?.__notConfigured && r.id) {
-                const { error } = await supabase.from("magacin").update({ status: "Rezervisano", master_nalog_id: masterId || null, updated_at: new Date().toISOString() }).eq("id", r.id);
+                const { error } = await supabase.from("magacin")
+                    .update({ status: "Rezervisano", dodeljeno_nalogu: ref || null, napomena: napomena || null, rezervisao: reserverName || null, updated_at: new Date().toISOString() })
+                    .eq("id", r.id);
                 if (error) throw error;
             }
         } catch (e) {
@@ -1636,8 +1681,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             msg?.("Rezervacija nije upisana u Supabase: " + (e?.message || e), "err");
         }
         setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        await logHistory({ qr: r.qr, event: "REZERVACIJA", opis: `Rezervisano za ${masterId}`, stanje: "Rezervisano" });
-        msg?.(`Rolna ${r.qr} rezervisana za ${masterId}`);
+        msg?.(`Rolna ${r.qr} rezervisana za ${ref}${napomena ? " — " + napomena : ""}`);
         await reload();
     }
     async function consumeRoll(r) {
@@ -2174,6 +2218,39 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         await reload();
         msg?.(`Uvezeno ${count} rolni iz packing liste.`);
     }
+    async function applyDirectLocation(targetMode, location) {
+        const loc = String(location || "").trim();
+        if (!loc) return;
+        const targetRoll = targetMode === "povrat" ? povratRoll : popisRoll;
+        if (!targetRoll?.id) {
+            msg?.("Prvo skeniraj/pronađi rolnu, pa zatim skeniraj QR lokacije.", "err");
+            return;
+        }
+        const oldLocation = targetRoll.lokacija || "";
+        try {
+            await persistRollState(targetRoll, { location: loc }, { reload: false });
+            try {
+                if (!supabase?.__notConfigured) {
+                    await supabase.from("istorija_lokacija_rolni").insert({
+                        rolna_id: targetRoll.id,
+                        br_rolne: targetRoll.br_rolne || targetRoll.qr,
+                        stara_lokacija: oldLocation,
+                        nova_lokacija: loc,
+                        korisnik: reserverName || operater?.ime || "magacioner",
+                        napomena: `Promena lokacije QR skeniranjem: ${oldLocation || "—"} → ${loc}`,
+                    });
+                }
+            } catch (histErr) { /* istorija lokacija nije kritična */ }
+            setRolne((prev) => prev.map((x) => String(x.id) === String(targetRoll.id) ? { ...x, lokacija: loc } : x));
+            if (targetMode === "povrat") { setPovratRoll((r) => r ? { ...r, lokacija: loc } : r); setPovratForm((f) => ({ ...f, lokacija: loc })); }
+            else { setPopisRoll((r) => r ? { ...r, lokacija: loc } : r); setPopisForm((f) => ({ ...f, lokacija: loc })); }
+            msg?.(`Lokacija postavljena: ${loc}`);
+            await reload();
+        } catch (e) {
+            msg?.("Upis lokacije nije uspeo: " + (e?.message || e), "err");
+        }
+    }
+
     async function updateRollLocationByScan(targetMode, parts) {
         const location = buildLocationCode(parts);
         if (!location) return;
@@ -2228,6 +2305,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 const loc = parseLocationQr(decodedText);
                 if (!loc) {
                     msg?.("Ovo nije QR lokacije. Skeniraj MAGACIN / RED / POLICA / POZICIJA QR.", "err");
+                    setScannerMode(null);
+                    return;
+                }
+                if (loc.direct) {
+                    await applyDirectLocation(locationTarget, loc.value);
+                    setLocationParts({ magacin: "", red: "", polica: "", pozicija: "" });
                     setScannerMode(null);
                     return;
                 }
@@ -2796,7 +2879,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             </thead>
                             <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900 }}>{displayStatus(r.status)}</span></td>
+                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} title={(String(r.status || "").toLowerCase().includes("rez")) ? `Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}` : undefined} style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900, cursor: String(r.status || "").toLowerCase().includes("rez") ? "pointer" : "default" }}>{displayStatus(r.status)}</span></td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
                                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
