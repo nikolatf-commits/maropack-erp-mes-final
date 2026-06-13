@@ -1,4 +1,4 @@
-nimport React from "react";
+import React from "react";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 import { RolnaDizajn, PerforacijaCrtez } from "./components/RolnaPerfViews.jsx";
 
