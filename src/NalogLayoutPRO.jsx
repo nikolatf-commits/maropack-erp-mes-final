@@ -1,4 +1,4 @@
-import React from "react";
+nimport React from "react";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 import { RolnaDizajn, PerforacijaCrtez } from "./components/RolnaPerfViews.jsx";
 
@@ -44,10 +44,16 @@ function normNalog(t, naziv, activeTab) {
 function getData(nalog) {
     const linked = enrichNalogForPrint(nalog || {});
     const od = safeJson(linked.order_data, {}) || {};
-    const tpl = safeJson(linked.product_template || linked.template || od.template, {}) || {};
+    // Ceo templejt PTE-a putuje kroz ponudu/nalog u res.template (i kopijama).
+    const resObj = safeJson(linked.res, {}) || {};
+    const rezObj = safeJson(linked.rezultati, {}) || {};
+    const parObj = safeJson(linked.parametri, {}) || {};
+    const parRes = safeJson(parObj.res, {}) || {};
+    const embTpl = resObj.template || rezObj.template || parRes.template || parObj.template || null;
+    const tpl = safeJson(linked.product_template || linked.template || od.template || embTpl, {}) || {};
     const templateData = safeJson(linked.templateData || tpl.data || od.templateData, {}) || {};
     const t = templateData && Object.keys(templateData).length ? templateData : tpl;
-    const folija = linked.folija || od.folija || t.folija || {};
+    const folija = linked.folija || od.folija || t.folija || templateData.folija || tpl.folija || (tpl.data && tpl.data.folija) || {};
     const kesa = linked.kesa || od.kesa || t.kesa || {};
     const spulna = linked.spulna || od.spulna || t.spulna || t.spulne || {};
     const tehnicki = linked.tehnicki || od.tehnicki || t.tehnicki || {};
@@ -323,13 +329,26 @@ function RezanjeOrder({ nalog }) {
             {(() => {
                 const p = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija
                     : (nalog.perforacija && typeof nalog.perforacija === "object") ? nalog.perforacija : null;
-                if (!p) return null;
+                const dz = folija.stampa?.dizajn || nalog.stampaDizajn || (typeof nalog.dizajn === "object" ? nalog.dizajn : {}) || {};
+                const url = dz.url || dz.slika || folija.stampa?.dizajnUrl || nalog.dizajn_url || "";
+                if (!p && !url) return null;
                 return (
-                    <Section title="Crtež perforacije (kotirano)" compact>
-                        <PerforacijaCrtez
-                            tip={p.tip || "linija"} kolone={p.kolone ?? p.brojKolona ?? 4}
-                            odVrha={p.odVrha ?? 50} odDna={p.odDna ?? 50} odLeve={p.odLeve ?? 20} odDesne={p.odDesne ?? 20}
-                            sirina={p.sirina || sirina || 270} visina={p.visina || 600} razmakRupa={p.razmakRupa ?? 5} maxWidth={300} />
+                    <Section title="Finalna rolna i perforacija (kotirano)" compact>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", marginBottom: 4 }}>Finalna rolna</div>
+                                <RolnaDizajn dizajnUrl={url} w={dz.w} h={dz.h} rotacija={dz.rotacija || folija.stampa?.rotacija || 0} zrcalo={dz.zrcalo ?? folija.stampa?.zrcalo ?? 1} sirinaPct={dz.sirinaPct ?? 100} visinaPct={dz.visinaPct ?? 100} maxWidth={260} />
+                            </div>
+                            {p && (
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", marginBottom: 4 }}>Perforacija</div>
+                                    <PerforacijaCrtez
+                                        tip={p.tip || "linija"} kolone={p.kolone ?? p.brojKolona ?? 4}
+                                        odVrha={p.odVrha ?? 50} odDna={p.odDna ?? 50} odLeve={p.odLeve ?? 20} odDesne={p.odDesne ?? 20}
+                                        sirina={p.sirina || sirina || 270} visina={p.visina || 600} razmakRupa={p.razmakRupa ?? 5} maxWidth={260} />
+                                </div>
+                            )}
+                        </div>
                     </Section>
                 );
             })()}
