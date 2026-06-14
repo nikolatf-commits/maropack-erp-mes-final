@@ -118,38 +118,38 @@ import { fetchCoreData, generateMasterFromPonuda } from './services/supabaseCore
 // Sve nepoznato (payload-ovi, source_chain, aliasi…) ide u jsonb link_meta,
 // pa se pri čitanju vraća nazad (enrichNalogForPrint).
 const NALOG_CONSUMED = new Set([
-  "broj_naloga", "ponBr", "broj", "tip_proizvoda", "tip", "naziv_proizvoda", "proizvod", "prod", "naziv",
-  "kupac", "kolicina", "kol", "status", "qr_kod", "qr_code", "kalkulacija_id", "ponuda_id", "ponId",
-  "specifikacija", "struktura", "mats", "tip_naloga", "vrsta", "operacija", "materijali_struktura",
-  "template_id", "product_master_id", "datum_kreiranja", "datum_isporuke", "link_meta", "id", "created_at"
+    "broj_naloga", "ponBr", "broj", "tip_proizvoda", "tip", "naziv_proizvoda", "proizvod", "prod", "naziv",
+    "kupac", "kolicina", "kol", "status", "qr_kod", "qr_code", "kalkulacija_id", "ponuda_id", "ponId",
+    "specifikacija", "struktura", "mats", "tip_naloga", "vrsta", "operacija", "materijali_struktura",
+    "template_id", "product_master_id", "datum_kreiranja", "datum_isporuke", "link_meta", "id", "created_at"
 ]);
 function toNalogRow(o = {}) {
-  const x = o || {};
-  const kalkId = (x.kalkulacija_id != null && x.kalkulacija_id !== "" && !Number.isNaN(Number(x.kalkulacija_id))) ? Number(x.kalkulacija_id) : null;
-  const row = {
-    broj_naloga: x.broj_naloga || x.ponBr || x.broj || null,
-    tip_proizvoda: x.tip_proizvoda || x.tip || null,
-    naziv_proizvoda: x.naziv_proizvoda || x.proizvod || x.prod || x.naziv || null,
-    kupac: x.kupac || null,
-    kolicina: Number(x.kolicina ?? x.kol) || null,
-    status: x.status || "Ceka",
-    qr_kod: x.qr_kod || x.qr_code || null,
-    qr_code: x.qr_code || x.qr_kod || null,
-    kalkulacija_id: kalkId,
-    ponuda_id: x.ponuda_id ?? x.ponId ?? null,
-    proizvod: x.proizvod || x.prod || x.naziv_proizvoda || null,
-    specifikacija: x.specifikacija || x.struktura || x.mats || null,
-    tip_naloga: x.tip_naloga || x.vrsta || null,
-    vrsta: x.vrsta || x.tip_naloga || null,
-    operacija: x.operacija || x.naziv || null,
-    materijali_struktura: x.materijali_struktura || x.struktura || x.mats || null,
-    template_id: x.template_id != null ? String(x.template_id) : null,
-    product_master_id: x.product_master_id || null,
-  };
-  const meta = {};
-  for (const k in x) { if (!NALOG_CONSUMED.has(k) && x[k] !== undefined) meta[k] = x[k]; }
-  row.link_meta = Object.keys(meta).length ? meta : null;
-  return row;
+    const x = o || {};
+    const kalkId = (x.kalkulacija_id != null && x.kalkulacija_id !== "" && !Number.isNaN(Number(x.kalkulacija_id))) ? Number(x.kalkulacija_id) : null;
+    const row = {
+        broj_naloga: x.broj_naloga || x.ponBr || x.broj || null,
+        tip_proizvoda: x.tip_proizvoda || x.tip || null,
+        naziv_proizvoda: x.naziv_proizvoda || x.proizvod || x.prod || x.naziv || null,
+        kupac: x.kupac || null,
+        kolicina: Number(x.kolicina ?? x.kol) || null,
+        status: x.status || "Ceka",
+        qr_kod: x.qr_kod || x.qr_code || null,
+        qr_code: x.qr_code || x.qr_kod || null,
+        kalkulacija_id: kalkId,
+        ponuda_id: x.ponuda_id ?? x.ponId ?? null,
+        proizvod: x.proizvod || x.prod || x.naziv_proizvoda || null,
+        specifikacija: x.specifikacija || x.struktura || x.mats || null,
+        tip_naloga: x.tip_naloga || x.vrsta || null,
+        vrsta: x.vrsta || x.tip_naloga || null,
+        operacija: x.operacija || x.naziv || null,
+        materijali_struktura: x.materijali_struktura || x.struktura || x.mats || null,
+        template_id: x.template_id != null ? String(x.template_id) : null,
+        product_master_id: x.product_master_id || null,
+    };
+    const meta = {};
+    for (const k in x) { if (!NALOG_CONSUMED.has(k) && x[k] !== undefined) meta[k] = x[k]; }
+    row.link_meta = Object.keys(meta).length ? meta : null;
+    return row;
 }
 
 // ==================== PROFESIONALNI NALOZI ====================
@@ -1770,23 +1770,25 @@ function MainAppContent() {
 
     async function kreirajNalogeIzPonude(pon) {
         if (!pon) { msg("Ponuda nije pronađena", "err"); return; }
+        if (!pon.id) { msg("Ponuda nije sačuvana u bazi (nema ID). Sačuvaj ponudu pa pokušaj ponovo.", "err"); return; }
 
-        // V14: ako ponuda postoji u Supabase Core tabeli, prvo koristi RPC funkciju
-        // public.generate_master_nalog_from_ponuda(). Ako RPC nije dostupan ili ponuda
-        // nema UUID, automatski nastavlja novi Supabase RPC tok.
+        // Jedini izvor istine: SQL RPC kreiraj_naloge_iz_ponude -> radni_nalozi + operativni_nalozi.
         try {
             const rpcResult = await generateMasterFromPonuda(pon);
             if (rpcResult.usedRpc && !rpcResult.error) {
-                msg("Master nalog i operativni nalozi kreirani preko Supabase RPC funkcije.");
-                setPage("nalozi");
+                try { await supabase.from('ponude').update({ status: "prihvaceno" }).eq('id', pon.id); } catch (e) { }
+                var brNal = (rpcResult.data && (rpcResult.data.broj_naloga || rpcResult.data.broj)) || "";
+                msg("Nalozi kreirani" + (brNal ? " · " + brNal : "") + ". Otvaram glavne naloge.");
                 setPregPonuda(null);
+                setPage("nalozi");
                 return;
             }
-            if (rpcResult.usedRpc && rpcResult.error) {
-                console.warn("RPC generate_master_nalog_from_ponuda nije uspeo, RPC greška:", rpcResult.error.message);
-            }
+            var rpcErr = (rpcResult.error && rpcResult.error.message) || "Nepoznata greška.";
+            msg("Naloge nije moguće kreirati: " + rpcErr, "err");
+            return;
         } catch (rpcFatal) {
-            console.warn("RPC tok nije dostupan, RPC greška:", rpcFatal.message);
+            msg("Greška pri kreiranju naloga: " + (rpcFatal.message || rpcFatal), "err");
+            return;
         }
 
         var vm = Array.isArray(pon.mats) ? pon.mats : (Array.isArray(pon.struktura) ? pon.struktura : []);

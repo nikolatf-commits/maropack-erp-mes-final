@@ -38,6 +38,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const [loading, setLoading] = useState(false);
     const [tab, setTab] = useState("materijal");
     const [tplRow, setTplRow] = useState(null);
+    const [rezRolne, setRezRolne] = useState([]);
 
     useEffect(() => {
         setNalozi((naloziProp || []).map(enrichNalogForPrint));
@@ -138,6 +139,30 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         return () => { alive = false; };
     }, [tplKey?.by, tplKey?.val]);
 
+    // Rezervisane rolne za ovaj nalog (magacin.dodeljeno_nalogu ~ broj glavnog naloga)
+    const masterBroj = useMemo(() => {
+        const raw = String(brojNaloga || (osnovniNalog && (osnovniNalog.master_broj || osnovniNalog.broj_naloga)) || "");
+        return raw.replace(/-(MATERIJAL|STAMPA|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|SPULNA|KESA)$/i, "").trim();
+    }, [brojNaloga, osnovniNalog]);
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            if (!masterBroj) { setRezRolne([]); return; }
+            try {
+                const { data } = await supabase.from("magacin").select("*").ilike("dodeljeno_nalogu", "%" + masterBroj + "%").limit(60);
+                if (!alive) return;
+                setRezRolne((data || []).map((r) => ({
+                    qr: r.br_rolne || r.qr_code || r.id,
+                    lot: r.lot, lokacija: r.lokacija, sirina: r.sirina,
+                    duzina: r.metraza_ost || r.metraza, kg: r.kg_neto,
+                    napomena: r.napomena, rezervisao: r.rezervisao,
+                })));
+            } catch (e) { if (alive) setRezRolne([]); }
+        })();
+        return () => { alive = false; };
+    }, [masterBroj]);
+
     const tipProizvoda = nalozi[0]?.tip_proizvoda || nalozi[0]?.tip || osnovniNalog.tip_proizvoda || osnovniNalog.tip || "folija";
 
     const dostupni = useMemo(() => {
@@ -161,6 +186,9 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
 
     // Dopuni nalog podacima iz originalnog template-a (dizajn na rolni, perforacija, broj traka),
     // ali vrednosti samog naloga imaju prednost.
+    if (rezRolne && rezRolne.length && !(aktivni.rezervisane_rolne && aktivni.rezervisane_rolne.length)) {
+        aktivni.rezervisane_rolne = rezRolne;
+    }
     if (tplRow) {
         const tdata = tplRow.data || tplRow;
         const tf = (tdata && tdata.folija) || tplRow.folija || null;
