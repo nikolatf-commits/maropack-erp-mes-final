@@ -2353,19 +2353,23 @@ function MainAppContent() {
                             <div>
                                 {(function () {
                                     var grupe = {};
-                                    db.nalozi.forEach(function (n) { var key = n.ponBr || n.broj_naloga || n.broj || "Bez broja"; if (!grupe[key]) grupe[key] = []; grupe[key].push(n); });
-                                    return Object.keys(grupe).map(function (br) {
-                                        var gr = grupe[br];
-                                        var zav = gr.filter(function (n) { return n.status === "Završeno"; }).length;
+                                    db.nalozi.forEach(function (n) { var key = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "Bez broja"; if (!grupe[key]) grupe[key] = []; grupe[key].push(n); });
+                                    return Object.keys(grupe).map(function (key) {
+                                        var gr = grupe[key].slice().sort(function (a, b) { return (a.redosled || 0) - (b.redosled || 0); });
+                                        var master = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
+                                        var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
+                                        var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
+                                        var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
+                                        var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
                                         var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
-                                        var tipNaloga = normalizujTipProizvoda(gr[0].tip || gr[0].tip_proizvoda || "folija");
+                                        var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
                                         return (
-                                            <div key={br} style={Object.assign({}, card, { marginBottom: 14 })}>
+                                            <div key={key} style={Object.assign({}, card, { marginBottom: 14 })}>
                                                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
                                                     <span style={{ fontWeight: 800, fontSize: 14, color: "#1d4ed8" }}>{br || 'N/A'}</span>
                                                     <span style={{ background: (TIP_BOJA[tipNaloga] || "#64748b") + "20", color: TIP_BOJA[tipNaloga] || "#64748b", borderRadius: 6, padding: "2px 8px", fontWeight: 700, fontSize: 10 }}>{TIP_LAB[tipNaloga] || "—"}</span>
-                                                    <span style={{ fontWeight: 600, fontSize: 13 }}>{gr[0].kupac || gr[0].klijent}</span>
-                                                    <span style={{ color: "#64748b", fontSize: 12 }}>{gr[0].prod || gr[0].proizvod || gr[0].naziv}</span>
+                                                    <span style={{ fontWeight: 600, fontSize: 13 }}>{grKupac}</span>
+                                                    <span style={{ color: "#64748b", fontSize: 12 }}>{grProizvod}</span>
                                                     <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
                                                     <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
                                                         <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
