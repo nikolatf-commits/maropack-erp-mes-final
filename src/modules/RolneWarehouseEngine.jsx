@@ -441,15 +441,14 @@ function parsePlastchimPacking(text = "") {
     const product = (t.match(/PRODUCT:\s*([^\n]+)/i) || [])[1] || "BOPP film";
     const vrsta = detectVrstaFromText(product, "BOPP");
 
-    // pod-vrsta kako je u našoj bazi (BOPP: transparent/beli/sedef/mat/metalizovani)
+    // pod-vrsta kako je u našoj centralnoj listi (Transparent/Matt/Pearl/White/Metalized)
     const podVrstaFromCode = (v, code) => {
         const c = String(code || "").toUpperCase();
-        if (String(v).toUpperCase() !== "BOPP") return "transparent";
-        if (/M$/.test(c) || c.includes("MAT")) return "mat";
-        if (c.includes("PEARL") || c.includes("SEDEF")) return "sedef";
-        if (c.includes("WHITE") || c.includes("BEL")) return "beli";
-        if (c.includes("MET")) return "metalizovani";
-        return "transparent";
+        if (/M$/.test(c) || c.includes("MAT")) return "Matt";
+        if (c.includes("PEARL") || c.includes("SEDEF")) return "Pearl";
+        if (c.includes("WHITE") || c.includes("BEL")) return "White";
+        if (c.includes("MET")) return "Metalized";
+        return "Transparent";
     };
 
     // PDF često lomi red usred kolona — zato spljoštimo CEO tekst i hvatamo
@@ -462,8 +461,7 @@ function parsePlastchimPacking(text = "") {
         const rollNo = m[1];
         const palletTok = m[2];
         const orderNo = palletTok.split(".")[0] || "";
-        const filmType = m[3];
-        const oznaka = filmType;
+        const oznaka = m[3];
         rows.push({
             br_rolne: rollNo,
             qr: rollNo,
@@ -477,11 +475,12 @@ function parsePlastchimPacking(text = "") {
             duzina: parseNumSmart(m[7]),
             kg: parseNumSmart(m[8]),
             kg_bruto: parseNumSmart(m[9]),
-            lot: orderNo,
+            lot: rollNo,                         // lot jedinstven po rolni (= broj rolne)
             palet: palletTok,
             hilzna_mm: 152,
             spoljasnji_precnik_mm: parseNumSmart(m[6]),
             datum: date,
+            napomena: `Plastchim · narudžbenica ${orderNo} · paleta ${palletTok}`,
         });
     }
     return rows;
@@ -2970,13 +2969,15 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
                 <tbody>{packingRows.map((r, i) => {
-                    const opts = getRowOptions(r); return <tr key={i}>
+                    const opts = getRowOptions(r);
+                    const withVal = (arr, val) => { const a = Array.isArray(arr) ? arr : []; return (val !== "" && val != null && !a.map(String).includes(String(val))) ? [val, ...a] : a; };
+                    return <tr key={i}>
                         <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
-                        <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{opts.vrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                        <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{opts.podVrste.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                        <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{opts.oznake.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                        <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{opts.proizvodjaci.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
-                        <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{opts.debljine.map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{withVal(opts.vrste, r.vrsta).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{withVal(opts.podVrste, r.pod_vrsta).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{withVal(opts.oznake, r.oznaka_materijala || r.komercijalnaOznaka).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={{ ...compactInput, minWidth: 130 }} value={r.proizvodjac || ""} onChange={(e) => updateRow(i, { proizvodjac: e.target.value })}><option value="">—</option>{withVal(opts.proizvodjaci, r.proizvodjac).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
+                        <td style={cell}><select style={compactInput} value={String(r.debljina || "")} onChange={(e) => updateRow(i, { debljina: Number(e.target.value) })}><option value="">—</option>{withVal(opts.debljine, r.debljina).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
                         <td style={cell}><input style={compactInput} type="number" value={r.sirina || ""} onChange={(e) => updateRow(i, { sirina: e.target.value })} /></td>
                         <td style={cell}><input style={compactInput} type="number" value={r.duzina || ""} onChange={(e) => updateRow(i, { duzina: e.target.value })} /></td>
                         <td style={cell}><input style={compactInput} type="number" value={r.kg || ""} onChange={(e) => updateRow(i, { kg: e.target.value })} /></td>
