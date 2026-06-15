@@ -2340,6 +2340,11 @@ function BojeStampeEditor({ value, onChange }) {
         const baza = pantoneHex(b.oznaka);
         return baza || b.hex || "#e2e8f0";
     }
+    function pickerVal(b) {
+        const baza = pantoneHex(b.oznaka);
+        const v = b.hex || baza || "#cccccc";
+        return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#cccccc";
+    }
     return (
         <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -2350,24 +2355,29 @@ function BojeStampeEditor({ value, onChange }) {
             {boje.map((b, i) => {
                 const sw = swatchOf(b);
                 const uBazi = b.tip === "Spot (Pantone)" && !!pantoneHex(b.oznaka);
-                const treba = b.tip === "Spot (Pantone)" && !uBazi;
+                const auto = b.tip === "Bela" || b.tip === "Lak";
                 return (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "26px 1.4fr 1fr 0.8fr 0.8fr auto 28px", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                        <div title={uBazi ? "iz Pantone baze" : (b.hex ? "ručni HEX" : "—")} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid rgba(0,0,0,.15)", background: sw }} />
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "30px 1.4fr 1fr 0.8fr 0.8fr 120px 28px", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                        <div title={uBazi ? "iz Pantone baze" : (b.hex ? "izabrana boja" : "izaberi boju desno")} style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid rgba(0,0,0,.18)", background: sw, boxShadow: "inset 0 -5px 8px rgba(0,0,0,.12)" }} />
                         <input value={b.oznaka || ""} placeholder="npr. 348 C / Cyan" onChange={(e) => setRow(i, { oznaka: e.target.value })} style={fieldStyle()} />
                         <select value={b.tip || "Spot (Pantone)"} onChange={(e) => setRow(i, { tip: e.target.value })} style={fieldStyle()}>
                             {TIPOVI.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                         <input value={b.aniloks || ""} placeholder="aniloks" onChange={(e) => setRow(i, { aniloks: e.target.value })} style={fieldStyle()} />
                         <input value={b.klise || ""} placeholder="kliše" onChange={(e) => setRow(i, { klise: e.target.value })} style={fieldStyle()} />
-                        {treba
-                            ? <input value={b.hex || ""} placeholder="#HEX" onChange={(e) => setRow(i, { hex: e.target.value })} style={Object.assign({}, fieldStyle(), { width: 80 })} title="Pantone nije u bazi — unesi tačan HEX" />
-                            : <span style={{ fontSize: 10, color: uBazi ? "#16a34a" : "#94a3b8", fontWeight: 800, whiteSpace: "nowrap" }}>{uBazi ? "u bazi" : ""}</span>}
+                        {auto
+                            ? <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 800 }}>automatski</span>
+                            : uBazi
+                                ? <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 800 }}>✓ u bazi</span>
+                                : <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <input type="color" value={pickerVal(b)} onChange={(e) => setRow(i, { hex: e.target.value })} title="Izaberi boju" style={{ width: 34, height: 30, border: "1px solid #cbd5e1", borderRadius: 6, padding: 0, cursor: "pointer", background: "#fff" }} />
+                                    <input value={b.hex || ""} placeholder="#HEX" onChange={(e) => setRow(i, { hex: e.target.value })} style={Object.assign({}, fieldStyle(), { width: 74, padding: "8px 8px" })} />
+                                </div>}
                         <button onClick={() => del(i)} style={{ background: "#fee2e2", color: "#b91c1c", border: "none", borderRadius: 6, height: 28, cursor: "pointer", fontWeight: 800 }}>×</button>
                     </div>
                 );
             })}
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>Stanica = redni broj u listi. Za Spot boje koristi Pantone oznaku (348 C); ako nije u bazi, unesi HEX. Bela/Lak imaju automatsku boju.</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>Stanica = redni broj u listi. Spot boja u bazi se oboji sama; ako nije, klikni kvadratić boje i izaberi je (ili nalepi #HEX). Bela/Lak se oboje automatski.</div>
         </div>
     );
 }
