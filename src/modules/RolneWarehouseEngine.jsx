@@ -509,6 +509,34 @@ function parsePlastchimPacking(text = "") {
             napomena: activeRef ? `Ref: ${activeRef}` : "",
         });
     }
+
+    // Fallback: ako PDF tekst nije po redovima, parsiraj „spljošteni" tekst (sidro = hilzna 152)
+    if (!rows.length) {
+        const flat = t.replace(/\s+/g, " ");
+        const re = /(\d{7})\s+(\d{5,6}\.\d{1,3})\s+([A-Z]{2,6})\s+(\d{2,3})\s+([\d ]+?)\s+152\s+(\d{3,4})\s+([\d ]+?)\s+(\d{1,4}[.,]\d{2})\s+(\d{1,4}[.,]\d{2})/g;
+        const pv = (code) => {
+            const c = String(code || "").toUpperCase();
+            if (String(vrsta).toUpperCase() !== "BOPP") return "transparent";
+            if (/M$/.test(c) || c.includes("MAT")) return "mat";
+            if (c.includes("SEDEF") || /P$/.test(c)) return "sedef";
+            if (c.includes("BEL") || c.includes("WHITE")) return "beli";
+            if (c.includes("MET")) return "metalizovani";
+            return "transparent";
+        };
+        let m;
+        while ((m = re.exec(flat))) {
+            const oznaka = m[3];
+            rows.push({
+                br_rolne: m[1], qr: m[1], vrsta, pod_vrsta: pv(oznaka),
+                oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Plastchim",
+                debljina: parseNumSmart(m[4]), sirina: parseNumSmart(m[5]),
+                duzina: parseNumSmart(m[7]), kg: parseNumSmart(m[8]), kg_bruto: parseNumSmart(m[9]),
+                lot: String(m[2]).split(".")[0], palet: m[2],
+                hilzna_mm: 152, spoljasnji_precnik_mm: parseNumSmart(m[6]),
+                datum: date, napomena: activeRef ? `Ref: ${activeRef}` : "",
+            });
+        }
+    }
     return rows;
 }
 
