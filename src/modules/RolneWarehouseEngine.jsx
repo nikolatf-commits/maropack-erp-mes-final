@@ -711,7 +711,20 @@ async function extractPdfTextFromFile(file) {
     for (let p = 1; p <= pdf.numPages; p++) {
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
-        text += content.items.map((x) => x.str || "").join(" ") + "\n";
+        // Grupiši stavke po Y koordinati u redove, pa sortiraj unutar reda po X —
+        // da ceo red (rolna) ostane na okupu bez obzira na redosled stavki iz PDF-a.
+        const lines = {};
+        for (const it of content.items) {
+            const tr = it.transform || [1, 0, 0, 1, 0, 0];
+            const y = Math.round((tr[5] || 0));
+            const x = tr[4] || 0;
+            (lines[y] = lines[y] || []).push({ x, s: it.str || "" });
+        }
+        const ys = Object.keys(lines).map(Number).sort((a, b) => b - a);
+        for (const y of ys) {
+            text += lines[y].sort((a, b) => a.x - b.x).map((o) => o.s).join(" ") + "\n";
+        }
+        text += "\n";
     }
     return text;
 }
