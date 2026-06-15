@@ -440,54 +440,30 @@ function parsePlastchimPacking(text = "") {
     const date = (t.match(/Packing list Date:\s*([0-9.]+)/i) || [])[1] || "";
     const product = (t.match(/PRODUCT:\s*([^\n]+)/i) || [])[1] || "BOPP film";
     const vrsta = detectVrstaFromText(product, "BOPP");
-    let pallet = "";
-    let activeOrder = "";
-    let activeRef = "";
 
-    for (const rawLine of t.split(/\r?\n/)) {
-        const line = rawLine.trim().replace(/\s+/g, " ");
-        if (!line) continue;
+    // pod-vrsta kako je u našoj bazi (BOPP: transparent/beli/sedef/mat/metalizovani)
+    const podVrstaFromCode = (v, code) => {
+        const c = String(code || "").toUpperCase();
+        if (String(v).toUpperCase() !== "BOPP") return "transparent";
+        if (/M$/.test(c) || c.includes("MAT")) return "mat";
+        if (c.includes("PEARL") || c.includes("SEDEF")) return "sedef";
+        if (c.includes("WHITE") || c.includes("BEL")) return "beli";
+        if (c.includes("MET")) return "metalizovani";
+        return "transparent";
+    };
 
-        const orderMatch = line.match(/^Order No:\s*(\S+)/i);
-        if (orderMatch) activeOrder = orderMatch[1];
-
-        const refMatch = line.match(/^Reff\.\s*Doc\.:\s*(.+)$/i);
-        if (refMatch) activeRef = refMatch[1].trim();
-
-        const pm = line.match(/^Pallet:\s*([^\s]+)/i);
-        if (pm) {
-            pallet = pm[1];
-            continue;
-        }
-
-        // Plastchim red:
-        // 7553927 136180.1 FXC 15 1 560 152 780 28 400 614.00 649.00
-        // 7442227 137528.3 FXA 28 700 152 745 13 900 248.00 277.00
-        const m = line.match(/^(\d{6,})\s+([0-9.]+)\s+([A-Z0-9]+)\s+(\d+(?:[.,]\d+)?)\s+((?:\d\s*)?\d{3,4})\s+(\d+)\s+(\d+)\s+((?:\d{1,3}\s)?\d{3}|\d{4,6})\s+([\d.,]+)\s+([\d.,]+)$/);
-        if (!m) continue;
-
+    // PDF često lomi red usred kolona — zato spljoštimo CEO tekst i hvatamo
+    // rolne globalno, ankerisani na hilznu 152 (brojevi mogu imati razmake "1 260" / "16 757").
+    // 7655563 138036.1 FXCAF 25 1 260 152 772 16 757 477.00 506.00
+    const flat = t.replace(/\s+/g, " ");
+    const re = /(\d{6,8})\s+(\d{3,6}\.\d{1,3})\s+([A-Z]{2,7})\s+(\d{2,3})\s+([\d ]+?)\s+152\s+(\d{3,4})\s+([\d ]+?)\s+(\d+[.,]\d{1,2})\s+(\d+[.,]\d{1,2})/g;
+    let m;
+    while ((m = re.exec(flat))) {
         const rollNo = m[1];
-        const orderNo = m[2] || activeOrder;
+        const palletTok = m[2];
+        const orderNo = palletTok.split(".")[0] || "";
         const filmType = m[3];
-        const debljina = parseNumSmart(m[4]);
-        const sirina = parseNumSmart(m[5]);
-        const inner = parseNumSmart(m[6]);
-        const outer = parseNumSmart(m[7]);
-        const duzina = parseNumSmart(m[8]);
-        const kg = parseNumSmart(m[9]);
-        const kgBruto = parseNumSmart(m[10]);
         const oznaka = filmType;
-        // pod-vrsta kako je u našoj bazi (BOPP: transparent/beli/sedef/mat/metalizovani)
-        const podVrstaFromCode = (v, code) => {
-            const c = String(code || "").toUpperCase();
-            if (String(v).toUpperCase() !== "BOPP") return "transparent";
-            if (/M$/.test(c) || c.includes("MAT")) return "mat";
-            if (c.includes("PEARL") || c.includes("SEDEF") || /P$/.test(c)) return "sedef";
-            if (c.includes("WHITE") || c.includes("BEL")) return "beli";
-            if (c.includes("MET")) return "metalizovani";
-            return "transparent";
-        };
-
         rows.push({
             br_rolne: rollNo,
             qr: rollNo,
@@ -496,46 +472,17 @@ function parsePlastchimPacking(text = "") {
             oznaka_materijala: oznaka,
             komercijalnaOznaka: oznaka,
             proizvodjac: "Plastchim",
-            debljina,
-            sirina,
-            duzina,
-            kg,
-            kg_bruto: kgBruto,
+            debljina: parseNumSmart(m[4]),
+            sirina: parseNumSmart(m[5]),
+            duzina: parseNumSmart(m[7]),
+            kg: parseNumSmart(m[8]),
+            kg_bruto: parseNumSmart(m[9]),
             lot: orderNo,
-            palet: pallet,
-            hilzna_mm: inner,
-            spoljasnji_precnik_mm: outer,
+            palet: palletTok,
+            hilzna_mm: 152,
+            spoljasnji_precnik_mm: parseNumSmart(m[6]),
             datum: date,
-            napomena: activeRef ? `Ref: ${activeRef}` : "",
         });
-    }
-
-    // Fallback: ako PDF tekst nije po redovima, parsiraj „spljošteni" tekst (sidro = hilzna 152)
-    if (!rows.length) {
-        const flat = t.replace(/\s+/g, " ");
-        const re = /(\d{7})\s+(\d{5,6}\.\d{1,3})\s+([A-Z]{2,6})\s+(\d{2,3})\s+([\d ]+?)\s+152\s+(\d{3,4})\s+([\d ]+?)\s+(\d{1,4}[.,]\d{2})\s+(\d{1,4}[.,]\d{2})/g;
-        const pv = (code) => {
-            const c = String(code || "").toUpperCase();
-            if (String(vrsta).toUpperCase() !== "BOPP") return "transparent";
-            if (/M$/.test(c) || c.includes("MAT")) return "mat";
-            if (c.includes("SEDEF") || /P$/.test(c)) return "sedef";
-            if (c.includes("BEL") || c.includes("WHITE")) return "beli";
-            if (c.includes("MET")) return "metalizovani";
-            return "transparent";
-        };
-        let m;
-        while ((m = re.exec(flat))) {
-            const oznaka = m[3];
-            rows.push({
-                br_rolne: m[1], qr: m[1], vrsta, pod_vrsta: pv(oznaka),
-                oznaka_materijala: oznaka, komercijalnaOznaka: oznaka, proizvodjac: "Plastchim",
-                debljina: parseNumSmart(m[4]), sirina: parseNumSmart(m[5]),
-                duzina: parseNumSmart(m[7]), kg: parseNumSmart(m[8]), kg_bruto: parseNumSmart(m[9]),
-                lot: String(m[2]).split(".")[0], palet: m[2],
-                hilzna_mm: 152, spoljasnji_precnik_mm: parseNumSmart(m[6]),
-                datum: date, napomena: activeRef ? `Ref: ${activeRef}` : "",
-            });
-        }
     }
     return rows;
 }
