@@ -477,12 +477,22 @@ function parsePlastchimPacking(text = "") {
         const kg = parseNumSmart(m[9]);
         const kgBruto = parseNumSmart(m[10]);
         const oznaka = filmType;
+        // pod-vrsta kako je u našoj bazi (BOPP: transparent/beli/sedef/mat/metalizovani)
+        const podVrstaFromCode = (v, code) => {
+            const c = String(code || "").toUpperCase();
+            if (String(v).toUpperCase() !== "BOPP") return "transparent";
+            if (/M$/.test(c) || c.includes("MAT")) return "mat";
+            if (c.includes("PEARL") || c.includes("SEDEF") || /P$/.test(c)) return "sedef";
+            if (c.includes("WHITE") || c.includes("BEL")) return "beli";
+            if (c.includes("MET")) return "metalizovani";
+            return "transparent";
+        };
 
         rows.push({
             br_rolne: rollNo,
             qr: rollNo,
             vrsta,
-            pod_vrsta: filmType,
+            pod_vrsta: podVrstaFromCode(vrsta, oznaka),
             oznaka_materijala: oznaka,
             komercijalnaOznaka: oznaka,
             proizvodjac: "Plastchim",
