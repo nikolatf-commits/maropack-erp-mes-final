@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
+import { pantoneHex, pantoneSwatch } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 
@@ -264,7 +265,8 @@ const defaultForm = {
             klise: "DFR 1,14 mm",
             precnikHilzne: "152 mm",
             smerOdmotavanja: "Na glavu",
-            stamparija: ""
+            stamparija: "",
+            boje: []
         },
         kasiranje: {
             tipLepka: "SF724A 324CA",
@@ -1859,10 +1861,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <Section title="Parametri štampanja" color={BLUE}>
                     <Grid cols={4}>
-                        {Object.keys(form.folija.stampa).filter(k => k !== "dizajn").map(k => (
+                        {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje").map(k => (
                             <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
                         ))}
                     </Grid>
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                        <BojeStampeEditor value={form.folija.stampa.boje} onChange={v => update("folija.stampa.boje", v)} />
+                    </div>
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                         <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
                         <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
@@ -2316,6 +2321,55 @@ function Grid({ children, cols = 3 }) {
 
 function Input({ label, value, onChange, type = "text", placeholder = "" }) {
     return <div><label style={labelStyle()}>{label}</label><input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={fieldStyle()} /></div>;
+}
+
+function BojeStampeEditor({ value, onChange }) {
+    const boje = Array.isArray(value) ? value : [];
+    const TIPOVI = ["Spot (Pantone)", "Proces (CMYK)", "Bela", "Lak", "Metalik"];
+    function setRow(i, patch) {
+        const next = boje.map((b, idx) => (idx === i ? Object.assign({}, b, patch) : b));
+        onChange(next);
+    }
+    function add() {
+        onChange(boje.concat([{ oznaka: "", tip: "Spot (Pantone)", aniloks: "", klise: "", hex: "" }]));
+    }
+    function del(i) { onChange(boje.filter((_, idx) => idx !== i)); }
+    function swatchOf(b) {
+        if (b.tip === "Bela") return "#ffffff";
+        if (b.tip === "Lak") return "#f5f3e6";
+        const baza = pantoneHex(b.oznaka);
+        return baza || b.hex || "#e2e8f0";
+    }
+    return (
+        <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontWeight: 900, color: "#1d4ed8" }}>Boje po stanici (redosled štampe)</div>
+                <button onClick={add} style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12 }}>+ Dodaj boju</button>
+            </div>
+            {boje.length === 0 && <div style={{ fontSize: 12, color: "#94a3b8", padding: "6px 0" }}>Nema unetih boja. Klikni „+ Dodaj boju".</div>}
+            {boje.map((b, i) => {
+                const sw = swatchOf(b);
+                const uBazi = b.tip === "Spot (Pantone)" && !!pantoneHex(b.oznaka);
+                const treba = b.tip === "Spot (Pantone)" && !uBazi;
+                return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "26px 1.4fr 1fr 0.8fr 0.8fr auto 28px", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                        <div title={uBazi ? "iz Pantone baze" : (b.hex ? "ručni HEX" : "—")} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid rgba(0,0,0,.15)", background: sw }} />
+                        <input value={b.oznaka || ""} placeholder="npr. 348 C / Cyan" onChange={(e) => setRow(i, { oznaka: e.target.value })} style={fieldStyle()} />
+                        <select value={b.tip || "Spot (Pantone)"} onChange={(e) => setRow(i, { tip: e.target.value })} style={fieldStyle()}>
+                            {TIPOVI.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <input value={b.aniloks || ""} placeholder="aniloks" onChange={(e) => setRow(i, { aniloks: e.target.value })} style={fieldStyle()} />
+                        <input value={b.klise || ""} placeholder="kliše" onChange={(e) => setRow(i, { klise: e.target.value })} style={fieldStyle()} />
+                        {treba
+                            ? <input value={b.hex || ""} placeholder="#HEX" onChange={(e) => setRow(i, { hex: e.target.value })} style={Object.assign({}, fieldStyle(), { width: 80 })} title="Pantone nije u bazi — unesi tačan HEX" />
+                            : <span style={{ fontSize: 10, color: uBazi ? "#16a34a" : "#94a3b8", fontWeight: 800, whiteSpace: "nowrap" }}>{uBazi ? "u bazi" : ""}</span>}
+                        <button onClick={() => del(i)} style={{ background: "#fee2e2", color: "#b91c1c", border: "none", borderRadius: 6, height: 28, cursor: "pointer", fontWeight: 800 }}>×</button>
+                    </div>
+                );
+            })}
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>Stanica = redni broj u listi. Za Spot boje koristi Pantone oznaku (348 C); ako nije u bazi, unesi HEX. Bela/Lak imaju automatsku boju.</div>
+        </div>
+    );
 }
 
 export default ProductTemplateEngineV20;
