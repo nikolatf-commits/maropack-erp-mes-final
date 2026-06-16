@@ -214,7 +214,7 @@ function safeWrite(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
 }
 function now() { return new Date().toLocaleString("sr-RS"); }
-function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-8)}`; }
+function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 90 + 10)}`; }
 function number(v) { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; }
 function round2(v) { return Math.round(number(v) * 100) / 100; }
 function fmt(v, dec = 2) { return number(v).toLocaleString("sr-RS", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
@@ -455,6 +455,12 @@ function parsePlastchimPacking(text = "") {
     // rolne globalno, ankerisani na hilznu 152 (brojevi mogu imati razmake "1 260" / "16 757").
     // 7655563 138036.1 FXCAF 25 1 260 152 772 16 757 477.00 506.00
     const flat = t.replace(/\s+/g, " ");
+    // mapa: narudžbenica (6 cifara) -> referentni datum iz "Reff.Doc.: 138036 0056/2026-14.04.2026"
+    const orderDate = {};
+    const od = /(\d{6})\s+\d{2,4}\/\d{4}-(\d{2}\.\d{2}\.\d{4})/g;
+    let dm;
+    while ((dm = od.exec(flat))) orderDate[dm[1]] = dm[2];
+
     const re = /(\d{6,8})\s+(\d{3,6}\.\d{1,3})\s+([A-Z]{2,7})\s+(\d{2,3})\s+([\d ]+?)\s+152\s+(\d{3,4})\s+([\d ]+?)\s+(\d+[.,]\d{1,2})\s+(\d+[.,]\d{1,2})/g;
     let m;
     while ((m = re.exec(flat))) {
@@ -480,6 +486,7 @@ function parsePlastchimPacking(text = "") {
             hilzna_mm: 152,
             spoljasnji_precnik_mm: parseNumSmart(m[6]),
             datum: date,
+            datum_proizvodnje: orderDate[orderNo] || date || "",
             napomena: `Plastchim · narudžbenica ${orderNo} · paleta ${palletTok}`,
         });
     }
@@ -2157,7 +2164,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             const vrednost = round2(kg * cenaKg);
             if (!row.sirina || (!duzina && !kg)) continue;
 
-            const brRolne = String(row.br_rolne || row.qr || makeId("ROLNA")).trim();
+            const brRolne = await uniqueBrRolne();
+            const dobavljacRolna = String(row.br_rolne || row.qr || "").trim();
             const cleanCode = cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta);
             let item = null;
             try {
@@ -2185,7 +2193,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         qr_code: brRolne,
                         lokacija: row.lokacija || "Magacin",
                         palet: row.palet || null,
-                        napomena: `Uvoz packing liste${matchedMaster ? " · material_master" : " · ručna/proverena korekcija"}${row.datum ? " · dokument: " + row.datum : ""}`,
+                        napomena: `Uvoz packing liste${dobavljacRolna ? " · rolna dobavljača: " + dobavljacRolna : ""}${matchedMaster ? " · material_master" : ""}${row.napomena ? " · " + row.napomena : ""}`,
                     }).select("*").single();
                     if (error) throw error;
                     item = mapDbRollToEngine(data);
@@ -2516,10 +2524,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <datalist id="m-podvrste">{masterPodVrste.map((v) => <option key={v} value={v} />)}</datalist>
                             <datalist id="m-oznake">{masterOznake.map((o) => <option key={o} value={o} />)}</datalist>
                             <datalist id="m-debljine">{masterDebljine.map((d) => <option key={d} value={d} />)}</datalist>
+                            <datalist id="m-proizvodjaci">{masterProizvodjaci.map((p) => <option key={p} value={p} />)}</datalist>
                             <label><span style={lbl}>Vrsta {selectedMasterMaterial ? "✅ u bazi" : "🆕 nova kombinacija"}</span><input style={input} list="m-vrste" value={materialPick.vrsta} onChange={(e) => setMaterialPick((p) => ({ ...p, vrsta: e.target.value.toUpperCase(), pod_vrsta: "", oznaka: "" }))} placeholder="npr. BOPP" /></label>
                             <label><span style={lbl}>Pod vrsta</span><input style={input} list="m-podvrste" value={materialPick.pod_vrsta || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, pod_vrsta: e.target.value, oznaka: "" }))} placeholder="npr. Transparent" /></label>
                             <label><span style={lbl}>Oznaka</span><input style={input} list="m-oznake" value={materialPick.oznaka || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, oznaka: e.target.value }))} placeholder="npr. FXC" /></label>
                             <label><span style={lbl}>{materialPick.vrsta === "PAPIR" ? "Gramatura" : "Debljina µ"}</span><input style={input} type="number" step="0.01" list="m-debljine" value={materialPick.debljina || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, debljina: Number(e.target.value) }))} /></label>
+                            <label><span style={lbl}>Proizvođač</span><input style={input} list="m-proizvodjaci" value={materialPick.proizvodjac || ""} onChange={(e) => setMaterialPick((p) => ({ ...p, proizvodjac: e.target.value }))} placeholder="npr. Plastchim" /></label>
                             {!selectedMasterMaterial && (
                                 <div style={{ padding: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12 }}>
                                     <div style={{ fontWeight: 900, color: "#92400e", marginBottom: 6, fontSize: 13 }}>Nova kombinacija — nije u bazi. Sačuvaj je da bi mogla na stanje.</div>
@@ -2967,7 +2977,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
         <div style={card}>
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr style={{ background: "#f8fafc" }}>{["QR", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ background: "#f8fafc" }}>{["Br. dobavljača", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
                 <tbody>{packingRows.map((r, i) => {
                     const opts = getRowOptions(r);
                     const withVal = (arr, val) => { const a = Array.isArray(arr) ? arr : []; return (val !== "" && val != null && !a.map(String).includes(String(val))) ? [val, ...a] : a; };
