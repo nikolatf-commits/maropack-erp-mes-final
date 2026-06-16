@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
+import MaterijalZaNaloge from "./MaterijalZaNaloge.jsx";
 import { logMagacinIstorija, mapIstorijaRow, loadOperateriMap } from "../utils/magacinIstorija.js";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -2466,6 +2467,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     });
 
     const MobileShell = () => {
+        if (activeTab === "materijal_naloge") {
+            return <MaterijalZaNaloge operater={operater} msg={msg} onBack={() => setActiveTab("rolne")} />;
+        }
         const mobileActions = [
             mobileActionBtn("popis", "📷", "Skeniraj / popiši", "QR popis rolne"),
             mobileActionBtn("povrat", "↩️", "Povrat u magacin", "Prečnik + hilzna"),
@@ -2488,6 +2492,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     </div>
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff", marginTop: 12, width: "100%" }}>Osveži stanje</button>
                 </div>
+
+                <button onClick={() => setActiveTab("materijal_naloge")} style={{ width: "100%", textAlign: "left", border: "none", borderRadius: 16, padding: 16, marginBottom: 12, color: "#fff", background: "linear-gradient(135deg,#0f766e,#0d9488)", boxShadow: "0 8px 22px rgba(13,148,136,.3)", cursor: "pointer" }}>
+                    <div style={{ fontSize: 28 }}>📋</div>
+                    <div style={{ fontSize: 20, fontWeight: 950, marginTop: 6 }}>Materijal za naloge</div>
+                    <div style={{ fontSize: 13, opacity: .9, marginTop: 2 }}>Nalozi koji čekaju da spremiš materijal ›</div>
+                </button>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                     {mobileActions.map((a) => (
