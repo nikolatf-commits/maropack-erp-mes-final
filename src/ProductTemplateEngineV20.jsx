@@ -437,42 +437,29 @@ function MaterialInlineSelector({ layer, onPatch }) {
     }, [vrsta, pod_vrsta, oznaka, debljina, proizvodjac]);
 
     const input = { width: "100%", height: 38, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 9, background: "#fff", fontWeight: 850, fontSize: 12, boxSizing: "border-box" };
+    const uid = "mls-" + (layer?._uid || (layer && (layer._uid = Math.random().toString(36).slice(2, 7))) || "x");
     return <>
-        {/* Vrsta */}
-        <select style={input} value={vrsta} onChange={e => onPatch({ vrsta: e.target.value, pod_vrsta: "", oznaka_materijala: "", oznaka: "", debljina: "" })}>
-            {loading && !useLive ? <option value="">Učitavam…</option> : null}
-            {vrste.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        {/* Pod vrsta */}
-        <select style={{ ...input, opacity: useLive ? 1 : .55 }} value={pod_vrsta} disabled={!useLive}
-            onChange={e => onPatch({ pod_vrsta: e.target.value, oznaka_materijala: "", oznaka: "", debljina: "" })}>
-            <option value="">{useLive ? "Pod vrsta" : "—"}</option>
-            {podVrste.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
-        {/* Oznaka */}
-        <select style={input} value={oznaka} onChange={e => onPatch({ oznaka_materijala: e.target.value, oznaka: e.target.value, debljina: "" })}>
-            {oznake.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-        {/* Proizvođač */}
-        {rucniProizvodjac ? (
-            <input style={input} placeholder="Proizvođač" value={proizvodjac} autoFocus
-                onChange={e => onPatch({ proizvodjac: e.target.value })}
-                onBlur={() => { if (!proizvodjac) setRucniProizvodjac(false); }} />
-        ) : (
-            <select style={input} value={proizvodjac}
-                onChange={e => {
-                    if (e.target.value === "__novi__") { setRucniProizvodjac(true); onPatch({ proizvodjac: "" }); }
-                    else onPatch({ proizvodjac: e.target.value });
-                }}>
-                <option value="">Proizvođač</option>
-                {dobavljaci.map(d => <option key={d} value={d}>{d}</option>)}
-                <option value="__novi__">➕ Novi…</option>
-            </select>
-        )}
-        {/* Debljina */}
-        <select style={input} value={debljina} onChange={e => onPatch({ debljina: Number(e.target.value) })}>
-            {debljine.map(d => <option key={d} value={d}>{d}{vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}
-        </select>
+        {/* Vrsta — lista + slobodan unos */}
+        <input style={input} list={uid + "-v"} value={vrsta} placeholder="Vrsta"
+            onChange={e => onPatch({ vrsta: e.target.value, pod_vrsta: "", oznaka_materijala: "", oznaka: "", debljina: "" })} />
+        <datalist id={uid + "-v"}>{vrste.map(v => <option key={v} value={v} />)}</datalist>
+        {/* Pod vrsta — lista + slobodan unos */}
+        <input style={input} list={uid + "-pv"} value={pod_vrsta} placeholder="Pod vrsta"
+            onChange={e => onPatch({ pod_vrsta: e.target.value, oznaka_materijala: "", oznaka: "", debljina: "" })} />
+        <datalist id={uid + "-pv"}>{podVrste.map(p => <option key={p} value={p} />)}</datalist>
+        {/* Oznaka — lista + slobodan unos */}
+        <input style={input} list={uid + "-oz"} value={oznaka} placeholder="Oznaka"
+            onChange={e => onPatch({ oznaka_materijala: e.target.value, oznaka: e.target.value, debljina: "" })} />
+        <datalist id={uid + "-oz"}>{oznake.map(o => <option key={o} value={o} />)}</datalist>
+        {/* Proizvođač — lista + slobodan unos */}
+        <input style={input} list={uid + "-pr"} value={proizvodjac} placeholder="Proizvođač"
+            onChange={e => onPatch({ proizvodjac: e.target.value })} />
+        <datalist id={uid + "-pr"}>{dobavljaci.map(d => <option key={d} value={d} />)}</datalist>
+        {/* Debljina — lista + slobodan unos */}
+        <input style={input} type="number" step="0.01" list={uid + "-deb"} value={debljina}
+            placeholder={vrsta === "PAPIR" ? "g/m²" : "µ"}
+            onChange={e => onPatch({ debljina: e.target.value === "" ? "" : Number(e.target.value) })} />
+        <datalist id={uid + "-deb"}>{debljine.map(d => <option key={d} value={d} />)}</datalist>
     </>;
 }
 
@@ -1312,6 +1299,37 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             return next;
         });
     }, [form.type, form.idealnaSirinaMaterijala, form.dimenzijaSirina, form.porucenaKolicina, form.folija?.rezanje?.brojTraka, form.folija?.rezanje?.sirinaTrake]);
+
+    // Auto: broj boja (iz liste boja), broj kaširanja (slojevi-1), finalRoll iz rezanja/štampe
+    useEffect(() => {
+        if (form.type !== "folija") return;
+        setForm(prev => {
+            const next = clone(prev);
+            const f = next.folija; if (!f) return prev;
+            let changed = false;
+            // broj kaširanja = broj slojeva - 1
+            const nL = (f.layers || []).length;
+            const bk = nL > 1 ? String(nL - 1) : "";
+            if (f.kasiranje && f.kasiranje.brojKasiranja !== bk) { f.kasiranje.brojKasiranja = bk; changed = true; }
+            // broj boja iz liste boja
+            const boje = (f.stampa && f.stampa.boje) || [];
+            if (boje.length) {
+                const print = boje.filter(b => b.tip !== "Lak").length;
+                const hasLak = boje.some(b => b.tip === "Lak");
+                const bb = hasLak ? (print + "+lak") : String(print);
+                if (f.stampa.brojBoja !== bb) { f.stampa.brojBoja = bb; changed = true; }
+            }
+            // finalRoll default iz rezanja / štampe
+            if (!f.finalRoll) { f.finalRoll = {}; }
+            const fr = f.finalRoll, r = f.rezanje || {}, st = f.stampa || {};
+            if (!fr.hilzna && st.precnikHilzne) { fr.hilzna = st.precnikHilzne; changed = true; }
+            if (!fr.precnik && r.precnikRolne) { fr.precnik = r.precnikRolne; changed = true; }
+            if (!fr.duzina && r.duzinaRolne) { fr.duzina = r.duzinaRolne; changed = true; }
+            if (!fr.smerOdmotavanja && st.smerOdmotavanja) { fr.smerOdmotavanja = st.smerOdmotavanja; changed = true; }
+            return changed ? next : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [form.type, form.folija?.layers?.length, form.folija?.stampa?.boje, form.folija?.stampa?.precnikHilzne, form.folija?.stampa?.smerOdmotavanja, form.folija?.rezanje?.precnikRolne, form.folija?.rezanje?.duzinaRolne]);
 
     function makeTemplateRecord(sourceForm = form) {
         const sourceActiveData = sourceForm[sourceForm.type] || {};

@@ -1686,6 +1686,7 @@ function MainAppContent() {
         setPdfLoading(false);
     }
 
+    const loadDataRef = useRef(null);
     useEffect(function () {
         if (!user) return;
         async function loadData() {
@@ -1710,8 +1711,8 @@ function MainAppContent() {
                 });
             } catch (e) { console.error(e); }
         }
+        loadDataRef.current = loadData;
         loadData();
-        if (supabase.__notConfigured) return undefined;
         const ch = supabase.channel('maropack-changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'proizvodi' }, function () { loadData(); })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'ponude' }, function () { loadData(); })
@@ -1768,6 +1769,52 @@ function MainAppContent() {
         return pon.ponBr || pon.broj || pon.broj_ponude || pon.broj_naloga || ("RN-" + new Date().getFullYear() + "-" + String(pon.id || Date.now()).padStart(4, "0"));
     }
 
+    async function dodeliRolneZaNalog(broj, pon) {
+        try {
+            if (!broj) return { assigned: 0, manjak: [] };
+            const tpl = extractTemplate(pon) || {};
+            const folija = tpl.folija || (tpl.data && tpl.data.folija) || pon.folija || {};
+            let layers = (folija.layers && folija.layers.length) ? folija.layers
+                : (Array.isArray(pon.mats) && pon.mats.length ? pon.mats
+                    : (Array.isArray(pon.struktura) ? pon.struktura : []));
+            if (!layers || !layers.length) return { assigned: 0, manjak: [] };
+            const kolicina = Number(pon.kol || pon.kolicina || 0) || 0;
+            const idealna = Number(folija.idealnaSirinaMaterijala || tpl.idealnaSirinaMaterijala || 0) || 0;
+            let assigned = 0; const manjak = [];
+            for (const l of layers) {
+                const vrsta = l.vrsta || l.materijal || l.tip || "";
+                if (!vrsta) continue;
+                const oznaka = l.oznaka_materijala || l.oznaka || "";
+                const deb = Number(String(l.debljina ?? l.deb ?? "").toString().replace(",", ".")) || 0;
+                const sirina = Number(l.sirina || idealna || 0) || 0;
+                const gm2 = Number(l.gm2 || l.tezina || 0) || 0;
+                const needKg = Number(l.kg || 0) || (gm2 && kolicina && sirina ? gm2 * (kolicina / 1000) * (sirina / 1000) : 0);
+                let rows = [];
+                try {
+                    const { data } = await supabase.from("magacin")
+                        .select("id,kg_neto,kg_bruto,metraza_ost,oznaka_materijala,deb,vrsta,dodeljeno_nalogu,status,datum_proizvodnje")
+                        .eq("status", "Na stanju").ilike("vrsta", "%" + vrsta + "%")
+                        .order("datum_proizvodnje", { ascending: true }).limit(80);
+                    rows = (data || []).filter((r) => !r.dodeljeno_nalogu);
+                } catch (e) { rows = []; }
+                if (oznaka) { const ex = rows.filter((r) => String(r.oznaka_materijala || "").toUpperCase().includes(String(oznaka).toUpperCase())); if (ex.length) rows = ex; }
+                if (deb) { const ex = rows.filter((r) => Number(r.deb || 0) === deb); if (ex.length) rows = ex; }
+                const chosen = []; let acc = 0;
+                for (const r of rows) {
+                    chosen.push(r.id);
+                    acc += Number(r.kg_neto || r.kg_bruto || 0) || 0;
+                    if (needKg > 0 ? acc >= needKg : true) break;
+                }
+                if (chosen.length) {
+                    try { await supabase.from("magacin").update({ dodeljeno_nalogu: broj, rezervisano: true }).in("id", chosen); assigned += chosen.length; } catch (e) { }
+                }
+                if (needKg > 0 && acc < needKg) manjak.push(vrsta + (oznaka ? " " + oznaka : ""));
+                if (!chosen.length) manjak.push(vrsta + (oznaka ? " " + oznaka : ""));
+            }
+            return { assigned, manjak };
+        } catch (e) { console.warn("Auto-dodela rolni:", e.message || e); return { assigned: 0, manjak: [] }; }
+    }
+
     async function kreirajNalogeIzPonude(pon) {
         if (!pon) { msg("Ponuda nije pronađena", "err"); return; }
         if (!pon.id) { msg("Ponuda nije sačuvana u bazi (nema ID). Sačuvaj ponudu pa pokušaj ponovo.", "err"); return; }
@@ -1777,8 +1824,14 @@ function MainAppContent() {
             const rpcResult = await generateMasterFromPonuda(pon);
             if (rpcResult.usedRpc && !rpcResult.error) {
                 try { await supabase.from('ponude').update({ status: "prihvaceno" }).eq('id', pon.id); } catch (e) { }
-                var brNal = (rpcResult.data && (rpcResult.data.broj_naloga || rpcResult.data.broj)) || "";
-                msg("Nalozi kreirani" + (brNal ? " · " + brNal : "") + ". Otvaram glavne naloge.");
+                // Master broj iz radni_nalozi (isti broj koji magacioner/nalog koriste)
+                var broj = (rpcResult.data && (rpcResult.data.broj_naloga || rpcResult.data.broj)) || "";
+                try { const { data: mr } = await supabase.from("radni_nalozi").select("broj_naloga").eq("ponuda_id", pon.id).order("created_at", { ascending: false }).limit(1); if (mr && mr[0] && mr[0].broj_naloga) broj = mr[0].broj_naloga; } catch (e) { }
+                // Auto-dodela rolni iz magacina po slojevima templejta
+                var dod = await dodeliRolneZaNalog(broj, pon);
+                try { if (loadDataRef.current) await loadDataRef.current(); } catch (e) { }
+                var brNal = broj || "";
+                msg("Nalozi kreirani" + (brNal ? " · " + brNal : "") + (dod && dod.assigned ? " · dodeljeno " + dod.assigned + " rolni" : "") + (dod && dod.manjak && dod.manjak.length ? " · MANJAK: " + dod.manjak.join(", ") : "") + ". Otvaram glavne naloge.");
                 setPregPonuda(null);
                 setPage("nalozi");
                 return;

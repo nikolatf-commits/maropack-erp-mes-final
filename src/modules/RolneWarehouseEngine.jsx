@@ -2467,7 +2467,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     });
 
     const MobileShell = () => {
+        const magNorm = String(operater?.ime || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const magAllowed = ["dorde", "djordje", "bosko", "dejan"].some((n) => magNorm.includes(n));
         if (activeTab === "materijal_naloge") {
+            if (!magAllowed) { setActiveTab("rolne"); return null; }
             return <MaterijalZaNaloge operater={operater} msg={msg} onBack={() => setActiveTab("rolne")} />;
         }
         const mobileActions = [
@@ -2493,11 +2496,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <button onClick={reload} style={{ ...btn, background: "#0f172a", color: "#fff", marginTop: 12, width: "100%" }}>Osveži stanje</button>
                 </div>
 
-                <button onClick={() => setActiveTab("materijal_naloge")} style={{ width: "100%", textAlign: "left", border: "none", borderRadius: 16, padding: 16, marginBottom: 12, color: "#fff", background: "linear-gradient(135deg,#0f766e,#0d9488)", boxShadow: "0 8px 22px rgba(13,148,136,.3)", cursor: "pointer" }}>
-                    <div style={{ fontSize: 28 }}>📋</div>
-                    <div style={{ fontSize: 20, fontWeight: 950, marginTop: 6 }}>Materijal za naloge</div>
-                    <div style={{ fontSize: 13, opacity: .9, marginTop: 2 }}>Nalozi koji čekaju da spremiš materijal ›</div>
-                </button>
+                {magAllowed && (
+                    <button onClick={() => setActiveTab("materijal_naloge")} style={{ width: "100%", textAlign: "left", border: "none", borderRadius: 16, padding: 16, marginBottom: 12, color: "#fff", background: "linear-gradient(135deg,#0f766e,#0d9488)", boxShadow: "0 8px 22px rgba(13,148,136,.3)", cursor: "pointer" }}>
+                        <div style={{ fontSize: 28 }}>📋</div>
+                        <div style={{ fontSize: 20, fontWeight: 950, marginTop: 6 }}>Materijal za naloge</div>
+                        <div style={{ fontSize: 13, opacity: .9, marginTop: 2 }}>Skeniraj rolne koje treba spremiti ›</div>
+                    </button>
+                )}
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                     {mobileActions.map((a) => (

@@ -162,10 +162,36 @@ export async function fetchCoreData() {
 
     // Novi izvor istine: radni_nalozi + operativni_nalozi.
     // Primarni izvor naloga je operativni_nalozi; stara tabela nalozi je samo kompatibilnost za migraciju.
-    const mappedOperativni = operativniRaw.map(mapDbNalog);
-    const mappedNaloziStari = naloziRaw.map(mapDbNalog);
+    // Mapa: ponuda_id -> templejt (iz ponude.res.template). Tako nalog dobije folija podatke
+    // i kad RPC ne kopira ceo templejt u sam nalog.
+    const parseJ = (v, f) => { try { return typeof v === "string" ? JSON.parse(v) : (v || f); } catch { return f; } };
+    const ponudaTpl = {};
+    (ponude || []).forEach((p) => {
+        if (p == null || p.id == null) return;
+        const res = parseJ(p.res, {}) || {};
+        const tpl = res.template || res.templejt || p.template || null;
+        if (tpl) ponudaTpl[String(p.id)] = tpl;
+    });
+    const attachTpl = (n) => {
+        if (!n) return n;
+        const pid = String(n.ponuda_id ?? "");
+        const tpl = pid && ponudaTpl[pid];
+        if (!tpl) return n;
+        const tdata = tpl.data || tpl;
+        const folija = n.folija || (n.res && n.res.folija) || (tdata && tdata.folija) || tpl.folija || null;
+        return {
+            ...n,
+            product_template: n.product_template || tpl,
+            template: n.template || tpl,
+            templateData: n.templateData || tdata,
+            folija: folija || n.folija,
+        };
+    };
+
+    const mappedOperativni = operativniRaw.map(mapDbNalog).map(attachTpl);
+    const mappedNaloziStari = naloziRaw.map(mapDbNalog).map(attachTpl);
     const sviNalozi = mappedOperativni.length ? mappedOperativni : mappedNaloziStari;
-    const mappedMasters = glavniRaw.map((m) => mapDbMaster(m, mappedOperativni));
+    const mappedMasters = glavniRaw.map((m) => attachTpl(mapDbMaster(m, mappedOperativni)));
 
     return {
         proizvodi: proizvodi || [],

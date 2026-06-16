@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+rimport React, { useEffect, useMemo, useState } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
+import { QRCodeSVG } from "qrcode.react";
 import { enrichNalogForPrint } from "./utils/nalogDataLink";
 
 const TABOVI = [
@@ -210,6 +211,24 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
 
     const naslovBroj = brojNaloga || aktivni.ponBr || osnovniNalog.ponBr || "—";
     const closeFn = onBack || onClose;
+    const [showQr, setShowQr] = useState(false);
+    const masterId = osnovniNalog.id || osnovniNalog.master_nalog_id || aktivni.glavni_nalog_id || aktivni.master_nalog_id || aktivni.id;
+    const qrUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/?nalog=" + encodeURIComponent(naslovBroj);
+
+    async function obrisiNalog() {
+        if (!confirm("Obrisati ceo nalog " + naslovBroj + " sa svim operacijama? Ovo se ne može vratiti.")) return;
+        try {
+            const ids = (nalozi || []).map(n => n.id).filter(Boolean);
+            if (masterId) {
+                await supabase.from("operativni_nalozi").delete().eq("glavni_nalog_id", masterId);
+                await supabase.from("radni_nalozi").delete().eq("id", masterId);
+            }
+            if (ids.length) { try { await supabase.from("operativni_nalozi").delete().in("id", ids); } catch (e) { } }
+            alert("Nalog " + naslovBroj + " je obrisan.");
+            if (closeFn) closeFn();
+        } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }
+    }
+    function stampaj() { if (typeof window !== "undefined") window.print(); }
 
     return (
         <div style={{ padding: 18 }}>
@@ -220,12 +239,30 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                         Broj: <b>{naslovBroj}</b> · Tip proizvoda: <b>{String(tipProizvoda).toUpperCase()}</b> · {nalozi.length} naloga
                     </div>
                 </div>
-                {closeFn && (
-                    <button onClick={closeFn} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "#fff", color: "#1d4ed8", fontWeight: 900, cursor: "pointer" }}>
-                        ← Nazad
-                    </button>
-                )}
+                <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={stampaj} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #0f766e", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj</button>
+                    <button onClick={() => setShowQr(true)} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #334155", background: "#fff", color: "#334155", fontWeight: 900, cursor: "pointer" }}>🔳 QR</button>
+                    <button onClick={obrisiNalog} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #dc2626", background: "#fff", color: "#dc2626", fontWeight: 900, cursor: "pointer" }}>🗑️ Obriši</button>
+                    {closeFn && (
+                        <button onClick={closeFn} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "#fff", color: "#1d4ed8", fontWeight: 900, cursor: "pointer" }}>← Nazad</button>
+                    )}
+                </div>
             </div>
+
+            {showQr && (
+                <div className="no-print" onClick={() => setShowQr(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 24, textAlign: "center", maxWidth: 320 }}>
+                        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 4 }}>QR naloga</div>
+                        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>{naslovBroj}</div>
+                        <div style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 12, display: "inline-block" }}>
+                            <QRCodeSVG value={qrUrl} size={200} level="M" includeMargin={true} />
+                        </div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10, wordBreak: "break-all" }}>{qrUrl}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>Skeniraj telefonom da otvoriš nalog.</div>
+                        <button onClick={() => setShowQr(false)} style={{ width: "100%", marginTop: 16, padding: "11px", borderRadius: 10, border: "none", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>Zatvori</button>
+                    </div>
+                </div>
+            )}
 
             {loading && <div style={{ marginBottom: 12, color: "#64748b", fontWeight: 700 }}>Učitavam naloge...</div>}
 
