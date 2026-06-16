@@ -1,4 +1,4 @@
-rimport React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
