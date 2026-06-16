@@ -487,7 +487,7 @@ function parsePlastchimPacking(text = "") {
             spoljasnji_precnik_mm: parseNumSmart(m[6]),
             datum: date,
             datum_proizvodnje: orderDate[orderNo] || date || "",
-            napomena: `Plastchim · narudžbenica ${orderNo} · paleta ${palletTok}`,
+            napomena: "",
         });
     }
     return rows;
@@ -2165,7 +2165,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (!row.sirina || (!duzina && !kg)) continue;
 
             const brRolne = await uniqueBrRolne();
-            const dobavljacRolna = String(row.br_rolne || row.qr || "").trim();
             const cleanCode = cleanOznaka(row.oznaka_materijala || mat.oznaka || mat.komercijalnaOznaka, mat.vrsta);
             let item = null;
             try {
@@ -2193,7 +2192,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         qr_code: brRolne,
                         lokacija: row.lokacija || "Magacin",
                         palet: row.palet || null,
-                        napomena: `Uvoz packing liste${dobavljacRolna ? " · rolna dobavljača: " + dobavljacRolna : ""}${matchedMaster ? " · material_master" : ""}${row.napomena ? " · " + row.napomena : ""}`,
+                        napomena: row.napomena || null,
                     }).select("*").single();
                     if (error) throw error;
                     item = mapDbRollToEngine(data);
@@ -2212,7 +2211,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     debljina: mat.debljina || row.debljina,
                     koeficijent: mat.koeficijent || row.koeficijent,
                     gsm, sirina: row.sirina, duzina, kg, cenaKg, vrednost, lot: row.lot, lokacija: row.lokacija || "Magacin", datum: row.datum || new Date().toLocaleDateString("sr-RS"), datum_proizvodnje: row.datum_proizvodnje || "", status: "Na stanju",
-                    napomena: "Uvoz iz packing liste"
+                    napomena: row.napomena || ""
                 }, "UVOZ PACKING LISTE");
             }
             importedLocal.push(item);
@@ -2977,12 +2976,11 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
         <div style={card}>
             <div style={{ fontWeight: 950, marginBottom: 10 }}>Prepoznati redovi · {packingRows.length}</div>
             <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr style={{ background: "#f8fafc" }}>{["Br. dobavljača", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz."].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ background: "#f8fafc" }}>{["Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Datum proiz.", "Napomena"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr></thead>
                 <tbody>{packingRows.map((r, i) => {
                     const opts = getRowOptions(r);
                     const withVal = (arr, val) => { const a = Array.isArray(arr) ? arr : []; return (val !== "" && val != null && !a.map(String).includes(String(val))) ? [val, ...a] : a; };
                     return <tr key={i}>
-                        <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.br_rolne || r.qr || ""} onChange={(e) => updateRow(i, { br_rolne: e.target.value, qr: e.target.value })} /></td>
                         <td style={cell}><select style={compactInput} value={r.vrsta || ""} onChange={(e) => updateRow(i, { vrsta: e.target.value })}><option value="">—</option>{withVal(opts.vrste, r.vrsta).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
                         <td style={cell}><select style={compactInput} value={r.pod_vrsta || ""} onChange={(e) => updateRow(i, { pod_vrsta: e.target.value })}><option value="">—</option>{withVal(opts.podVrste, r.pod_vrsta).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
                         <td style={cell}><select style={compactInput} value={r.oznaka_materijala || r.komercijalnaOznaka || ""} onChange={(e) => updateRow(i, { oznaka_materijala: e.target.value, komercijalnaOznaka: e.target.value })}><option value="">—</option>{withVal(opts.oznake, r.oznaka_materijala || r.komercijalnaOznaka).map((v) => <option key={v} value={v}>{v}</option>)}</select></td>
@@ -2994,6 +2992,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
                         <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lot || ""} onChange={(e) => updateRow(i, { lot: e.target.value })} /></td>
                         <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.lokacija || ""} onChange={(e) => updateRow(i, { lokacija: e.target.value })} placeholder="A-01-A-01" /></td>
                         <td style={cell}><input style={{ ...compactInput, minWidth: 120 }} value={r.datum_proizvodnje || ""} onChange={(e) => updateRow(i, { datum_proizvodnje: e.target.value })} /></td>
+                        <td style={cell}><input style={{ ...compactInput, minWidth: 160 }} value={r.napomena || ""} onChange={(e) => updateRow(i, { napomena: e.target.value })} placeholder="napomena (opciono)" /></td>
                     </tr>;
                 })}</tbody>
             </table></div>
