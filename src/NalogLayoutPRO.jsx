@@ -1,4 +1,5 @@
 import React from "react";
+import QRCode from "qrcode";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 import { pantoneHex } from "./data/pantone.js";
 
@@ -94,6 +95,7 @@ function buildD(nalog) {
         dimenzije: (num(t.dimenzijaSirina) || "?") + " × " + (num(t.dimenzijaDuzina) || "?") + " mm",
         kom: od.kom || t.porucenaKolicinaKom || nalog.kom || "—",
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
+        dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         stampa: {
             masina: st.masina, strana: st.strana, brojBoja: st.brojBoja, smer: st.smerOdmotavanja,
             klise: st.klise, obimValjka: st.obimValjka, hilzna: st.precnikHilzne, stamparija: st.stamparija,
@@ -137,7 +139,23 @@ function ah(x, y, dir) { var d; if (dir == 'r') d = 'M' + x + ' ' + y + ' l 9 -3
 function dimH(x1, x2, y, t, fy) { var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#1e40af" stroke-width="1.1"/>' + ah(x1, y, 'r') + ah(x2, y, 'l'); var mx = (x1 + x2) / 2; o += '<rect x="' + (mx - 22) + '" y="' + (y - 9) + '" width="44" height="15" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + mx + '" y="' + (y + 1.5) + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e40af">' + t + '</text>'; return o; }
 function dimV(x, y1, y2, t, fx) { var o = ''; if (fx != null) { o += '<line x1="' + fx + '" y1="' + y1 + '" x2="' + (x - 8) + '" y2="' + y1 + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + fx + '" y1="' + y2 + '" x2="' + (x - 8) + '" y2="' + y2 + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '" stroke="#1e40af" stroke-width="1.1"/>' + ah(x, y1, 'd') + ah(x, y2, 'u'); var my = (y1 + y2) / 2; o += '<rect x="' + (x - 8) + '" y="' + (my - 23) + '" width="16" height="46" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + x + '" y="' + my + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e40af" transform="rotate(-90 ' + x + ' ' + my + ')">' + t + '</text>'; return o; }
 function dimSmall(x1, x2, y, t, fy) { var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#1e40af" stroke-width="1.1"/><line x1="' + x1 + '" y1="' + (y - 3) + '" x2="' + x1 + '" y2="' + (y + 3) + '" stroke="#1e40af"/><line x1="' + x2 + '" y1="' + (y - 3) + '" x2="' + x2 + '" y2="' + (y + 3) + '" stroke="#1e40af"/>'; var mx = (x1 + x2) / 2; o += '<rect x="' + (mx - 13) + '" y="' + (y - 23) + '" width="26" height="14" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + mx + '" y="' + (y - 13) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#1e40af">' + t + '</text>'; return o; }
-function roll(D, mw, mh) { const wW = WEBX1 - WEBX0, wH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2; const Dimg = labelDataUri(D); const IW = wW, IH = wW / (85 / 110), slot = Math.max(20, IH), n = Math.max(1, Math.round(wH / slot)); let t = ""; for (let i = 0; i < n; i++) { const cy = WEBY0 + slot * (i + 0.5); t += '<g transform="translate(' + cx + ',' + cy + ')"><image href="' + Dimg + '" x="' + (-IW / 2) + '" y="' + (-IH / 2) + '" width="' + IW + '" height="' + IH + '" preserveAspectRatio="none"/></g>'; } return sW(rp(mw > 320) + '<clipPath id="c1"><rect x="' + WEBX0 + '" y="' + WEBY0 + '" width="' + wW + '" height="' + wH + '"/></clipPath><g clip-path="url(#c1)">' + t + '</g>', mw, mh); }
+function roll(D, mw, mh) {
+    const wW = WEBX1 - WEBX0, wH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
+    const dz = D.dizajn || {};
+    const url = dz.url || dz.slika || "";
+    const Dimg = url || labelDataUri(D);
+    const rot = ((Math.round(Number(dz.rotacija) || 0) % 360) + 360) % 360;
+    const mir = Number(dz.zrcalo) === -1 ? -1 : 1;
+    const sW2 = (Number(dz.sirinaPct) || 100) / 100, sH2 = (Number(dz.visinaPct) || 100) / 100;
+    const baseAR = (dz.w && dz.h) ? (dz.w / dz.h) : (85 / 110);
+    const IW = wW * sW2, IH = (wW / baseAR) * sH2, slot = Math.max(20, IH), n = Math.max(1, Math.round(wH / slot));
+    let t = "";
+    for (let i = 0; i < n; i++) {
+        const cy = WEBY0 + slot * (i + 0.5);
+        t += '<g transform="translate(' + cx + ',' + cy + ') rotate(' + rot + ') scale(' + mir + ',1)"><image href="' + Dimg + '" x="' + (-IW / 2) + '" y="' + (-IH / 2) + '" width="' + IW + '" height="' + IH + '" preserveAspectRatio="none"/></g>';
+    }
+    return sW(rp(mw > 320) + '<clipPath id="c1"><rect x="' + WEBX0 + '" y="' + WEBY0 + '" width="' + wW + '" height="' + wH + '"/></clipPath><g clip-path="url(#c1)">' + t + '</g>', mw, mh);
+}
 function perf(D, mw, mh) { const N = Math.max(2, D.perf.N), oV = D.perf.oV, oD = D.perf.oD, oL = D.perf.oL, oR = D.perf.oR, Wm = D.perf.Wm || 840, Hm = D.perf.Hm || 600; const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm, xF = WEBX0 + oL * sx, xL = WEBX1 - oR * sx, yT = WEBY0 + oV * sy, yB = WEBY1 - oD * sy, st = (xL - xF) / (N - 1); let o = ""; for (let i = 0; i < N; i++) { const x = xF + st * i; o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="#8b5cf6" stroke-width="2.2" stroke-dasharray="9 5"/><text x="' + x + '" y="' + (yT - 7) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#7c3aed">K' + (i + 1) + '</text>'; } const hy = WEBY0 - 17; o += dimSmall(WEBX0, xF, hy, oL, WEBY0); o += dimH(xF, xL, hy, (N - 1) + ' × ' + Math.round(st / sx), WEBY0); o += dimSmall(xL, WEBX1, hy, oR, WEBY0); const vx = WEBX0 - 20; o += dimV(vx, WEBY0, yT, oV, WEBX0) + dimV(vx, yB, WEBY1, oD, WEBX0); return sW(rp(mw > 320) + o, mw, mh); }
 function rezSvg(D) { const total = D.rez.sirinaMat || 840; const lanes = D.rez.lanes.length ? D.rez.lanes : Array.from({ length: D.rez.brojTraka || 8 }, () => D.rez.sirinaTrake || 85); const used = lanes.reduce((s, x) => s + x, 0); const we = Math.max(0, (total - used) / 2); const X0 = 50, X1 = 660, scale = (X1 - X0) / total, topY = 46, h = 56; let o = ''; o += '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + h + '" fill="#eef4fc" stroke="#1e3a8a" stroke-width="1.3"/>'; let x = X0; const wePx = we * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; x += wePx; lanes.forEach(function (lw, i) { const sPx = lw * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/><text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="11" font-weight="900" fill="#1d4ed8">' + (i + 1) + '</text><text x="' + (x + sPx / 2) + '" y="' + (topY + h + 13) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#334155">' + lw + '</text>'; x += sPx; }); o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; o += dimH(X0, X1, topY - 16, total + ' mm'); return '<svg viewBox="0 0 710 120" width="100%" style="max-width:640px;background:#fff">' + o + '</svg>'; }
 
@@ -149,7 +167,7 @@ function infoBlock(D) { return '<div class="info">' + infoC('Kupac', D.kupac) + 
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
-function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span></div></div>'; }
+function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<img class="hdqr" src="' + D.qr + '" alt="QR"/>' : '') + '</div></div>'; }
 function pageWrap(D, inner, pp) { return '<div class="a4">' + inner + '<div class="pp2">' + esc(D.broj) + '</div><div class="pp">' + esc(pp) + '</div></div>'; }
 function kg(D, l) { return (l.gm2 * D.kgF).toFixed(1); }
 function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.kolicina) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
@@ -198,8 +216,9 @@ function pRez(D) {
 
 function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 500, 860) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
 
-function buildPagesHTML(nalog, vrsta) {
+function buildPagesHTML(nalog, vrsta, qr) {
     const D = buildD(nalog);
+    D.qr = qr || "";
     D.rolne = (nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || []).slice(0, 6).map(function (r) { return { qr: r.qr || r.qr_kod || r.id, n: r.vrsta, oz: r.oznaka || r.oznaka_materijala, u: r.debljina || r.deb, lot: r.lot || r.LOT, lok: r.lokacija || r.location }; });
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);
@@ -267,6 +286,8 @@ const V6_CSS = `
 .nv6 .meta-strip{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 .nv6 .meta-strip .m{flex:1;min-width:90px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;text-align:center}
 .nv6 .meta-strip .m b{display:block;font-size:8.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;font-weight:800}
+.nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
+.nv6 .hdqr{width:54px;height:54px;background:#fff;border-radius:8px;padding:4px;margin-left:10px}
 @media print{
   .nv6 .a4{box-shadow:none;margin:0;width:210mm;min-height:297mm;page-break-after:always}
   body *{visibility:hidden!important}
@@ -282,7 +303,15 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else if (vrsta.includes("kaš") || vrsta.includes("kas")) vrsta = "kasiranje";
     else if (vrsta.includes("perf") || vrsta.includes("rez")) vrsta = "perforacija_rezanje";
     else vrsta = "materijal";
-    const htmlStr = buildPagesHTML(nalog, vrsta);
+    const broj = nalog.master_broj || nalog.broj_naloga || nalog.broj || (nalog.master_nalog && nalog.master_nalog.broj_naloga) || "";
+    const [qr, setQr] = React.useState("");
+    React.useEffect(() => {
+        let on = true;
+        const url = (typeof window !== "undefined" ? window.location.origin : "") + "/?nalog=" + encodeURIComponent(broj || "");
+        QRCode.toDataURL(url, { margin: 0, width: 160 }).then((d) => { if (on) setQr(d); }).catch(() => { });
+        return () => { on = false; };
+    }, [broj]);
+    const htmlStr = buildPagesHTML(nalog, vrsta, qr);
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
             <style>{V6_CSS}</style>

@@ -2467,8 +2467,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     });
 
     const MobileShell = () => {
-        const magNorm = String(operater?.ime || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const magAllowed = ["dorde", "djordje", "bosko", "dejan"].some((n) => magNorm.includes(n));
+        const magNorm = String(operater?.ime || "").trim().toLowerCase()
+            .replace(/đ/g, "dj").replace(/č|ć/g, "c").replace(/š/g, "s").replace(/ž/g, "z")
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const magAllowed = ["djordje", "dorde", "bosko", "dejan"].some((n) => magNorm.includes(n));
         if (activeTab === "materijal_naloge") {
             if (!magAllowed) { setActiveTab("rolne"); return null; }
             return <MaterijalZaNaloge operater={operater} msg={msg} onBack={() => setActiveTab("rolne")} />;

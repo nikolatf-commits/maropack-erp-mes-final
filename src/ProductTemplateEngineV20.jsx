@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
-import { pantoneHex, pantoneSwatch } from "./data/pantone.js";
+import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 
@@ -2377,7 +2377,7 @@ function BojeStampeEditor({ value, onChange }) {
                 return (
                     <div key={i} style={{ display: "grid", gridTemplateColumns: "30px 1.4fr 1fr 0.8fr 0.8fr 120px 28px", gap: 8, alignItems: "center", marginBottom: 6 }}>
                         <div title={uBazi ? "iz Pantone baze" : (b.hex ? "izabrana boja" : "izaberi boju desno")} style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid rgba(0,0,0,.18)", background: sw, boxShadow: "inset 0 -5px 8px rgba(0,0,0,.12)" }} />
-                        <input value={b.oznaka || ""} placeholder="npr. 348 C / Cyan" onChange={(e) => setRow(i, { oznaka: e.target.value })} style={fieldStyle()} />
+                        <input value={b.oznaka || ""} list="pantone-datalist" placeholder="ukucaj npr. 38 → izbor" onChange={(e) => setRow(i, { oznaka: e.target.value })} style={fieldStyle()} />
                         <select value={b.tip || "Spot (Pantone)"} onChange={(e) => setRow(i, { tip: e.target.value })} style={fieldStyle()}>
                             {TIPOVI.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
@@ -2396,6 +2396,7 @@ function BojeStampeEditor({ value, onChange }) {
                 );
             })}
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>Stanica = redni broj u listi. Spot boja u bazi se oboji sama; ako nije, klikni kvadratić boje i izaberi je (ili nalepi #HEX). Bela/Lak se oboje automatski.</div>
+            <datalist id="pantone-datalist">{PANTONE_KEYS.map((k) => <option key={k} value={k} />)}</datalist>
         </div>
     );
 }
