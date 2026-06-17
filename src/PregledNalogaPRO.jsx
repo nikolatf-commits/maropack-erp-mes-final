@@ -213,30 +213,40 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const closeFn = onBack || onClose;
     const [showQr, setShowQr] = useState(false);
     const masterIdGuess = (nalozi && nalozi[0] && (nalozi[0].glavni_nalog_id || (nalozi[0].master_nalog && nalozi[0].master_nalog.id))) || osnovniNalog.id || osnovniNalog.master_nalog_id || null;
-    const qrUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/?nalog=" + encodeURIComponent(naslovBroj);
+    const masterBrojOf = (s) => String(s || "").replace(/[,()]/g, "").replace(/\s*[-–]\s*(MATERIJAL|MATERIAL|ŠTAMPA|STAMPA|KAŠIRANJE|KASIRANJE|PERFORACIJA[_ -]?REZANJE|PERFORACIJA|REZANJE|LAMINIRANJE|FORMATIRANJE)\b.*$/i, "").trim();
 
     async function obrisiNalog() {
-        if (!confirm("Obrisati CEO nalog " + naslovBroj + " (sve operacije za ovaj proizvod)? Ovo se ne može vratiti.")) return;
+        const masterBroj = masterBrojOf(naslovBroj);
+        if (!confirm("Obrisati CEO nalog " + masterBroj + " (sve operacije za ovaj proizvod)? Ovo se ne može vratiti.")) return;
         try {
-            // 1) Nađi master id pouzdano (po broju ako treba)
+            // 1) Nađi master id (iz učitanih naloga, pa iz baze po broju, pa preko operacije)
             let masterId = masterIdGuess;
-            if (!masterId) {
-                try {
-                    const { data } = await supabase.from("radni_nalozi").select("id").eq("broj_naloga", String(naslovBroj).replace(/[,()]/g, "").trim()).maybeSingle();
-                    if (data && data.id) masterId = data.id;
-                } catch (e) { }
-            }
-            let err = null;
-            // 2) Obriši sve operativne naloge (po master id i/ili po njihovim id-jevima)
+            if (!masterId) { try { const { data } = await supabase.from("radni_nalozi").select("id").eq("broj_naloga", masterBroj).maybeSingle(); if (data && data.id) masterId = data.id; } catch (e) { } }
+            if (!masterId) { try { const { data } = await supabase.from("operativni_nalozi").select("glavni_nalog_id").ilike("broj_naloga", masterBroj + "-%").limit(1); if (data && data[0]) masterId = data[0].glavni_nalog_id; } catch (e) { } }
+
+            let err = null, deleted = 0;
+            const del = async (q) => { const r = await q.select("id"); if (r.error) err = r.error; else deleted += (r.data ? r.data.length : 0); };
+
+            // 2) Obriši sve operacije (po master id, po prefiksu broja, po tačnom broju, po id-jevima)
             const ids = (nalozi || []).map(n => n.id).filter(Boolean);
-            if (masterId) { const r = await supabase.from("operativni_nalozi").delete().eq("glavni_nalog_id", masterId); if (r.error) err = r.error; }
-            if (ids.length) { const r = await supabase.from("operativni_nalozi").delete().in("id", ids); if (r.error) err = r.error; }
+            if (masterId) await del(supabase.from("operativni_nalozi").delete().eq("glavni_nalog_id", masterId));
+            await del(supabase.from("operativni_nalozi").delete().ilike("broj_naloga", masterBroj + "-%"));
+            await del(supabase.from("operativni_nalozi").delete().eq("broj_naloga", String(naslovBroj).trim()));
+            if (ids.length) await del(supabase.from("operativni_nalozi").delete().in("id", ids));
+
             // 3) Oslobodi rezervisane rolne tog naloga
-            try { await supabase.from("magacin").update({ dodeljeno_nalogu: null, rezervisano: false }).ilike("dodeljeno_nalogu", "%" + naslovBroj + "%"); } catch (e) { }
+            try { await supabase.from("magacin").update({ dodeljeno_nalogu: null, rezervisano: false }).ilike("dodeljeno_nalogu", "%" + masterBroj + "%"); } catch (e) { }
+
             // 4) Obriši master
-            if (masterId) { const r = await supabase.from("radni_nalozi").delete().eq("id", masterId); if (r.error) err = r.error; }
-            if (err) { alert("Brisanje nije uspelo: " + (err.message || err) + "\n(Možda nemaš dozvolu — proveri prava u bazi.)"); return; }
-            alert("Nalog " + naslovBroj + " je obrisan.");
+            if (masterId) await del(supabase.from("radni_nalozi").delete().eq("id", masterId));
+            else await del(supabase.from("radni_nalozi").delete().eq("broj_naloga", masterBroj));
+
+            if (err) { alert("Brisanje nije uspelo: " + (err.message || err)); return; }
+            if (deleted === 0) {
+                alert("Ništa nije obrisano. Najverovatnije baza ne dozvoljava brisanje (RLS politika). Treba dodati DELETE dozvolu u Supabase za tabele radni_nalozi i operativni_nalozi. Reci mi pa ti dam tačan SQL.");
+                return;
+            }
+            alert("Nalog " + masterBroj + " je obrisan (" + deleted + " stavki).");
             if (closeFn) closeFn();
         } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }
     }

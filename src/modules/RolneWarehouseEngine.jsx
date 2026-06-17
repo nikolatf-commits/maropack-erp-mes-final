@@ -216,6 +216,23 @@ function safeWrite(key, value) {
 }
 function now() { return new Date().toLocaleString("sr-RS"); }
 function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 90 + 10)}`; }
+
+function Pager({ page, pages, onGo, info }) {
+    if (pages <= 1) return info ? <div style={{ textAlign: "center", fontSize: 12, color: "#94a3b8", padding: "8px 0", fontWeight: 700 }}>{info}</div> : null;
+    const win = [];
+    for (let p = 1; p <= pages; p++) { if (p === 1 || p === pages || Math.abs(p - page) <= 1) win.push(p); else if (win[win.length - 1] !== "…") win.push("…"); }
+    const b = (extra) => ({ minWidth: 34, height: 34, borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", padding: "0 8px", ...extra });
+    return (
+        <div>
+            {info && <div style={{ textAlign: "center", fontSize: 12, color: "#94a3b8", paddingTop: 8, fontWeight: 700 }}>{info}</div>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", padding: 12 }}>
+                <button style={b(page <= 1 ? { opacity: .4, cursor: "default" } : {})} disabled={page <= 1} onClick={() => onGo(page - 1)}>‹</button>
+                {win.map((p, i) => p === "…" ? <span key={"e" + i} style={{ padding: "0 4px", color: "#94a3b8" }}>…</span> : <button key={p} style={b(p === page ? { background: "#0f172a", color: "#fff", borderColor: "#0f172a" } : {})} onClick={() => onGo(p)}>{p}</button>)}
+                <button style={b(page >= pages ? { opacity: .4, cursor: "default" } : {})} disabled={page >= pages} onClick={() => onGo(page + 1)}>›</button>
+            </div>
+        </div>
+    );
+}
 function number(v) { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; }
 function round2(v) { return Math.round(number(v) * 100) / 100; }
 function fmt(v, dec = 2) { return number(v).toLocaleString("sr-RS", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
@@ -1309,6 +1326,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             return true;
         });
     }, [rolne, filter, columnFilters]);
+
+    // --- Paginacija (50 po strani; pretraga radi na celoj listi) ---
+    const PER_PAGE = 50;
+    const [rollPage, setRollPage] = useState(1);
+    const [histPage, setHistPage] = useState(1);
+    useEffect(() => { setRollPage(1); }, [filter, columnFilters]);
+    const rollPages = Math.max(1, Math.ceil(filteredRolls.length / PER_PAGE));
+    const rollPageC = Math.min(rollPage, rollPages);
+    const pagedRolls = useMemo(() => filteredRolls.slice((rollPageC - 1) * PER_PAGE, rollPageC * PER_PAGE), [filteredRolls, rollPageC]);
+    const histPages = Math.max(1, Math.ceil((history ? history.length : 0) / PER_PAGE));
+    const histPageC = Math.min(histPage, histPages);
+    const pagedHistory = useMemo(() => (history || []).slice((histPageC - 1) * PER_PAGE, histPageC * PER_PAGE), [history, histPageC]);
 
     const stats = useMemo(() => {
         // Statistika magacina gleda SAMO rolne koje su stvarno na stanju (iskorišćene/skinute se ne računaju).
@@ -2577,11 +2606,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         <div style={{ fontWeight: 950, marginBottom: 10 }}>🎞️ Stanje rolni</div>
                         <input style={{ ...input, marginBottom: 10, fontSize: 16 }} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Pretraga: broj rolne, oznaka, širina, lokacija..." />
                         <div style={{ display: "grid", gap: 8 }}>
-                            {filteredRolls.slice(0, 80).map((r) => (
+                            {pagedRolls.map((r) => (
                                 <div key={r.qr || r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 12, background: "#fff" }}>
                                     <div style={{ fontWeight: 950 }}>{r.qr}</div>
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
+                                    <div style={{ fontSize: 12.5, color: "#0369a1", fontWeight: 800, marginTop: 4 }}>📅 Proizvedeno: {formatDateLabel(r.datum_proizvodnje) || "—"}</div>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} style={{ color: statusColor(r.status), fontWeight: 900 }}>{displayStatus(r.status)}</span></div>
                                     {String(r.status || "").toLowerCase().includes("rez") ? (
                                         <div style={{ fontSize: 12, color: "#92400e", marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "7px 9px" }}>
@@ -2595,6 +2625,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             ))}
                             {filteredRolls.length === 0 && <div style={{ color: "#64748b", padding: 20, textAlign: "center" }}>Nema rolni za prikaz.</div>}
                         </div>
+                        <Pager page={rollPageC} pages={rollPages} onGo={setRollPage} info={filteredRolls.length + " rolni" + (filter ? " (filtrirano)" : "") + " · prikaz " + (filteredRolls.length ? (rollPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(rollPageC * PER_PAGE, filteredRolls.length)} />
                     </div>
                 )}
 
@@ -2603,13 +2634,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         <div style={{ fontWeight: 950, marginBottom: 10 }}>🕘 Istorija rolni</div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}><b>Istorija rolni</b><button onClick={reload} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>Osveži</button></div>
                         {history.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>Još nema istorije.</div> :
-                            history.slice(0, 300).map((h, i) => (
+                            pagedHistory.map((h, i) => (
                                 <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "10px 0", fontSize: 13 }}>
                                     <div style={{ color: "#64748b" }}>{h.vreme} · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span></div>
                                     <div style={{ marginTop: 2 }}><b>{h.qr}</b> · {h.event}</div>
                                     <div style={{ color: "#475569" }}>{h.opis}</div>
                                 </div>
                             ))}
+                        <Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} />
                     </div>
                 )}
             </div>
@@ -2906,7 +2938,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                                 </tr>
                             </thead>
-                            <tbody>{filteredRolls.map((r) => <tr key={r.qr}>
+                            <tbody>{pagedRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} title={(String(r.status || "").toLowerCase().includes("rez")) ? `Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}` : undefined} style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900, cursor: String(r.status || "").toLowerCase().includes("rez") ? "pointer" : "default" }}>{displayStatus(r.status)}</span></td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
@@ -2914,13 +2946,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
+                        <Pager page={rollPageC} pages={rollPages} onGo={setRollPage} info={filteredRolls.length + " rolni" + (filter ? " (filtrirano)" : "") + " · prikaz " + (filteredRolls.length ? (rollPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(rollPageC * PER_PAGE, filteredRolls.length)} />
                     </div>
                 </div>
             )}
 
 
             {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
-            {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : history.slice(0, 300).map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}</div>}
+            {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : <>{pagedHistory.map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}<Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} /></>}</div>}
         </div>
     );
 }
