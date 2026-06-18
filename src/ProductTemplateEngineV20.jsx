@@ -576,13 +576,25 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
 }
 
 function RollPreview({ folija }) {
-    const trake = (folija.rezanje.sirineTraka || "").split(",").map(x => x.trim()).filter(Boolean);
+    const rez = folija.rezanje || {};
+    const sirM = Number(String(rez.sirinaMaterijala || "").replace(",", ".")) || 0;
+    const trake = (rez.sirineTraka || "").split(",").map(x => Number(String(x).replace(",", ".").trim())).filter(n => n > 0);
+    const lista = trake.length ? trake : (Number(rez.sirinaTrake) ? [Number(rez.sirinaTrake)] : []);
+    const suma = lista.reduce((a, b) => a + b, 0);
+    const otpad = Math.max(0, sirM - suma);
+    const ol = otpad / 2, od = otpad / 2;
+    const isk = sirM ? Math.min(100, (suma / sirM) * 100) : 0;
+    const segs = [];
+    if (ol > 0) segs.push({ w: ol, waste: true, label: "OTPAD " + ol.toFixed(0) });
+    lista.forEach(t => segs.push({ w: t, waste: false, label: t + " mm" }));
+    if (od > 0) segs.push({ w: od, waste: true, label: "OTPAD " + od.toFixed(0) });
     return <div style={{ border: `2px solid ${BLUE}`, borderRadius: 10, overflow: "hidden", background: "#eef4ff" }}>
-        <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 900, color: BLUE }}>
-            <span>Zamišljeni prikaz finalne rolne</span><span>Materijal: {folija.rezanje.sirinaMaterijala || "—"} mm</span>
+        <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 11, fontWeight: 900, color: BLUE }}>
+            <span>Zamišljeni prikaz finalne rolne</span>
+            <span>Materijal: {sirM || "—"} mm · iskorišćenje {isk.toFixed(1)}%{otpad ? " · otpad " + otpad.toFixed(0) + " mm (po " + ol.toFixed(0) + " levo/desno)" : ""}</span>
         </div>
         <div style={{ display: "flex", minHeight: 72, borderTop: `1px solid ${BLUE}` }}>
-            {(trake.length ? trake : [folija.rezanje.sirinaTrake || "85"]).map((t, i) => <div key={i} style={{ flex: 1, borderRight: i === trake.length - 1 ? "none" : `1px solid ${BLUE}`, display: "flex", alignItems: "center", justifyContent: "center", color: BLUE, fontSize: 12, fontWeight: 900 }}>{t} mm</div>)}
+            {segs.length ? segs.map((s, i) => <div key={i} style={{ flex: `${Math.max(s.w, 6)} 1 0`, minWidth: s.w < 18 ? 42 : 50, borderRight: i === segs.length - 1 ? "none" : `1px solid ${s.waste ? RED : BLUE}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.waste ? RED : BLUE, background: s.waste ? "#fee2e2" : "transparent", fontSize: 11, fontWeight: 900, textAlign: "center", padding: 3 }}>{s.label}</div>) : <div style={{ padding: 16, color: "#64748b", fontWeight: 800 }}>Unesi širinu materijala i širinu trake.</div>}
         </div>
         {folija.kpdf.enabled && <div style={{ padding: "8px 12px", background: "#fff7ed", color: "#9a3412", fontWeight: 800, fontSize: 12 }}>KPDF / perforacija: {folija.kpdf.tip} · {folija.kpdf.odnos} · {folija.kpdf.smer} · pozicija {folija.kpdf.pozicija || "—"}</div>}
     </div>;
@@ -1287,6 +1299,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             if (dimSirina && !r.sirinaTrake) r.sirinaTrake = dimSirina;
             // porucena kolicina -> duzina rolne
             if (poruceno && !r.duzinaRolne) r.duzinaRolne = String(poruceno);
+            // auto broj traka = širina materijala / širina trake (u realnom vremenu)
+            const sirMat = nnum(r.sirinaMaterijala) || ideal;
+            const trakaW = nnum(r.sirinaTrake);
+            if (sirMat && trakaW) {
+                const autoBroj = Math.max(1, Math.floor(sirMat / trakaW));
+                if (String(r.brojTraka || "") !== String(autoBroj)) r.brojTraka = String(autoBroj);
+            }
             // auto sirineTraka lista
             const broj = Math.max(0, Math.floor(nnum(r.brojTraka)));
             const traka = nnum(r.sirinaTrake);
@@ -1298,7 +1317,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             if (valjak) r.predlogValjkaKasiranja = String(valjak);
             return next;
         });
-    }, [form.type, form.idealnaSirinaMaterijala, form.dimenzijaSirina, form.porucenaKolicina, form.folija?.rezanje?.brojTraka, form.folija?.rezanje?.sirinaTrake]);
+    }, [form.type, form.idealnaSirinaMaterijala, form.dimenzijaSirina, form.porucenaKolicina, form.folija?.rezanje?.sirinaMaterijala, form.folija?.rezanje?.brojTraka, form.folija?.rezanje?.sirinaTrake]);
 
     // Auto: broj boja (iz liste boja), broj kaširanja (slojevi-1), finalRoll iz rezanja/štampe
     useEffect(() => {
@@ -1894,7 +1913,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <Section title="Parametri kaširanja / laminiranja" color={BLUE}>
                     <Grid cols={3}>
-                        {Object.keys(form.folija.kasiranje).map(k => (
+                        <div>
+                            <label style={labelStyle()}>Broj kaširanja (auto)</label>
+                            <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
+                                value={form.folija.kasiranje.brojKasiranja || "—"} title="Auto = broj slojeva − 1" />
+                        </div>
+                        <div style={{ gridColumn: "span 2" }}>
+                            <label style={labelStyle()}>Spoj materijala (auto · vrsta + oznaka)</label>
+                            <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
+                                value={(form.folija.layers || []).map(l => [l.vrsta, (l.oznaka_materijala || l.oznaka)].filter(Boolean).join(" ")).filter(Boolean).join("  +  ") || "—"} />
+                        </div>
+                        {Object.keys(form.folija.kasiranje).filter(k => k !== "brojKasiranja" && k !== "materijali").map(k => (
                             <Input key={k} label={k} value={form.folija.kasiranje[k]} onChange={v => update(`folija.kasiranje.${k}`, v)} />
                         ))}
                         <Input label="Predlog valjka za kaširanje" value={form.folija.rezanje.predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("folija.rezanje.predlogValjkaKasiranja", v)} />
@@ -1916,9 +1945,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 onChange={e => update("folija.rezanje.sirinaTrake", e.target.value)} placeholder="auto iz dim. širine" />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Broj traka</label>
-                            <input style={fieldStyle()} value={form.folija.rezanje.brojTraka || ""}
-                                onChange={e => update("folija.rezanje.brojTraka", e.target.value)} placeholder="npr. 8" />
+                            <label style={labelStyle()}>Broj traka (auto)</label>
+                            <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
+                                value={form.folija.rezanje.brojTraka || "—"} title="Računa se: širina materijala ÷ širina trake" />
                         </div>
                         <div>
                             <label style={labelStyle()}>Dužina rolne (m)</label>
@@ -1956,8 +1985,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <RollPreview folija={form.folija} />
                     </div>
                 </Section>
-
-                <SmartFolijaTemplateEngine form={form} update={update} />
 
                 <Section title="KPDF / perforacija" color={ORANGE}>
                     <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900, marginBottom: 12 }}>
