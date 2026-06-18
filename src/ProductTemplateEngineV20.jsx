@@ -1959,8 +1959,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <SmartFolijaTemplateEngine form={form} update={update} />
 
-                <FolijaCadEngine folija={form.folija} />
-
                 <Section title="KPDF / perforacija" color={ORANGE}>
                     <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900, marginBottom: 12 }}>
                         <input
