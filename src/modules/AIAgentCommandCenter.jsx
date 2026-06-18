@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { runAIAgent, executeAIAgentAction } from '../services/aiAgentCore.js';
+import AINalogPreview from './AINalogPreview.jsx';
 
 const card = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 18, boxShadow: '0 10px 30px rgba(15,23,42,.06)' };
 const btn = { border: 0, borderRadius: 12, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' };
@@ -63,6 +64,7 @@ export default function AIAgentCommandCenter() {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
     const [msg, setMsg] = useState('');
+    const [preview, setPreview] = useState(null);
 
     async function ask(q = question) {
         setLoading(true); setMsg('');
@@ -119,6 +121,15 @@ export default function AIAgentCommandCenter() {
 
             {msg && <div style={{ ...card, borderColor: '#fecaca', background: '#fef2f2', color: '#b91c1c', fontWeight: 800 }}>{msg}</div>}
 
+            {preview && <AINalogPreview
+                productId={preview.productId}
+                productName={preview.productName}
+                kupac={preview.kupac}
+                kolicina={preview.kolicina}
+                onClose={() => setPreview(null)}
+                onDone={(m, err) => { setPreview(null); setMsg(m); if (!err) setTimeout(() => ask(question), 600); }}
+            />}
+
             {result && <div style={{ display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 18 }}>
                 <div style={{ display: 'grid', gap: 14 }}>
                     <div style={card}>
@@ -135,10 +146,10 @@ export default function AIAgentCommandCenter() {
                     </div>}
 
                     {result.actions?.map((a, i) => <ActionCard key={i} action={a} onExecute={async (action) => {
+                        if (action.type === 'KREIRAJ_NALOG_OD_PROIZVODA') { setPreview(action.payload || {}); return; }
                         setMsg('Izvršavam: ' + (action.title || action.type) + '…');
                         const r = await executeAIAgentAction(action);
                         setMsg(r.message);
-                        if (r.ok && action.type === 'KREIRAJ_NALOG_OD_PROIZVODA') { setTimeout(() => ask(question), 800); }
                     }} />)}
                 </div>
 
