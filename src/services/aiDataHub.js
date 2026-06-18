@@ -11,7 +11,7 @@ const TABLES = [
     { key: 'material_cene', label: 'Cene materijala', table: 'material_cene', limit: 200, order: 'created_at' },
     { key: 'material_vrste', label: 'Vrste materijala', table: 'material_vrste', limit: 100, order: 'created_at' },
     // --- Magacin ---
-    { key: 'magacin', label: 'Magacin rolni', table: 'magacin', limit: 300, order: 'created_at', fallback: 'rolne' },
+    { key: 'magacin', label: 'Magacin rolni', table: 'magacin', limit: 5000, order: 'created_at', fallback: 'rolne' },
     { key: 'magacin_gotovi', label: 'Magacin gotovih proizvoda', table: 'magacin_gotovi_proizvodi', limit: 200, order: 'created_at' },
     { key: 'istorija_lokacija', label: 'Istorija lokacija rolni', table: 'istorija_lokacija_rolni', limit: 150, order: 'created_at' },
     // --- Kalkulacije i ponude ---
@@ -81,19 +81,21 @@ export async function fetchAIContext() {
         tableStatus.push({ key: r.key, label: r.label, table: r.table, count: r.data.length, error: r.error });
     }
 
-    // Aliasi: stara logika čita rolne/nalozi/master_nalozi/materijali/templatei
-    context.rolne = context.rolne || context.magacin || [];
+    // Aliasi za staru logiku — BEZ dupliranja (potrošači rade [...rolne, ...magacin] itd.)
+    context.rolne = [];                               // magacin je glavni izvor; prazno da se ne broji dvaput
     context.materijali = context.material_master || [];
-    context.templatei = context.proizvodi || [];
+    context.templatei = [];                           // proizvodi je glavni; prazno da se ne broji dvaput
     context.master_nalozi = context.radni_nalozi || [];
-    context.nalozi = [...safeArray(context.nalozi_stari), ...safeArray(context.operativni_nalozi)];
+    context.nalozi = safeArray(context.nalozi_stari); // operativni se ne broje kao posebni nalozi
 
     const summary = buildBusinessSummary(context, tableStatus);
     return { context, tableStatus, summary, generatedAt: new Date().toISOString() };
 }
 
 export function buildBusinessSummary(ctx, tableStatus = []) {
-    const rolne = [...safeArray(ctx.rolne), ...safeArray(ctx.magacin)];
+    const INACTIVE = ['prodat', 'utros', 'iskoris', 'isporu', 'storn', 'otpis', 'obrisan', 'arhiv'];
+    const isActive = (r) => { const s = String(r?.status || '').toLowerCase(); return !INACTIVE.some(x => s.includes(x)); };
+    const rolne = [...safeArray(ctx.rolne), ...safeArray(ctx.magacin)].filter(isActive);
     const nalozi = [...safeArray(ctx.nalozi), ...safeArray(ctx.master_nalozi)];
     const ponude = safeArray(ctx.ponude);
     const proizvodi = safeArray(ctx.proizvodi);
@@ -112,8 +114,8 @@ export function buildBusinessSummary(ctx, tableStatus = []) {
         const mat = String(r.tip || r.materijal || r.vrsta || r.naziv || 'NEPOZNATO').toUpperCase();
         byMaterial[mat] = byMaterial[mat] || { rolni: 0, metara: 0, kg: 0 };
         byMaterial[mat].rolni += 1;
-        byMaterial[mat].metara += Number(r.metara || r.duzina || r.ostatak_m || r.ostalo_m || 0) || 0;
-        byMaterial[mat].kg += Number(r.kg || r.neto_kg || r.tezina || 0) || 0;
+        byMaterial[mat].metara += Number(r.metraza_ost || r.metraza || r.metara || r.duzina || r.ostatak_m || r.ostalo_m || 0) || 0;
+        byMaterial[mat].kg += Number(r.kg_neto || r.kg_bruto || r.kg || r.neto_kg || r.tezina || 0) || 0;
     }
 
     const activeOrders = nalozi.filter(n => !['zavrseno', 'zatvoreno', 'otkazano', 'isporuceno'].includes(String(n.status || '').toLowerCase()));
@@ -128,8 +130,8 @@ export function buildBusinessSummary(ctx, tableStatus = []) {
         broj_naloga: nalozi.length,
         aktivni_nalozi: activeOrders.length,
         rolni_u_magacinu: rolne.length,
-        ukupno_metara_magacin: Math.round(sum(rolne, ['metara', 'duzina', 'ostatak_m', 'ostalo_m'])),
-        ukupno_kg_magacin: Math.round(sum(rolne, ['kg', 'neto_kg', 'tezina'])),
+        ukupno_metara_magacin: Math.round(sum(rolne, ['metraza_ost', 'metraza', 'metara', 'duzina', 'ostatak_m', 'ostalo_m'])),
+        ukupno_kg_magacin: Math.round(sum(rolne, ['kg_neto', 'kg_bruto', 'kg', 'neto_kg', 'tezina'])),
         zapisa_potrosnje: potrosnja.length,
         magacin_po_materijalu: byMaterial
     };
