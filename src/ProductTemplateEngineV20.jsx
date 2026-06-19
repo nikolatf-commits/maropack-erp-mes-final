@@ -1919,9 +1919,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 value={form.folija.kasiranje.brojKasiranja || "—"} title="Auto = broj slojeva − 1" />
                         </div>
                         <div style={{ gridColumn: "span 2" }}>
-                            <label style={labelStyle()}>Spoj materijala (auto · vrsta + oznaka)</label>
+                            <label style={labelStyle()}>Spoj materijala (auto · vrsta + oznaka + debljina)</label>
                             <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
-                                value={(form.folija.layers || []).map(l => [l.vrsta, (l.oznaka_materijala || l.oznaka)].filter(Boolean).join(" ")).filter(Boolean).join("  +  ") || "—"} />
+                                value={(form.folija.layers || []).map(l => [l.vrsta, (l.oznaka_materijala || l.oznaka), ((l.debljina ?? l.deb) ? (l.debljina ?? l.deb) + (String(l.vrsta).toUpperCase() === "PAPIR" ? " g/m²" : " µm") : "")].filter(Boolean).join(" ")).filter(Boolean).join("  +  ") || "—"} />
                         </div>
                         {Object.keys(form.folija.kasiranje).filter(k => k !== "brojKasiranja" && k !== "materijali").map(k => (
                             <Input key={k} label={k} value={form.folija.kasiranje[k]} onChange={v => update(`folija.kasiranje.${k}`, v)} />
