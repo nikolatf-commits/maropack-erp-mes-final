@@ -121,20 +121,20 @@ function rangirajRolne(rolne, layer, opts = {}) {
             return okT && okD && okS && okPV && okOZ && okSir;
         })
         .sort((a, b) => {
-            // 1) dovoljno metraže za nalog (rolne koje pokrivaju porudžbinu idu prve)
-            if (potrebnoM) {
-                const ea = rolnaMetraza(a) >= potrebnoM ? 0 : 1;
-                const eb = rolnaMetraza(b) >= potrebnoM ? 0 : 1;
-                if (ea !== eb) return ea - eb;
-            }
+            // 1) FIFO — najstarija rolna prva
+            const da = rolnaDatum(a), db = rolnaDatum(b);
+            if (da !== db) return da - db;
             // 2) najmanje otpada — najbliža (ali ne uža) idealnoj širini
             if (ideal) {
                 const sa = Math.abs(Number(a.sirina) - ideal), sb = Math.abs(Number(b.sirina) - ideal);
                 if (sa !== sb) return sa - sb;
             }
-            // 3) FIFO — najstarija rolna prva
-            const da = rolnaDatum(a), db = rolnaDatum(b);
-            if (da !== db) return da - db;
+            // 3) rolne koje same pokrivaju porudžbinu malo napred
+            if (potrebnoM) {
+                const ea = rolnaMetraza(a) >= potrebnoM ? 0 : 1;
+                const eb = rolnaMetraza(b) >= potrebnoM ? 0 : 1;
+                if (ea !== eb) return ea - eb;
+            }
             // 4) prednost istom proizvođaču
             if (proizv) {
                 const ma = txtEq(a.dobavljac, proizv) ? 0 : 1, mb = txtEq(b.dobavljac, proizv) ? 0 : 1;
@@ -2271,7 +2271,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                         return (
                                                                             <div key={r.id || r.br_rolne || k} style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
                                                                                 <div style={{ flex: 1, fontSize: 12, fontWeight: 800, color: "#0f172a", minWidth: 0 }}>
-                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {r.sirina}mm · {r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
+                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
                                                                                 </div>
                                                                                 <div style={{ fontSize: 12, fontWeight: 900, color: "#2446b8", whiteSpace: "nowrap" }}>{fmt(Math.round(aloc))} / {fmt(m)} m</div>
                                                                                 <button onClick={() => ukloniRolnu(i, r)} style={{ width: 28, height: 28, border: "1px solid #fecaca", color: "#dc2626", background: "#fff", borderRadius: 7, fontWeight: 900, cursor: "pointer", flexShrink: 0 }}>×</button>
@@ -2294,11 +2294,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                                                     <select value="" onChange={e => { const r = nalogRolne.find(x => String(x.id || x.br_rolne) === e.target.value); if (r) dodajRolnu(i, r); }}
                                                                         style={{ flex: 1, padding: "9px 10px", border: "1.5px solid #cbd5e1", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
-                                                                        <option value="">+ Dodaj rolnu iz magacina ({dostupne.length})…</option>
+                                                                        <option value="">+ Dodaj rolnu iz magacina ({dostupne.length}) — poređano po FIFO…</option>
                                                                         {dostupne.map(r => {
                                                                             const m = num(r.metraza_ost || r.metraza);
                                                                             const malo = kolPlus && m < kolPlus;
-                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{r.br_rolne} · {r.sirina}mm · {m.toLocaleString("sr-RS")}m · {num(r.kg_neto || r.kg).toFixed(0)}kg · {r.dobavljac || "—"} · LOT:{r.lot || "—"}{malo ? "  ⚠ malo" : ""}</option>;
+                                                                            const pv = rolnaPodVrsta(r), oz = rolnaOznaka(r);
+                                                                            const dp = r.datum_proizvodnje || r.datum || "";
+                                                                            const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), r.sirina + "mm", m.toLocaleString("sr-RS") + "m", num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
+                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{malo ? "  ⚠ malo" : ""}</option>;
                                                                         })}
                                                                     </select>
                                                                     <button onClick={() => autoPopuni(i)} title="Auto-popuni kombinaciju" style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#2446b8", borderRadius: 8, padding: "9px 12px", fontWeight: 800, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto</button>
