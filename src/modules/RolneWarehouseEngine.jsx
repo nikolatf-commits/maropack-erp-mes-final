@@ -331,6 +331,13 @@ function cleanOznaka(value, vrsta = "") {
 function rollOznaka(r) {
     return cleanOznaka(r?.oznaka_materijala || r?.oznaka || r?.komercijalnaOznaka || r?.materijal || "", r?.vrsta);
 }
+function crevoLabel(r) {
+    const n = String(r?.napomena || "");
+    if (!/crevo/i.test(n)) return null;
+    const m = n.match(/×\s*(\d+)/);
+    return m ? ("CREVO ×" + m[1]) : "CREVO";
+}
+const CREVO_BADGE = { display: "inline-block", background: "#faf5ff", color: "#6d28d9", border: "1px solid #e9d5ff", borderRadius: 6, padding: "1px 7px", fontSize: 10, fontWeight: 900, marginLeft: 6, verticalAlign: "middle", whiteSpace: "nowrap" };
 function mapDbRollToEngine(r = {}) {
     const vrsta = r.vrsta || r.tip || r.materijal || "Nedefinisano";
     const oznaka = cleanOznaka(r.oznaka_materijala || r.oznaka || r.komercijalnaOznaka || "", vrsta);
@@ -893,6 +900,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
+    const [crevoForm, setCrevoForm] = useState({ vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
+    const crevoCalc = useMemo(() => {
+        const k = crevoForm.oblik === "ravna" ? 1 : (crevoForm.oblik === "custom" ? (number(crevoForm.kCustom) || 1) : 2);
+        const m = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === String(crevoForm.vrsta || "").toUpperCase()
+            && (!crevoForm.oznaka || String(x.oznaka || "").toUpperCase() === String(crevoForm.oznaka || "").toUpperCase())
+            && Number(x.debljina) === number(crevoForm.debljina));
+        const gsm = m ? (number(m.gsm) || round2(number(m.debljina) * number(m.koeficijent))) : 0;
+        const meters = estimateMetersFromDiameter({ debljina: number(crevoForm.debljina) * k }, crevoForm.precnik, crevoForm.hilzna);
+        const razvijena = round2(number(crevoForm.sirina) * k);
+        const kg = kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
+        return { k, gsm, meters, razvijena, kg };
+    }, [crevoForm, materialMaster]);
     const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
@@ -1339,6 +1358,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const histPageC = Math.min(histPage, histPages);
     const pagedHistory = useMemo(() => (history || []).slice((histPageC - 1) * PER_PAGE, histPageC * PER_PAGE), [history, histPageC]);
 
+    // Istorija POVRATA (rolne vraćene kroz „Povrat u magacin") + filter po broju rolne
+    const [povratSearch, setPovratSearch] = useState("");
+    const [povratPage, setPovratPage] = useState(1);
+    useEffect(() => { setPovratPage(1); }, [povratSearch]);
+    const povratHistory = useMemo(() => {
+        const q = String(povratSearch || "").trim().toLowerCase();
+        return (history || []).filter((h) => /povrat/i.test(String(h.event || "")))
+            .filter((h) => !q || String(h.qr || "").toLowerCase().includes(q));
+    }, [history, povratSearch]);
+    const povratPages = Math.max(1, Math.ceil(povratHistory.length / PER_PAGE));
+    const povratPageC = Math.min(povratPage, povratPages);
+    const pagedPovrat = useMemo(() => povratHistory.slice((povratPageC - 1) * PER_PAGE, povratPageC * PER_PAGE), [povratHistory, povratPageC]);
+
     const stats = useMemo(() => {
         // Statistika magacina gleda SAMO rolne koje su stvarno na stanju (iskorišćene/skinute se ne računaju).
         const naStanjuRolne = rolne.filter(isRollVisibleOnStock);
@@ -1679,6 +1711,38 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (item) setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
         reload(); setLabelRoll(item); msg?.(`Rolna ${item.qr} dodata · ${fmt(finalM, 0)} m · ${fmt(finalKg, 2)} kg`);
         setForm((f) => ({ ...f, napomena: "" }));
+    }
+
+    async function dodajCrevo() {
+        const { k, meters, razvijena, kg } = crevoCalc;
+        if (!crevoForm.vrsta) { msg?.("Izaberi vrstu materijala", "err"); return; }
+        if (!number(crevoForm.sirina)) { msg?.("Unesi spljoštenu širinu", "err"); return; }
+        if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljni prečnik (veći od hilzne) i debljinu", "err"); return; }
+        const oblikLabel = crevoForm.oblik === "ravna" ? "Ravna folija" : (crevoForm.oblik === "custom" ? `Custom ×${k}` : "Polu-crevo / crevo");
+        const napomena = [crevoForm.napomena, `${oblikLabel} (×${k}) · spljošteno ${number(crevoForm.sirina)} mm · razvijeno ${razvijena} mm · prečnik ${number(crevoForm.precnik)} mm / ${crevoForm.hilzna}`].filter(Boolean).join(" · ");
+        const brRolne = await uniqueBrRolne();
+        const cleanCode = cleanOznaka(crevoForm.oznaka, crevoForm.vrsta);
+        let item = null;
+        try {
+            if (!supabase.__notConfigured) {
+                const { data, error } = await supabase.from("magacin").insert({
+                    br_rolne: brRolne, tip: crevoForm.vrsta, vrsta: crevoForm.vrsta,
+                    oznaka_materijala: cleanCode, deb: number(crevoForm.debljina),
+                    sirina: number(crevoForm.sirina), metraza: meters, metraza_ost: meters,
+                    kg_bruto: kg, kg_neto: kg, lot: crevoForm.lot || null,
+                    datum: new Date().toISOString().slice(0, 10), datum_prijema: new Date().toISOString().slice(0, 10),
+                    datum_proizvodnje: toIsoDateOrNull(crevoForm.datum_proizvodnje),
+                    status: "Na stanju", qr_code: brRolne, lokacija: crevoForm.lokacija || null, napomena,
+                }).select("*").single();
+                if (error) throw error;
+                item = mapDbRollToEngine(data);
+                await logHistory({ qr: item.qr, event: "ULAZ U MAGACIN (CREVO/PREČNIK)", opis: `${crevoForm.vrsta} ${cleanCode} ${number(crevoForm.debljina)}µ · ${oblikLabel} ×${k} · ${fmt(meters, 0)} m / ${fmt(kg, 2)} kg · prečnik ${number(crevoForm.precnik)} mm · lokacija ${crevoForm.lokacija || "—"}`, stanje: "Na stanju" });
+            }
+        } catch (e) { msg?.("Upis nije uspeo: " + e.message, "err"); return; }
+        if (!item) { msg?.("Rolna nije sačuvana.", "err"); return; }
+        setRolne((prev) => [item, ...prev.filter((r) => r.qr !== item.qr && String(r.id) !== String(item.id))]);
+        reload(); setLabelRoll(item); msg?.(`Polu-rolna/crevo ${item.qr} dodata · ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg`);
+        setCrevoForm((f) => ({ ...f, precnik: "", lot: "", napomena: "" }));
     }
     async function changeStatus(r, status) {
         const normalizedStatus = toDbStatus(status);
@@ -2484,6 +2548,36 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const smallInput = { ...input, padding: "7px 8px", borderRadius: 8, fontSize: 12 };
     const btn = { border: "none", borderRadius: 10, padding: "9px 12px", fontWeight: 900, cursor: "pointer" };
     const lbl = { display: "block", fontSize: 11, fontWeight: 900, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.3 };
+
+    const crevoView = (
+        <div style={card}>
+            <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 4 }}>🧵 Polu-rolne / creva (merenje prečnika)</div>
+            <div style={{ color: "#64748b", fontSize: 12, marginBottom: 14 }}>Za crevo/polu-crevo folija je savijena → dupli sloj (×2). Uneseš spljoštenu širinu; sistem računa razvijenu širinu i metražu/kg iz prečnika.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+                <label><span style={lbl}>Vrsta materijala</span><input style={input} list="crevo-vrste" value={crevoForm.vrsta} onChange={(e) => setCrevoForm((f) => ({ ...f, vrsta: e.target.value }))} placeholder="npr. PE" /><datalist id="crevo-vrste">{[...new Set(materialMaster.map((x) => x.vrsta).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist></label>
+                <label><span style={lbl}>Oznaka</span><input style={input} value={crevoForm.oznaka} onChange={(e) => setCrevoForm((f) => ({ ...f, oznaka: e.target.value }))} placeholder="oznaka" /></label>
+                <label><span style={lbl}>Debljina folije (µm)</span><input style={input} type="number" value={crevoForm.debljina} onChange={(e) => setCrevoForm((f) => ({ ...f, debljina: e.target.value }))} placeholder="npr. 50" /></label>
+                <label><span style={lbl}>Spljoštena širina (mm)</span><input style={input} type="number" value={crevoForm.sirina} onChange={(e) => setCrevoForm((f) => ({ ...f, sirina: e.target.value }))} placeholder="npr. 840" /></label>
+                <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa" }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
+                <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                <label><span style={lbl}>⭐ Oblik namotaja</span><select style={{ ...input, borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 800 }} value={crevoForm.oblik} onChange={(e) => setCrevoForm((f) => ({ ...f, oblik: e.target.value }))}><option value="ravna">Ravna folija (×1)</option><option value="crevo">Polu-crevo / crevo — savijeno (×2)</option><option value="custom">Custom faktor…</option></select></label>
+                {crevoForm.oblik === "custom" && <label><span style={lbl}>Custom faktor (slojevi)</span><input style={input} type="number" value={crevoForm.kCustom} onChange={(e) => setCrevoForm((f) => ({ ...f, kCustom: e.target.value }))} /></label>}
+                <label><span style={lbl}>Lokacija</span><input style={input} value={crevoForm.lokacija} onChange={(e) => setCrevoForm((f) => ({ ...f, lokacija: e.target.value }))} /></label>
+                <label><span style={lbl}>LOT (opciono)</span><input style={input} value={crevoForm.lot} onChange={(e) => setCrevoForm((f) => ({ ...f, lot: e.target.value }))} /></label>
+                <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={crevoForm.datum_proizvodnje} onChange={(e) => setCrevoForm((f) => ({ ...f, datum_proizvodnje: e.target.value }))} /></label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginTop: 14 }}>
+                <div style={{ background: "#15803d", color: "#fff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>Metraža</div><div style={{ fontSize: 22, fontWeight: 950 }}>≈ {fmt(crevoCalc.meters, 0)} m</div></div>
+                <div style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>kg (neto)</div><div style={{ fontSize: 22, fontWeight: 950 }}>≈ {fmt(crevoCalc.kg, 1)} kg</div></div>
+                <div style={{ background: "#faf5ff", color: "#6d28d9", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>Razvijena širina (×{crevoCalc.k})</div><div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(crevoCalc.razvijena, 0)} mm</div></div>
+            </div>
+            {!crevoCalc.gsm && crevoForm.vrsta && <div style={{ marginTop: 10, fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px", fontWeight: 700 }}>⚠️ Nema gramaže u bazi materijala za ovu kombinaciju — kg može biti 0. Dodaj materijal u „Baza materijala" za tačan kg.</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => setCrevoForm((f) => ({ ...f, precnik: "", lot: "", napomena: "" }))} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Očisti</button>
+                <button onClick={dodajCrevo} style={{ ...btn, background: "#16a34a", color: "#fff" }}>✅ Dodaj na stanje</button>
+            </div>
+        </div>
+    );
     const tabBtn = (key) => ({ ...btn, background: activeTab === key ? "#0f172a" : "#f8fafc", color: activeTab === key ? "#fff" : "#334155", border: "1px solid #e2e8f0" });
 
 
@@ -2508,8 +2602,10 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             mobileActionBtn("popis", "📷", "Skeniraj / popiši", "QR popis rolne"),
             mobileActionBtn("povrat", "↩️", "Povrat u magacin", "Prečnik + hilzna"),
             mobileActionBtn("unos", "➕", "Unos rolne", "Ručni unos"),
+            mobileActionBtn("creva", "🧵", "Polu-rolne / creva", "Merenje prečnika"),
             mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
             mobileActionBtn("istorija", "🕘", "Istorija", "Ko je šta radio"),
+            mobileActionBtn("istorija_povrata", "↩️", "Istorija povrata", "Vraćene rolne"),
         ];
 
         return (
@@ -2608,7 +2704,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         <div style={{ display: "grid", gap: 8 }}>
                             {pagedRolls.map((r) => (
                                 <div key={r.qr || r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 12, background: "#fff" }}>
-                                    <div style={{ fontWeight: 950 }}>{r.qr}</div>
+                                    <div style={{ fontWeight: 950 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</div>
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
                                     <div style={{ fontSize: 12.5, color: "#0369a1", fontWeight: 800, marginTop: 4 }}>📅 Proizvedeno: {formatDateLabel(r.datum_proizvodnje) || "—"}</div>
@@ -2629,6 +2725,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     </div>
                 )}
 
+                {activeTab === "creva" && crevoView}
+
                 {activeTab === "istorija" && (
                     <div style={card}>
                         <div style={{ fontWeight: 950, marginBottom: 10 }}>🕘 Istorija rolni</div>
@@ -2642,6 +2740,22 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 </div>
                             ))}
                         <Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} />
+                    </div>
+                )}
+
+                {activeTab === "istorija_povrata" && (
+                    <div style={card}>
+                        <div style={{ fontWeight: 950, marginBottom: 10 }}>↩️ Istorija povrata</div>
+                        <input value={povratSearch} onChange={(e) => setPovratSearch(e.target.value)} placeholder="Filter po broju rolne (ROLNA-2026…)" style={{ ...input, marginBottom: 10 }} />
+                        {povratHistory.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>Nema povrata{povratSearch ? " za tu pretragu" : ""}.</div> :
+                            pagedPovrat.map((h, i) => (
+                                <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "10px 0", fontSize: 13 }}>
+                                    <div style={{ color: "#64748b" }}>{h.vreme} · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span></div>
+                                    <div style={{ marginTop: 2 }}><b>{h.qr}</b> · {h.event}</div>
+                                    <div style={{ color: "#475569" }}>{h.opis}</div>
+                                </div>
+                            ))}
+                        <Pager page={povratPageC} pages={povratPages} onGo={setPovratPage} info={povratHistory.length + " povrata"} />
                     </div>
                 )}
             </div>
@@ -2731,9 +2845,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                 <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
                 <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
+                <button onClick={() => setActiveTab("creva")} style={tabBtn("creva")}>🧵 Polu-rolne / creva</button>
                 <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
                 {isAdmin && <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>}
                 <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
+                <button onClick={() => setActiveTab("istorija_povrata")} style={tabBtn("istorija_povrata")}>↩️ Istorija povrata</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
                 {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
@@ -2940,7 +3056,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             </thead>
                             <tbody>{pagedRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} title={(String(r.status || "").toLowerCase().includes("rez")) ? `Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}` : undefined} style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900, cursor: String(r.status || "").toLowerCase().includes("rez") ? "pointer" : "default" }}>{displayStatus(r.status)}</span></td>
+                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} title={(String(r.status || "").toLowerCase().includes("rez")) ? `Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${r.napomena ? "  ·  " + r.napomena : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}` : undefined} style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900, cursor: String(r.status || "").toLowerCase().includes("rez") ? "pointer" : "default" }}>{displayStatus(r.status)}</span></td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
                                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
@@ -2953,7 +3069,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
 
             {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
+            {activeTab === "creva" && crevoView}
+
             {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : <>{pagedHistory.map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}<Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} /></>}</div>}
+
+            {activeTab === "istorija_povrata" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>↩️ Istorija povrata u magacin</div><input value={povratSearch} onChange={(e) => setPovratSearch(e.target.value)} placeholder="Filter po broju rolne (ROLNA-2026…)" style={{ ...input, maxWidth: 360, marginBottom: 12 }} />{povratHistory.length === 0 ? <div style={{ color: "#64748b" }}>Nema povrata{povratSearch ? " za tu pretragu" : ""}.</div> : <>{pagedPovrat.map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}<Pager page={povratPageC} pages={povratPages} onGo={setPovratPage} info={povratHistory.length + " povrata · prikaz " + (povratHistory.length ? (povratPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(povratPageC * PER_PAGE, povratHistory.length)} /></>}</div>}
         </div>
     );
 }
