@@ -900,7 +900,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
-    const [crevoForm, setCrevoForm] = useState({ vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
+    const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
     const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
@@ -1727,7 +1727,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (!supabase.__notConfigured) {
                 const { data, error } = await supabase.from("magacin").insert({
                     br_rolne: brRolne, tip: crevoForm.vrsta, vrsta: crevoForm.vrsta,
-                    oznaka_materijala: cleanCode, deb: number(crevoForm.debljina),
+                    oznaka_materijala: cleanCode, pod_vrsta: crevoForm.pod_vrsta || null, deb: number(crevoForm.debljina),
                     sirina: number(crevoForm.sirina), metraza: meters, metraza_ost: meters,
                     kg_bruto: kg, kg_neto: kg, lot: crevoForm.lot || null,
                     datum: new Date().toISOString().slice(0, 10), datum_prijema: new Date().toISOString().slice(0, 10),
@@ -2549,27 +2549,53 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const btn = { border: "none", borderRadius: 10, padding: "9px 12px", fontWeight: 900, cursor: "pointer" };
     const lbl = { display: "block", fontSize: 11, fontWeight: 900, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.3 };
 
+    const crevoGT = { fontSize: 11, fontWeight: 900, color: "#7c3aed", textTransform: "uppercase", letterSpacing: .5, marginBottom: 9, display: "flex", alignItems: "center", gap: 7 };
+    const crevoDot = { width: 6, height: 6, borderRadius: "50%", background: "#7c3aed", display: "inline-block" };
+    const crevoGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11 };
     const crevoView = (
         <div style={card}>
-            <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 4 }}>🧵 Polu-rolne / creva (merenje prečnika)</div>
-            <div style={{ color: "#64748b", fontSize: 12, marginBottom: 14 }}>Za crevo/polu-crevo folija je savijena → dupli sloj (×2). Uneseš spljoštenu širinu; sistem računa razvijenu širinu i metražu/kg iz prečnika.</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
-                <label><span style={lbl}>Vrsta materijala</span><input style={input} list="crevo-vrste" value={crevoForm.vrsta} onChange={(e) => setCrevoForm((f) => ({ ...f, vrsta: e.target.value }))} placeholder="npr. PE" /><datalist id="crevo-vrste">{[...new Set(materialMaster.map((x) => x.vrsta).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist></label>
-                <label><span style={lbl}>Oznaka</span><input style={input} value={crevoForm.oznaka} onChange={(e) => setCrevoForm((f) => ({ ...f, oznaka: e.target.value }))} placeholder="oznaka" /></label>
-                <label><span style={lbl}>Debljina folije (µm)</span><input style={input} type="number" value={crevoForm.debljina} onChange={(e) => setCrevoForm((f) => ({ ...f, debljina: e.target.value }))} placeholder="npr. 50" /></label>
-                <label><span style={lbl}>Spljoštena širina (mm)</span><input style={input} type="number" value={crevoForm.sirina} onChange={(e) => setCrevoForm((f) => ({ ...f, sirina: e.target.value }))} placeholder="npr. 840" /></label>
-                <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa" }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
-                <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
-                <label><span style={lbl}>⭐ Oblik namotaja</span><select style={{ ...input, borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 800 }} value={crevoForm.oblik} onChange={(e) => setCrevoForm((f) => ({ ...f, oblik: e.target.value }))}><option value="ravna">Ravna folija (×1)</option><option value="crevo">Polu-crevo / crevo — savijeno (×2)</option><option value="custom">Custom faktor…</option></select></label>
-                {crevoForm.oblik === "custom" && <label><span style={lbl}>Custom faktor (slojevi)</span><input style={input} type="number" value={crevoForm.kCustom} onChange={(e) => setCrevoForm((f) => ({ ...f, kCustom: e.target.value }))} /></label>}
-                <label><span style={lbl}>Lokacija</span><input style={input} value={crevoForm.lokacija} onChange={(e) => setCrevoForm((f) => ({ ...f, lokacija: e.target.value }))} /></label>
-                <label><span style={lbl}>LOT (opciono)</span><input style={input} value={crevoForm.lot} onChange={(e) => setCrevoForm((f) => ({ ...f, lot: e.target.value }))} /></label>
-                <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={crevoForm.datum_proizvodnje} onChange={(e) => setCrevoForm((f) => ({ ...f, datum_proizvodnje: e.target.value }))} /></label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 11, background: "#faf5ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧵</div>
+                <div><div style={{ fontWeight: 950, fontSize: 17 }}>Polu-rolne / creva — unos merenjem prečnika</div><div style={{ fontSize: 12, color: "#64748b" }}>Uneseš materijal i izmeren prečnik → metraža, kg i razvijena širina se računaju same.</div></div>
+                <div style={{ marginLeft: "auto", fontSize: 11, fontWeight: 900, background: "#dcfce7", color: "#15803d", borderRadius: 8, padding: "5px 11px" }}>na stanje</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginTop: 14 }}>
-                <div style={{ background: "#15803d", color: "#fff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>Metraža</div><div style={{ fontSize: 22, fontWeight: 950 }}>≈ {fmt(crevoCalc.meters, 0)} m</div></div>
-                <div style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>kg (neto)</div><div style={{ fontSize: 22, fontWeight: 950 }}>≈ {fmt(crevoCalc.kg, 1)} kg</div></div>
-                <div style={{ background: "#faf5ff", color: "#6d28d9", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .8, fontWeight: 800, textTransform: "uppercase" }}>Razvijena širina (×{crevoCalc.k})</div><div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(crevoCalc.razvijena, 0)} mm</div></div>
+
+            <div style={{ marginBottom: 16 }}>
+                <div style={crevoGT}><span style={crevoDot} />1 · Materijal</div>
+                <div style={crevoGrid}>
+                    <label><span style={lbl}>Vrsta</span><input style={input} list="crevo-vrste" value={crevoForm.vrsta} onChange={(e) => setCrevoForm((f) => ({ ...f, vrsta: e.target.value }))} placeholder="npr. PE" /><datalist id="crevo-vrste">{[...new Set(materialMaster.map((x) => x.vrsta).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist></label>
+                    <label><span style={lbl}>Pod-vrsta</span><input style={input} list="crevo-podvrste" value={crevoForm.pod_vrsta} onChange={(e) => setCrevoForm((f) => ({ ...f, pod_vrsta: e.target.value }))} placeholder="npr. Transparent" /><datalist id="crevo-podvrste">{[...new Set(materialMaster.filter((x) => !crevoForm.vrsta || String(x.vrsta).toUpperCase() === crevoForm.vrsta.toUpperCase()).map((x) => x.pod_vrsta).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist></label>
+                    <label><span style={lbl}>Oznaka</span><input style={input} list="crevo-oznake" value={crevoForm.oznaka} onChange={(e) => setCrevoForm((f) => ({ ...f, oznaka: e.target.value }))} placeholder="oznaka" /><datalist id="crevo-oznake">{[...new Set(materialMaster.filter((x) => !crevoForm.vrsta || String(x.vrsta).toUpperCase() === crevoForm.vrsta.toUpperCase()).map((x) => x.oznaka).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist></label>
+                    <label><span style={lbl}>Debljina (µm)</span><input style={input} type="number" value={crevoForm.debljina} onChange={(e) => setCrevoForm((f) => ({ ...f, debljina: e.target.value }))} placeholder="npr. 35" /></label>
+                </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+                <div style={crevoGT}><span style={crevoDot} />2 · Merenje rolne / creva</div>
+                <div style={crevoGrid}>
+                    <label><span style={lbl}>Spljoštena širina (mm)</span><input style={input} type="number" value={crevoForm.sirina} onChange={(e) => setCrevoForm((f) => ({ ...f, sirina: e.target.value }))} placeholder="npr. 840" /></label>
+                    <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
+                    <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                    <label><span style={lbl}>⭐ Oblik namotaja</span><select style={{ ...input, borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 900 }} value={crevoForm.oblik} onChange={(e) => setCrevoForm((f) => ({ ...f, oblik: e.target.value }))}><option value="ravna">Ravna folija (×1)</option><option value="crevo">Polu-crevo / crevo (×2)</option><option value="custom">Custom faktor…</option></select></label>
+                    {crevoForm.oblik === "custom" && <label><span style={lbl}>Custom faktor</span><input style={input} type="number" value={crevoForm.kCustom} onChange={(e) => setCrevoForm((f) => ({ ...f, kCustom: e.target.value }))} /></label>}
+                </div>
+                <span style={{ fontSize: 11.5, color: "#7c3aed", background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 8, padding: "5px 10px", marginTop: 7, display: "inline-block", fontWeight: 700 }}>Crevo = savijeno → ×2 (razvijena širina i debljina dupli)</span>
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+                <div style={crevoGT}><span style={crevoDot} />3 · Skladište</div>
+                <div style={crevoGrid}>
+                    <label><span style={lbl}>LOT</span><input style={input} value={crevoForm.lot} onChange={(e) => setCrevoForm((f) => ({ ...f, lot: e.target.value }))} placeholder="opciono" /></label>
+                    <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="date" value={crevoForm.datum_proizvodnje} onChange={(e) => setCrevoForm((f) => ({ ...f, datum_proizvodnje: e.target.value }))} /></label>
+                    <label><span style={lbl}>Lokacija</span><input style={input} value={crevoForm.lokacija} onChange={(e) => setCrevoForm((f) => ({ ...f, lokacija: e.target.value }))} /></label>
+                    <label><span style={lbl}>Napomena</span><input style={input} value={crevoForm.napomena} onChange={(e) => setCrevoForm((f) => ({ ...f, napomena: e.target.value }))} placeholder="opciono" /></label>
+                </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, background: "#0f172a", borderRadius: 14, padding: 14, marginTop: 14 }}>
+                <div style={{ background: "#15803d", color: "#fff", borderRadius: 11, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .85, fontWeight: 800, textTransform: "uppercase" }}>Metraža</div><div style={{ fontSize: 23, fontWeight: 950 }}>≈ {fmt(crevoCalc.meters, 0)} m</div></div>
+                <div style={{ background: "#1d4ed8", color: "#fff", borderRadius: 11, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .85, fontWeight: 800, textTransform: "uppercase" }}>kg (neto){crevoCalc.gsm ? " · " + fmt(crevoCalc.gsm, 1) + " g/m²" : ""}</div><div style={{ fontSize: 23, fontWeight: 950 }}>≈ {fmt(crevoCalc.kg, 1)} kg</div></div>
+                <div style={{ background: "#7c3aed", color: "#fff", borderRadius: 11, padding: "12px 14px" }}><div style={{ fontSize: 10, opacity: .85, fontWeight: 800, textTransform: "uppercase" }}>Razvijena širina (×{crevoCalc.k})</div><div style={{ fontSize: 23, fontWeight: 950 }}>{fmt(crevoCalc.razvijena, 0)} mm</div></div>
             </div>
             {!crevoCalc.gsm && crevoForm.vrsta && <div style={{ marginTop: 10, fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px", fontWeight: 700 }}>⚠️ Nema gramaže u bazi materijala za ovu kombinaciju — kg može biti 0. Dodaj materijal u „Baza materijala" za tačan kg.</div>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
