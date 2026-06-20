@@ -901,17 +901,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
     const [crevoForm, setCrevoForm] = useState({ vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
-    const crevoCalc = useMemo(() => {
-        const k = crevoForm.oblik === "ravna" ? 1 : (crevoForm.oblik === "custom" ? (number(crevoForm.kCustom) || 1) : 2);
-        const m = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === String(crevoForm.vrsta || "").toUpperCase()
-            && (!crevoForm.oznaka || String(x.oznaka || "").toUpperCase() === String(crevoForm.oznaka || "").toUpperCase())
-            && Number(x.debljina) === number(crevoForm.debljina));
-        const gsm = m ? (number(m.gsm) || round2(number(m.debljina) * number(m.koeficijent))) : 0;
-        const meters = estimateMetersFromDiameter({ debljina: number(crevoForm.debljina) * k }, crevoForm.precnik, crevoForm.hilzna);
-        const razvijena = round2(number(crevoForm.sirina) * k);
-        const kg = kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
-        return { k, gsm, meters, razvijena, kg };
-    }, [crevoForm, materialMaster]);
     const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
@@ -931,6 +920,17 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [materialDropdowns, setMaterialDropdowns] = useState(FALLBACK_MATERIAL_DROPDOWNS);
     const [materialMaster, setMaterialMaster] = useState([]);
     const [materialPrices, setMaterialPrices] = useState({});
+    const crevoCalc = useMemo(() => {
+        const k = crevoForm.oblik === "ravna" ? 1 : (crevoForm.oblik === "custom" ? (number(crevoForm.kCustom) || 1) : 2);
+        const m = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === String(crevoForm.vrsta || "").toUpperCase()
+            && (!crevoForm.oznaka || String(x.oznaka || "").toUpperCase() === String(crevoForm.oznaka || "").toUpperCase())
+            && Number(x.debljina) === number(crevoForm.debljina));
+        const gsm = m ? (number(m.gsm) || round2(number(m.debljina) * number(m.koeficijent))) : 0;
+        const meters = estimateMetersFromDiameter({ debljina: number(crevoForm.debljina) * k }, crevoForm.precnik, crevoForm.hilzna);
+        const razvijena = round2(number(crevoForm.sirina) * k);
+        const kg = kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
+        return { k, gsm, meters, razvijena, kg };
+    }, [crevoForm, materialMaster]);
     const [req, setReq] = useState({ vrsta: "BOPP", debljina: 20, sirina: 840, potrebniM: 5000 });
     const [labelRoll, setLabelRoll] = useState(null);
     const [bulkLabels, setBulkLabels] = useState([]);
