@@ -380,7 +380,7 @@ function MaterialInlineSelector({ layer, onPatch }) {
         () => (useLive ? mmDistinct(materijali, "vrsta") : getVrsteMaterijala()),
         [useLive, materijali]
     );
-    const vrsta = layer?.vrsta || layer?.tip || vrste[0] || "";
+    const vrsta = layer?.vrsta || layer?.tip || "";
 
     // --- POD VRSTA (samo iz žive baze; statički je nema) ---
     const podVrste = useMemo(
@@ -394,7 +394,7 @@ function MaterialInlineSelector({ layer, onPatch }) {
         () => (useLive ? mmDistinct(materijali, "oznaka", { vrsta, pod_vrsta }) : getOznakeZaVrstu(vrsta)),
         [useLive, materijali, vrsta, pod_vrsta]
     );
-    const oznaka = layer?.oznaka_materijala || layer?.oznaka || layer?.grade || oznake[0] || "";
+    const oznaka = layer?.oznaka_materijala || layer?.oznaka || layer?.grade || "";
 
     // --- PROIZVOĐAČ (iz dobavljača u magacinu, uz ručni unos) ---
     const proizvodjac = layer?.proizvodjac || "";
@@ -404,7 +404,8 @@ function MaterialInlineSelector({ layer, onPatch }) {
         () => (useLive ? mmDistinct(materijali, "debljina", { vrsta, pod_vrsta, oznaka }) : getDebljineZaMaterijal(vrsta, oznaka)),
         [useLive, materijali, vrsta, pod_vrsta, oznaka]
     );
-    const debljina = Number(String(layer?.debljina ?? layer?.deb ?? layer?.thickness ?? (debljine[0] ?? "")).replace("µ", "")) || (debljine[0] ?? "");
+    const rawDeb = layer?.debljina ?? layer?.deb ?? layer?.thickness ?? "";
+    const debljina = (rawDeb === "" || rawDeb == null) ? "" : (Number(String(rawDeb).replace("µ", "")) || "");
 
     // --- Izvedeno: koeficijent / gm2 iz tačnog reda žive baze, inače statički ---
     const matchRow = useLive
