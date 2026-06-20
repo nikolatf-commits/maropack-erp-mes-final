@@ -99,7 +99,7 @@ function rolnaDatum(r) {
 function rolnaMetraza(r) { return Number(r.metraza_ost ?? r.metraza ?? 0) || 0; }
 
 function rangirajRolne(rolne, layer, opts = {}) {
-    const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1 } = opts;
+    const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1, ignoreWidth = false } = opts;
     const STATUS_OK = ["Na stanju", "Dostupna", "dostupna", "aktivna", "Aktivna", "na stanju"];
     const base = String(layer.vrsta || layer.material || layer.materijal || layer.tip || "").split(" ")[0].toUpperCase();
     const deb = Number(String(layer.debljina || layer.deb || "").replace(",", ".")) || 0;
@@ -116,11 +116,17 @@ function rangirajRolne(rolne, layer, opts = {}) {
             const rp = rolnaPodVrsta(r), ro = rolnaOznaka(r);
             const okPV = !podv || !String(rp).trim() || txtEq(rp, podv);
             const okOZ = !ozn || !String(ro).trim() || txtEq(ro, ozn);
-            // Širina: rolna ne sme biti uža od idealne (ne može se seći šire nego što je rolna).
-            const okSir = !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
+            // Širina: rolna ne sme biti uža od idealne (osim kad ignoreWidth — tada se uže prikazuju, ali rangirane niže).
+            const okSir = ignoreWidth || !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
             return okT && okD && okS && okPV && okOZ && okSir;
         })
         .sort((a, b) => {
+            // 0) kad prikazujemo i uže: dovoljno široke (>= idealne) idu prve
+            if (ignoreWidth && ideal) {
+                const wa = (Number(a.sirina) || 0) >= (ideal - sirinaTolerancija) ? 0 : 1;
+                const wb = (Number(b.sirina) || 0) >= (ideal - sirinaTolerancija) ? 0 : 1;
+                if (wa !== wb) return wa - wb;
+            }
             // 1) FIFO — najstarija rolna prva
             const da = rolnaDatum(a), db = rolnaDatum(b);
             if (da !== db) return da - db;
@@ -2191,7 +2197,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
             return (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-                    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 860, maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
+                    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 1120, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
 
                         {/* Modal header */}
                         <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a8a)", padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
@@ -2214,6 +2220,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 </div>
                             ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                    {!kolPlus && (
+                                        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 700, color: "#92400e" }}>
+                                            ⚠️ Poručena količina (m) nije uneta — ne mogu tačno da izračunam potrebu ni da kombinujem rolne. Zatvori, unesi „Poručena količina (m)" u osnovnim podacima, pa ponovo generiši.
+                                        </div>
+                                    )}
                                     {layers.map((l, i) => {
                                         const izabrane = izabraneZa(i);
                                         const idChosen = new Set(izabrane.map(r => String(r.id || r.br_rolne)));
@@ -2282,12 +2293,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                 </div>;
                                                             })() : null}
 
-                                                            {/* Zbir: skupljeno / potrebno */}
-                                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: pokriveno ? "#f0fdf4" : "#fef2f2", border: `1px solid ${pokriveno ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-                                                                <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b" }}>Potrebno: <b style={{ color: "#dc2626" }}>{kgTreb} kg</b> · {fmt(kolPlus)} m</div>
-                                                                <div style={{ fontSize: 12, fontWeight: 950, color: pokriveno ? "#059669" : "#dc2626", whiteSpace: "nowrap" }}>
-                                                                    Skupljeno {fmt(Math.round(skupljeno))} m {pokriveno ? "✓" : `· nedostaje ${fmt(Math.max(0, kolPlus - skupljeno))} m`}
+                                                            {/* Zbir: skupljeno / potrebno + progres */}
+                                                            <div style={{ background: pokriveno ? "#f0fdf4" : "#fef2f2", border: `1px solid ${pokriveno ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
+                                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                                                                    <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b" }}>Potrebno: <b style={{ color: "#dc2626" }}>{kgTreb} kg</b> · {fmt(kolPlus)} m</div>
+                                                                    <div style={{ fontSize: 12, fontWeight: 950, color: pokriveno ? "#059669" : "#dc2626", whiteSpace: "nowrap" }}>
+                                                                        Skupljeno {fmt(Math.round(skupljeno))} m {pokriveno ? "✓" : (kolPlus ? `· nedostaje ${fmt(Math.max(0, kolPlus - skupljeno))} m` : "")}
+                                                                    </div>
                                                                 </div>
+                                                                {kolPlus > 0 && (
+                                                                    <div style={{ height: 7, background: "#e2e8f0", borderRadius: 4, marginTop: 7, overflow: "hidden" }}>
+                                                                        <div style={{ height: "100%", width: Math.min(100, (skupljeno / kolPlus) * 100) + "%", background: pokriveno ? "#16a34a" : "#f59e0b", transition: "width .2s" }} />
+                                                                    </div>
+                                                                )}
                                                             </div>
 
                                                             {/* Dodaj rolnu / auto-popuni */}
@@ -2299,10 +2317,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                         {dostupne.map(r => {
                                                                             const m = num(r.metraza_ost || r.metraza);
                                                                             const malo = kolPlus && m < kolPlus;
+                                                                            const uza = sir && (Number(r.sirina) || 0) < (sir - 1);
                                                                             const pv = rolnaPodVrsta(r), oz = rolnaOznaka(r);
                                                                             const dp = r.datum_proizvodnje || r.datum || "";
                                                                             const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), r.sirina + "mm", m.toLocaleString("sr-RS") + "m", num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
-                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{malo ? "  ⚠ malo" : ""}</option>;
+                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{uza ? "  ⚠ uža od idealne" : ""}{malo && !uza ? "  ⚠ malo" : ""}</option>;
                                                                         })}
                                                                     </select>
                                                                     <button onClick={() => autoPopuni(i)} title="Auto-popuni kombinaciju" style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#2446b8", borderRadius: 8, padding: "9px 12px", fontWeight: 800, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto</button>
