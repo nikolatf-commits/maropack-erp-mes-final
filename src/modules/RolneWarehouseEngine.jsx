@@ -926,12 +926,25 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [materialPrices, setMaterialPrices] = useState({});
     const crevoCalc = useMemo(() => {
         const k = crevoForm.oblik === "ravna" ? 1 : (crevoForm.oblik === "custom" ? (number(crevoForm.kCustom) || 1) : 2);
-        const m = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === String(crevoForm.vrsta || "").toUpperCase()
+        const vU = String(crevoForm.vrsta || "").toUpperCase();
+        const deb = number(crevoForm.debljina);
+        // 1) tačno poklapanje vrsta+oznaka+debljina
+        const m = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === vU
             && (!crevoForm.oznaka || String(x.oznaka || "").toUpperCase() === String(crevoForm.oznaka || "").toUpperCase())
-            && Number(x.debljina) === number(crevoForm.debljina));
-        const gsm = m ? (number(m.gsm) || round2(number(m.debljina) * number(m.koeficijent))) : 0;
-        const baznaCena = m ? number(m.cenaKg ?? m.cena_kg) : 0;
-        const meters = estimateMetersFromDiameter({ debljina: number(crevoForm.debljina) * k }, crevoForm.precnik, crevoForm.hilzna);
+            && Number(x.debljina) === deb);
+        // 2) gustine (g/cm³) za izračun g/m² = debljina(µm) × gustina
+        const GUSTINA = { PET: 1.40, BOPP: 0.91, OPP: 0.91, CPP: 0.905, PE: 0.923, LDPE: 0.923, HDPE: 0.95, PEHD: 0.95, PA: 1.14, OPA: 1.14, NYLON: 1.14, ALU: 2.71, PVC: 1.30, EVOH: 1.17, PLA: 1.25, BIOFOLIJA: 1.25 };
+        let gsm = m ? (number(m.gsm) || round2(number(m.debljina) * number(m.koeficijent))) : 0;
+        if (!gsm) {
+            if (vU === "PAPIR") { gsm = deb; } // za papir je „debljina" zapravo g/m²
+            else {
+                const vMatch = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === vU && number(x.koeficijent));
+                const koef = vMatch ? number(vMatch.koeficijent) : (GUSTINA[vU] || 0);
+                if (deb && koef) gsm = round2(deb * koef);
+            }
+        }
+        const baznaCena = m ? number(m.cenaKg ?? m.cena_kg) : (() => { const v = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === vU && number(x.cenaKg ?? x.cena_kg)); return v ? number(v.cenaKg ?? v.cena_kg) : 0; })();
+        const meters = estimateMetersFromDiameter({ debljina: deb * k }, crevoForm.precnik, crevoForm.hilzna);
         const razvijena = round2(number(crevoForm.sirina) * k);
         const kg = kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
         const cenaKg = number(crevoForm.cenaKg) || baznaCena;
