@@ -909,6 +909,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
     const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
     const [rezPopup, setRezPopup] = useState(null);
+    const [rezForm, setRezForm] = useState(null);
+    const [oslForm, setOslForm] = useState(null);
     const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
@@ -1790,23 +1792,102 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
     async function reserveForMaster(r) {
         if (!canReserve) { msg?.("Nemate dozvolu za rezervaciju rolni (mogu admin, menadžer ili magacioner).", "err"); return; }
-        const ref = prompt("Za koji nalog/proizvod se rezerviše? (broj naloga ili naziv)", r.dodeljeno_nalogu || r.master_nalog_id || "");
-        if (ref === null) return;
-        const napomena = prompt("Komentar / za šta je rezervisano (opciono):", r.napomena || "") || "";
-        const updated = { ...r, status: "Rezervisano", dodeljeno_nalogu: ref, napomena, rezervisao: reserverName, datum_poslednje_promene: now() };
+        const free = rolnaSlobodnoM(r);
+        setRezForm({ roll: r, ref: r.dodeljeno_nalogu || "", metri: String(Math.round(free || rolnaUkupnoM(r))), napomena: napomenaText(r) || "" });
+    }
+
+    async function potvrdiRucnuRez() {
+        const f = rezForm; if (!f || !f.roll) return;
+        const r = f.roll;
+        const total = rolnaUkupnoM(r);
+        const free = rolnaSlobodnoM(r);
+        const m = Math.round(Math.max(0, number(f.metri)));
+        if (m <= 0) { msg?.("Unesi metre za rezervaciju", "err"); return; }
+        if (m > free) { msg?.(`Slobodno je samo ${fmt(free, 0)} m na ovoj rolni.`, "err"); return; }
+        const ref = String(f.ref || "").trim();
+        const rezPre = rolnaRezM(r);
+        const noviRez = Math.round(rezPre + m);
+        const punoRez = total > 0 && noviRez >= total - 1;
+        // dodeljeno_nalogu: dodaj ref bez dupliranja
+        let dod = ref;
+        const prethodno = String(r.dodeljeno_nalogu || "").trim();
+        if (prethodno && ref && !prethodno.split(",").map(s => s.trim()).includes(ref)) dod = prethodno + ", " + ref;
+        else if (prethodno && !ref) dod = prethodno;
         try {
             if (!supabase?.__notConfigured && r.id) {
-                const { error } = await supabase.from("magacin")
-                    .update({ status: "Rezervisano", dodeljeno_nalogu: ref || null, napomena: napomena || null, rezervisao: reserverName || null, updated_at: new Date().toISOString() })
-                    .eq("id", r.id);
+                const { error } = await supabase.from("magacin").update({
+                    status: punoRez ? "Rezervisano" : "Delimično rezervisano",
+                    dodeljeno_nalogu: dod || null,
+                    rezervisano: noviRez || null,
+                    napomena: f.napomena || r.napomena || null,
+                    rezervisao: reserverName || null,
+                    updated_at: new Date().toISOString(),
+                }).eq("id", r.id);
                 if (error) throw error;
+                // ledger stavka (analize)
+                const kgPoM = total > 0 ? (number(r.kg_neto || r.kg) || 0) / total : 0;
+                try {
+                    await supabase.from("materijal_stavke").insert({
+                        nalog_ref: ref || "RUČNO", rolna_id: r.id, br_rolne: r.br_rolne || r.qr,
+                        vrsta: r.vrsta || null, pod_vrsta: r.pod_vrsta || null, oznaka: rollOznaka(r) || null,
+                        debljina: number(r.deb) || null, dobavljac: r.dobavljac || null, sirina: number(r.sirina) || null,
+                        alocirano_m: m, kg_po_m: kgPoM, kg_alocirano: Math.round(kgPoM * m * 100) / 100, status: "rezervisano",
+                    });
+                } catch (e) { console.warn("stavka:", e.message); }
+                await logHistory({ qr: r.qr, event: "RUČNA REZERVACIJA", opis: `Rezervisano ${fmt(m, 0)} m za ${ref || "—"} · ukupno rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoRez ? "Rezervisano" : "Delimično rezervisano" });
             }
-        } catch (e) {
-            console.error(e);
-            msg?.("Rezervacija nije upisana u Supabase: " + (e?.message || e), "err");
-        }
-        setRolne((prev) => prev.map((x) => String(x.id) === String(r.id) || x.qr === r.qr ? updated : x));
-        msg?.(`Rolna ${r.qr} rezervisana za ${ref}${napomena ? " — " + napomena : ""}`);
+        } catch (e) { msg?.("Rezervacija nije upisana: " + (e?.message || e), "err"); return; }
+        setRezForm(null);
+        msg?.(`Rezervisano ${fmt(m, 0)} m${ref ? " za " + ref : ""} (rolna ${r.qr}).`);
+        await reload();
+    }
+
+    function oslobodiRez(r) {
+        if (!canReserve) { msg?.("Nemate dozvolu.", "err"); return; }
+        const total = rolnaUkupnoM(r);
+        let rez = rolnaRezM(r);
+        if (rez === 0 && normalizeStatus(r.status) === "rezervisana") rez = total;
+        if (rez <= 0) { msg?.("Rolna nema rezervaciju.", "err"); return; }
+        setOslForm({ roll: r, metri: String(Math.round(rez)), rezSada: rez });
+    }
+
+    async function potvrdiOslobodi() {
+        const f = oslForm; if (!f || !f.roll) return;
+        const r = f.roll;
+        const total = rolnaUkupnoM(r);
+        const rezSada = f.rezSada;
+        const m = Math.round(Math.max(0, number(f.metri)));
+        if (m <= 0) { msg?.("Unesi metre za oslobađanje", "err"); return; }
+        const osl = Math.min(m, rezSada);
+        const noviRez = Math.max(0, Math.round(rezSada - osl));
+        const punoSlobodno = noviRez <= 0;
+        try {
+            if (!supabase?.__notConfigured && r.id) {
+                const { error } = await supabase.from("magacin").update({
+                    status: punoSlobodno ? "Na stanju" : "Delimično rezervisano",
+                    rezervisano: noviRez || null,
+                    dodeljeno_nalogu: punoSlobodno ? null : (r.dodeljeno_nalogu || null),
+                    updated_at: new Date().toISOString(),
+                }).eq("id", r.id);
+                if (error) throw error;
+                // ledger: smanji/otkaži otvorene stavke za ovu rolnu (najstarije prvo)
+                try {
+                    const { data: st } = await supabase.from("materijal_stavke").select("*").eq("rolna_id", r.id).eq("status", "rezervisano").order("created_at", { ascending: true });
+                    let preostaje = osl;
+                    for (const s of (st || [])) {
+                        if (preostaje <= 0) break;
+                        const a = number(s.alocirano_m);
+                        const skini = Math.min(a, preostaje);
+                        const noviA = Math.max(0, a - skini);
+                        await supabase.from("materijal_stavke").update({ alocirano_m: noviA, status: noviA <= 0 ? "otkazano" : "rezervisano" }).eq("id", s.id);
+                        preostaje -= skini;
+                    }
+                } catch (e) { console.warn("oslobodi stavke:", e.message); }
+                await logHistory({ qr: r.qr, event: "OSLOBOĐENA REZERVACIJA", opis: `Oslobođeno ${fmt(osl, 0)} m · preostalo rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoSlobodno ? "Na stanju" : "Delimično rezervisano" });
+            }
+        } catch (e) { msg?.("Oslobađanje nije upisano: " + (e?.message || e), "err"); return; }
+        setOslForm(null);
+        msg?.(`Oslobođeno ${fmt(osl, 0)} m (rolna ${r.qr}).`);
         await reload();
     }
     async function consumeRoll(r) {
@@ -2652,7 +2733,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     function rezBarCell(r) {
         const total = rolnaUkupnoM(r);
-        const rez = Math.min(total, rolnaRezM(r));
+        let rez = Math.min(total, rolnaRezM(r));
+        if (rez === 0 && normalizeStatus(r.status) === "rezervisana") rez = total; // starija puna rezervacija bez upisanih metara
         const slob = Math.max(0, total - rez);
         const pct = total > 0 ? (rez / total) * 100 : 0;
         const delim = rez > 0 && slob > 0;
@@ -2710,7 +2792,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         return (
             <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: 12, color: "#0f172a" }}>
-                {LabelModal}{BulkModal}{RezModal}
+                {LabelModal}{BulkModal}{RezModal}{RezManualModal}{OslobodiModal}
                 {scannerMode && <MobileCameraScanner mode={scannerMode} onClose={() => setScannerMode(null)} onScan={handleMobileScan} />}
                 <div style={{ ...card, padding: 14, marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -2817,7 +2899,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                             {r.rezervisao && <div style={{ marginTop: 2 }}>👤 Rezervisao: {r.rezervisao}</div>}
                                         </div>
                                     ) : (napomenaText(r) && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {napomenaText(r)}</div>)}
-                                    <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", width: "100%", marginTop: 10 }}>QR / Etiketa</button>
+                                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                        <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", flex: 1 }}>QR / Etiketa</button>
+                                        <button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e", flex: 1 }}>🔒 Rezerviši</button>
+                                        {rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d", flex: 1 }}>🔓 Oslobodi</button>}
+                                    </div>
                                 </div>
                             ))}
                             {filteredRolls.length === 0 && <div style={{ color: "#64748b", padding: 20, textAlign: "center" }}>Nema rolni za prikaz.</div>}
@@ -2934,6 +3020,58 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         );
     })() : null;
 
+    const RezManualModal = rezForm ? (() => {
+        const r = rezForm.roll;
+        const total = rolnaUkupnoM(r);
+        const free = rolnaSlobodnoM(r);
+        const m = Math.max(0, number(rezForm.metri));
+        const previse = m > free;
+        return (
+            <div onClick={() => setRezForm(null)} style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(440px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+                    <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 2 }}>Ručna rezervacija · {r.qr}</div>
+                    <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm · na rolni {fmt(total, 0)} m · <b style={{ color: "#15803d" }}>slobodno {fmt(free, 0)} m</b></div>
+                    <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Za koji nalog / proizvod</span><input style={input} value={rezForm.ref} onChange={(e) => setRezForm((p) => ({ ...p, ref: e.target.value }))} placeholder="broj naloga ili naziv" /></label>
+                    <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Metri za rezervaciju</span><input style={{ ...input, borderColor: previse ? "#dc2626" : "#0f766e", background: previse ? "#fef2f2" : "#f0fdfa", fontWeight: 900 }} type="number" value={rezForm.metri} onChange={(e) => setRezForm((p) => ({ ...p, metri: e.target.value }))} /></label>
+                    <div style={{ display: "flex", gap: 7, marginBottom: 10 }}>
+                        <button onClick={() => setRezForm((p) => ({ ...p, metri: String(Math.round(free)) }))} style={{ ...btn, background: "#f1f5f9", color: "#334155", fontSize: 12, padding: "7px 10px" }}>Sve slobodno ({fmt(free, 0)} m)</button>
+                    </div>
+                    {previse && <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 800, marginBottom: 10 }}>⚠ Slobodno je samo {fmt(free, 0)} m.</div>}
+                    <label style={{ display: "block", marginBottom: 14 }}><span style={lbl}>Komentar (opciono)</span><input style={input} value={rezForm.napomena} onChange={(e) => setRezForm((p) => ({ ...p, napomena: e.target.value }))} /></label>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <button onClick={() => setRezForm(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Otkaži</button>
+                        <button onClick={potvrdiRucnuRez} disabled={previse || m <= 0} style={{ ...btn, background: previse || m <= 0 ? "#cbd5e1" : "#f59e0b", color: "#fff" }}>🔒 Rezerviši {fmt(m, 0)} m</button>
+                    </div>
+                </div>
+            </div>
+        );
+    })() : null;
+
+    const OslobodiModal = oslForm ? (() => {
+        const r = oslForm.roll;
+        const total = rolnaUkupnoM(r);
+        const rezSada = oslForm.rezSada;
+        const m = Math.max(0, number(oslForm.metri));
+        const previse = m > rezSada;
+        return (
+            <div onClick={() => setOslForm(null)} style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(420px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+                    <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 2 }}>Oslobodi rezervaciju · {r.qr}</div>
+                    <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Rezervisano sada: <b style={{ color: "#a16207" }}>{fmt(rezSada, 0)} m</b> od {fmt(total, 0)} m{r.dodeljeno_nalogu ? <> · nalog: <b>{r.dodeljeno_nalogu}</b></> : ""}</div>
+                    <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Metri za oslobađanje</span><input style={{ ...input, borderColor: previse ? "#dc2626" : "#16a34a", background: previse ? "#fef2f2" : "#f0fdf4", fontWeight: 900 }} type="number" value={oslForm.metri} onChange={(e) => setOslForm((p) => ({ ...p, metri: e.target.value }))} /></label>
+                    <div style={{ display: "flex", gap: 7, marginBottom: 12 }}>
+                        <button onClick={() => setOslForm((p) => ({ ...p, metri: String(Math.round(rezSada)) }))} style={{ ...btn, background: "#f1f5f9", color: "#334155", fontSize: 12, padding: "7px 10px" }}>Sve ({fmt(rezSada, 0)} m)</button>
+                    </div>
+                    {previse && <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 800, marginBottom: 10 }}>⚠ Rezervisano je samo {fmt(rezSada, 0)} m.</div>}
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <button onClick={() => setOslForm(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Otkaži</button>
+                        <button onClick={potvrdiOslobodi} disabled={m <= 0} style={{ ...btn, background: m <= 0 ? "#cbd5e1" : "#16a34a", color: "#fff" }}>🔓 Oslobodi {fmt(Math.min(m, rezSada), 0)} m</button>
+                    </div>
+                </div>
+            </div>
+        );
+    })() : null;
+
     const BulkModal = bulkLabels.length ? (
         <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
             <PrintCSS />
@@ -2967,7 +3105,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     return (
         <div style={{ padding: 22, background: "#f1f5f9", minHeight: "100vh", color: "#0f172a" }}>
-            {LabelModal}{BulkModal}{RezModal}
+            {LabelModal}{BulkModal}{RezModal}{RezManualModal}{OslobodiModal}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
                 <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -3196,7 +3334,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{rezBarCell(r)}</td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
-                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
+                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
