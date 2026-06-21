@@ -97,10 +97,14 @@ function rolnaDatum(r) {
 }
 
 function rolnaMetraza(r) { return Number(r.metraza_ost ?? r.metraza ?? 0) || 0; }
+// Slobodni metri = ukupno na rolni − već rezervisano (za delimičnu rezervaciju).
+function slobodnoM(r) { return Math.max(0, rolnaMetraza(r) - (Number(r.rezervisano) || 0)); }
 
 function rangirajRolne(rolne, layer, opts = {}) {
     const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1, ignoreWidth = false } = opts;
-    const STATUS_OK = ["Na stanju", "Dostupna", "dostupna", "aktivna", "Aktivna", "na stanju"];
+    // Rolna je „dostupna" ako status NIJE tvrdo zauzet (utrošena/prodata/otpisana…) I ima slobodnih metara.
+    // „Rezervisano"/„Delimično rezervisano" NISU tvrdo zauzeti — dok ima slobodnih m, rolna se nudi.
+    const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen/i;
     const base = String(layer.vrsta || layer.material || layer.materijal || layer.tip || "").split(" ")[0].toUpperCase();
     const deb = Number(String(layer.debljina || layer.deb || "").replace(",", ".")) || 0;
     const podv = String(layer.pod_vrsta || "").trim();
@@ -111,14 +115,16 @@ function rangirajRolne(rolne, layer, opts = {}) {
         .filter(r => {
             const okT = String(r.vrsta || r.tip || "").toUpperCase().startsWith(base);
             const okD = !deb || !r.deb || Math.abs(Number(r.deb) - deb) <= 3;
-            const okS = !samoDostupne || STATUS_OK.includes(r.status);
+            const okS = !samoDostupne || !ZAUZETO.test(String(r.status || ""));
+            // Mora imati slobodnih metara (metraza_ost − rezervisano).
+            const okRez = !samoDostupne || slobodnoM(r) > 0;
             // Pod vrsta i oznaka: uparuj kad rolna ima tu vrednost; ako je nema, ne odbacuj.
             const rp = rolnaPodVrsta(r), ro = rolnaOznaka(r);
             const okPV = !podv || !String(rp).trim() || txtEq(rp, podv);
             const okOZ = !ozn || !String(ro).trim() || txtEq(ro, ozn);
             // Širina: rolna ne sme biti uža od idealne (osim kad ignoreWidth — tada se uže prikazuju, ali rangirane niže).
             const okSir = ignoreWidth || !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
-            return okT && okD && okS && okPV && okOZ && okSir;
+            return okT && okD && okS && okRez && okPV && okOZ && okSir;
         })
         .sort((a, b) => {
             // 0) kad prikazujemo i uže: dovoljno široke (>= idealne) idu prve
@@ -135,10 +141,10 @@ function rangirajRolne(rolne, layer, opts = {}) {
                 const sa = Math.abs(Number(a.sirina) - ideal), sb = Math.abs(Number(b.sirina) - ideal);
                 if (sa !== sb) return sa - sb;
             }
-            // 3) rolne koje same pokrivaju porudžbinu malo napred
+            // 3) rolne koje same pokrivaju porudžbinu malo napred (po slobodnim metrima)
             if (potrebnoM) {
-                const ea = rolnaMetraza(a) >= potrebnoM ? 0 : 1;
-                const eb = rolnaMetraza(b) >= potrebnoM ? 0 : 1;
+                const ea = slobodnoM(a) >= potrebnoM ? 0 : 1;
+                const eb = slobodnoM(b) >= potrebnoM ? 0 : 1;
                 if (ea !== eb) return ea - eb;
             }
             // 4) prednost istom proizvođaču
@@ -154,7 +160,8 @@ function rangirajRolne(rolne, layer, opts = {}) {
 // Redosled trošenja: najmanja metraža prvo (reslovi), pa FIFO, pa najbliža širina.
 function alocirajRolne(rolne, layer, opts = {}) {
     const { ideal = 0, potrebnoM = 0 } = opts;
-    const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: true, potrebnoM });
+    // Isti skup kao padajuća lista (samoDostupne: false) — da Auto kombinuje sve što vidiš u listi.
+    const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: false, potrebnoM });
     const redosled = [...matched].sort((a, b) => {
         const ma = rolnaMetraza(a), mb = rolnaMetraza(b);
         if (ma !== mb) return ma - mb;                 // 1) najmanja metraža (reslovi) prvo
@@ -1433,7 +1440,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         layers.forEach((_, i) => {
             if (rucniUnos[i]) return;
             const izabrane = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
-            const zbir = izabrane.reduce((s, r) => s + (Number(r.metraza_ost || r.metraza) || 0), 0);
+            const zbir = izabrane.reduce((s, r) => s + slobodnoM(r), 0);
             if (zbir < kolPlus) nepokriveni.push(i + 1);
         });
         if (nepokriveni.length) {
@@ -1461,33 +1468,54 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 if (!izabrane.length) { izborData.push({ ...baza, br_rolne: null, rolna_id: null }); return; }
                 let zbir = 0;
                 izabrane.forEach((r, k) => {
-                    const m = Number(r.metraza_ost || r.metraza) || 0;
-                    const alocirano = kolPlus ? Math.round(Math.min(m, Math.max(0, kolPlus - zbir))) : m;
-                    zbir += m;
+                    const ukupno = Number(r.metraza_ost ?? r.metraza) || 0;
+                    const rezPre = Number(r.rezervisano) || 0;
+                    const slob = Math.max(0, ukupno - rezPre);           // slobodni metri rolne
+                    const alocirano = kolPlus ? Math.round(Math.min(slob, Math.max(0, kolPlus - zbir))) : slob;
+                    zbir += slob;
+                    const kgPoM = ukupno > 0 ? (Number(r.kg_neto || r.kg) || 0) / ukupno : 0;
                     izborData.push({
                         ...baza,
                         redni_rolne: k + 1,
                         br_rolne: r.br_rolne || null,
                         rolna_id: r.id || null,
                         sirina: r.sirina || null,
-                        metraza: m,
+                        metraza: ukupno,
+                        slobodno_m: slob,
+                        rez_pre: rezPre,
                         alocirano_m: alocirano,
                         lokacija: r.palet || r.lokacija || null,
                         lot: r.lot || null,
+                        // snapshot materijala (za ledger / analize)
+                        snap_vrsta: r.vrsta || r.tip || baza.materijal || "",
+                        snap_pod_vrsta: rolnaPodVrsta(r) || "",
+                        snap_oznaka: rolnaOznaka(r) || baza.oznaka || "",
+                        snap_debljina: Number(r.deb) || Number(baza.debljina) || null,
+                        snap_dobavljac: r.dobavljac || "",
+                        kg_po_m: kgPoM,
                     });
                 });
             });
 
-            // Rezerviši sve izabrane rolne u magacinu (bez dupliranja)
+            // Delimična rezervacija: rezerviši SAMO alocirane metre, ostatak rolne ostaje slobodan.
             const ref = form.sifra || form.naziv || "";
             const rezervisani = new Set();
             for (const item of izborData) {
-                if (item.rolna_id && !item.rucni && !rezervisani.has(item.rolna_id)) {
+                if (item.rolna_id && !item.rucni && !rezervisani.has(item.rolna_id) && Number(item.alocirano_m) > 0) {
                     rezervisani.add(item.rolna_id);
+                    const noviRez = Math.round((Number(item.rez_pre) || 0) + (Number(item.alocirano_m) || 0));
+                    const ukupno = Number(item.metraza) || 0;
+                    const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
+                    // dodeljeno_nalogu: dodaj ref (ako više naloga deli rolnu) bez dupliranja
+                    let dod = ref;
+                    const { data: cur } = await supabase.from("magacin").select("dodeljeno_nalogu").eq("id", item.rolna_id).single();
+                    const prethodno = String(cur?.dodeljeno_nalogu || "").trim();
+                    if (prethodno && !prethodno.split(",").map(s => s.trim()).includes(ref)) dod = prethodno + ", " + ref;
+                    else if (prethodno) dod = prethodno;
                     await supabase.from("magacin")
-                        .update({ status: "Rezervisano", dodeljeno_nalogu: ref, rezervisano: Number(item.alocirano_m) || null })
+                        .update({ status: punoRez ? "Rezervisano" : "Delimično rezervisano", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
                         .eq("id", item.rolna_id);
-                    // Istoriju beleži DB trigger (promena rezervisano/dodeljeno_nalogu -> 'rezervisana', sa user_id).
+                    // Istoriju beleži DB trigger (promena rezervisano/dodeljeno_nalogu).
                 }
             }
 
@@ -1509,7 +1537,35 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 },
             };
 
-            await supabase.from("materijali_nalozi").insert([nalogData]);
+            const { data: nalogIns } = await supabase.from("materijali_nalozi").insert([nalogData]).select("id").single();
+            const nalogId = nalogIns?.id || null;
+
+            // Ledger: jedan red po (nalog × rolna × sloj) — izvor istine za analize.
+            const idealnaSir = Number(form.idealnaSirinaMaterijala) || null;
+            const stavke = izborData
+                .filter(it => it.rolna_id && Number(it.alocirano_m) > 0 && !it.rucni)
+                .map(it => ({
+                    nalog_ref: ref,
+                    materijali_nalog_id: nalogId,
+                    rolna_id: it.rolna_id,
+                    br_rolne: it.br_rolne,
+                    sloj: it.sloj,
+                    vrsta: it.snap_vrsta || null,
+                    pod_vrsta: it.snap_pod_vrsta || null,
+                    oznaka: it.snap_oznaka || null,
+                    debljina: it.snap_debljina,
+                    dobavljac: it.snap_dobavljac || null,
+                    sirina: Number(it.sirina) || null,
+                    idealna_sirina: idealnaSir,
+                    alocirano_m: Number(it.alocirano_m) || 0,
+                    kg_po_m: Number(it.kg_po_m) || 0,
+                    kg_alocirano: Math.round(((Number(it.kg_po_m) || 0) * (Number(it.alocirano_m) || 0)) * 100) / 100,
+                    status: "rezervisano",
+                }));
+            if (stavke.length) {
+                const { error: stErr } = await supabase.from("materijal_stavke").insert(stavke);
+                if (stErr) console.warn("materijal_stavke insert:", stErr.message);
+            }
             setNalogSaved(true);
             msg && msg("✅ Nalog za materijal kreiran i poslat magacioneru!");
         } catch (e) {
@@ -2166,7 +2222,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             function val(v) { return (v === undefined || v === null || v === "") ? "—" : v; }
 
             function kandidatiZaSloj(layer) {
-                return rangirajRolne(nalogRolne, layer, { ideal: Number(form.idealnaSirinaMaterijala) || 0, samoDostupne: false, potrebnoM: kolPlus });
+                return rangirajRolne(nalogRolne, layer, { ideal: Number(form.idealnaSirinaMaterijala) || 0, samoDostupne: true, potrebnoM: kolPlus });
             }
 
             // --- rad sa kombinacijom rolni po sloju ---
@@ -2174,7 +2230,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 return Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
             }
             function skupljenoZa(i) {
-                return izabraneZa(i).reduce((s, r) => s + num(r.metraza_ost || r.metraza), 0);
+                return izabraneZa(i).reduce((s, r) => s + slobodnoM(r), 0);
             }
             function dodajRolnu(i, r) {
                 setNalogIzbor(p => {
@@ -2190,7 +2246,26 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 });
             }
             function autoPopuni(i) {
-                setNalogIzbor(p => ({ ...p, [i]: alocirajRolne(nalogRolne, layers[i], { ideal: sir, potrebnoM: kolPlus }) }));
+                // Cilj: potroši male reslove (najmanje prvo) i za poslednju rupu uzmi rolnu najbolje uklopljenu (najmanji ostatak).
+                const cur = izabraneZa(i);
+                const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
+                const mOf = (r) => slobodnoM(r);
+                // pool = slobodne „Na stanju" kandidatske rolne, sortirane rastuće po metraži (pa FIFO)
+                let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
+                    .slice().sort((a, b) => (mOf(a) - mOf(b)) || (rolnaDatum(a) - rolnaDatum(b)));
+                const izabrane = [...cur];
+                let zbir = izabrane.reduce((s, r) => s + mOf(r), 0);
+                if (!kolPlus) { if (!izabrane.length && pool.length) izabrane.push(pool[0]); setNalogIzbor(p => ({ ...p, [i]: izabrane })); return; }
+                while (zbir < kolPlus && pool.length) {
+                    const ostatak = kolPlus - zbir;
+                    const pokrivaju = pool.filter(r => mOf(r) >= ostatak);
+                    // ako neka rolna sama pokriva ostatak → uzmi NAJMANJU takvu (najmanji višak); inače uzmi najmanju (troši reslo)
+                    const pick = pokrivaju.length ? pokrivaju.reduce((p, c) => mOf(c) < mOf(p) ? c : p) : pool[0];
+                    izabrane.push(pick);
+                    zbir += mOf(pick);
+                    pool = pool.filter(r => String(r.id || r.br_rolne) !== String(pick.id || pick.br_rolne));
+                }
+                setNalogIzbor(p => ({ ...p, [i]: izabrane }));
             }
 
             const sviIzabrani = layers.every((_, i) => rucniUnos[i] || izabraneZa(i).length > 0);
@@ -2277,7 +2352,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                 let run = 0;
                                                                 return <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
                                                                     {izabrane.map((r, k) => {
-                                                                        const m = num(r.metraza_ost || r.metraza);
+                                                                        const m = slobodnoM(r);
                                                                         const aloc = kolPlus ? Math.min(m, Math.max(0, kolPlus - run)) : m;
                                                                         run += m;
                                                                         return (
@@ -2315,13 +2390,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                         style={{ flex: 1, padding: "9px 10px", border: "1.5px solid #cbd5e1", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
                                                                         <option value="">+ Dodaj rolnu iz magacina ({dostupne.length}) — poređano po FIFO…</option>
                                                                         {dostupne.map(r => {
-                                                                            const m = num(r.metraza_ost || r.metraza);
-                                                                            const malo = kolPlus && m < kolPlus;
-                                                                            const uza = sir && (Number(r.sirina) || 0) < (sir - 1);
+                                                                            const slob = slobodnoM(r);
+                                                                            const ukupno = num(r.metraza_ost || r.metraza);
+                                                                            const delim = (Number(r.rezervisano) || 0) > 0 && slob > 0;
+                                                                            const ostatak = slob > 0 && slob < 1000; // mali reslo
                                                                             const pv = rolnaPodVrsta(r), oz = rolnaOznaka(r);
                                                                             const dp = r.datum_proizvodnje || r.datum || "";
-                                                                            const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), r.sirina + "mm", m.toLocaleString("sr-RS") + "m", num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
-                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{uza ? "  ⚠ uža od idealne" : ""}{malo && !uza ? "  ⚠ malo" : ""}</option>;
+                                                                            const mtekst = delim ? (slob.toLocaleString("sr-RS") + "m slob. od " + ukupno.toLocaleString("sr-RS")) : (slob.toLocaleString("sr-RS") + "m");
+                                                                            const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), r.sirina + "mm", mtekst, num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
+                                                                            return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{delim ? "  · delimično rez." : (ostatak ? "  · reslo" : "")}</option>;
                                                                         })}
                                                                     </select>
                                                                     <button onClick={() => autoPopuni(i)} title="Auto-popuni kombinaciju" style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#2446b8", borderRadius: 8, padding: "9px 12px", fontWeight: 800, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto</button>

@@ -341,6 +341,9 @@ function crevoLabel(r) {
 function napomenaText(r) {
     return String(r?.napomena || "").replace(/\s*⟨CREVO×\d+⟩\s*/gi, "").trim();
 }
+function rolnaUkupnoM(r) { return number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) || 0; }
+function rolnaRezM(r) { return number(r?.rezervisano) || 0; }
+function rolnaSlobodnoM(r) { return Math.max(0, rolnaUkupnoM(r) - rolnaRezM(r)); }
 const CREVO_BADGE = { display: "inline-block", background: "#faf5ff", color: "#6d28d9", border: "1px solid #e9d5ff", borderRadius: 6, padding: "1px 7px", fontSize: 10, fontWeight: 900, marginLeft: 6, verticalAlign: "middle", whiteSpace: "nowrap" };
 function mapDbRollToEngine(r = {}) {
     const vrsta = r.vrsta || r.tip || r.materijal || "Nedefinisano";
@@ -905,6 +908,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
     const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
+    const [rezPopup, setRezPopup] = useState(null);
     const [adminMode, setAdminMode] = useState(false);
     const [form, setForm] = useState({ sirina: 840, duzina: 10000, kg: "", lot: "", lokacija: "A-01-A-01", pod_vrsta: "", datum_proizvodnje: "", napomena: "" });
     const [matForm, setMatForm] = useState({ vrsta: "BOPP", komercijalnaOznaka: "BOPP transparent 20µ", proizvodjac: "", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.1, napomena: "" });
@@ -2632,6 +2636,50 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     );
     const tabBtn = (key) => ({ ...btn, background: activeTab === key ? "#0f172a" : "#f8fafc", color: activeTab === key ? "#fff" : "#334155", border: "1px solid #e2e8f0" });
 
+    async function openRezPopup(r) {
+        setRezPopup({ qr: r.qr, id: r.id, total: rolnaUkupnoM(r), rez: rolnaRezM(r), rows: null, loading: true, dod: r.dodeljeno_nalogu || "" });
+        try {
+            let rows = [];
+            if (r.id && supabase && !supabase.__notConfigured) {
+                const { data } = await supabase.from("materijal_stavke").select("nalog_ref, alocirano_m, izdato_m, sloj").eq("rolna_id", r.id).order("created_at", { ascending: true });
+                rows = data || [];
+            }
+            setRezPopup({ qr: r.qr, id: r.id, total: rolnaUkupnoM(r), rez: rolnaRezM(r), rows, loading: false, dod: r.dodeljeno_nalogu || "" });
+        } catch (e) {
+            setRezPopup({ qr: r.qr, id: r.id, total: rolnaUkupnoM(r), rez: rolnaRezM(r), rows: [], loading: false, dod: r.dodeljeno_nalogu || "" });
+        }
+    }
+
+    function rezBarCell(r) {
+        const total = rolnaUkupnoM(r);
+        const rez = Math.min(total, rolnaRezM(r));
+        const slob = Math.max(0, total - rez);
+        const pct = total > 0 ? (rez / total) * 100 : 0;
+        const delim = rez > 0 && slob > 0;
+        const punoRez = total > 0 && rez >= total - 1;
+        const klik = rez > 0;
+        const badgeText = delim ? "Delimično" : displayStatus(r.status);
+        const badgeColor = delim ? "#a16207" : statusColor(r.status);
+        const badgeBg = delim ? "#fef3c7" : statusColor(r.status) + "18";
+        return (
+            <div style={{ minWidth: 150 }}>
+                <span onClick={klik ? () => openRezPopup(r) : undefined} title={klik ? "Klikni za naloge" : undefined}
+                    style={{ background: badgeBg, color: badgeColor, borderRadius: 999, padding: "3px 9px", fontWeight: 900, fontSize: 11, cursor: klik ? "pointer" : "default", whiteSpace: "nowrap" }}>{badgeText}{klik ? " ▾" : ""}</span>
+                {total > 0 && (
+                    <>
+                        <div style={{ height: 8, background: "#16a34a", borderRadius: 5, overflow: "hidden", marginTop: 5, display: "flex" }}>
+                            <div style={{ height: "100%", width: pct + "%", background: "#f59e0b" }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, fontWeight: 700, whiteSpace: "nowrap" }}>
+                            {delim ? <><b style={{ color: "#15803d" }}>{fmt(slob, 0)} slob.</b> · {fmt(rez, 0)} rez.</> : (punoRez ? <>{fmt(rez, 0)} m rezervisano</> : <b style={{ color: "#15803d" }}>{fmt(slob, 0)} m slobodno</b>)}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    }
+
+
 
     const mobileActionBtn = (key, icon, title, subtitle) => ({
         key,
@@ -2662,7 +2710,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         return (
             <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: 12, color: "#0f172a" }}>
-                {LabelModal}{BulkModal}
+                {LabelModal}{BulkModal}{RezModal}
                 {scannerMode && <MobileCameraScanner mode={scannerMode} onClose={() => setScannerMode(null)} onScan={handleMobileScan} />}
                 <div style={{ ...card, padding: 14, marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -2760,7 +2808,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
                                     <div style={{ fontSize: 12.5, color: "#0369a1", fontWeight: 800, marginTop: 4 }}>📅 Proizvedeno: {formatDateLabel(r.datum_proizvodnje) || "—"}</div>
-                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${napomenaText(r) ? "  ·  " + napomenaText(r) : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} style={{ color: statusColor(r.status), fontWeight: 900 }}>{displayStatus(r.status)}</span></div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span></div>
+                                    <div style={{ marginTop: 8 }}>{rezBarCell(r)}</div>
                                     {String(r.status || "").toLowerCase().includes("rez") ? (
                                         <div style={{ fontSize: 12, color: "#92400e", marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "7px 9px" }}>
                                             <div><b>Rezervisano za:</b> {r.dodeljeno_nalogu || r.master_nalog_id || "—"}</div>
@@ -2848,6 +2897,43 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         </div>
     ) : null;
 
+    const RezModal = rezPopup ? (() => {
+        const total = rezPopup.total || 0, rez = Math.min(total, rezPopup.rez || 0), slob = Math.max(0, total - rez);
+        const rows = rezPopup.rows || [];
+        return (
+            <div onClick={() => setRezPopup(null)} style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(440px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ fontWeight: 950, fontSize: 16 }}>Rolna {rezPopup.qr} · ko drži metre</div>
+                        <button onClick={() => setRezPopup(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155", padding: "6px 12px" }}>Zatvori</button>
+                    </div>
+                    <div style={{ height: 12, background: "#16a34a", borderRadius: 6, overflow: "hidden", display: "flex", marginBottom: 6 }}>
+                        <div style={{ height: "100%", width: (total > 0 ? (rez / total) * 100 : 0) + "%", background: "#f59e0b" }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 800, marginBottom: 12 }}>
+                        <span style={{ color: "#15803d" }}>{fmt(slob, 0)} m slobodno</span><span style={{ color: "#a16207" }}>{fmt(rez, 0)} rez. od {fmt(total, 0)}</span>
+                    </div>
+                    {rezPopup.loading ? <div style={{ color: "#64748b", fontSize: 13, padding: "8px 0" }}>Učitavam…</div> : (
+                        rows.length ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                {rows.map((s, i) => (
+                                    <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, padding: "8px 11px", fontSize: 13 }}>
+                                        <span style={{ fontWeight: 800, color: "#0f172a", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.nalog_ref || "—"}{s.sloj ? <span style={{ color: "#64748b", fontWeight: 600 }}> · sloj {s.sloj}</span> : null}</span>
+                                        <span style={{ fontWeight: 900, color: "#2446b8", whiteSpace: "nowrap" }}>{fmt(number(s.alocirano_m), 0)} m{number(s.izdato_m) ? ` · izdato ${fmt(number(s.izdato_m), 0)}` : ""}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ fontSize: 13, color: "#475569", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 9, padding: "9px 11px" }}>
+                                Nema stavki u „materijal_stavke" za ovu rolnu{rezPopup.dod ? <> — dodeljeno nalogu: <b>{rezPopup.dod}</b></> : "."}<br /><span style={{ color: "#64748b", fontSize: 11.5 }}>(starije rezervacije ili rezervacija van templejta.)</span>
+                            </div>
+                        )
+                    )}
+                </div>
+            </div>
+        );
+    })() : null;
+
     const BulkModal = bulkLabels.length ? (
         <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
             <PrintCSS />
@@ -2881,7 +2967,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     return (
         <div style={{ padding: 22, background: "#f1f5f9", minHeight: "100vh", color: "#0f172a" }}>
-            {LabelModal}{BulkModal}
+            {LabelModal}{BulkModal}{RezModal}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
                 <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -3108,7 +3194,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             </thead>
                             <tbody>{pagedRolls.map((r) => <tr key={r.qr}>
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
-                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}><span onClick={() => { if (String(r.status || "").toLowerCase().includes("rez")) msg?.(`Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${napomenaText(r) ? "  ·  " + napomenaText(r) : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}`); }} title={(String(r.status || "").toLowerCase().includes("rez")) ? `Nalog: ${r.dodeljeno_nalogu || r.master_nalog_id || "—"}${napomenaText(r) ? "  ·  " + napomenaText(r) : ""}${r.rezervisao ? "  ·  Rezervisao: " + r.rezervisao : ""}` : undefined} style={{ background: statusColor(r.status) + "18", color: statusColor(r.status), borderRadius: 999, padding: "4px 8px", fontWeight: 900, cursor: String(r.status || "").toLowerCase().includes("rez") ? "pointer" : "default" }}>{displayStatus(r.status)}</span></td>
+                                <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{rezBarCell(r)}</td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
                                 <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button><button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
