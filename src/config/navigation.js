@@ -70,8 +70,8 @@ export function getNavGroups(isAdmin, userRole) {
                 { k: 'analiza_potrosnje_materijala', l: 'Analiza potrošnje materijala', i: '📊' },
                 { k: 'kalkulator_maticnih', l: 'Kalkulator matičnih rolni', i: '📊' },
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
-                { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' }
-                { k: "analiza_materijal_stavke", label: "Analiza materijala", icon: "📊" }
+                { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' },
+                { k: 'analiza_materijal_stavke', l: 'Analiza materijala', i: '📊' }
             ]
         },
         {
