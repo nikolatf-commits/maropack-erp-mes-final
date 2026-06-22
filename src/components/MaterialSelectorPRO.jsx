@@ -10,8 +10,12 @@ export function buildLayerPayload(value = {}) {
     const oznaka_materijala = value.oznaka_materijala || value.oznaka || value.grade || "FXCB";
     const debljina = Number(value.debljina || value.deb || value.thickness || 20);
     const idealna_sirina = value.idealna_sirina || value.idealnaSirina || value.sirina || value.sirinaMm || "";
-    const gm2 = calculateGm2(vrsta, debljina);
-    const koeficijent = getKoeficijent(vrsta);
+    const koefManual = value._koefManual === true;
+    const rawKoef = value.koeficijent ?? value.koef;
+    const koeficijent = (koefManual && rawKoef !== "" && rawKoef != null) ? Number(rawKoef) : (getKoeficijent(vrsta) || Number(rawKoef) || 0);
+    const gm2 = (koefManual && Number(rawKoef) > 0)
+        ? Math.round(Number(rawKoef) * Number(debljina) * 10) / 10
+        : (calculateGm2(vrsta, debljina) || Math.round(Number(koeficijent) * Number(debljina) * 10) / 10 || 0);
     const nazivMaterijala = buildMaterialName(vrsta, oznaka_materijala, debljina);
     return {
         ...value,
@@ -29,6 +33,8 @@ export function buildLayerPayload(value = {}) {
         sirina: idealna_sirina || value.sirina || "",
         sirinaMm: idealna_sirina || value.sirinaMm || "",
         koeficijent,
+        koef: koeficijent,
+        _koefManual: koefManual,
         gm2,
         tezina: gm2,
         tezinaGm2: gm2,
@@ -48,6 +54,9 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
     const debljine = useMemo(() => getDebljineZaMaterijal(vrsta, oznaka), [vrsta, oznaka]);
     const [debljina, setDebljina] = useState(Number(init.debljina || (debljine.includes(20) ? 20 : (debljine[0] || 20))));
     const [idealnaSirina, setIdealnaSirina] = useState(init.idealna_sirina || "");
+    const [koef, setKoef] = useState(init.koeficijent || getKoeficijent(init.vrsta) || "");
+    const koefManual = useRef(value?._koefManual === true);
+    const uid = useMemo(() => "msp_" + Math.random().toString(36).slice(2, 8), []);
 
     // Pamti poslednje što SMO MI poslali roditelju, da ne resetujemo svoja polja kad nam se vrati ista vrednost.
     const lastEmitted = useRef(null);
@@ -63,6 +72,7 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
             && norm(le.pod_vrsta) === norm(next.pod_vrsta)
             && norm(le.oznaka_materijala) === norm(next.oznaka_materijala)
             && Number(le.debljina) === Number(next.debljina)
+            && Number(le.koeficijent) === Number(next.koeficijent)
             && norm(le.idealna_sirina) === norm(next.idealna_sirina)) {
             return; // promena potiče od nas — ne diraj lokalna polja
         }
@@ -71,6 +81,8 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
         setOznaka(next.oznaka_materijala || "STANDARD");
         setDebljina(Number(next.debljina || 20));
         setIdealnaSirina(next.idealna_sirina || "");
+        koefManual.current = value?._koefManual === true;
+        setKoef(next.koeficijent || getKoeficijent(next.vrsta) || "");
     }, [
         value?.vrsta,
         value?.tip,
@@ -85,12 +97,17 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
         value?.idealna_sirina,
         value?.idealnaSirina,
         value?.sirina,
-        value?.sirinaMm
+        value?.sirinaMm,
+        value?.koeficijent,
+        value?.koef
     ]);
 
+    // Kad menjaš VRSTU: ako je poznat materijal, ponudi njegove oznake/koef; ako je NOV (nema u bazi), ne diraj ručni unos.
     useEffect(() => {
         const available = getOznakeZaVrstu(vrsta);
-        if (!available.includes(oznaka)) setOznaka(available.includes("FXCB") ? "FXCB" : (available[0] || "STANDARD"));
+        if (available.length && !available.includes(oznaka)) setOznaka(available.includes("FXCB") ? "FXCB" : (available[0] || "STANDARD"));
+        const k = getKoeficijent(vrsta);
+        if (k && !koefManual.current) setKoef(k); // poznat materijal → auto koef (osim ako je ručno menjan)
     }, [vrsta]);
 
     useEffect(() => {
@@ -99,25 +116,26 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
     }, [vrsta, oznaka]);
 
     useEffect(() => {
-        const payload = buildLayerPayload({ ...(value || {}), vrsta, pod_vrsta: podVrsta, oznaka_materijala: oznaka, debljina, idealna_sirina: idealnaSirina });
+        const payload = buildLayerPayload({ ...(value || {}), vrsta, pod_vrsta: podVrsta, oznaka_materijala: oznaka, debljina, idealna_sirina: idealnaSirina, koeficijent: koef, _koefManual: koefManual.current });
         lastEmitted.current = payload;
         onChange?.(payload);
-    }, [vrsta, podVrsta, oznaka, debljina, idealnaSirina]);
+    }, [vrsta, podVrsta, oznaka, debljina, idealnaSirina, koef]);
 
-    const gm2 = calculateGm2(vrsta, debljina);
-    const koef = getKoeficijent(vrsta);
+    const gm2 = (koef && Number(koef) > 0) ? Math.round(Number(koef) * Number(debljina) * 10) / 10 : calculateGm2(vrsta, debljina);
     const naziv = buildMaterialName(vrsta, oznaka, debljina);
+    const setKoefManual = (v) => { koefManual.current = true; setKoef(v); };
     const input = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: compact ? "6px 8px" : "10px", border: "1px solid #cbd5e1", borderRadius: compact ? 8 : 10, background: "#fff", fontWeight: 800, fontSize: compact ? 11 : 13, height: compact ? 34 : 40 };
     const label = { fontSize: compact ? 9 : 11, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 4, letterSpacing: .2, whiteSpace: "nowrap" };
-    const cols = showIdealWidth ? "repeat(5, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))";
+    const cols = showIdealWidth ? "repeat(6, minmax(0, 1fr))" : "repeat(5, minmax(0, 1fr))";
 
     return <div className="material-selector-pro" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid #e2e8f0", borderRadius: compact ? 10 : 14, padding: compact ? 8 : 12, background: "#f8fafc", overflow: "hidden" }}>
         {!compact && <div style={{ fontWeight: 900, marginBottom: 8, color: "#0f172a" }}>{title}</div>}
         <div style={{ display: "grid", gridTemplateColumns: cols, gap: compact ? 6 : 8, alignItems: "end" }}>
-            <div><div style={label}>Vrsta</div><select style={input} value={vrsta} onChange={e => setVrsta(e.target.value)}>{vrste.map(v => <option key={v} value={v}>{v}</option>)}</select></div>
-            <div><div style={label}>Pod vrsta</div><input list="pod-vrste-materijala" style={input} value={podVrsta} onChange={e => setPodVrsta(e.target.value)} /></div>
-            <div><div style={label}>Oznaka</div><select style={input} value={oznaka} onChange={e => setOznaka(e.target.value)}>{oznake.map(o => <option key={o} value={o}>{o}</option>)}</select></div>
-            <div><div style={label}>Debljina</div><select style={input} value={debljina} onChange={e => setDebljina(Number(e.target.value))}>{debljine.map(d => <option key={d} value={d}>{d}{vrsta === "PAPIR" ? " g/m²" : "µ"}</option>)}</select></div>
+            <div><div style={label}>Vrsta</div><input list={uid + "_v"} style={input} value={vrsta} onChange={e => setVrsta(e.target.value)} placeholder="npr. PET" /><datalist id={uid + "_v"}>{vrste.map(v => <option key={v} value={v} />)}</datalist></div>
+            <div><div style={label}>Pod vrsta</div><input list="pod-vrste-materijala" style={input} value={podVrsta} onChange={e => setPodVrsta(e.target.value)} placeholder="npr. Chemical" /></div>
+            <div><div style={label}>Oznaka</div><input list={uid + "_o"} style={input} value={oznaka} onChange={e => setOznaka(e.target.value)} placeholder="npr. PET-C" /><datalist id={uid + "_o"}>{oznake.map(o => <option key={o} value={o} />)}</datalist></div>
+            <div><div style={label}>Debljina {vrsta === "PAPIR" ? "(g/m²)" : "(µ)"}</div><input list={uid + "_d"} type="number" step="any" style={input} value={debljina} onChange={e => setDebljina(e.target.value)} /><datalist id={uid + "_d"}>{debljine.map(d => <option key={d} value={d} />)}</datalist></div>
+            <div><div style={label}>Koef.{koefManual.current ? " ✎" : ""}</div><input type="number" step="0.01" style={{ ...input, background: koefManual.current ? "#ecfdf5" : "#fff", borderColor: koefManual.current ? "#10b981" : "#cbd5e1" }} value={koef} onChange={e => setKoefManual(e.target.value)} placeholder="npr. 1.40" /></div>
             {showIdealWidth && <div><div style={label}>Idealna širina</div><input style={input} value={idealnaSirina} onChange={e => setIdealnaSirina(e.target.value)} placeholder="mm" /></div>}
         </div>
         <datalist id="pod-vrste-materijala">{POD_VRSTE.map(x => <option key={x} value={x} />)}</datalist>

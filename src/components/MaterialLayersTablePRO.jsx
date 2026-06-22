@@ -9,6 +9,8 @@ const td = { padding: "9px 10px", borderBottom: "1px solid #edf2f7", verticalAli
 const input = { width: "100%", boxSizing: "border-box", height: 38, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", color: "#0f172a", fontWeight: 700 };
 const smallBtn = { height: 36, minWidth: 36, borderRadius: 9, border: "1px solid #fecaca", background: "#fff1f2", color: "#dc2626", fontWeight: 900, cursor: "pointer" };
 const checkbox = { width: 17, height: 17, cursor: "pointer", accentColor: "#059669" };
+const lbl = { fontSize: 9.5, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 3, letterSpacing: .2, whiteSpace: "nowrap" };
+const flagBox = { display: "flex", alignItems: "center", gap: 7, fontWeight: 800, fontSize: 12.5, color: "#334155", height: 38, whiteSpace: "nowrap" };
 
 function patchLayer(base = {}, patch = {}, index = 0) {
     return buildLayerPayload({ sloj: base.sloj || index + 1, ...base, ...patch });
@@ -67,40 +69,30 @@ export default function MaterialLayersTablePRO({
             <button type="button" onClick={addRow} disabled={maxLayers && rows.length >= maxLayers} style={{ padding: "9px 14px", background: "#059669", color: "#fff", border: 0, borderRadius: 10, fontWeight: 900, cursor: "pointer", opacity: maxLayers && rows.length >= maxLayers ? .45 : 1 }}>+ Dodaj sloj</button>
         </div>
 
-        <div style={tableWrap}>
-            <table style={table}>
-                <thead><tr>
-                    <th style={{ ...th, width: 42 }}>Sloj</th>
-                    <th style={{ ...th, width: 430 }}>Materijalni identitet</th>
-                    <th style={{ ...th, width: 105 }}>Koef.</th>
-                    <th style={{ ...th, width: 115 }}>g/m²</th>
-                    <th style={{ ...th, width: 125 }}>Cena €/kg</th>
-                    <th style={{ ...th, width: 145 }}>Dobavljač</th>
-                    <th style={{ ...th, width: 160 }}>Napomena</th>
-                    {showFlags && <><th style={th}>Štampa</th><th style={th}>Lak</th></>}
-                    <th style={{ ...th, width: 76 }}>Akcije</th>
-                </tr></thead>
-                <tbody>
-                    {rows.map((layer, i) => {
-                        const koef = layer.koeficijent || getKoeficijent(layer.vrsta);
-                        const gm2 = layer.gm2 || layer.tezina || calculateGm2(layer.vrsta, layer.debljina);
-                        return <tr key={i}>
-                            <td style={{ ...td, fontWeight: 900 }}>{i + 1}</td>
-                            <td style={td}><MaterialSelectorPRO compact value={layer} onChange={(patch) => updateRow(i, patch)} /></td>
-                            <td style={td}><input style={{ ...input, background: "#f8fafc" }} value={koef || ""} readOnly /></td>
-                            <td style={td}><input style={{ ...input, background: "#fef3c7", color: "#92400e" }} value={gm2 || 0} readOnly /></td>
-                            <td style={td}>{showPrice ? <input style={input} type="number" value={layer.cena || ""} onChange={(e) => updateRow(i, { cena: e.target.value })} /> : "—"}</td>
-                            <td style={td}><input style={input} value={layer.dobavljac || ""} onChange={(e) => updateRow(i, { dobavljac: e.target.value })} placeholder="npr. Milan Foil" /></td>
-                            <td style={td}><input style={input} value={layer.napomena || ""} onChange={(e) => updateRow(i, { napomena: e.target.value })} placeholder="spoljašnji sloj..." /></td>
-                            {showFlags && <><td style={td}><input style={checkbox} type="checkbox" checked={!!layer.stampa} onChange={(e) => updateRow(i, { stampa: e.target.checked })} /></td><td style={td}><input style={checkbox} type="checkbox" checked={!!layer.lakira} onChange={(e) => updateRow(i, { lakira: e.target.checked })} /></td></>}
-                            <td style={td}><button type="button" onClick={() => removeRow(i)} disabled={rows.length <= 1} style={{ ...smallBtn, opacity: rows.length <= 1 ? .4 : 1 }}>×</button></td>
-                        </tr>;
-                    })}
-                </tbody>
-            </table>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {rows.map((layer, i) => {
+                const naziv = layer.nazivMaterijala || `${layer.vrsta || "?"} ${layer.oznaka_materijala || layer.oznaka || ""} ${layer.debljina || ""}µ`.trim();
+                return <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 13, padding: 12, background: "#fbfdff" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 8, background: "#0f172a", color: "#fff", fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{i + 1}</div>
+                        <div style={{ fontWeight: 900, fontSize: 14, color: "#0f172a", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{naziv}{layer.pod_vrsta ? <span style={{ color: "#64748b", fontWeight: 600 }}> / {layer.pod_vrsta}</span> : null}</div>
+                        <button type="button" onClick={() => removeRow(i)} disabled={rows.length <= 1} style={{ ...smallBtn, marginLeft: "auto", opacity: rows.length <= 1 ? .4 : 1 }}>×</button>
+                    </div>
+
+                    <MaterialSelectorPRO compact value={layer} onChange={(patch) => updateRow(i, patch)} />
+
+                    <div style={{ display: "grid", gridTemplateColumns: showFlags ? "1fr 1fr 1.3fr 1.6fr auto auto" : "1fr 1fr 1.3fr 1.6fr", gap: 9, marginTop: 10, alignItems: "end" }}>
+                        {showPrice && <div><div style={lbl}>Cena €/kg</div><input style={input} type="number" step="0.01" value={layer.cena || ""} onChange={(e) => updateRow(i, { cena: e.target.value })} placeholder="0.00" /></div>}
+                        <div><div style={lbl}>Škart Δširina (mm)</div><input style={{ ...input, background: Number(layer.skartSirina) > 0 ? "#fff7ed" : "#fff", borderColor: Number(layer.skartSirina) > 0 ? "#fb923c" : "#cbd5e1" }} type="number" step="1" value={layer.skartSirina ?? ""} onChange={(e) => updateRow(i, { skartSirina: e.target.value })} placeholder="0" title="Razlika u širini po traci — ostaje 0 dok ne uneseš ručno" /></div>
+                        <div><div style={lbl}>Dobavljač</div><input style={input} value={layer.dobavljac || ""} onChange={(e) => updateRow(i, { dobavljac: e.target.value })} placeholder="npr. Milan Foil" /></div>
+                        <div><div style={lbl}>Napomena</div><input style={input} value={layer.napomena || ""} onChange={(e) => updateRow(i, { napomena: e.target.value })} placeholder="spoljašnji sloj..." /></div>
+                        {showFlags && <><label style={flagBox}><input style={checkbox} type="checkbox" checked={!!layer.stampa} onChange={(e) => updateRow(i, { stampa: e.target.checked })} /> Štampa</label><label style={flagBox}><input style={checkbox} type="checkbox" checked={!!layer.lakira} onChange={(e) => updateRow(i, { lakira: e.target.checked })} /> Lak</label></>}
+                    </div>
+                </div>;
+            })}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginTop: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 10, marginTop: 12 }}>
             <Summary label="Ukupna debljina" value={`${totals.totalDeb.toFixed(0)} µ`} />
             <Summary label="Ukupno g/m²" value={`${totals.totalGm2.toFixed(1)}`} />
             <Summary label="Preporučena širina" value={totals.recommendedWidth ? `${totals.recommendedWidth} mm` : "—"} />

@@ -214,6 +214,8 @@ export default function KalkulacijaFolijeSmart() {
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(40);
     const [zeljenaCena, setZeljenaCena] = useState(86.37);
+    const [zeljenaCenaKg, setZeljenaCenaKg] = useState(0);
+    const [reverseBaza, setReverseBaza] = useState("1000m"); // "1000m" | "kg"
     const [sourceLink, setSourceLink] = useState(null);
 
     // MATERIJALI (4)
@@ -498,9 +500,10 @@ export default function KalkulacijaFolijeSmart() {
             ukupnoKg += kg;
             ukupnoMatTrosak += kg * mat.cena;
 
-            // Škart nestandardnih
-            if (mat.sirina > 0) {
-                skartNestandardnih += (mat.sirina * metraza * mat.tezina * mat.cena) / 1000000;
+            // Škart nestandardnih = RUČNO uneta razlika u širini po traci (mm). Default 0 → škart 0.
+            const skartW = Number(mat.skartSirina || mat.skart_sirina || 0);
+            if (skartW > 0) {
+                skartNestandardnih += (skartW * metraza * mat.tezina * mat.cena) / 1000000;
             }
 
             return kg;
@@ -572,9 +575,13 @@ export default function KalkulacijaFolijeSmart() {
             konacnaCena = cenaSaDodatkom * (1 + marza / 100);
             izracunataMarza = marza;
         } else {
-            // Obrnuti mod
-            izracunataMarza = ((zeljenaCena - cenaSaDodatkom) / cenaSaDodatkom) * 100;
-            konacnaCena = zeljenaCena;
+            // Obrnuti mod — baza: €/1000m ili €/kg
+            if (reverseBaza === "kg") {
+                konacnaCena = zeljenaCenaKg * ukupnoKg;            // €/kg × kg/1000m = €/1000m
+            } else {
+                konacnaCena = zeljenaCena;                         // već €/1000m
+            }
+            izracunataMarza = cenaSaDodatkom > 0 ? ((konacnaCena - cenaSaDodatkom) / cenaSaDodatkom) * 100 : 0;
         }
 
         // DODATNI OBRAČUNI
@@ -608,8 +615,9 @@ export default function KalkulacijaFolijeSmart() {
             lakKg,
             kasiranjeProlazi,
             skartNestandardnihDetaljno: materijali.map((mat, idx) => {
-                if (!mat.sirina || !mat.tezina) return 0;
-                return (mat.sirina * metraza * mat.tezina * mat.cena) / 1000000;
+                const skartW = Number(mat.skartSirina || mat.skart_sirina || 0);
+                if (!skartW || !mat.tezina) return 0;
+                return (skartW * metraza * mat.tezina * mat.cena) / 1000000;
             }),
             skartNestandardnihNalog: skartNestandardnih * nalog
         });
@@ -619,7 +627,7 @@ export default function KalkulacijaFolijeSmart() {
     useEffect(() => {
         const t = setTimeout(() => izracunaj(), 180);
         return () => clearTimeout(t);
-    }, [mod, naziv, kupac, sirina, metraza, nalog, skart, marza, zeljenaCena,
+    }, [mod, naziv, kupac, sirina, metraza, nalog, skart, marza, zeljenaCena, zeljenaCenaKg, reverseBaza,
         materijali, lepak, lak, kasiranje, stampaCena, lakiranjeCena, transport, pakovanje, dorada]);
 
     // ========================================================================
@@ -831,12 +839,25 @@ export default function KalkulacijaFolijeSmart() {
                         </div>
                     ) : (
                         <div style={{ background: "#dbeafe", border: "2px solid #3b82f6", borderRadius: 8, padding: 16 }}>
-                            <h3 style={{ fontSize: 12, fontWeight: 800, color: "#1e40af", marginBottom: 12, textTransform: "uppercase" }}>🎯 ŽELJENA CENA</h3>
-                            <div style={{ maxWidth: 200, marginBottom: 12 }}>
-                                <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>Željena cena (€/1000m)</label>
-                                <input type="number" value={zeljenaCena} onChange={e => setZeljenaCena(parseFloat(e.target.value) || 0)} style={{ width: "100%", padding: "6px 8px", border: "2px solid #3b82f6", borderRadius: 4, fontSize: 12, fontWeight: 700 }} />
+                            <h3 style={{ fontSize: 12, fontWeight: 800, color: "#1e40af", marginBottom: 12, textTransform: "uppercase" }}>🎯 ŽELJENA CENA (OBRNUTO)</h3>
+                            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                                <button onClick={() => setReverseBaza("1000m")} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: "1px solid #93c5fd", fontWeight: 800, fontSize: 12, cursor: "pointer", background: reverseBaza === "1000m" ? "#3b82f6" : "#fff", color: reverseBaza === "1000m" ? "#fff" : "#1e40af" }}>po 1000 m</button>
+                                <button onClick={() => setReverseBaza("kg")} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: "1px solid #93c5fd", fontWeight: 800, fontSize: 12, cursor: "pointer", background: reverseBaza === "kg" ? "#3b82f6" : "#fff", color: reverseBaza === "kg" ? "#fff" : "#1e40af" }}>po kg</button>
                             </div>
-                            <div style={{ maxWidth: 200 }}>
+                            {reverseBaza === "kg" ? (
+                                <div style={{ maxWidth: 220, marginBottom: 12 }}>
+                                    <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>Željena cena (€/kg)</label>
+                                    <input type="number" step="0.01" value={zeljenaCenaKg} onChange={e => setZeljenaCenaKg(parseFloat(e.target.value) || 0)} style={{ width: "100%", padding: "6px 8px", border: "2px solid #3b82f6", borderRadius: 4, fontSize: 12, fontWeight: 700 }} />
+                                    <div style={{ fontSize: 10.5, color: "#1e40af", marginTop: 4 }}>= {((zeljenaCenaKg || 0) * (rezultati?.ukupnoKg || 0)).toFixed(2)} €/1000m · {((zeljenaCenaKg || 0) * (rezultati?.ukupnoKgNalog || 0)).toLocaleString('sr-RS', { minimumFractionDigits: 2 })} € / nalog</div>
+                                </div>
+                            ) : (
+                                <div style={{ maxWidth: 220, marginBottom: 12 }}>
+                                    <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>Željena cena (€/1000m)</label>
+                                    <input type="number" value={zeljenaCena} onChange={e => setZeljenaCena(parseFloat(e.target.value) || 0)} style={{ width: "100%", padding: "6px 8px", border: "2px solid #3b82f6", borderRadius: 4, fontSize: 12, fontWeight: 700 }} />
+                                    <div style={{ fontSize: 10.5, color: "#1e40af", marginTop: 4 }}>= {(rezultati?.cenaPoKgSaMarza || 0).toFixed(2)} €/kg</div>
+                                </div>
+                            )}
+                            <div style={{ maxWidth: 220 }}>
                                 <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Izračunata marža (%)</label>
                                 <input type="number" value={rezultati?.izracunataMarza.toFixed(2) || 0} readOnly style={{ width: "100%", padding: "6px 8px", background: "#fef3c7", border: "2px solid #fbbf24", borderRadius: 4, fontSize: 12, fontWeight: 700, color: "#92400e" }} />
                             </div>
