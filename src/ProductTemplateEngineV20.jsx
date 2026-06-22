@@ -104,7 +104,7 @@ function rangirajRolne(rolne, layer, opts = {}) {
     const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1, ignoreWidth = false } = opts;
     // Rolna je „dostupna" ako status NIJE tvrdo zauzet (utrošena/prodata/otpisana…) I ima slobodnih metara.
     // „Rezervisano"/„Delimično rezervisano" NISU tvrdo zauzeti — dok ima slobodnih m, rolna se nudi.
-    const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen/i;
+    const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen|proizvodnj|u proizv/i;
     const base = String(layer.vrsta || layer.material || layer.materijal || layer.tip || "").split(" ")[0].toUpperCase();
     const deb = Number(String(layer.debljina || layer.deb || "").replace(",", ".")) || 0;
     const podv = String(layer.pod_vrsta || "").trim();

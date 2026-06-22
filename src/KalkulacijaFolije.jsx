@@ -617,7 +617,8 @@ export default function KalkulacijaFolijeSmart() {
 
     // LIVE UPDATE
     useEffect(() => {
-        izracunaj();
+        const t = setTimeout(() => izracunaj(), 180);
+        return () => clearTimeout(t);
     }, [mod, naziv, kupac, sirina, metraza, nalog, skart, marza, zeljenaCena,
         materijali, lepak, lak, kasiranje, stampaCena, lakiranjeCena, transport, pakovanje, dorada]);
 

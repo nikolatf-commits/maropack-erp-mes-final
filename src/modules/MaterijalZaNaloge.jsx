@@ -10,6 +10,34 @@ function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").rep
 function vrstaColor(v) { const x = String(v || "").toUpperCase(); if (x.includes("PET")) return "#3b82f6"; if (x.includes("ALU")) return "#9aa3af"; if (x.includes("OPA") || x.includes("CPP")) return "#14b8a6"; if (x.includes("BOPP") || x.includes("PE") || x.includes("LDPE")) return "#f59e0b"; if (x.includes("PAPIR")) return "#d4a574"; return "#64748b"; }
 function qrCode(raw) { const s = String(raw || "").trim(); if (s.includes("|")) { const p = s.split("|"); return p[p.length - 1].trim(); } return s; }
 
+// Parsiranje QR lokacije (isti format kao u magacinu): direktna "LOK:..." ili delovi MAGACIN/RED/POLICA/POZICIJA
+function parseLokacijaQr(orig) {
+    const s = String(orig || "").trim(); if (!s) return null;
+    const dm = s.match(/^\s*(?:MAROPACK\s*\|\s*)?(?:LOK|LOKACIJA)\s*[:|]\s*(.+)$/i);
+    if (dm && dm[1].trim()) return { direct: true, value: dm[1].trim() };
+    const raw = s.toUpperCase();
+    if (/^WIP\s*[1-5]$/.test(raw.replace(/\s/g, ""))) return { direct: true, wip: true, value: raw.replace(/\s/g, "") };
+    const parts = raw.split("|").map((x) => x.trim());
+    if (parts[0] === "MAROPACK" && parts.length >= 3) {
+        const type = parts[1], val = parts.slice(2).join("|").trim();
+        if (type === "MAGACIN" && /^[A-H]$/.test(val)) return { key: "magacin", value: val };
+        if (type === "RED" && /^(0[1-5]|[1-5])$/.test(val)) return { key: "red", value: val.padStart(2, "0") };
+        if (type === "POLICA" && /^[A-D]$/.test(val)) return { key: "polica", value: val };
+        if (type === "POZICIJA" && /^(0[1-4]|[1-4])$/.test(val)) return { key: "pozicija", value: val.padStart(2, "0") };
+    }
+    if (/^[A-H]$/.test(raw)) return { key: "magacin", value: raw };
+    if (/^(0[1-5]|[1-5])$/.test(raw)) return { key: "red", value: raw.padStart(2, "0") };
+    const pol = raw.match(/^POLICA[\s:-]*([A-D])$/); if (pol) return { key: "polica", value: pol[1] };
+    const poz = raw.match(/^POZICIJA[\s:-]*(0[1-4]|[1-4])$/); if (poz) return { key: "pozicija", value: poz[1].padStart(2, "0") };
+    return null;
+}
+function buildLocCode(p = {}) {
+    const m = String(p.magacin || "").toUpperCase().trim(), r = String(p.red || "").trim(), po = String(p.polica || "").toUpperCase().trim(), pz = String(p.pozicija || "").trim();
+    if (!m || !r || !po || !pz) return "";
+    return `${m}-${r.padStart(2, "0")}-${po}-${pz.padStart(2, "0")}`;
+}
+function isWipLoc(s) { return /^WIP\s*[1-5]$/i.test(String(s || "").replace(/\s/g, "")); }
+
 export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]);
@@ -23,6 +51,9 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [stavkaMap, setStavkaMap] = useState({}); // rollId -> stavka (ledger red)
     const [izdato, setIzdato] = useState({});     // rollId -> izdato_m (uneto)
     const [mode, setMode] = useState("spremi");   // "spremi" | "izdaj"
+    const [lokacija, setLokacija] = useState("");          // lokacija spremanja rolni
+    const [locParts, setLocParts] = useState({ magacin: "", red: "", polica: "", pozicija: "" });
+    const [scanLocOpen, setScanLocOpen] = useState(false);
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -42,6 +73,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
 
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
+        setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" });
         const broj = it.master.broj_naloga || it.op.broj_naloga || "";
         // ROLNE KOJE SU VEĆ DODELJENE OVOM NALOGU (dodeljuje kancelarija pri kreiranju)
         let rows = [];
@@ -87,13 +119,29 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         return true;
     }
 
+    function onLocScan(text) {
+        const loc = parseLokacijaQr(text);
+        if (!loc) { msg && msg("Ovo nije QR lokacije.", "err"); return; }
+        if (loc.direct) {
+            setLokacija(loc.value);
+            setLocParts({ magacin: "", red: "", polica: "", pozicija: "" });
+            msg && msg("📍 Lokacija: " + loc.value, "ok");
+            return;
+        }
+        const next = { ...locParts, [loc.key]: loc.value };
+        setLocParts(next);
+        const code = buildLocCode(next);
+        if (code) { setLokacija(code); msg && msg("📍 Lokacija: " + code, "ok"); }
+        else msg && msg("📍 " + (loc.key === "magacin" ? "Magacin" : loc.key === "red" ? "Red" : loc.key === "polica" ? "Polica" : "Pozicija") + " " + loc.value + " — skeniraj još", "ok");
+    }
+
     async function potvrdi() {
         if (!open) return;
         setSaving(true);
         try {
             await supabase.from("operativni_nalozi").update({ status: "spremljeno" }).eq("id", open.op.id);
             const ids = rolls.filter((r) => scanned[r.id]).map((r) => r.id);
-            if (ids.length) { try { await supabase.from("magacin").update({ pripremljeno: true }).in("id", ids); } catch (e) { } }
+            if (ids.length) { try { await supabase.from("magacin").update({ pripremljeno: true, ...(lokacija ? { lokacija } : {}) }).in("id", ids); } catch (e) { } }
             msg && msg("Nalog spremljen.", "ok");
             setOpen(null); load();
         } catch (e) { msg && msg("Greška: " + (e.message || e), "err"); }
@@ -112,13 +160,15 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const ukupno = num(r.metraza_ost ?? r.metraza);
                 const noviOst = Math.max(0, ukupno - izdM);
                 const noviRez = Math.max(0, num(r.rezervisano) - izdM);
-                const status = noviOst <= 0 ? "Iskorišćeno" : (noviRez > 0 ? "Delimično rezervisano" : "Na stanju");
+                const wip = isWipLoc(lokacija);
+                const status = wip ? "U proizvodnji" : (noviOst <= 0 ? "Iskorišćeno" : (noviRez > 0 ? "Delimično rezervisano" : "Na stanju"));
                 // 1) magacin: skini metre, oslobodi rezervaciju za izdati deo
                 await supabase.from("magacin").update({
                     metraza_ost: noviOst,
                     rezervisano: noviRez || null,
                     status,
                     pripremljeno: true,
+                    ...(lokacija ? { lokacija } : {}),
                 }).eq("id", r.id);
                 // 2) ledger: upiši izdato_m u stavku ovog naloga
                 const st = stavkaMap[r.id];
@@ -132,7 +182,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 izdatoUkupno += izdM; brojRolni += 1;
             }
             await supabase.from("operativni_nalozi").update({ status: "izdato" }).eq("id", open.op.id);
-            msg && msg(`Izdato ${fmt(izdatoUkupno)} m sa ${brojRolni} rolni — skinuto sa stanja.`, "ok");
+            msg && msg(`Izdato ${fmt(izdatoUkupno)} m sa ${brojRolni} rolni${isWipLoc(lokacija) ? " → " + lokacija + " (u proizvodnji)" : " — skinuto sa stanja"}.`, "ok");
             setOpen(null); load();
         } catch (e) { msg && msg("Greška pri izdavanju: " + (e.message || e), "err"); }
         finally { setSaving(false); }
@@ -162,6 +212,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         return (
             <div style={wrap}>
                 {scanOpen && <QRScannerModal onResult={(t) => { setScanOpen(false); tryCheck(t); }} onClose={() => setScanOpen(false)} />}
+                {scanLocOpen && <QRScannerModal onResult={(t) => { onLocScan(t); }} onClose={() => setScanLocOpen(false)} />}
                 <Header title={open.master.broj_naloga || open.op.broj_naloga || "Nalog"} sub={(open.master.kupac || "—") + " · " + (open.master.proizvod || open.master.naziv || "")} />
 
                 <div style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
@@ -169,6 +220,19 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     <div><div style={{ fontWeight: 900, fontSize: 15 }}>Spremi rolne za ovaj nalog</div><div style={{ fontSize: 12, color: "#64748b" }}>Skeniraj QR svake rolne da je čekiraš.</div></div>
                     <div style={{ marginLeft: "auto", fontWeight: 950, fontSize: 18, color: allDone ? "#16a34a" : "#0f766e" }}>{done}/{total}</div>
                 </div>
+
+                {total > 0 && (
+                    <div style={{ ...card, marginBottom: 9, borderLeft: "5px solid " + (lokacija ? (isWipLoc(lokacija) ? "#7c3aed" : "#16a34a") : "#0ea5e9") }}>
+                        <div style={{ fontWeight: 900, fontSize: 13.5, marginBottom: 7 }}>📍 Lokacija spremanja {lokacija ? <span style={{ color: isWipLoc(lokacija) ? "#7c3aed" : "#16a34a" }}>· {lokacija}{isWipLoc(lokacija) ? " (→ u proizvodnju)" : ""}</span> : <span style={{ color: "#94a3b8", fontWeight: 600 }}>(skeniraj ili unesi · npr. WIP1)</span>}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <input value={lokacija} onChange={(e) => setLokacija(e.target.value)} placeholder="npr. A-01-B-02 ili Magacin A1" style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 11, padding: 12, fontSize: 14, fontWeight: 700 }} />
+                            <button onClick={() => { setLocParts({ magacin: "", red: "", polica: "", pozicija: "" }); setScanLocOpen(true); }} style={{ ...btn, width: "auto", padding: "12px 14px", background: "#0ea5e9", color: "#fff", whiteSpace: "nowrap" }}>📷 Skeniraj</button>
+                        </div>
+                        {(locParts.magacin || locParts.red || locParts.polica || locParts.pozicija) && !lokacija && (
+                            <div style={{ fontSize: 11, color: "#0ea5e9", marginTop: 6, fontWeight: 700 }}>Magacin {locParts.magacin || "—"} · Red {locParts.red || "—"} · Polica {locParts.polica || "—"} · Pozicija {locParts.pozicija || "—"} — skeniraj preostale</div>
+                        )}
+                    </div>
+                )}
 
                 {total === 0 && <div style={card}>Ovom nalogu još nisu dodeljene rolne. (Rolne dodeljuje kancelarija pri kreiranju naloga.)</div>}
 

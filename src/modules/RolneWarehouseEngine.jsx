@@ -259,6 +259,7 @@ function normalizeStatus(status) {
     if (["na stanju", "dostupna", "available", "slobodna"].includes(lower)) return "dostupna";
     if (["rezervisano", "rezervisana", "reserved"].includes(lower)) return "rezervisana";
     if (["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(lower)) return "potrosena";
+    if (["u proizvodnji", "u_proizvodnji", "proizvodnja", "wip"].includes(lower)) return "proizvodnja";
     if (["formatirana", "formatirano"].includes(lower)) return "formatirana";
     if (["blokirana", "blokirano"].includes(lower)) return "blokirana";
     return lower;
@@ -268,6 +269,7 @@ function displayStatus(status) {
     if (st === "dostupna") return "Na stanju";
     if (st === "rezervisana") return "Rezervisano";
     if (st === "potrosena") return "Iskorišćeno";
+    if (st === "proizvodnja") return "U proizvodnji";
     if (st === "formatirana") return "Formatirana";
     if (st === "blokirana") return "Blokirana";
     return status || "Na stanju";
@@ -289,8 +291,9 @@ function statusColor(s) {
     const st = normalizeStatus(s);
     if (st === "rezervisana") return "#f59e0b";
     if (st === "potrosena") return "#ef4444";
+    if (st === "proizvodnja") return "#7c3aed";
     if (st === "formatirana") return "#2563eb";
-    if (st === "blokirana") return "#7c3aed";
+    if (st === "blokirana") return "#6d28d9";
     return "#059669";
 }
 function ensureMaterials() {
@@ -1890,6 +1893,15 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         msg?.(`Oslobođeno ${fmt(osl, 0)} m (rolna ${r.qr}).`);
         await reload();
     }
+
+    function povratRolne(r) {
+        // Otvori postojeći „Povrat u magacin" tok sa učitanom rolnom (Faza 3 je već u confirmReturnToWarehouse).
+        setPovratRoll(r);
+        setPovratQr(r.qr || r.br_rolne || r.qr_code || "");
+        setPovratForm((f) => ({ ...f, spoljasnjiPrecnik: "", hilzna: r.hilzna || "FI76", lokacija: r.lokacija || "Magacin", napomena: "Povrat u magacin" }));
+        setActiveTab("povrat");
+    }
+
     async function consumeRoll(r) {
         const currentM = number(r.metraza_ost ?? r.duzina ?? r.metraza ?? 0);
         const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(currentM || ""));
@@ -1988,6 +2000,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             setPovratRoll(updated);
             setPovratForm((f) => ({ ...f, lokacija: novaLokacija }));
             setLabelRoll(updated);
+            // FAZA 3: poveži povrat sa nalogom — upiši vraceno_m i izračunaj otpad u ledgeru
+            try {
+                if (povratRoll.id && supabase && !supabase.__notConfigured) {
+                    const { data: st } = await supabase.from("materijal_stavke").select("*").eq("rolna_id", povratRoll.id).eq("status", "izdato").order("created_at", { ascending: false }).limit(1);
+                    const s = (st || [])[0];
+                    if (s) {
+                        const izdato = number(s.izdato_m), aloc = number(s.alocirano_m);
+                        const utroseno = Math.max(0, izdato - meters);   // stvarni utrošak = izdato − vraćeno
+                        const otpad = Math.round(aloc - utroseno);        // plan − utrošak
+                        await supabase.from("materijal_stavke").update({ vraceno_m: Math.round(meters), otpad_m: otpad, status: "zatvoreno" }).eq("id", s.id);
+                    }
+                }
+            } catch (e) { console.warn("povrat→stavka:", e.message); }
             msg?.(`Povrat evidentiran: ${updated.qr} · ${fmt(updated.duzina, 0)} m · ${fmt(updated.kg, 2)} kg · ${updated.lokacija || novaLokacija}`);
         } catch (e) {
             console.error(e);
@@ -2733,6 +2758,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     function rezBarCell(r) {
         const total = rolnaUkupnoM(r);
+        if (normalizeStatus(r.status) === "proizvodnja") {
+            return (
+                <div style={{ minWidth: 150 }}>
+                    <span style={{ background: "#faf5ff", color: "#7c3aed", border: "1px solid #e9d5ff", borderRadius: 999, padding: "3px 9px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap" }}>⚙️ U proizvodnji</span>
+                    <div style={{ fontSize: 10.5, color: "#7c3aed", marginTop: 3, fontWeight: 700 }}>{r.lokacija || "WIP"} · {fmt(total, 0)} m</div>
+                </div>
+            );
+        }
         let rez = Math.min(total, rolnaRezM(r));
         if (rez === 0 && normalizeStatus(r.status) === "rezervisana") rez = total; // starija puna rezervacija bez upisanih metara
         const slob = Math.max(0, total - rez);
@@ -3334,7 +3367,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{rezBarCell(r)}</td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
-                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
+                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => povratRolne(r)} style={{ ...btn, background: "#e0f2fe", color: "#075985" }}>↩️ Povrat</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
