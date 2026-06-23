@@ -299,7 +299,7 @@ export default function KalkulacijaFolijeSmart() {
             if (folija.rezanje?.sirinaTrake) setSirina(Number(folija.rezanje.sirinaTrake) || fallbackSirina || 0);
             else if (fallbackSirina) setSirina(fallbackSirina);
 
-            if (fallbackMetraza) setMetraza(fallbackMetraza);
+            // metraza je BAZA = 1000 m i ne menja se iz templejta (pun nalog ide u „Nalog (x1000m)“)
 
             if (layers.length > 0) {
                 const mapped = layers
@@ -345,7 +345,7 @@ export default function KalkulacijaFolijeSmart() {
                 if (kal.naziv) setNaziv(kal.naziv);
                 if (kal.kupac) setKupac(kal.kupac);
                 if (kal.sirina) setSirina(Number(kal.sirina));
-                if (kal.metraza) setMetraza(Number(kal.metraza));
+                // metraza ostaje 1000 (baza) — ne učitava se iz sačuvane kalkulacije
                 if (kal.nalog) setNalog(Number(kal.nalog));
                 if (kal.skart !== undefined) setSkart(Number(kal.skart));
                 if (kal.marza !== undefined) setMarza(Number(kal.marza));
@@ -557,10 +557,10 @@ export default function KalkulacijaFolijeSmart() {
         const pakovanjeTrosak = pakovanje;
         const doradaTrosak = dorada * ukupnoKg;
 
-        // OSNOVNA CENA
+        // OSNOVNA CENA (proizvodni troškovi — podležu škartu i marži).
+        // Transport, pakovanje i dorada su IZVUČENI (pass-through, dodaju se 1:1 na kraju).
         const osnovnaCena = ukupnoMatTrosak + ukupnoLepakTrosak + kasiranjeTrosak +
-            stampaTrosak + lakiranjeTrosak + transportTrosak +
-            pakovanjeTrosak + doradaTrosak;
+            stampaTrosak + lakiranjeTrosak;
 
         // SA ŠKARTOM
         const cenaSaSkartom = osnovnaCena * (1 + skart / 100);
@@ -568,20 +568,21 @@ export default function KalkulacijaFolijeSmart() {
         // SA DODATKOM (škart nestandardnih)
         const cenaSaDodatkom = cenaSaSkartom + skartNestandardnih;
 
+        // PASS-THROUGH troškovi — dodaju se 1:1 (bez škarta i marže), tačan iznos.
+        const passThrough = transportTrosak + pakovanjeTrosak + doradaTrosak;
+
         // KONAČNA CENA
         let konacnaCena, izracunataMarza;
 
         if (mod === "normal") {
-            konacnaCena = cenaSaDodatkom * (1 + marza / 100);
+            konacnaCena = cenaSaDodatkom * (1 + marza / 100) + passThrough;
             izracunataMarza = marza;
         } else {
-            // Obrnuti mod — baza: €/1000m ili €/kg
-            if (reverseBaza === "kg") {
-                konacnaCena = zeljenaCenaKg * ukupnoKg;            // €/kg × kg/1000m = €/1000m
-            } else {
-                konacnaCena = zeljenaCena;                         // već €/1000m
-            }
-            izracunataMarza = cenaSaDodatkom > 0 ? ((konacnaCena - cenaSaDodatkom) / cenaSaDodatkom) * 100 : 0;
+            // Obrnuti mod — target je konačna cena (uključuje transport)
+            const target = reverseBaza === "kg" ? (zeljenaCenaKg * ukupnoKg) : zeljenaCena; // €/1000m
+            konacnaCena = target;
+            const proizvodniCilj = target - passThrough; // skini transport pre obračuna marže
+            izracunataMarza = cenaSaDodatkom > 0 ? ((proizvodniCilj - cenaSaDodatkom) / cenaSaDodatkom) * 100 : 0;
         }
 
         // DODATNI OBRAČUNI
@@ -725,8 +726,8 @@ export default function KalkulacijaFolijeSmart() {
                                 <input type="number" value={sirina} onChange={e => setSirina(parseFloat(e.target.value) || 0)} style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 12 }} />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Metraža (m)</label>
-                                <input type="number" value={metraza} onChange={e => setMetraza(parseFloat(e.target.value) || 0)} style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 12 }} />
+                                <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Metraža (m) <span style={{ background: "#e2e8f0", color: "#475569", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 800 }}>BAZA · FIKSNO</span></label>
+                                <input type="number" value={1000} readOnly disabled title="Proračun je uvek na 1000 m. Pun nalog se unosi u „Nalog (x1000m)“." style={{ width: "100%", padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: 4, fontSize: 12, background: "#f1f5f9", color: "#64748b", fontWeight: 700, cursor: "not-allowed" }} />
                             </div>
                             <div>
                                 <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Nalog (x1000m)</label>
