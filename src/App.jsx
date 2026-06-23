@@ -6,6 +6,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
+import RadnikOperacija from "./RadnikOperacija.jsx";
 import MaterialMasterPRO from "./components/MaterialMasterPRO.jsx";
 import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
@@ -1618,10 +1619,15 @@ function MainAppContent() {
     var urlParams = new URLSearchParams(window.location.search);
     var rolnaQR = urlParams.get("rolna"); // ?rolna=R-2026-001
     var nalogQR = urlParams.get("nalog"); // ?nalog=MP-2026-0001
+    var opQR = urlParams.get("opid"); // ?opid=<id operacije> → radnička strana
 
 
     if (rolnaQR) {
         return <MobilniMagacin brRolne={rolnaQR} />;
+    }
+
+    if (opQR) {
+        return <RadnikOperacija opid={opQR} />;
     }
 
     if (nalogQR) {
