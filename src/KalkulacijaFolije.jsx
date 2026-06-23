@@ -124,6 +124,23 @@ function specTezina(tip, deb) {
     return arr.length ? +(d * (arr[0].t / arr[0].d)).toFixed(2) : 0;
 }
 
+// Efektivna težina g/m² jednog sloja — prvo uzima vrednost koju je
+// MaterialLayersTablePRO već izračunao (gm2/tezinaGm2/gsm/t/gramatura/tezina),
+// pa tek onda fallback na specTezina iz tipa+debljine (širi izvori polja).
+function efektivnaTezina(mat) {
+    return Number(mat.tezina) || Number(mat.gm2) || Number(mat.tezinaGm2) ||
+        Number(mat.gsm) || Number(mat.t) || Number(mat.gramatura) ||
+        specTezina(
+            mat.tip || mat.vrsta || mat.materijal || mat.naziv,
+            mat.debljina || mat.deb || mat.debljina_um || mat.mic
+        );
+}
+// Efektivna cena €/kg jednog sloja (pod raznim imenima polja)
+function efektivnaCena(mat) {
+    return Number(mat.cena) || Number(mat.cena_kg) || Number(mat.cenaKg) ||
+        CENE[mat.tip || mat.vrsta || mat.materijal] || 0;
+}
+
 function mapTemplateLayerToFolijaMaterial(layer, fallbackSirina) {
     const rawName = layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka || layer.oznaka_materijala || "";
     const parsed = parseTemplateMaterialName(rawName);
@@ -521,16 +538,16 @@ export default function KalkulacijaFolijeSmart() {
         let skartNestandardnih = 0;
 
         const materijalKg = materijali.map(mat => {
-            const tez = Number(mat.tezina) || specTezina(mat.tip || mat.vrsta, mat.debljina || mat.deb);
+            const tez = efektivnaTezina(mat);
             if (!tez) return 0;
             const kg = (sirina * metraza * tez) / 1000000;
             ukupnoKg += kg;
-            ukupnoMatTrosak += kg * mat.cena;
+            ukupnoMatTrosak += kg * efektivnaCena(mat);
 
             // Škart nestandardnih = RUČNO uneta razlika u širini po traci (mm). Default 0 → škart 0.
             const skartW = Number(mat.skartSirina || mat.skart_sirina || 0);
             if (skartW > 0) {
-                skartNestandardnih += (skartW * metraza * tez * mat.cena) / 1000000;
+                skartNestandardnih += (skartW * metraza * tez * efektivnaCena(mat)) / 1000000;
             }
 
             return kg;
@@ -569,7 +586,7 @@ export default function KalkulacijaFolijeSmart() {
         ukupnoLepakTrosak += (Number(lak.cena) || 0) * lakUtrosak * lakProlazi;
 
         // Kaširanje (auto broj prolaza = broj materijala - 1)
-        const aktivniMaterijali = materijali.filter(m => (Number(m.tezina) || specTezina(m.tip || m.vrsta, m.debljina || m.deb)) > 0).length;
+        const aktivniMaterijali = materijali.filter(m => efektivnaTezina(m) > 0).length;
         const kasiranjeProlazi = Math.max(0, aktivniMaterijali - 1);
         const kasiranjeTrosak = (kasiranje.cena * sirina * metraza * kasiranjeProlazi) / 1000;
 
@@ -644,7 +661,7 @@ export default function KalkulacijaFolijeSmart() {
             kasiranjeProlazi,
             skartNestandardnihDetaljno: materijali.map((mat, idx) => {
                 const skartW = Number(mat.skartSirina || mat.skart_sirina || 0);
-                if (!skartW || !mat.tezina) return 0;
+                if (!skartW || !efektivnaTezina(mat)) return 0;
                 return (skartW * metraza * mat.tezina * mat.cena) / 1000000;
             }),
             skartNestandardnihNalog: skartNestandardnih * nalog
@@ -975,7 +992,7 @@ export default function KalkulacijaFolijeSmart() {
                             <div style={{ fontSize: 11, fontWeight: 700, color: "#0d9488", marginBottom: 12, textTransform: "uppercase" }}>📦 Materijali (kg)</div>
 
                             {materijali.map((mat, idx) => (
-                                <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f1f5f9", opacity: mat.tezina > 0 ? 1 : 0.5 }}>
+                                <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f1f5f9", opacity: efektivnaTezina(mat) > 0 ? 1 : 0.5 }}>
                                     <span style={{ fontSize: 11, color: "#64748b" }}>Materijal {String.fromCharCode(65 + idx)}</span>
                                     <strong style={{ fontSize: 12, color: "#0f172a" }}>{rezultati.materijalKg[idx] > 0 ? (rezultati.materijalKg[idx] * nalog).toFixed(2) : "#N/A"}</strong>
                                 </div>
