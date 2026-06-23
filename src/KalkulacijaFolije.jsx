@@ -108,6 +108,22 @@ function parseTemplateMaterialName(raw) {
     return { tip: known, debljina };
 }
 
+// Specifična težina g/m² iz tipa+debljine — radi i kad tip nije čist ključ
+// (npr. "OPA STANDARD" -> "OPA") i kad debljina nije u listi (izvede iz faktora t/d).
+// Vraća 0 samo ako se tip uopšte ne prepozna.
+function specTezina(tip, deb) {
+    const d = Number(String(deb).replace(",", ".")) || 0;
+    if (!tip || d <= 0) return 0;
+    const t = String(tip).toLowerCase();
+    const key = Object.keys(MAT_DATA).find(k => k.toLowerCase() === t) ||
+        Object.keys(MAT_DATA).find(k => t.includes(k.toLowerCase()));
+    if (!key) return 0;
+    const arr = MAT_DATA[key];
+    const item = arr.find(x => Number(x.d) === d);
+    if (item) return item.t;
+    return arr.length ? +(d * (arr[0].t / arr[0].d)).toFixed(2) : 0;
+}
+
 function mapTemplateLayerToFolijaMaterial(layer, fallbackSirina) {
     const rawName = layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka || layer.oznaka_materijala || "";
     const parsed = parseTemplateMaterialName(rawName);
@@ -473,13 +489,23 @@ export default function KalkulacijaFolijeSmart() {
     const handleMaterijalDebljinaChange = (index, novaDebljina) => {
         const novi = [...materijali];
         const tip = novi[index].tip;
+        const deb = parseFloat(String(novaDebljina).replace(",", ".")) || 0;
 
-        if (tip && MAT_DATA[tip]) {
-            const item = MAT_DATA[tip].find(x => x.d === parseFloat(novaDebljina));
+        // Uvek upiši unetu debljinu (i kad nije u tabeli)
+        novi[index].debljina = deb;
+
+        const arr = (tip && MAT_DATA[tip]) ? MAT_DATA[tip] : null;
+        if (arr && deb > 0) {
+            const item = arr.find(x => x.d === deb);
             if (item) {
-                novi[index].debljina = item.d;
                 novi[index].tezina = item.t;
+            } else if (arr.length) {
+                // Debljina nije u listi (npr. OPA 18) → izvedi gustinu iz tabele (t/d) i izračunaj
+                const faktor = arr[0].t / arr[0].d;        // npr. OPA: 16.5/15 = 1.1
+                novi[index].tezina = +(deb * faktor).toFixed(2);
             }
+        } else if (deb <= 0) {
+            novi[index].tezina = 0;
         }
 
         setMaterijali(novi);
@@ -495,15 +521,16 @@ export default function KalkulacijaFolijeSmart() {
         let skartNestandardnih = 0;
 
         const materijalKg = materijali.map(mat => {
-            if (!mat.tezina) return 0;
-            const kg = (sirina * metraza * mat.tezina) / 1000000;
+            const tez = Number(mat.tezina) || specTezina(mat.tip || mat.vrsta, mat.debljina || mat.deb);
+            if (!tez) return 0;
+            const kg = (sirina * metraza * tez) / 1000000;
             ukupnoKg += kg;
             ukupnoMatTrosak += kg * mat.cena;
 
             // Škart nestandardnih = RUČNO uneta razlika u širini po traci (mm). Default 0 → škart 0.
             const skartW = Number(mat.skartSirina || mat.skart_sirina || 0);
             if (skartW > 0) {
-                skartNestandardnih += (skartW * metraza * mat.tezina * mat.cena) / 1000000;
+                skartNestandardnih += (skartW * metraza * tez * mat.cena) / 1000000;
             }
 
             return kg;
@@ -542,7 +569,7 @@ export default function KalkulacijaFolijeSmart() {
         ukupnoLepakTrosak += (Number(lak.cena) || 0) * lakUtrosak * lakProlazi;
 
         // Kaširanje (auto broj prolaza = broj materijala - 1)
-        const aktivniMaterijali = materijali.filter(m => m.tezina > 0).length;
+        const aktivniMaterijali = materijali.filter(m => (Number(m.tezina) || specTezina(m.tip || m.vrsta, m.debljina || m.deb)) > 0).length;
         const kasiranjeProlazi = Math.max(0, aktivniMaterijali - 1);
         const kasiranjeTrosak = (kasiranje.cena * sirina * metraza * kasiranjeProlazi) / 1000;
 
