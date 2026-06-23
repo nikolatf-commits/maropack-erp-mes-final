@@ -128,12 +128,18 @@ function specTezina(tip, deb) {
 // MaterialLayersTablePRO već izračunao (gm2/tezinaGm2/gsm/t/gramatura/tezina),
 // pa tek onda fallback na specTezina iz tipa+debljine (širi izvori polja).
 function efektivnaTezina(mat) {
-    return Number(mat.tezina) || Number(mat.gm2) || Number(mat.tezinaGm2) ||
-        Number(mat.gsm) || Number(mat.t) || Number(mat.gramatura) ||
-        specTezina(
-            mat.tip || mat.vrsta || mat.materijal || mat.naziv,
-            mat.debljina || mat.deb || mat.debljina_um || mat.mic
-        );
+    const direkt = Number(mat.tezina) || Number(mat.gm2) || Number(mat.tezinaGm2) ||
+        Number(mat.gsm) || Number(mat.t) || Number(mat.gramatura);
+    if (direkt) return direkt;
+    const spec = specTezina(
+        mat.tip || mat.vrsta || mat.materijal || mat.naziv,
+        mat.debljina || mat.deb || mat.debljina_um || mat.mic
+    );
+    if (spec) return spec;
+    // Poslednja rezerva: debljina × FAKT (faktor gustine sa kartice, npr. 20 × 0.91 = 18.2)
+    const d = Number(mat.debljina || mat.deb || mat.debljina_um || mat.mic) || 0;
+    const f = Number(mat.faktor || mat.faktorGustine || mat.koeficijent || mat.koef || mat.gustina) || 0;
+    return d > 0 && f > 0 ? +(d * f).toFixed(2) : 0;
 }
 // Efektivna cena €/kg jednog sloja (pod raznim imenima polja)
 function efektivnaCena(mat) {
@@ -532,6 +538,16 @@ export default function KalkulacijaFolijeSmart() {
     // KALKULACIJA
     // ========================================================================
     const izracunaj = () => {
+        // DIJAGNOSTIKA: ako neki materijal nema težinu, ispiši njegova polja u konzolu
+        try {
+            const _dbg = materijali.map(m => ({
+                tip: m.tip, vrsta: m.vrsta, materijal: m.materijal, deb: m.debljina ?? m.deb,
+                gm2: m.gm2, tezina: m.tezina, faktor: m.faktor ?? m.koeficijent ?? m.koef,
+                cena: m.cena, ef: efektivnaTezina(m)
+            }));
+            if (_dbg.some(x => !x.ef)) console.warn("⚠️ KALK: materijal bez težine →", _dbg);
+        } catch (e) { }
+
         // Kg materijala
         let ukupnoKg = 0;
         let ukupnoMatTrosak = 0;
