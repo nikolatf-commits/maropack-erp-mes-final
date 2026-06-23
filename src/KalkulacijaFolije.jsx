@@ -473,23 +473,13 @@ export default function KalkulacijaFolijeSmart() {
     const handleMaterijalDebljinaChange = (index, novaDebljina) => {
         const novi = [...materijali];
         const tip = novi[index].tip;
-        const deb = parseFloat(String(novaDebljina).replace(",", ".")) || 0;
 
-        // Uvek upiši unetu debljinu (i kad nije u tabeli)
-        novi[index].debljina = deb;
-
-        const arr = (tip && MAT_DATA[tip]) ? MAT_DATA[tip] : null;
-        if (arr && deb > 0) {
-            const item = arr.find(x => x.d === deb);
+        if (tip && MAT_DATA[tip]) {
+            const item = MAT_DATA[tip].find(x => x.d === parseFloat(novaDebljina));
             if (item) {
+                novi[index].debljina = item.d;
                 novi[index].tezina = item.t;
-            } else if (arr.length) {
-                // Debljina nije u listi (npr. OPA 18) → izvedi gustinu iz tabele (t/d) i izračunaj
-                const faktor = arr[0].t / arr[0].d;        // npr. OPA: 16.5/15 = 1.1
-                novi[index].tezina = +(deb * faktor).toFixed(2);
             }
-        } else if (deb <= 0) {
-            novi[index].tezina = 0;
         }
 
         setMaterijali(novi);
