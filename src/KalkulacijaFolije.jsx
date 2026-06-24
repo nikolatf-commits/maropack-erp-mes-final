@@ -617,10 +617,10 @@ export default function KalkulacijaFolijeSmart() {
         const pakovanjeTrosak = pakovanje;
         const doradaTrosak = dorada * ukupnoKg;
 
-        // OSNOVNA CENA (proizvodni troškovi — podležu škartu i marži).
-        // Transport, pakovanje i dorada su IZVUČENI (pass-through, dodaju se 1:1 na kraju).
+        // OSNOVNA CENA — EXCEL-STIL: transport, pakovanje i dorada ULAZE u osnovu,
+        // pa dobijaju škart (×1.10) i maržu (×1.27) — kao u Excel fajlu (W9, T11, V13 unutar H14).
         const osnovnaCena = ukupnoMatTrosak + ukupnoLepakTrosak + kasiranjeTrosak +
-            stampaTrosak + lakiranjeTrosak;
+            stampaTrosak + lakiranjeTrosak + transportTrosak + pakovanjeTrosak + doradaTrosak;
 
         // SA ŠKARTOM
         const cenaSaSkartom = osnovnaCena * (1 + skart / 100);
@@ -628,8 +628,8 @@ export default function KalkulacijaFolijeSmart() {
         // SA DODATKOM (škart nestandardnih)
         const cenaSaDodatkom = cenaSaSkartom + skartNestandardnih;
 
-        // PASS-THROUGH troškovi — dodaju se 1:1 (bez škarta i marže), tačan iznos.
-        const passThrough = transportTrosak + pakovanjeTrosak + doradaTrosak;
+        // Transport/pakovanje/dorada su sada u osnovi → nema posebnog pass-through dodatka.
+        const passThrough = 0;
 
         // KONAČNA CENA
         let konacnaCena, izracunataMarza;
