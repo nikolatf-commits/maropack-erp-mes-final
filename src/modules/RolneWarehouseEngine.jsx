@@ -1304,10 +1304,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka]);
 
     const masterProizvodjaci = useMemo(() => {
-        const rows = materialMaster.filter((x) => x.vrsta === materialPick.vrsta && x.pod_vrsta === materialPick.pod_vrsta && x.oznaka === materialPick.oznaka && Number(x.debljina) === Number(materialPick.debljina));
-        const vals = uniqMaterialValues(rows, "proizvodjac", []);
-        return vals.length ? vals : (materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci);
-    }, [materialMaster, materialDropdowns, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
+        // Proizvođači baš za ovaj materijal (najrelevantniji) — prikaži prve
+        const zaMaterijal = uniqMaterialValues(
+            materialMaster.filter((x) => x.vrsta === materialPick.vrsta && x.pod_vrsta === materialPick.pod_vrsta && x.oznaka === materialPick.oznaka && Number(x.debljina) === Number(materialPick.debljina)),
+            "proizvodjac", []
+        );
+        // ...pa SVI ostali proizvođači (iz cele baze materijala + liste proizvođača + sa rolni),
+        // jer isti materijal može doći od različitih dobavljača — ne ograničavati izbor.
+        const sviMaster = uniqMaterialValues(materialMaster, "proizvodjac", []);
+        const izListe = materialDropdowns.proizvodjaci || FALLBACK_MATERIAL_DROPDOWNS.proizvodjaci || [];
+        const izRolni = [...new Set((rolne || []).map((x) => x.dobavljac).filter(Boolean))];
+        return [...new Set([...zaMaterijal, ...sviMaster, ...izListe, ...izRolni])].filter(Boolean);
+    }, [materialMaster, materialDropdowns, rolne, materialPick.vrsta, materialPick.pod_vrsta, materialPick.oznaka, materialPick.debljina]);
 
     // V46: dozvoljen unos NOVE kombinacije u rucnom unosu.
     // Polja se NE popunjavaju automatski — magacioner slobodno briše i kuca (ili bira iz liste).
