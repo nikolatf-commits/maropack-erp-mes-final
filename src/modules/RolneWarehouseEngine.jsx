@@ -16,6 +16,7 @@ import {
 const LS_MATERIJALI = "maropack_baza_materijala_v30";
 const LS_ROLNE = "maropack_rolne_magacin";
 const LS_HISTORY = "maropack_rolne_istorija";
+const LS_POVRAT = "maropack_povrat_istorija";
 const LS_OPERATER = "maropack_operater";
 const HISTORY_SYNC_LIMIT = 2000;
 const HISTORY_TABLE = "magacin_istorija";
@@ -897,6 +898,24 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [materijali, setMaterijali] = useState([]);
     const [rolne, setRolne] = useState([]);
     const [history, setHistory] = useState([]);
+    const [povratLog, setPovratLog] = useState(() => safeRead(LS_POVRAT, []));
+    const [povratiDb, setPovratiDb] = useState([]);
+    async function loadPovrati() {
+        try {
+            if (!supabase || supabase.__notConfigured) return;
+            const { data } = await supabase.from("povrati_magacin").select("*").order("created_at", { ascending: false }).limit(1000);
+            setPovratiDb((data || []).map((r) => ({
+                vreme: r.created_at ? new Date(r.created_at).toLocaleString("sr-RS") : "",
+                operater: r.operater || "—",
+                qr: r.br_rolne || r.qr || "—",
+                event: "POVRAT U MAGACIN",
+                opis: r.opis || `${fmt(number(r.metri), 0)} m · ${fmt(number(r.kg), 2)} kg · ${r.lokacija || "—"}`,
+                metri: number(r.metri), kg: number(r.kg), lokacija: r.lokacija,
+                _id: r.id,
+            })));
+        } catch (e) { console.warn("loadPovrati:", e?.message); }
+    }
+    useEffect(() => { loadPovrati(); /* eslint-disable-next-line */ }, []);
     const [operater, setOperater] = useState(() => safeRead(LS_OPERATER, null));
     const [loginForm, setLoginForm] = useState({ email: "", sifra: "" });
     const isAdmin = ADMIN_EMAILS.includes(String(operater?.email || "").trim().toLowerCase());
@@ -1393,9 +1412,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     useEffect(() => { setPovratPage(1); }, [povratSearch]);
     const povratHistory = useMemo(() => {
         const q = String(povratSearch || "").trim().toLowerCase();
-        return (history || []).filter((h) => /povrat/i.test(String(h.event || "")))
-            .filter((h) => !q || String(h.qr || "").toLowerCase().includes(q));
-    }, [history, povratSearch]);
+        // Primarno: BAZA (deljeno svima); dopuna: lokalni log + „povrat" iz istorije — bez duplikata
+        const izBaze = Array.isArray(povratiDb) ? povratiDb : [];
+        const izLoga = Array.isArray(povratLog) ? povratLog : [];
+        const izIstorije = (history || []).filter((h) => /povrat/i.test(String(h.event || "")));
+        const kljuc = (h) => (String(h.qr || "")) + "|" + Math.round(number(h.metri));
+        const seen = new Set(izBaze.map(kljuc));
+        const spojeno = [
+            ...izBaze,
+            ...izLoga.filter((h) => !seen.has(kljuc(h))),
+            ...izIstorije.filter((h) => !seen.has(kljuc(h)) && !izLoga.some((l) => (l.vreme === h.vreme && l.qr === h.qr))),
+        ];
+        return spojeno.filter((h) => !q || String(h.qr || "").toLowerCase().includes(q));
+    }, [povratiDb, povratLog, history, povratSearch]);
     const povratPages = Math.max(1, Math.ceil(povratHistory.length / PER_PAGE));
     const povratPageC = Math.min(povratPage, povratPages);
     const pagedPovrat = useMemo(() => povratHistory.slice((povratPageC - 1) * PER_PAGE, povratPageC * PER_PAGE), [povratHistory, povratPageC]);
@@ -1997,6 +2026,44 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 opis: `Hilzna ${effectiveForm.hilzna} (${coreEffectiveDiameter(effectiveForm.hilzna)} mm), spoljašnji prečnik ${effectiveForm.spoljasnjiPrecnik} mm, obračunato ${fmt(meters, 0)} m / ${fmt(kg, 2)} kg, lokacija ${novaLokacija}`,
                 stanje: "Na stanju"
             });
+            // Trajan log povrata (ne briše ga reload iz baze) — za karticu „Istorija povrata"
+            try {
+                const povRec = {
+                    vreme: now(),
+                    operater: operater?.ime || _operaterIme || "—",
+                    qr: updated.qr,
+                    event: "POVRAT U MAGACIN",
+                    opis: `Ø ${effectiveForm.spoljasnjiPrecnik} mm / ${effectiveForm.hilzna} → ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg · ${novaLokacija}`,
+                    metri: Math.round(meters),
+                    kg: Math.round(kg * 100) / 100,
+                    lokacija: novaLokacija,
+                };
+                setPovratLog((prev) => {
+                    const arr = [povRec, ...(Array.isArray(prev) ? prev : [])].slice(0, 1000);
+                    safeWrite(LS_POVRAT, arr);
+                    return arr;
+                });
+            } catch (e) { console.warn("povratLog:", e?.message); }
+            // Upis u BAZU — deljeno na svim uređajima + ko je uradio
+            try {
+                if (supabase && !supabase.__notConfigured) {
+                    await supabase.from("povrati_magacin").insert({
+                        rolna_id: povratRoll?.id || null,
+                        br_rolne: updated.qr || updated.br_rolne || null,
+                        qr: updated.qr || null,
+                        metri: Math.round(meters),
+                        kg: Math.round(kg * 100) / 100,
+                        precnik: number(effectiveForm.spoljasnjiPrecnik) || null,
+                        hilzna: effectiveForm.hilzna || null,
+                        lokacija: novaLokacija || null,
+                        nalog_ref: povratRoll?.dodeljeno_nalogu || null,
+                        operater: reserverName || operater?.ime || _operaterIme || "—",
+                        operater_id: userProfile?.id || null,
+                        opis: `Ø ${effectiveForm.spoljasnjiPrecnik} mm / ${effectiveForm.hilzna} → ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg · ${novaLokacija}`,
+                    });
+                    await loadPovrati();
+                }
+            } catch (e) { console.warn("povrati_magacin insert:", e?.message); }
             setPovratRoll(updated);
             setPovratForm((f) => ({ ...f, lokacija: novaLokacija }));
             setLabelRoll(updated);
