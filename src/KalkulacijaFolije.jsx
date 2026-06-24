@@ -274,7 +274,7 @@ export default function KalkulacijaFolijeSmart() {
     const [lak, setLak] = useState({ potrosnja: 0.0035, utrosak: 1.47, prolazi: 0, cena: 7.05 });
 
     // KAŠIRANJE
-    const [kasiranje, setKasiranje] = useState({ cena: 0.03 });
+    const [kasiranje, setKasiranje] = useState({ cena: 0.02 });
 
     // ŠTAMPA & LAKIRANJE (auto iz materijala)
     const [stampaCena, setStampaCena] = useState(0.85);
