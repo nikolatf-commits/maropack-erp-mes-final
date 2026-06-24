@@ -248,7 +248,7 @@ export default function KalkulacijaFolijeSmart() {
     const [naziv, setNaziv] = useState("");
     const [kupac, setKupac] = useState("");
     const [sirina, setSirina] = useState(0);
-    const [metraza, setMetraza] = useState(0);
+    const [metraza, setMetraza] = useState(1000); // BAZA = 1000 m (fiksno). NE sme biti 0 — množi se sa kg materijala.
     const [nalog, setNalog] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(40);
@@ -1067,6 +1067,40 @@ export default function KalkulacijaFolijeSmart() {
                                 <span style={{ color: "#9a3412" }}>Na nalog ({nalog})</span>
                                 <strong style={{ color: "#9a3412" }}>{rezultati.skartNestandardnihNalog.toFixed(2)} €</strong>
                             </div>
+                        </div>
+
+                        {/* POTREBNO ZA NALOG (kg + metri, tačno) */}
+                        <div style={{ background: "#ecfeff", padding: 14, borderRadius: 10, border: "2px solid #06b6d4", marginTop: 12 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: "#155e75", marginBottom: 10, textTransform: "uppercase" }}>🛒 Potrebno za nalog ({nalog} × 1000m)</div>
+
+                            {materijali.map((mat, idx) => {
+                                const kg = (rezultati.materijalKg[idx] || 0) * nalog;
+                                if (!kg) return null;
+                                const naziv = (mat.tip || mat.vrsta || mat.materijal || "Materijal") + (mat.debljina ? ` ${mat.debljina}µ` : "");
+                                return (
+                                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #cffafe" }}>
+                                        <span style={{ fontSize: 12, color: "#0e7490", fontWeight: 600 }}>{naziv}</span>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: "#155e75" }}>{kg.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
+                                    </div>
+                                );
+                            })}
+
+                            {(() => {
+                                const lakKgN = (rezultati.lakKg || 0) * nalog;
+                                const lepakKgN = Math.max(0, (rezultati.ukupnoLepakKg || 0) - (rezultati.lakKg || 0)) * nalog;
+                                return (
+                                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #cffafe" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12 }}>
+                                            <span style={{ color: "#0e7490" }}>Lepak</span>
+                                            <strong style={{ color: "#155e75" }}>{lepakKgN.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</strong>
+                                        </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12 }}>
+                                            <span style={{ color: "#0e7490" }}>Lak</span>
+                                            <strong style={{ color: "#155e75" }}>{lakKgN.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</strong>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* BUTTON */}
