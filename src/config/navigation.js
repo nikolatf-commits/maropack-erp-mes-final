@@ -45,7 +45,6 @@ export function getNavGroups(isAdmin, userRole) {
                 { k: 'lista_proizvoda_kupci', l: 'Lista proizvoda po kupcima', i: '🗂️' },
                 { k: 'baza_proizvoda_pro', l: 'Baza proizvoda PRO', i: '📦' },
                 { k: 'template_engine', l: 'Template Engine', i: '🧩' },
-                { k: 'baza_materijala', l: 'Baza materijala', i: '🧪' }
             ]
         },
         {
@@ -67,7 +66,6 @@ export function getNavGroups(isAdmin, userRole) {
             icon: '🏪',
             items: [
                 { k: 'rolne_engine', l: 'Magacin rolni i materijala', i: '🏪' },
-                { k: 'analiza_potrosnje_materijala', l: 'Analiza potrošnje materijala', i: '📊' },
                 { k: 'kalkulator_maticnih', l: 'Kalkulator matičnih rolni', i: '📊' },
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
                 { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' },
