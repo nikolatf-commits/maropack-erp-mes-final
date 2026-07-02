@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+roimport React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
+import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -335,7 +336,7 @@ const defaultForm = {
         tolerancija: "±10%",
         grafika: "Novi posao",
         layers: [{ material: "OPP", debljina: "15", tezina: "27.3", cena: "2.9" }],
-        tipKese: "ravna",
+        tipKese: "flach",
         viewMode: "front",
         zoomLevel: "100",
         options: {},
@@ -375,7 +376,7 @@ function Section({ title, children, color = BLUE }) {
 }
 
 function Select({ label, value, onChange, options }) {
-    return <div><label style={labelStyle()}>{label}</label><select value={value || ""} onChange={(e) => onChange(e.target.value)} style={fieldStyle()}>{options.map(o => <option key={o} value={o}>{o}</option>)}</select></div>;
+    return <div><label style={labelStyle()}>{label}</label><select value={value || ""} onChange={(e) => onChange(e.target.value)} style={fieldStyle()}>{options.map(o => { const val = (o && typeof o === "object") ? o.value : o; const lab = (o && typeof o === "object") ? o.label : o; return <option key={val} value={val}>{lab}</option>; })}</select></div>;
 }
 
 function ToggleButton({ active, children, onClick }) {
@@ -2075,6 +2076,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <>
                 <Section title="Kesa — osnovni podaci" color={GREEN}>
                     <Grid cols={4}>
+                        <Input label="Šifra proizvoda" value={form.sifra} onChange={v => update("sifra", v)} />
+                        <Input label="Kupac" value={form.kupac} onChange={v => update("kupac", v)} />
+                        <Input label="Idealna širina materijala (mm)" value={form.idealnaSirinaMaterijala} onChange={v => update("idealnaSirinaMaterijala", v)} />
                         {["naziv", "kolicina", "skart", "datum", "marza"].map(k => (
                             <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
@@ -2083,7 +2087,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <Section title="Dimenzije i konstrukcija kese" color={BLUE}>
                     <Grid cols={4}>
-                        <Select label="Tip kese" value={form.kesa.tipKese || "ravna"} onChange={v => update("kesa.tipKese", v)} options={["ravna", "doypack", "side_gusset", "stabilo", "courier", "vakuum"]} />
+                        <Select label="Tip kese" value={form.kesa.tipKese || "flach"} onChange={v => update("kesa.tipKese", v)} options={Object.entries(TIPOVI).map(([k, v]) => ({ value: k, label: v.n }))} />
                         {["sirina", "duzina", "klapna", "falta", "takt", "ban", "tolerancija", "grafika"].map(k => (
                             <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
@@ -2095,6 +2099,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         title="MATERIJALI KESE"
                         layers={form.kesa.layers || []}
                         showCena
+                        idealnaSirina={form.idealnaSirinaMaterijala}
+                        porucenaKolicina={form.kesa.kolicina}
                         onAdd={() => addLayer("kesa")}
                         onRemove={(i) => removeLayer("kesa", i)}
                         onPatch={(i, patch) => {
@@ -2146,7 +2152,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </div>
                 </Section>
 
-                <BagDrawing kesa={form.kesa} />
+                <Section title="Tehnički crtež kese (maropack)" color={BLUE}>
+                    <CrtezKese config={kesaToConfig(form.kesa)} width="100%" />
+                </Section>
 
                 <Section title="Transport i pakovanje" color={GREEN}>
                     <Grid cols={3}>
