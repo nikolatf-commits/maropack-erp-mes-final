@@ -7,11 +7,9 @@ import jsPDF from "jspdf";
 import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
 import RadnikOperacija from "./RadnikOperacija.jsx";
-import MaterialMasterPRO from "./components/MaterialMasterPRO.jsx";
 import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
 import ListaProizvodaKupci from './ListaProizvodaKupci.jsx';
-import AnalizaPotrosnjeMaterijala from './AnalizaPotrosnjeMaterijala.jsx';
 import AnalizaMaterijalStavke from './AnalizaMaterijalStavke.jsx';
 import PonudePRO from "./PonudePRO.jsx";
 import KalkulacijaFolije from "./KalkulacijaFolije.jsx";
@@ -2100,7 +2098,6 @@ function MainAppContent() {
                 {/* Profesionalni nalozi se prikazuju samo kroz PregledNalogaPRO. */}
 
                 {/* BAZA / TEMPLATE MODULI */}
-                {page === "baza_materijala" && <MaterialMasterPRO msg={msg} />}
                 {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
                 {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                 {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
@@ -2110,7 +2107,6 @@ function MainAppContent() {
                 {page === "user_management" && isAdmin && <UserManagement />}
 
                 {/* MAGACIN UNIFIED - SVE U JEDNOM */}
-                {page === "analiza_potrosnje_materijala" && (<AnalizaPotrosnjeMaterijala msg={msg} />)}
                 {page === "analiza_materijal_stavke" && (<AnalizaMaterijalStavke msg={msg} />)}
 
                 {/* ✅ DRUGI PRO MODULI */}
