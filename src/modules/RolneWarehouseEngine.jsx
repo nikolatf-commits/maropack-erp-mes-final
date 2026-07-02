@@ -2995,7 +2995,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             {pagedRolls.map((r) => (
                                 <div key={r.qr || r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 12, background: "#fff" }}>
                                     <div style={{ fontWeight: 950 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</div>
-                                    <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm</div>
+                                    <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm{r.debljina ? ` · ${r.debljina}${String(r.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"}` : ""}</div>
                                     <div style={{ fontSize: 13, marginTop: 7 }}><b>Lokacija:</b> {locationLabel(r.lokacija)}</div>
                                     <div style={{ fontSize: 12.5, color: "#0369a1", fontWeight: 800, marginTop: 4 }}>📅 Proizvedeno: {formatDateLabel(r.datum_proizvodnje) || "—"}</div>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 13 }}><span>{fmt(r.duzina, 0)} m</span><span>{fmt(r.kg, 2)} kg</span></div>
@@ -3138,7 +3138,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             <div onClick={() => setRezForm(null)} style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
                 <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(440px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
                     <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 2 }}>Ručna rezervacija · {r.qr}</div>
-                    <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm · na rolni {fmt(total, 0)} m · <b style={{ color: "#15803d" }}>slobodno {fmt(free, 0)} m</b></div>
+                    <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>{r.vrsta} · {rollOznaka(r) || "—"} · {r.sirina} mm{r.debljina ? ` · ${r.debljina}${String(r.vrsta).toUpperCase() === "PAPIR" ? "g" : "µ"}` : ""} · na rolni {fmt(total, 0)} m · <b style={{ color: "#15803d" }}>slobodno {fmt(free, 0)} m</b></div>
                     <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Za koji nalog / proizvod</span><input style={input} value={rezForm.ref} onChange={(e) => setRezForm((p) => ({ ...p, ref: e.target.value }))} placeholder="broj naloga ili naziv" /></label>
                     <label style={{ display: "block", marginBottom: 10 }}><span style={lbl}>Metri za rezervaciju</span><input style={{ ...input, borderColor: previse ? "#dc2626" : "#0f766e", background: previse ? "#fef2f2" : "#f0fdfa", fontWeight: 900 }} type="number" value={rezForm.metri} onChange={(e) => setRezForm((p) => ({ ...p, metri: e.target.value }))} /></label>
                     <div style={{ display: "flex", gap: 7, marginBottom: 10 }}>
