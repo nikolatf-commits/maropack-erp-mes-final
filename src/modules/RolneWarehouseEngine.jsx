@@ -196,6 +196,7 @@ const DEFAULT_MATERIALS = [
     { id: "MAT-BOPP-MAT-20", vrsta: "BOPP", komercijalnaOznaka: "BOPP MAT 20µ", proizvodjac: "Generički", debljina: 20, koeficijent: 0.91, gsm: 18.2, jedinica: "µ", cenaKg: 3.25, napomena: "Mat BOPP" },
     { id: "MAT-CPP-35", vrsta: "CPP", komercijalnaOznaka: "CPP transparent 35µ", proizvodjac: "Generički", debljina: 35, koeficijent: 0.91, gsm: 31.85, jedinica: "µ", cenaKg: 2.2, napomena: "CPP za kaširanje" },
     { id: "MAT-PET-12", vrsta: "PET", komercijalnaOznaka: "PET 12µ", proizvodjac: "Generički", debljina: 12, koeficijent: 1.4, gsm: 16.8, jedinica: "µ", cenaKg: 3.5, napomena: "PET film" },
+    { id: "MAT-PET-50", vrsta: "PET", komercijalnaOznaka: "PET 50µ (CT / Sumilon)", proizvodjac: "Sumilon", debljina: 50, koeficijent: 1.4, gsm: 70, jedinica: "µ", cenaKg: 3.5, napomena: "CT PET FILM 50 MIC — Sumilon" },
     { id: "MAT-ALU-7", vrsta: "ALU", komercijalnaOznaka: "Aluminijum 7µ", proizvodjac: "Generički", debljina: 7, koeficijent: 2.71, gsm: 18.97, jedinica: "µ", cenaKg: 7.5, napomena: "Alu folija" },
     { id: "MAT-PE-50", vrsta: "LDPE", komercijalnaOznaka: "LDPE 50µ", proizvodjac: "Generički", debljina: 50, koeficijent: 0.925, gsm: 46.25, jedinica: "µ", cenaKg: 1.8, napomena: "PE film" },
     { id: "MAT-PAPIR-60", vrsta: "PAPIR", komercijalnaOznaka: "Papir 60 g/m²", proizvodjac: "Rossella", debljina: 0, koeficijent: 0, gsm: 60, jedinica: "g/m²", cenaKg: 1.4, napomena: "Papir, ručni unos gsm" },
@@ -691,6 +692,48 @@ function parseRossellaPacking(text = "") {
     return rows;
 }
 
+function parseSumilonPacking(text = "") {
+    // SAJ INDUSTRIES / SUMILON — "DETAIL PACKING LIST" (PET film role)
+    // Kolone: Pallet No | Roll No. | Mic | Core ID(inch) | Width(mm) | Length(mtr) | Joint | GR weight w/pallet | Tare | Net Wt | Tret
+    const rows = [];
+    const t = String(text || "");
+    const flat = t.replace(/\s+/g, " ");
+    const datum = (flat.match(/Dated[:\s]*([0-9.]{6,})/i) || [])[1] || "";
+    const delivery = (flat.match(/Delivery No\.?[:\s]*([0-9]+)/i) || [])[1] || "";
+    const invoice = (flat.match(/Invoice no[:\s]*([0-9]+)/i) || [])[1] || "";
+    const salesOrder = (flat.match(/Sales Order No\.?[:\s]*([0-9]+)/i) || [])[1] || "";
+    const product = (flat.match(/((?:CT\s+)?PET\s+FILM[^.]*?MIC)/i) || [])[1] || "PET FILM";
+    const vrsta = detectVrstaFromText(product, "PET");
+    const n = (s) => Number(String(s || "").replace(/,/g, "")) || 0;
+
+    // 001 B000222287 50.0 6 1,000 8,850  1,308.800 68.000 623.300 S-102
+    const re = /\b(\d{1,3})\s+([A-Z]\d{9})\s+(\d{2,3}(?:\.\d+)?)\s+(\d{1,2})\s+([\d,]+)\s+([\d,]+)\s+([\d,]+\.\d{2,3})\s+([\d,]+\.\d{2,3})\s+([\d,]+\.\d{2,3})(?:\s+(S-?\d+))?/g;
+    let m;
+    while ((m = re.exec(flat))) {
+        const rollNo = m[2];
+        rows.push({
+            br_rolne: rollNo,
+            qr: rollNo,
+            vrsta,
+            oznaka_materijala: "",
+            komercijalnaOznaka: product.replace(/\s+/g, " ").trim(),
+            proizvodjac: "Sumilon",
+            debljina: n(m[3]),
+            sirina: n(m[5]),
+            duzina: n(m[6]),
+            kg: n(m[9]),        // Net Wt. (po rolni)
+            kg_bruto: 0,        // GR je po paleti (deljen), ne po rolni
+            lot: rollNo,
+            palet: m[1],
+            hilzna_mm: Math.round(n(m[4]) * 25.4), // 6" -> 152 mm
+            datum,
+            datum_proizvodnje: datum || "",
+            napomena: ["Sumilon PL", delivery && ("Delivery " + delivery), invoice && ("Invoice " + invoice), salesOrder && ("SO " + salesOrder)].filter(Boolean).join(" · "),
+        });
+    }
+    return rows;
+}
+
 function parseUniversalPackingText(text = "") {
     const t = String(text || "");
     let rows = [];
@@ -703,6 +746,8 @@ function parseUniversalPackingText(text = "") {
         rows = parseInterGradexPacking(t);
     } else if (/Rossella|Shipping Packing List|CLAY COATED/i.test(t)) {
         rows = parseRossellaPacking(t);
+    } else if (/SAJ INDUSTRIES|SUMILON|DETAIL PACKING LIST/i.test(t)) {
+        rows = parseSumilonPacking(t);
     }
 
     if (!rows.length) {
@@ -711,6 +756,7 @@ function parseUniversalPackingText(text = "") {
             ...parseTaghleefPacking(t),
             ...parseInterGradexPacking(t),
             ...parseRossellaPacking(t),
+            ...parseSumilonPacking(t),
         ];
     }
 
@@ -3518,7 +3564,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
     return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
         <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 {inputMode === "pdf" ? "Packing lista PDF" : "Packing lista Excel"}</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "PDF se čita automatski za Plastchim, Taghleef, Inter Gradex i Rossella formate. Ako format nije prepoznat, nalepi tekst ispod." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "PDF se čita automatski za Plastchim, Taghleef, Inter Gradex, Rossella i Sumilon formate. Ako format nije prepoznat, nalepi tekst ispod." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
             <label><span style={lbl}>{inputMode === "pdf" ? "PDF fajl / tekst packing liste" : "Excel / CSV / TXT fajl"}</span><input style={input} type="file" accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={handlePackingFile} /></label>
             <div style={{ marginTop: 12 }}><span style={lbl}>Tekst iz PDF/packing liste</span><textarea style={{ ...input, minHeight: 190, fontFamily: "monospace" }} value={packingText} onChange={(e) => setPackingText(e.target.value)} /></div>
             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
