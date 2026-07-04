@@ -816,6 +816,43 @@ async function extractPdfTextFromFile(file) {
     }
     return text;
 }
+async function loadTesseractGlobal() {
+    if (typeof window !== "undefined" && window.Tesseract) return window.Tesseract;
+    await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js";
+        s.onload = resolve;
+        s.onerror = () => reject(new Error("Ne mogu da učitam OCR (Tesseract). Proveri internet konekciju."));
+        document.head.appendChild(s);
+    });
+    return window.Tesseract;
+}
+// OCR fallback: render stranice u sliku pa pročitaj tekst (za PDF sa oštećenim tekstualnim slojem/skenove)
+async function extractPdfTextViaOCR(file, onProgress) {
+    const pdfjsLib = await loadPdfJsGlobal();
+    const Tesseract = await loadTesseractGlobal();
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let text = "";
+    for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const viewport = page.getViewport({ scale: 2.5 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const res = await Tesseract.recognize(canvas, "eng", {
+            logger: (m) => {
+                if (m.status === "recognizing text" && typeof onProgress === "function") {
+                    onProgress(Math.round(((p - 1 + (m.progress || 0)) / pdf.numPages) * 100));
+                }
+            },
+        });
+        text += ((res && res.data && res.data.text) || "") + "\n\n";
+    }
+    return text;
+}
 function extractQrFromScan(value) {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -2429,11 +2466,24 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 setPackingRows(rows);
                 msg?.(`Učitano ${rows.length} redova iz tekstualne packing liste.`);
             } else if (name.endsWith(".pdf")) {
-                const text = await extractPdfTextFromFile(file);
+                let text = await extractPdfTextFromFile(file);
+                let rows = parseUniversalPackingText(text);
+                // Ako PDF nema čitljiv tekstualni sloj (kockice) ili ništa nije prepoznato -> automatski OCR
+                const citljivih = (String(text).match(/[A-Za-z0-9]/g) || []).length;
+                if (rows.length === 0 || citljivih < 30) {
+                    msg?.("PDF nema čitljiv tekst — pokrećem OCR (čitanje sa slike)…");
+                    const ocrText = await extractPdfTextViaOCR(file, (p) => msg?.(`OCR u toku: ${p}%`));
+                    const ocrRows = parseUniversalPackingText(ocrText);
+                    if (ocrRows.length) { text = ocrText; rows = ocrRows; }
+                    else { text = ocrText || text; } // bar prikaži OCR tekst za ručnu ispravku/lepljenje
+                }
                 setPackingText(text);
-                const rows = parseUniversalPackingText(text);
                 setPackingRows(rows);
-                msg?.(`PDF packing lista pročitana: ${rows.length} rolni prepoznato.`);
+                if (rows.length) {
+                    msg?.(`PDF pročitan: ${rows.length} rolni prepoznato.`);
+                } else {
+                    msg?.("PDF pročitan, ali nijedna rolna nije prepoznata. Proveri/ispravi tekst ispod pa klikni „Prepoznaj iz teksta\".", "err");
+                }
             } else {
                 msg?.("Podržano: Excel .xlsx/.xls, CSV/TXT. Za PDF nalepi tekst ili koristi OCR workflow.", "err");
             }
@@ -3564,7 +3614,7 @@ function ImportPackingTab({ card, input, btn, lbl, packingText, setPackingText, 
     return <div style={{ display: "grid", gridTemplateColumns: "430px 1fr", gap: 16 }}>
         <div style={card}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 6 }}>📥 {inputMode === "pdf" ? "Packing lista PDF" : "Packing lista Excel"}</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "PDF se čita automatski za Plastchim, Taghleef, Inter Gradex, Rossella i Sumilon formate. Ako format nije prepoznat, nalepi tekst ispod." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>{inputMode === "pdf" ? "PDF se čita automatski za Plastchim, Taghleef, Inter Gradex, Rossella i Sumilon formate (uz automatski OCR za skenirane/oštećene PDF-ove). Ako format nije prepoznat, nalepi tekst ispod." : "Podržano: Excel .xlsx/.xls, CSV i TXT packing liste."}</div>
             <label><span style={lbl}>{inputMode === "pdf" ? "PDF fajl / tekst packing liste" : "Excel / CSV / TXT fajl"}</span><input style={input} type="file" accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={handlePackingFile} /></label>
             <div style={{ marginTop: 12 }}><span style={lbl}>Tekst iz PDF/packing liste</span><textarea style={{ ...input, minHeight: 190, fontFamily: "monospace" }} value={packingText} onChange={(e) => setPackingText(e.target.value)} /></div>
             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
