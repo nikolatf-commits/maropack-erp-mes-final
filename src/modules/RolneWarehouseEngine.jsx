@@ -30,7 +30,7 @@ const MAGACIONERI = [
 const OPERATER_IMENA = {
     "admin@maropack.rs": "Admin",
     "magacin@maropack.rs": "Đorđe",
-    "magacin2@maropack.rs": "Bosko",
+    "magacin2@maropack.rs": "Mirza",
     "magacin3@maropack.rs": "Dejan",
 };
 // Pun pristup (vide sve: Predlog za nalog, Backup, Reset, brisanje). Samo magacin2/magacin3 su ograničeni.
@@ -2979,7 +2979,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const magNorm = String(operater?.ime || "").trim().toLowerCase()
             .replace(/đ/g, "dj").replace(/č|ć/g, "c").replace(/š/g, "s").replace(/ž/g, "z")
             .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const magAllowed = ["djordje", "dorde", "bosko", "dejan"].some((n) => magNorm.includes(n));
+        const magAllowed = ["djordje", "dorde", "mirza", "dejan"].some((n) => magNorm.includes(n));
         if (activeTab === "materijal_naloge") {
             if (!magAllowed) { setActiveTab("rolne"); return null; }
             return <MaterijalZaNaloge operater={operater} msg={msg} onBack={() => setActiveTab("rolne")} />;
