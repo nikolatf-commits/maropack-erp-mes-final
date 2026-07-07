@@ -74,6 +74,7 @@ export function kesaToConfig(kesa = {}) {
         duzina: num(kesa.duzina) || 175,
         klMm: klapnaMm || 30,
         extraMm: dno === "faltna" ? (faltaMm || 30) : 30,
+        stampaText: kesa.stampaText || "",
     };
 }
 
@@ -83,6 +84,7 @@ const DEFAULTS = {
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
     poprecniVar: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     positions: {},
+    stampaText: "",
     perf: "none", komore: 1, sirina: 95, duzina: 175, klMm: 30, extraMm: 30,
 };
 
@@ -134,7 +136,30 @@ function buildSvg(c, u, opt) {
             const sy = yOpen + (has(ps, "odVrha") ? mm(ps.odVrha) : 16);
             const sx = has(ps, "levo") ? x0 + mm(ps.levo) : cx - sw / 2;
             s += `<rect x="${sx}" y="${sy}" width="${sw}" height="${sh}" rx="2" fill="#0d9488" fill-opacity="0.06" stroke="#0d9488" stroke-width="0.9" stroke-opacity="0.55" stroke-dasharray="3 3"/>`;
-            s += `<text x="${sx + sw / 2}" y="${sy + sh / 2 + 3}" font-size="9" fill="#0d9488" text-anchor="middle" opacity="0.7">štampa</text>`;
+            if (c.stampaText) {
+                const escX = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const fs = Math.max(6, Math.min(11, sh / 6));
+                const maxCh = Math.max(3, Math.floor((sw - 6) / (fs * 0.55)));
+                const lines = [];
+                String(c.stampaText).split(/\r?\n/).forEach((raw) => {
+                    const words = raw.split(/\s+/).filter(Boolean);
+                    if (!words.length) { lines.push(""); return; }
+                    let cur = "";
+                    words.forEach((w) => {
+                        const t = (cur ? cur + " " : "") + w;
+                        if (t.length <= maxCh) cur = t; else { if (cur) lines.push(cur); cur = w; }
+                    });
+                    if (cur) lines.push(cur);
+                });
+                const lh = fs + 2;
+                let ty = sy + (sh - lines.length * lh) / 2 + fs;
+                const cid = "st" + u;
+                s += `<clipPath id="${cid}"><rect x="${sx}" y="${sy}" width="${sw}" height="${sh}"/></clipPath><g clip-path="url(#${cid})">`;
+                lines.forEach((ln) => { if (ln) s += `<text x="${sx + sw / 2}" y="${ty}" font-size="${fs.toFixed(1)}" fill="#0f766e" text-anchor="middle" font-weight="600">${escX(ln)}</text>`; ty += lh; });
+                s += `</g>`;
+            } else {
+                s += `<text x="${sx + sw / 2}" y="${sy + sh / 2 + 3}" font-size="9" fill="#0d9488" text-anchor="middle" opacity="0.7">štampa</text>`;
+            }
             if (has(ps, "odVrha")) s += kotaV(sx - 10, yOpen, sy, sx, `${ps.odVrha} mm`);
             if (has(ps, "levo")) s += kotaH(sy + sh + 12, x0, sx, sy + sh, `${ps.levo} mm`);
             if (has(ps, "sirina")) s += kotaH(sy - 10, sx, sx + sw, sy, `${ps.sirina} mm`);
@@ -320,6 +345,19 @@ function buildSvg(c, u, opt) {
     return { inner: defs + s, vbW };
 }
 
+// SVG kao string (za HTML-string renderere, npr. NalogLayoutPRO)
+export function kesaSvgString(config = {}, opts = {}) {
+    const c = { ...DEFAULTS, ...config };
+    const u = "k" + Math.random().toString(36).slice(2, 8);
+    const { inner, vbW } = buildSvg(c, u, {
+        kote: opts.kote !== false,
+        bottomViews: opts.bottomViews !== false,
+        info: !!opts.info,
+    });
+    return `<svg viewBox="0 0 ${vbW} 660" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:720px">${inner}</svg>`;
+}
+
+// Vrati crtež kao SVG string (za HTML-string kontekste, npr. NalogLayoutPRO).
 export default function CrtezKese({ config = {}, width = "100%", showKote = true, showBottomViews = true, showInfo = true, style }) {
     const u = useMemo(() => "k" + Math.random().toString(36).slice(2, 8), []);
     const c = { ...DEFAULTS, ...config };

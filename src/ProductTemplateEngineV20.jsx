@@ -5,6 +5,7 @@ import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
+import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa } from "./kesaOpcije.js";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -2110,50 +2111,69 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 </Section>
 
                 <Section title="Tehničke opcije kese — operacije se odmah vide na crtežu" color={ORANGE}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                        {kesaOptions.map(opt => (
-                            <label
-                                key={opt.key}
-                                style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    padding: "9px 10px",
-                                    border: "1px solid #dbe3ef",
-                                    borderRadius: 8,
-                                    background: form.kesa.options[opt.key] ? "#ecfdf5" : "#fff",
-                                    fontWeight: 800,
-                                    color: "#334155"
-                                }}
-                            >
-                                <span>
-                                    <input type="checkbox" checked={!!form.kesa.options[opt.key]} onChange={() => toggleKesaOption(opt.key)} /> {opt.label}
-                                </span>
-                                <span style={{ color: GREEN, fontSize: 11 }}>{opt.price}</span>
-                            </label>
-                        ))}
-                    </div>
-
-                    <div style={{ marginTop: 12 }}>
-                        <Grid cols={3}>
-                            {Object.keys(form.kesa.options || {}).filter(k => form.kesa.options[k]).slice(0, 6).map(k => (
-                                <Input
-                                    key={k}
-                                    label={`${k} pozicija/napomena`}
-                                    value={(form.kesa.positions[k] || {}).napomena || ""}
-                                    onChange={v => setForm(prev => {
-                                        const n = clone(prev);
-                                        n.kesa.positions[k] = { ...(n.kesa.positions[k] || {}), napomena: v };
-                                        return n;
-                                    })}
-                                />
-                            ))}
-                        </Grid>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                        {KESA_OPCIJE.map(op => {
+                            const on = !!(form.kesa.options || {})[op.k];
+                            const sel = (form.kesa.optSel || {})[op.k] || "";
+                            const pos = (form.kesa.positions || {})[op.k] || {};
+                            const txt = (form.kesa.optText || {})[op.k] || {};
+                            const setOpt = (patch) => setForm(prev => {
+                                const n = clone(prev);
+                                n.kesa.options = n.kesa.options || {};
+                                n.kesa.optSel = n.kesa.optSel || {};
+                                n.kesa.positions = n.kesa.positions || {};
+                                n.kesa.optText = n.kesa.optText || {};
+                                if (patch.on !== undefined) n.kesa.options[op.k] = patch.on;
+                                if (patch.sel !== undefined) n.kesa.optSel[op.k] = patch.sel;
+                                if (patch.pos) n.kesa.positions[op.k] = { ...(n.kesa.positions[op.k] || {}), ...patch.pos };
+                                if (patch.txt) n.kesa.optText[op.k] = { ...(n.kesa.optText[op.k] || {}), ...patch.txt };
+                                return n;
+                            });
+                            return (
+                                <div key={op.k} style={{ border: "1px solid #dbe3ef", borderRadius: 8, padding: "8px 10px", background: on ? "#ecfdf5" : "#fff" }}>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, color: "#334155", cursor: "pointer", fontSize: 13 }}>
+                                        <input type="checkbox" checked={on} onChange={e => setOpt({ on: e.target.checked, sel: (op.tip === "danet" && e.target.checked) ? "DA" : sel })} /> {op.l}
+                                    </label>
+                                    {on && (
+                                        <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                                            {op.tip === "lista" && (
+                                                <select value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()}>
+                                                    <option value="">— izaberi —</option>
+                                                    {op.vals.map(v => <option key={v} value={v}>{v}</option>)}
+                                                </select>
+                                            )}
+                                            {op.tip === "broj" && (
+                                                <input type="number" placeholder={op.l + " (" + (op.jed || "") + ")"} value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()} />
+                                            )}
+                                            {(op.pos || []).length > 0 && (
+                                                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(op.pos.length, 4)}, 1fr)`, gap: 6 }}>
+                                                    {op.pos.map(pf => (
+                                                        <div key={pf}>
+                                                            <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{POS_LBL[pf]}</label>
+                                                            <input value={pos[pf] || ""} onChange={e => setOpt({ pos: { [pf]: e.target.value } })} style={fieldStyle()} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {(op.tekstPolja || []).map(tp => (
+                                                <div key={tp.k}>
+                                                    <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{tp.l}</label>
+                                                    <input value={txt[tp.k] || ""} onChange={e => setOpt({ txt: { [tp.k]: e.target.value } })} style={fieldStyle()} />
+                                                </div>
+                                            ))}
+                                            {op.food && (
+                                                <div style={{ fontSize: 11, color: "#065f46", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "6px 8px", lineHeight: 1.4 }}>{FOOD_TEXT}</div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </Section>
 
                 <Section title="Tehnički crtež kese (maropack)" color={BLUE}>
-                    <CrtezKese config={kesaToConfig(form.kesa)} width="100%" />
+                    <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
                 </Section>
 
                 <Section title="Transport i pakovanje" color={GREEN}>
