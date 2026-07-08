@@ -1713,11 +1713,20 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const compositeVrste = useMemo(() => kasiranoLayers.map((l) => l.vrsta).filter(Boolean).join(" // "), [kasiranoLayers]);
     const kasiranoKg = useMemo(() => kgFromMeters({ sirinaMm: form.sirina, duzinaM: form.duzina, gsm: compositeGsm }), [form.sirina, form.duzina, compositeGsm]);
     const kasiranoM = useMemo(() => metersFromKg({ sirinaMm: form.sirina, kg: form.kg, gsm: compositeGsm }), [form.sirina, form.kg, compositeGsm]);
+    const kasiranoMPrecnik = useMemo(() => estimateMetersFromDiameter({ debljina: compositeDebljina }, precnikForm.spoljniPrecnik, precnikForm.hilzna), [compositeDebljina, precnikForm.spoljniPrecnik, precnikForm.hilzna]);
+    const kasiranoKgPrecnik = useMemo(() => kgFromMeters({ sirinaMm: form.sirina, duzinaM: kasiranoMPrecnik, gsm: compositeGsm }), [form.sirina, kasiranoMPrecnik, compositeGsm]);
     function syncKasirano(next) {
         const merged = { ...form, ...next };
         if (calcMode === "m_to_kg") merged.kg = kgFromMeters({ sirinaMm: merged.sirina, duzinaM: merged.duzina, gsm: compositeGsm });
-        else merged.duzina = metersFromKg({ sirinaMm: merged.sirina, kg: merged.kg, gsm: compositeGsm });
+        else if (calcMode === "kg_to_m") merged.duzina = metersFromKg({ sirinaMm: merged.sirina, kg: merged.kg, gsm: compositeGsm });
+        else if (calcMode === "precnik") { merged.duzina = kasiranoMPrecnik; merged.kg = kgFromMeters({ sirinaMm: merged.sirina, duzinaM: kasiranoMPrecnik, gsm: compositeGsm }); }
         setForm(merged);
+    }
+    function syncKasiranoPrecnik(next) {
+        const pf = { ...precnikForm, ...next };
+        setPrecnikForm(pf);
+        const m = estimateMetersFromDiameter({ debljina: compositeDebljina }, pf.spoljniPrecnik, pf.hilzna);
+        setForm((f) => ({ ...f, duzina: m, kg: kgFromMeters({ sirinaMm: f.sirina, duzinaM: m, gsm: compositeGsm }) }));
     }
 
     async function lotVecPostoji(lot) {
@@ -1755,8 +1764,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (kasiranoLayers.length < 2) { msg?.("Kaširana rolna mora imati bar 2 sloja", "err"); return; }
         if (kasiranoLayers.some((l) => !String(l.vrsta || "").trim() || !number(l.debljina))) { msg?.("Svaki sloj mora imati vrstu i debljinu/gramaturu", "err"); return; }
         if (!number(form.sirina)) { msg?.("Unesi širinu rolne", "err"); return; }
-        const finalKg = calcMode === "m_to_kg" ? kasiranoKg : number(form.kg);
-        const finalM = calcMode === "kg_to_m" ? kasiranoM : number(form.duzina);
+        const finalKg = calcMode === "precnik" ? kasiranoKgPrecnik : (calcMode === "m_to_kg" ? kasiranoKg : number(form.kg));
+        const finalM = calcMode === "precnik" ? kasiranoMPrecnik : (calcMode === "kg_to_m" ? kasiranoM : number(form.duzina));
         if (!finalKg || !finalM) { msg?.("Unesi metre ili kg da sistem izračuna drugo polje", "err"); return; }
         if (await lotVecPostoji(form.lot)) { msg?.(`LOT „${form.lot}" već postoji u magacinu — LOT ne može da se duplira.`, "err"); return; }
         const lokK = String(form.lokacija || "").trim();
@@ -3487,9 +3496,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     </div>
                                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 10 }}>
                                         <label><span style={lbl}>Širina rolne mm</span><input style={input} type="number" value={form.sirina} onChange={(e) => syncKasirano({ sirina: e.target.value })} /></label>
-                                        <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option></select></label>
-                                        <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} onChange={(e) => syncKasirano({ duzina: e.target.value })} /></label>
-                                        <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} onChange={(e) => syncKasirano({ kg: e.target.value })} /></label>
+                                        <label><span style={lbl}>Smer obračuna</span><select style={input} value={calcMode} onChange={(e) => setCalcMode(e.target.value)}><option value="m_to_kg">Unos m → računaj kg</option><option value="kg_to_m">Unos kg → računaj m</option><option value="precnik">📐 Po prečniku (nemam m/kg)</option></select></label>
+                                        {calcMode === "precnik" && (<>
+                                            <label><span style={lbl}>Spoljni prečnik mm</span><input style={input} type="number" value={precnikForm.spoljniPrecnik} onChange={(e) => syncKasiranoPrecnik({ spoljniPrecnik: e.target.value })} placeholder="npr. 320" /></label>
+                                            <label><span style={lbl}>Hilzna (tulac)</span><select style={input} value={precnikForm.hilzna} onChange={(e) => syncKasiranoPrecnik({ hilzna: e.target.value })}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                                        </>)}
+                                        <label><span style={lbl}>Metara</span><input style={input} type="number" value={form.duzina} readOnly={calcMode === "precnik"} onChange={(e) => syncKasirano({ duzina: e.target.value })} /></label>
+                                        <label><span style={lbl}>Kilograma</span><input style={input} type="number" value={form.kg} readOnly={calcMode === "precnik"} onChange={(e) => syncKasirano({ kg: e.target.value })} /></label>
                                         <label><span style={lbl}>Lot / šarža</span><input style={input} value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} /></label>
                                         <label><span style={lbl}>Lokacija</span><input style={input} value={form.lokacija} onChange={(e) => setForm({ ...form, lokacija: e.target.value })} /></label>
                                         <label><span style={lbl}>Datum proizvodnje</span><input style={input} type="text" inputMode="numeric" placeholder="DD.MM.GGGG ili GGGG-MM-DD" value={form.datum_proizvodnje} onChange={(e) => setForm({ ...form, datum_proizvodnje: e.target.value })} /></label>
