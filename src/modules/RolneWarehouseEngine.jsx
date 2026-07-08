@@ -593,7 +593,10 @@ function parseInterGradexPacking(text = "") {
     let current = null;
 
     for (const rawLine of t.split(/\r?\n/)) {
-        const line = rawLine.trim().replace(/\s+/g, " ");
+        let line = rawLine.trim().replace(/\s+/g, " ");
+        if (!line) continue;
+        // Skini vodeće znakove stabla/uvlačenja iz PDF-a (└─, ├─, ⊟, •, itd.) da ^ regex uhvati red
+        line = line.replace(/^[^0-9A-Za-zА-Яа-я]+/, "").trim();
         if (!line) continue;
 
         // Header:
@@ -622,7 +625,7 @@ function parseInterGradexPacking(text = "") {
         const r = line.match(/^(0*\d{6,})\s+([\d.,]+)\s*Kg\s+(\S+)\s+(.+)$/i);
         if (r && current) {
             const rollNo = r[1];
-            const kg = parseNumSmart(r[2]);
+            const kg = Number(String(r[2]).replace(/,/g, "")) || 0; // US-format: 298.100 = 298.1 ; 7,359.220 = 7359.22
             const lot = r[3];
             const tech = r[4].trim();
             const duzina = current.sirina && current.debljina
@@ -639,7 +642,7 @@ function parseInterGradexPacking(text = "") {
                 duzina,
                 lot,
                 palet: current.sifra,
-                datum,
+                datum: date,
                 napomena: tech,
             });
         }
@@ -684,7 +687,7 @@ function parseRossellaPacking(text = "") {
                     kg_bruto: gross,
                     lot: sch,
                     palet: pallet,
-                    datum,
+                    datum: date,
                 });
             }
         }
@@ -967,6 +970,11 @@ function RollLabel({ roll, className = "roll-label-print" }) {
             <div style={{ marginTop: 7, borderTop: "2px solid #111", paddingTop: 6, fontSize: 13, fontWeight: 900 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}><span style={boxStyle}></span><span>Prvi ulaz</span></div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={boxStyle}></span><span>Povrat u magacin</span></div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, marginTop: 7 }}>
+                    <span style={{ fontSize: 13, fontWeight: 900 }}>PREČNIK:</span>
+                    <span style={{ flex: 1, borderBottom: "2px solid #111", height: "8mm" }}></span>
+                    <span style={{ fontSize: 8, fontWeight: 700 }}>mm — upisati pri povratu</span>
+                </div>
             </div>
         </div>
     );
@@ -2979,7 +2987,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const magNorm = String(operater?.ime || "").trim().toLowerCase()
             .replace(/đ/g, "dj").replace(/č|ć/g, "c").replace(/š/g, "s").replace(/ž/g, "z")
             .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const magAllowed = ["djordje", "dorde", "mirza", "dejan"].some((n) => magNorm.includes(n));
+        const magAllowed = ["djordje", "dorde", "bosko", "dejan"].some((n) => magNorm.includes(n));
         if (activeTab === "materijal_naloge") {
             if (!magAllowed) { setActiveTab("rolne"); return null; }
             return <MaterijalZaNaloge operater={operater} msg={msg} onBack={() => setActiveTab("rolne")} />;
