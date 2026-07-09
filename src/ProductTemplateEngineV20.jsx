@@ -5,7 +5,7 @@ import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
-import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
+import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE } from "./kesaOpcije.js";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -2077,24 +2077,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <>
                 <Section title="Kesa — osnovni podaci" color={GREEN}>
                     <Grid cols={4}>
-                        <Input label="Šifra proizvoda" value={form.sifra} onChange={v => update("sifra", v)} />
-                        <Input label="Kupac" value={form.kupac} onChange={v => update("kupac", v)} />
-                        <Input label="Idealna širina materijala (mm)" value={form.idealnaSirinaMaterijala} onChange={v => update("idealnaSirinaMaterijala", v)} />
-                        {["naziv", "kolicina", "skart", "datum", "marza"].map(k => (
-                            <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
+                        {[["kolicina", "Količina"], ["skart", "Škart (%)"], ["datum", "Datum"], ["marza", "Marža (%)"]].map(([k, l]) => (
+                            <Input key={k} label={l} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
                     </Grid>
                 </Section>
 
                 <Section title="Dimenzije i konstrukcija kese" color={BLUE}>
                     <Grid cols={4}>
-                        <Select label="Tip kese" value={form.kesa.tipKese || "flach"} onChange={v => setForm(prev => {
-                            const n = clone(prev);
-                            n.kesa.tipKese = v;
-                            n.kesa.options = { ...(n.kesa.options || {}) };
-                            (KESA_TIP_PRESET[v] || []).forEach(k => { n.kesa.options[k] = true; });
-                            return n;
-                        })} options={Object.entries(TIPOVI).map(([k, v]) => ({ value: k, label: v.n }))} />
+                        <Select label="Tip kese" value={form.kesa.tipKese || "flach"} onChange={v => update("kesa.tipKese", v)} options={Object.entries(TIPOVI).map(([k, v]) => ({ value: k, label: v.n }))} />
                         {["sirina", "duzina", "klapna", "falta", "takt", "ban", "tolerancija", "grafika"].map(k => (
                             <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
