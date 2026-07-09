@@ -57,7 +57,7 @@ export const KESA_OPCIJE = [
     {
         k: "eurozumba", l: "Eurozumba", tip: "lista",
         vals: ["MALA(30x10x5)", "SREDNJA(32x10x5)", "VELIKA(35x12x5)", "SPECIJALNA"],
-        pos: ["odstojanje"], crtez: "eurozumba"
+        pos: ["odVrha", "levo"], crtez: "eurozumba"
     },
 
     { k: "utor", l: "UTOR", tip: "lista", vals: ["205"], crtez: "utor" },
@@ -108,6 +108,21 @@ export const KESA_OPCIJE = [
         vals: ["Mora tačna količina", "Bez + tolerancije", "Bez – tolerancije", "+/- 10%"]
     },
 ];
+
+// Podrazumevane opcije po tipu kese (kad se izabere tip, ove se same čekiraju)
+export const KESA_TIP_PRESET = {
+    klappen: ["adh_traka"],
+    bodenfalten: ["adh_traka", "falta_dno"],
+    bodennaht: ["eurozumba", "var_dno"],
+    header: ["eurozumba", "adh_traka"],
+    brief: ["adh_traka"],
+    easy: ["adh_traka"],
+    flaschen: ["adh_traka"],
+    heiss: ["perf_igle"],
+    kreuz: ["adh_traka"],
+    zweikammer: ["adh_traka"],
+    zweifarbig: ["stampa"],
+};
 
 // Labela pozicionih polja
 export const POS_LBL = {
