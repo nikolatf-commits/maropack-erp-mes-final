@@ -1353,26 +1353,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         setForm(prev => {
             const next = clone(prev);
             const r = next.folija.rezanje;
-            // idealna sirina -> sirina materijala i slojeva
-            if (ideal && !r.sirinaMaterijala) r.sirinaMaterijala = ideal;
-            if (ideal) next.folija.layers = (next.folija.layers || []).map(l => {
-                const hasMat = !!(l.vrsta || l.oznaka || l.debljina || l.material);
-                return { ...l, sirina: l.sirina || (hasMat ? String(ideal) : "") };
-            });
-            // dimenzija sirina -> sirina trake
-            if (dimSirina && !r.sirinaTrake) r.sirinaTrake = dimSirina;
-            // porucena kolicina -> duzina rolne
-            if (poruceno && !r.duzinaRolne) r.duzinaRolne = String(poruceno);
-            // auto broj traka = širina materijala / širina trake (u realnom vremenu)
-            const sirMat = nnum(r.sirinaMaterijala) || ideal;
-            const trakaW = nnum(r.sirinaTrake);
+            // NE upisujemo idealnu/dimenziju/poručenu u polja rezanja — prikaz i obračun ih uzimaju
+            // kao fallback (uživo), pa se sve menja ODMAH kad promeniš idealnu, bez zaglavljene "1".
+            // Slojevi: širina se NE upisuje; prikaz pokazuje idealnu samo za redove sa materijalom (uživo).
+            // auto broj traka = efektivna širina materijala / širina trake
+            const sirMat = nnum(r.sirinaMaterijala) || nnum(ideal);
+            const trakaW = nnum(r.sirinaTrake) || nnum(dimSirina);
             if (sirMat && trakaW) {
                 const autoBroj = Math.max(1, Math.floor(sirMat / trakaW));
                 if (String(r.brojTraka || "") !== String(autoBroj)) r.brojTraka = String(autoBroj);
             }
             // auto sirineTraka lista
             const broj = Math.max(0, Math.floor(nnum(r.brojTraka)));
-            const traka = nnum(r.sirinaTrake);
+            const traka = trakaW;
             if (broj && traka && (!r.sirineTraka || String(r.sirineTraka).split(",").filter(Boolean).length !== broj)) {
                 r.sirineTraka = Array.from({ length: broj }, () => String(traka)).join(",");
             }
