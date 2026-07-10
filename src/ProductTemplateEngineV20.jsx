@@ -186,8 +186,14 @@ function alocirajRolne(rolne, layer, opts = {}) {
     // Isti skup kao padajuća lista (samoDostupne: false) — da Auto kombinuje sve što vidiš u listi.
     const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: false, potrebnoM });
     const redosled = [...matched].sort((a, b) => {
+        if (ideal) {                                   // 0) ŠIRINA prva — bliža idealnoj (traka 25mm) pre širih
+            const BAND = 25;
+            const ba = Math.floor(Math.max(0, (Number(a.sirina) || 0) - ideal) / BAND);
+            const bb = Math.floor(Math.max(0, (Number(b.sirina) || 0) - ideal) / BAND);
+            if (ba !== bb) return ba - bb;
+        }
         const ma = rolnaMetraza(a), mb = rolnaMetraza(b);
-        if (ma !== mb) return ma - mb;                 // 1) najmanja metraža (reslovi) prvo
+        if (ma !== mb) return ma - mb;                 // 1) najmanja metraža (reslovi) prvo — unutar iste širine
         const da = rolnaDatum(a), db = rolnaDatum(b);
         if (da !== db) return da - db;                 // 2) FIFO
         if (ideal) {                                   // 3) najbliža (ne uža) širina
@@ -2331,21 +2337,25 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 });
             }
             function autoPopuni(i) {
-                // Cilj: potroši male reslove (najmanje prvo) i za poslednju rupu uzmi rolnu najbolje uklopljenu (najmanji ostatak).
+                // Cilj: prvo NAJBLIŽA idealnoj širina, unutar nje potroši male reslove, pa tek onda šire trake.
                 const cur = izabraneZa(i);
                 const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
                 const mOf = (r) => slobodnoM(r);
-                // pool = slobodne „Na stanju" kandidatske rolne, sortirane rastuće po metraži (pa FIFO)
+                const bandOf = (r) => Math.floor(Math.max(0, (Number(r.sirina) || 0) - sir) / 25);
+                // pool sortiran: širinska traka → metraža (reslovi) → FIFO
                 let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
-                    .slice().sort((a, b) => (mOf(a) - mOf(b)) || (rolnaDatum(a) - rolnaDatum(b)));
+                    .slice().sort((a, b) => (bandOf(a) - bandOf(b)) || (mOf(a) - mOf(b)) || (rolnaDatum(a) - rolnaDatum(b)));
                 const izabrane = [...cur];
                 let zbir = izabrane.reduce((s, r) => s + mOf(r), 0);
                 if (!kolPlus) { if (!izabrane.length && pool.length) izabrane.push(pool[0]); setNalogIzbor(p => ({ ...p, [i]: izabrane })); return; }
                 while (zbir < kolPlus && pool.length) {
                     const ostatak = kolPlus - zbir;
-                    const pokrivaju = pool.filter(r => mOf(r) >= ostatak);
-                    // ako neka rolna sama pokriva ostatak → uzmi NAJMANJU takvu (najmanji višak); inače uzmi najmanju (troši reslo)
-                    const pick = pokrivaju.length ? pokrivaju.reduce((p, c) => mOf(c) < mOf(p) ? c : p) : pool[0];
+                    // radi samo u NAJUŽOJ (najbližoj idealnoj) traci dok se ne iscrpi, pa prelazi na širu
+                    const firstBand = bandOf(pool[0]);
+                    const inBand = pool.filter(r => bandOf(r) === firstBand);
+                    const pokrivaju = inBand.filter(r => mOf(r) >= ostatak);
+                    // ako neka u toj traci sama pokriva ostatak → najmanja takva (najmanji višak); inače najmanja u traci (troši reslo)
+                    const pick = pokrivaju.length ? pokrivaju.reduce((p, c) => mOf(c) < mOf(p) ? c : p) : inBand[0];
                     izabrane.push(pick);
                     zbir += mOf(pick);
                     pool = pool.filter(r => String(r.id || r.br_rolne) !== String(pick.id || pick.br_rolne));
@@ -2443,7 +2453,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                         return (
                                                                             <div key={r.id || r.br_rolne || k} style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
                                                                                 <div style={{ flex: 1, fontSize: 12, fontWeight: 800, color: "#0f172a", minWidth: 0 }}>
-                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
+                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {(r.deb || r.debljina) ? (r.deb || r.debljina) + "µ · " : ""}{r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
                                                                                 </div>
                                                                                 <div style={{ fontSize: 12, fontWeight: 900, color: "#2446b8", whiteSpace: "nowrap" }}>{fmt(Math.round(aloc))} / {fmt(m)} m</div>
                                                                                 <button onClick={() => ukloniRolnu(i, r)} style={{ width: 28, height: 28, border: "1px solid #fecaca", color: "#dc2626", background: "#fff", borderRadius: 7, fontWeight: 900, cursor: "pointer", flexShrink: 0 }}>×</button>
@@ -2482,7 +2492,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                             const pv = rolnaPodVrsta(r), oz = rolnaOznaka(r);
                                                                             const dp = r.datum_proizvodnje || r.datum || "";
                                                                             const mtekst = delim ? (slob.toLocaleString("sr-RS") + "m slob. od " + ukupno.toLocaleString("sr-RS")) : (slob.toLocaleString("sr-RS") + "m");
-                                                                            const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), r.sirina + "mm", mtekst, num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
+                                                                            const opis = [r.br_rolne, [r.vrsta, pv, oz].filter(Boolean).join(" "), (r.deb || r.debljina) ? (r.deb || r.debljina) + "µ" : "", r.sirina + "mm", mtekst, num(r.kg_neto || r.kg).toFixed(0) + "kg", dp ? ("📅" + dp) : "", r.dobavljac || "—", "LOT:" + (r.lot || "—")].filter(Boolean).join(" · ");
                                                                             return <option key={r.id || r.br_rolne} value={String(r.id || r.br_rolne)}>{opis}{delim ? "  · delimično rez." : (ostatak ? "  · reslo" : "")}</option>;
                                                                         })}
                                                                     </select>
