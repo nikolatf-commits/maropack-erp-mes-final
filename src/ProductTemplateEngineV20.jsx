@@ -297,9 +297,9 @@ const defaultForm = {
         status: "u_pripremi",
         dimenzija: "85 × 110 mm",
         layers: [
-            { material: "BOPP 20µ", debljina: "20", sirina: "840", kg: "", metara: "" },
-            { material: "ALU 7µ", debljina: "7", sirina: "840", kg: "", metara: "" },
-            { material: "CPP 35µ", debljina: "35", sirina: "840", kg: "", metara: "" }
+            { material: "", debljina: "", sirina: "", kg: "", metara: "" },
+            { material: "", debljina: "", sirina: "", kg: "", metara: "" },
+            { material: "", debljina: "", sirina: "", kg: "", metara: "" }
         ],
         stampa: {
             masina: "UTECO ONYX",
@@ -321,14 +321,14 @@ const defaultForm = {
             napomena: ""
         },
         rezanje: {
-            sirinaMaterijala: "840",
-            sirinaTrake: "85",
-            brojTraka: "8",
-            precnikRolne: "400",
-            duzinaRolne: "15000",
+            sirinaMaterijala: "",
+            sirinaTrake: "",
+            brojTraka: "",
+            precnikRolne: "",
+            duzinaRolne: "",
             dorada: "",
             smerGP: "",
-            sirineTraka: "85,85,85,85,85,85,85,85"
+            sirineTraka: ""
         },
         kpdf: {
             enabled: false,
