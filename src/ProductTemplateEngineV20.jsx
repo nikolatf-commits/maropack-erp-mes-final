@@ -2313,7 +2313,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             function val(v) { return (v === undefined || v === null || v === "") ? "—" : v; }
 
             function kandidatiZaSloj(layer) {
-                return rangirajRolne(nalogRolne, layer, { ideal: Number(form.idealnaSirinaMaterijala) || 0, samoDostupne: true, potrebnoM: kolPlus });
+                const base = { ideal: Number(form.idealnaSirinaMaterijala) || 0, samoDostupne: true, potrebnoM: kolPlus };
+                const strogo = rangirajRolne(nalogRolne, layer, base);
+                if (strogo.length || !base.ideal) return strogo;
+                // Nema rolne tačne debljine u idealnoj širini → prikaži rolne bliske po debljini (±3µ),
+                // ali NIKAD uže od idealne — samo širina ≥ idealna. Poređano: manja debljina → FIFO → šira.
+                const siri = rangirajRolne(nalogRolne, layer, { ...base, ignoreWidth: true })
+                    .filter(r => (Number(r.sirina) || 0) >= (base.ideal - (base.sirinaTolerancija || 1)));
+                return siri.slice().sort((a, b) => {
+                    const dba = Number(a.deb) || 0, dbb = Number(b.deb) || 0;
+                    if (dba !== dbb) return dba - dbb;                         // manja debljina prvo
+                    const da = rolnaDatum(a), db = rolnaDatum(b);
+                    if (da !== db) return da - db;                             // FIFO
+                    return (Number(a.sirina) || 0) - (Number(b.sirina) || 0);  // bliža idealnoj (uža od širih) prvo
+                });
             }
 
             // --- rad sa kombinacijom rolni po sloju ---
