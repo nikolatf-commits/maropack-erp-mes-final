@@ -363,6 +363,18 @@ const defaultForm = {
 };
 
 function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+// Metraža materijala za nalog: kesa = kom × (dužina+klapna+falta) × (1+škart%); folija/špulna = poručena (m) × 1.05
+function orderMetraze(f) {
+    const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    if (f.type === "kesa") {
+        const k = f.kesa || {};
+        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;
+        const kom = n(k.kolicina), skart = n(k.skart);
+        return { kol: Math.round(kom * duzM), kolPlus: Math.ceil(kom * duzM * (1 + skart / 100)), kom, duzM };
+    }
+    const kol = n(f.porucenaKolicina);
+    return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
+}
 function fieldStyle() { return { width: "100%", padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" }; }
 function labelStyle() { return { display: "block", fontSize: 10, color: "#475569", fontWeight: 800, textTransform: "uppercase", marginBottom: 5, letterSpacing: 0.4 }; }
 function cardStyle() { return { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, boxShadow: "0 1px 2px rgba(15,23,42,.04)" }; }
@@ -1394,7 +1406,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
         if (!layers.length) { msg && msg("Unesi bar jedan sloj materijala!", "err"); return; }
         if (!form.idealnaSirinaMaterijala) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
-        if (!(Number(form.porucenaKolicina) > 0)) { msg && msg("Unesi poručenu količinu (m)!", "err"); return; }
+        if (form.type === "kesa") {
+            if (!(orderMetraze(form).kolPlus > 0)) { msg && msg("Unesi poručenu količinu (kom) i dimenzije kese!", "err"); return; }
+        } else if (!(Number(form.porucenaKolicina) > 0)) { msg && msg("Unesi poručenu količinu (m)!", "err"); return; }
         // Svaki sloj mora imati vrstu, oznaku i debljinu
         const nepotpun = layers.findIndex(l =>
             !(l.vrsta || l.material || l.tip) ||
@@ -1421,7 +1435,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             // Auto-predloži rolnu za svaki sloj
             const autoIzbor = {};
             const ideal = Number(form.idealnaSirinaMaterijala) || 0;
-            const potrebnoM = Math.ceil(Number(form.porucenaKolicina || 0) * 1.05);
+            const potrebnoM = orderMetraze(form).kolPlus;
             layers.forEach((layer, i) => {
                 autoIzbor[i] = alocirajRolne(rolne, layer, { ideal, potrebnoM });
             });
@@ -1434,10 +1448,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
     async function potvrdiNalogMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-        const kol = Number(form.porucenaKolicina) || 0;
-        const kolPlus = Math.ceil(kol * 1.05);
-
-        // Upozorenje ako neki sloj nije pokriven (kombinacija < potrebno), osim ručnog unosa
+        const { kol, kolPlus } = orderMetraze(form);
         const nepokriveni = [];
         layers.forEach((_, i) => {
             if (rucniUnos[i]) return;
@@ -1862,29 +1873,31 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Input label="Naziv proizvoda" value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
                 <Select label="Tip proizvoda" value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
             </div>
-            {/* Red 2 — Količina + dimenzije */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                <div>
-                    <label style={labelStyle()}>Poručena količina (m)</label>
-                    <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                        onChange={e => update("porucenaKolicina", e.target.value)} style={fieldStyle()} />
+            {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
+            {form.type !== "kesa" && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                    <div>
+                        <label style={labelStyle()}>Poručena količina (m)</label>
+                        <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                            onChange={e => update("porucenaKolicina", e.target.value)} style={fieldStyle()} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>+5% uvećana količina (auto)</label>
+                        <input readOnly value={form.porucenaKolicina ? Math.ceil(Number(form.porucenaKolicina) * 1.05).toLocaleString("sr-RS") : "—"}
+                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                    </div>
                 </div>
-                <div>
-                    <label style={labelStyle()}>+5% uvećana količina (auto)</label>
-                    <input readOnly value={form.porucenaKolicina ? Math.ceil(Number(form.porucenaKolicina) * 1.05).toLocaleString("sr-RS") : "—"}
-                        style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                </div>
-                <div>
-                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
-                </div>
-                <div>
-                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
-                </div>
-            </div>
+            )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
                 <Input label="Idealna širina materijala (mm)" value={form.idealnaSirinaMaterijala}
@@ -2077,10 +2090,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <>
                 <Section title="Kesa — osnovni podaci" color={GREEN}>
                     <Grid cols={4}>
-                        {[["kolicina", "Količina"], ["skart", "Škart (%)"], ["datum", "Datum"]].map(([k, l]) => (
+                        {[["kolicina", "Poručena količina (kom)"], ["skart", "Škart (%)"], ["datum", "Datum"]].map(([k, l]) => (
                             <Input key={k} label={l} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
+                        <div>
+                            <label style={labelStyle()}>Potrebno materijala (auto)</label>
+                            <input readOnly value={(() => { const m = orderMetraze(form).kolPlus; return m ? m.toLocaleString("sr-RS") + " m" : "—"; })()}
+                                style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }}
+                                title="kom × (dužina+klapna+falta) × (1+škart%)" />
+                        </div>
                     </Grid>
+                    {(() => {
+                        const m = orderMetraze(form);
+                        if (!m.kom) return null;
+                        return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
+                            📐 Metraža materijala = <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) × <b>(1 + {Number(form.kesa.skart) || 0}%)</b> = <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b>
+                        </div>;
+                    })()}
                 </Section>
 
                 <Section title="Dimenzije i konstrukcija kese" color={BLUE}>
@@ -2249,8 +2275,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         {/* ════ MODAL ZA NALOG MATERIJALA ════ */}
         {nalogModal && (() => {
             const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-            const kol = Number(form.porucenaKolicina) || 0;
-            const kolPlus = Math.ceil(kol * 1.05);
+            const { kol, kolPlus } = orderMetraze(form);
             const sir = Number(form.idealnaSirinaMaterijala) || 0;
             const sirinaM = sir / 1000;
             const COLORS_M = ["#2446b8", "#059669", "#d97706", "#7c3aed", "#dc2626"];
@@ -2319,7 +2344,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Nalog za materijal — izbor rolni</div>
                                 <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>⚡ {form.naziv || "Proizvod"}</div>
                                 <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>
-                                    {form.kupac} &nbsp;·&nbsp; Poručeno: <b style={{ color: "#4ade80" }}>{fmt(kol)} m</b> &nbsp;·&nbsp; Za rad (+5%): <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b> &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
+                                    {form.kupac} &nbsp;·&nbsp; Poručeno: <b style={{ color: "#4ade80" }}>{fmt(kol)} m</b> &nbsp;·&nbsp; {form.type === "kesa" ? "Za rad (+škart)" : "Za rad (+5%)"}: <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b> &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
                                 </div>
                             </div>
                             <button onClick={() => setNalogModal(false)} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
