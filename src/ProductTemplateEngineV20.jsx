@@ -139,7 +139,9 @@ function rangirajRolne(rolne, layer, opts = {}) {
             const okOZ = !ozn || !String(ro).trim() || txtEq(ro, ozn);
             // Širina: rolna ne sme biti uža od idealne (osim kad ignoreWidth — tada se uže prikazuju, ali rangirane niže).
             const okSir = ignoreWidth || !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
-            return okT && okD && okS && okRez && okPV && okOZ && okSir;
+            // Proizvođač: ako je unet u sloju → SAMO taj proizvođač; ako nije unet → svi.
+            const okProiz = !proizv || txtEq(r.dobavljac, proizv);
+            return okT && okD && okS && okRez && okPV && okOZ && okSir && okProiz;
         })
         .sort((a, b) => {
             // 0) kad prikazujemo i uže: dovoljno široke (>= idealne) idu prve
