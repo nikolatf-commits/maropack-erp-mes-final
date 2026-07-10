@@ -295,29 +295,29 @@ const defaultForm = {
         datumProizvodnje: "",
         rokIsporuke: "",
         status: "u_pripremi",
-        dimenzija: "85 × 110 mm",
+        dimenzija: "",
         layers: [
             { material: "", debljina: "", sirina: "", kg: "", metara: "" },
             { material: "", debljina: "", sirina: "", kg: "", metara: "" },
             { material: "", debljina: "", sirina: "", kg: "", metara: "" }
         ],
         stampa: {
-            masina: "UTECO ONYX",
-            strana: "Spolja",
-            obimValjka: "330 mm",
-            brojBoja: "4+lak",
-            klise: "DFR 1,14 mm",
-            precnikHilzne: "152 mm",
-            smerOdmotavanja: "Na glavu",
+            masina: "",
+            strana: "",
+            obimValjka: "",
+            brojBoja: "",
+            klise: "",
+            precnikHilzne: "",
+            smerOdmotavanja: "",
             stamparija: "",
             boje: []
         },
         kasiranje: {
-            tipLepka: "SF724A 324CA",
-            odnosLepka: "100:40",
-            nanosLepka: "1.6 g/m²",
-            brojKasiranja: "1",
-            materijalABC: "BOPP / ALU / CPP",
+            tipLepka: "",
+            odnosLepka: "",
+            nanosLepka: "",
+            brojKasiranja: "",
+            materijalABC: "",
             napomena: ""
         },
         rezanje: {
@@ -345,10 +345,10 @@ const defaultForm = {
             prikaz: "finalna_rolna",
             smerOdmotavanja: "Na glavu",
             stampaStrana: "Spolja",
-            hilzna: "152 mm",
-            precnik: "400 mm",
-            duzina: "15000 m",
-            oznaka: "Crvena traka"
+            hilzna: "",
+            precnik: "",
+            duzina: "",
+            oznaka: ""
         }
     },
     kesa: {
