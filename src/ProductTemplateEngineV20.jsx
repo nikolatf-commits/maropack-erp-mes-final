@@ -575,7 +575,11 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
                                 </td>
                                 <td style={td}><input style={input} value={l.koeficijent || ""} onChange={e => onPatch(i, { koeficijent: e.target.value })} /></td>
                                 <td style={td}><input style={input} value={l.gm2 || l.tezina || ""} onChange={e => onPatch(i, { gm2: e.target.value, tezina: e.target.value })} /></td>
-                                <td style={td}><input style={{ ...input, background: (!l.sirina && idealnaSirina) ? "#eff6ff" : "#fff", color: (!l.sirina && idealnaSirina) ? "#2446b8" : "#0f172a" }} value={l.sirina || idealnaSirina || ""} onChange={e => onPatch(i, { sirina: e.target.value })} /></td>
+                                <td style={td}>{(() => {
+                                    const hasMat = !!(l.vrsta || l.oznaka || l.debljina || l.material);
+                                    const showIdeal = !l.sirina && idealnaSirina && hasMat;
+                                    return <input style={{ ...input, background: showIdeal ? "#eff6ff" : "#fff", color: showIdeal ? "#2446b8" : "#0f172a" }} value={l.sirina || (hasMat ? (idealnaSirina || "") : "")} onChange={e => onPatch(i, { sirina: e.target.value })} />;
+                                })()}</td>
                                 {showKg && (() => {
                                     const gm2 = Number(l.gm2 || l.tezina || l.tezinaGm2 || 0);
                                     const sir = Number(l.sirina || idealnaSirina || 0) / 1000;
@@ -1351,7 +1355,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const r = next.folija.rezanje;
             // idealna sirina -> sirina materijala i slojeva
             if (ideal && !r.sirinaMaterijala) r.sirinaMaterijala = ideal;
-            if (ideal) next.folija.layers = (next.folija.layers || []).map(l => ({ ...l, sirina: l.sirina || ideal }));
+            if (ideal) next.folija.layers = (next.folija.layers || []).map(l => {
+                const hasMat = !!(l.vrsta || l.oznaka || l.debljina || l.material);
+                return { ...l, sirina: l.sirina || (hasMat ? String(ideal) : "") };
+            });
             // dimenzija sirina -> sirina trake
             if (dimSirina && !r.sirinaTrake) r.sirinaTrake = dimSirina;
             // porucena kolicina -> duzina rolne
