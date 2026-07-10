@@ -2077,7 +2077,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <>
                 <Section title="Kesa — osnovni podaci" color={GREEN}>
                     <Grid cols={4}>
-                        {[["kolicina", "Količina"], ["skart", "Škart (%)"], ["datum", "Datum"], ["marza", "Marža (%)"]].map(([k, l]) => (
+                        {[["kolicina", "Količina"], ["skart", "Škart (%)"], ["datum", "Datum"]].map(([k, l]) => (
                             <Input key={k} label={l} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
                     </Grid>
