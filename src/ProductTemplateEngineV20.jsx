@@ -89,10 +89,23 @@ function txtEq(a, b) { return String(a ?? "").trim().toUpperCase() === String(b 
 function rolnaPodVrsta(r) { return r.pod_vrsta ?? r.podvrsta ?? r.pod_vrsta_materijala ?? ""; }
 function rolnaOznaka(r) { return r.oznaka_materijala ?? r.oznaka ?? r.grade ?? ""; }
 
-// Datum za FIFO (najstarije prvo). Otporno na nazive kolona; fallback na LOT/br_rolne.
+// Robustan parser datuma — podržava ISO (2026-01-05) i srpski (05.01.2026), uvek sa punom godinom
+function parseDatum(d) {
+    if (!d) return NaN;
+    const s = String(d).trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);        // ISO YYYY-MM-DD
+    if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/);    // DD.MM.YYYY ili DD/MM/YYYY
+    if (m) return Date.UTC(+m[3], +m[2] - 1, +m[1]);
+    const t = Date.parse(s);
+    return Number.isNaN(t) ? NaN : t;
+}
+
+// Datum za FIFO (najstarije prvo). Prvo GODINA PROIZVODNJE (isti datum koji se prikazuje na listi),
+// pa prijem/ulaz kao fallback; ako datuma nema, LOT/br_rolne.
 function rolnaDatum(r) {
-    const d = r.datum_prijema ?? r.datum_ulaza ?? r.datum_ulaza_rolne ?? r.created_at ?? r.datum ?? null;
-    const t = d ? Date.parse(d) : NaN;
+    const d = r.datum_proizvodnje ?? r.datum_prijema ?? r.datum_ulaza ?? r.datum_ulaza_rolne ?? r.created_at ?? r.datum ?? null;
+    const t = parseDatum(d);
     if (!Number.isNaN(t)) return t;
     const n = parseInt(String(r.lot ?? r.br_rolne ?? "").replace(/\D/g, ""), 10);
     return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
@@ -135,10 +148,18 @@ function rangirajRolne(rolne, layer, opts = {}) {
                 const wb = (Number(b.sirina) || 0) >= (ideal - sirinaTolerancija) ? 0 : 1;
                 if (wa !== wb) return wa - wb;
             }
-            // 1) FIFO — najstarija rolna prva
+            // 1) ŠIRINA prvo: rolne iste/najbliže idealnoj (i tik iznad) → pa progresivno šire.
+            //    Grupišemo u trake od 25 mm da FIFO odlučuje UNUTAR iste širine.
+            if (ideal) {
+                const BAND = 25;
+                const ba = Math.floor(Math.max(0, (Number(a.sirina) || 0) - ideal) / BAND);
+                const bb = Math.floor(Math.max(0, (Number(b.sirina) || 0) - ideal) / BAND);
+                if (ba !== bb) return ba - bb;   // uža/bliža idealnoj traka prva, šire kasnije
+            }
+            // 2) FIFO — najstarija rolna prva (unutar iste širinske trake)
             const da = rolnaDatum(a), db = rolnaDatum(b);
             if (da !== db) return da - db;
-            // 2) najmanje otpada — najbliža (ali ne uža) idealnoj širini
+            // 3) najmanje otpada — najbliža (ali ne uža) idealnoj širini
             if (ideal) {
                 const sa = Math.abs(Number(a.sirina) - ideal), sb = Math.abs(Number(b.sirina) - ideal);
                 if (sa !== sb) return sa - sb;
