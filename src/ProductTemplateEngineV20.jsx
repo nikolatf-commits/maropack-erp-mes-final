@@ -193,9 +193,9 @@ function alocirajRolne(rolne, layer, opts = {}) {
             if (ba !== bb) return ba - bb;
         }
         const ma = rolnaMetraza(a), mb = rolnaMetraza(b);
-        if (ma !== mb) return ma - mb;                 // 1) najmanja metraža (reslovi) prvo — unutar iste širine
         const da = rolnaDatum(a), db = rolnaDatum(b);
-        if (da !== db) return da - db;                 // 2) FIFO
+        if (da !== db) return da - db;                 // 1) FIFO — najstarija prva (unutar iste širine)
+        if (ma !== mb) return ma - mb;                 // 2) pa reslovi (manja metraža) — kad je isti datum
         if (ideal) {                                   // 3) najbliža (ne uža) širina
             const sa = Math.abs(Number(a.sirina) - ideal), sb = Math.abs(Number(b.sirina) - ideal);
             if (sa !== sb) return sa - sb;
@@ -2355,20 +2355,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
                 const mOf = (r) => slobodnoM(r);
                 const bandOf = (r) => Math.floor(Math.max(0, (Number(r.sirina) || 0) - sir) / 25);
-                // pool sortiran: širinska traka → metraža (reslovi) → FIFO
+                // pool sortiran: širinska traka → FIFO (najstarija) → metraža (reslovi kad je isti datum)
                 let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
-                    .slice().sort((a, b) => (bandOf(a) - bandOf(b)) || (mOf(a) - mOf(b)) || (rolnaDatum(a) - rolnaDatum(b)));
+                    .slice().sort((a, b) => (bandOf(a) - bandOf(b)) || (rolnaDatum(a) - rolnaDatum(b)) || (mOf(a) - mOf(b)));
                 const izabrane = [...cur];
                 let zbir = izabrane.reduce((s, r) => s + mOf(r), 0);
                 if (!kolPlus) { if (!izabrane.length && pool.length) izabrane.push(pool[0]); setNalogIzbor(p => ({ ...p, [i]: izabrane })); return; }
                 while (zbir < kolPlus && pool.length) {
-                    const ostatak = kolPlus - zbir;
-                    // radi samo u NAJUŽOJ (najbližoj idealnoj) traci dok se ne iscrpi, pa prelazi na širu
+                    // radi u NAJUŽOJ (najbližoj idealnoj) traci; unutar nje uzmi NAJSTARIJU (FIFO)
                     const firstBand = bandOf(pool[0]);
                     const inBand = pool.filter(r => bandOf(r) === firstBand);
-                    const pokrivaju = inBand.filter(r => mOf(r) >= ostatak);
-                    // ako neka u toj traci sama pokriva ostatak → najmanja takva (najmanji višak); inače najmanja u traci (troši reslo)
-                    const pick = pokrivaju.length ? pokrivaju.reduce((p, c) => mOf(c) < mOf(p) ? c : p) : inBand[0];
+                    const pick = inBand[0];   // pool je već FIFO poređan → najstarija u traci
                     izabrane.push(pick);
                     zbir += mOf(pick);
                     pool = pool.filter(r => String(r.id || r.br_rolne) !== String(pick.id || pick.br_rolne));
