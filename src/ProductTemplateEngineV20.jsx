@@ -636,9 +636,10 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
     </div>;
 }
 
-function RollPreview({ folija }) {
+function RollPreview({ folija, idealna = "" }) {
     const rez = folija.rezanje || {};
-    const sirM = Number(String(rez.sirinaMaterijala || "").replace(",", ".")) || 0;
+    const nn = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const sirM = nn(rez.sirinaMaterijala) || nn(idealna);
     const trake = (rez.sirineTraka || "").split(",").map(x => Number(String(x).replace(",", ".").trim())).filter(n => n > 0);
     const lista = trake.length ? trake : (Number(rez.sirinaTrake) ? [Number(rez.sirinaTrake)] : []);
     const suma = lista.reduce((a, b) => a + b, 0);
@@ -2089,7 +2090,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         </div>
                     </div>
                     <div style={{ marginTop: 4 }}>
-                        <RollPreview folija={form.folija} />
+                        <RollPreview folija={form.folija} idealna={form.idealnaSirinaMaterijala} />
                     </div>
                 </Section>
 
