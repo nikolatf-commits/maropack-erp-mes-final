@@ -1309,7 +1309,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         });
     }
 
-    function setType(t) { update("type", t); setActiveTab(t); }
+    function setType(t) {
+        // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
+        // pa se ne prelivaju iz jednog templejta u drugi.
+        const SHARED = ["sifra", "kupac", "naziv", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        setForm(prev => {
+            if (t === prev.type) return prev;
+            const next = clone(prev);
+            next._stash = next._stash || {};
+            const cur = {}; SHARED.forEach(k => { cur[k] = next[k] ?? ""; });
+            next._stash[prev.type] = cur;                       // sačuvaj polja starog tipa
+            const saved = next._stash[t] || {};
+            SHARED.forEach(k => { next[k] = saved[k] !== undefined ? saved[k] : ""; }); // učitaj (ili prazna) za novi tip
+            next.type = t;
+            return next;
+        });
+        setActiveTab(t);
+    }
 
     function addLayer(section) {
         setForm(prev => {
