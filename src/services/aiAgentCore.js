@@ -17,14 +17,14 @@ function pick(obj, keys, fallback = '') {
 }
 
 export const AI_AGENT_INTENTS = [
-    { key: 'napravi_nalog', label: 'Kreiranje naloga', words: ['napravi nalog', 'kreiraj nalog', 'otvori nalog', 'radni nalog'] },
-    { key: 'plan_rezanja', label: 'Plan rezanja', words: ['plan rezanja', 'rezanje', 'iz magacina', 'koju rolnu', 'rolne'] },
-    { key: 'rezervisi_materijal', label: 'Rezervacija materijala', words: ['rezerviši', 'rezervisi', 'rezervacija', 'materijal za nalog'] },
-    { key: 'plan_proizvodnje', label: 'Plan proizvodnje', words: ['plan proizvodnje', 'raspored', 'mašina', 'masina', 'scheduler', 'gantt'] },
-    { key: 'analiza_otpada', label: 'Analiza otpada', words: ['otpad', 'iskorišćenost', 'iskoriscenost', 'gubitak', 'idealna širina', 'idealna sirina'] },
-    { key: 'nabavka', label: 'Nabavka', words: ['nabavka', 'poruči', 'poruci', 'nedostaje', 'minimum', 'zaliha'] },
-    { key: 'kalkulacija', label: 'Kalkulacija', words: ['kalkulacija', 'cena', 'ponuda', 'marža', 'marza'] },
-    { key: 'qc', label: 'Kontrola kvaliteta', words: ['qc', 'kvalitet', 'reklamacija', 'kontrola', 'problem'] }
+    { key: 'napravi_nalog', label: 'Kreiranje naloga', words: ['napravi nalog', 'kreiraj nalog', 'otvori nalog', 'radni nalog', 'nalog za', 'nalog za proizvod', 'napravi radni nalog', 'proizvod i predlozi materijal', 'proizvod i predloži materijal'] },
+    { key: 'plan_rezanja', label: 'Plan rezanja', words: ['plan rezanja', 'rezanje', 'iz magacina', 'koju rolnu', 'rolne', 'najbolju rolnu', 'najbolja rolna', 'pronadji rolnu', 'pronađi rolnu', 'iseci', 'krojenje'] },
+    { key: 'rezervisi_materijal', label: 'Rezervacija materijala', words: ['rezerviši', 'rezervisi', 'rezervacija', 'materijal za nalog', 'zauzmi materijal'] },
+    { key: 'plan_proizvodnje', label: 'Plan proizvodnje', words: ['plan proizvodnje', 'raspored', 'mašina', 'masina', 'masinama', 'mašinama', 'scheduler', 'gantt', 'plan po masinama', 'aktivne naloge'] },
+    { key: 'analiza_otpada', label: 'Analiza otpada', words: ['otpad', 'iskorišćenost', 'iskoriscenost', 'iskorišćenje', 'iskoriscenje', 'gubitak', 'idealna širina', 'idealna sirina', 'idealne sirine', 'idealne širine', 'skart', 'škart'] },
+    { key: 'nabavka', label: 'Nabavka', words: ['nabavka', 'nabaviti', 'poruči', 'poruci', 'porudžbina', 'porudzbina', 'naruči', 'naruci', 'naručiti', 'naruciti', 'treba naruciti', 'treba naručiti', 'nedostaje', 'minimum', 'zaliha', 'zalihe', 'nisko stanje', 'niska zaliha', 'ponestaje', 'kupiti', 'dobavljac', 'dobavljač'] },
+    { key: 'kalkulacija', label: 'Kalkulacija', words: ['kalkulacija', 'cena', 'ponuda', 'marža', 'marza', 'kostanje', 'košta'] },
+    { key: 'qc', label: 'Kontrola kvaliteta', words: ['qc', 'kvalitet', 'reklamacija', 'kontrola', 'problem', 'defekt'] }
 ];
 
 export function detectIntent(question = '') {
