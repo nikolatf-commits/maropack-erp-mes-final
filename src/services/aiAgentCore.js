@@ -152,9 +152,37 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
             return a.sirina - b.sirina;
         });
 
+    // === ISTI MATERIJAL ZA CEO POSAO ===
+    // Ne mešamo CPP + BOPP + PET. Grupišemo po (vrsta+oznaka+debljina) i biramo NAJBOLJU grupu:
+    // 1) grupa koja može da pokrije celu potrebu, 2) sa najmanjim otpadom širine, 3) pa FIFO.
+    const matKey = (r) => [norm(r.materijal), n(r.deb)].join('|');
+    const grupe = {};
+    for (const r of rolls) {
+        const k = matKey(r);
+        grupe[k] = grupe[k] || { key: k, materijal: r.materijal, deb: r.deb, rolls: [], ukupnoM: 0, minOtpad: Infinity, najstarija: Number.MAX_SAFE_INTEGER };
+        grupe[k].rolls.push(r);
+        grupe[k].ukupnoM += r.metara;
+        grupe[k].minOtpad = Math.min(grupe[k].minOtpad, targetWidth ? Math.max(0, r.sirina - targetWidth) : 0);
+        grupe[k].najstarija = Math.min(grupe[k].najstarija, r.datum);
+    }
+    const kandidati = Object.values(grupe).sort((a, b) => {
+        const pa = (targetMeters && a.ukupnoM >= targetMeters) ? 0 : 1;   // 1) pokriva celu potrebu
+        const pb = (targetMeters && b.ukupnoM >= targetMeters) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        if (a.minOtpad !== b.minOtpad) return a.minOtpad - b.minOtpad;    // 2) najmanji otpad širine
+        if (a.najstarija !== b.najstarija) return a.najstarija - b.najstarija; // 3) FIFO
+        return b.ukupnoM - a.ukupnoM;
+    });
+    const grupa = kandidati[0];
+    const izabraneRolne = grupa ? grupa.rolls : [];
+    const alternative = kandidati.slice(1, 4).map((g) => ({
+        materijal: g.materijal, debljina: g.deb, rolni: g.rolls.length,
+        ukupnoM: Math.round(g.ukupnoM), minOtpad: g.minOtpad === Infinity ? 0 : g.minOtpad
+    }));
+
     const selected = [];
     let remaining = targetMeters;
-    for (const r of rolls) {
+    for (const r of izabraneRolne) {
         if (targetMeters && remaining <= 0) break;
         const useM = targetMeters ? Math.min(r.metara, remaining) : r.metara;
         selected.push({
@@ -172,7 +200,10 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
     const avgWaste = selected.length ? selected.reduce((s, x) => s + x.otpad_mm, 0) / selected.length : 0;
     const iskoriscenje = targetWidth && selected.length
         ? (targetWidth / (selected.reduce((s, x) => s + x.roll.sirina, 0) / selected.length)) * 100 : 0;
-    return { targetWidth, targetMeters, targetDeb, targetProizv, selected, totalM, remaining: Math.max(0, remaining), avgWaste, iskoriscenje };
+    return {
+        targetWidth, targetMeters, targetDeb, targetProizv, selected, totalM, remaining: Math.max(0, remaining), avgWaste, iskoriscenje,
+        materijal: grupa ? grupa.materijal : '', debljina: grupa ? grupa.deb : 0, alternative
+    };
 }
 
 function proposeMachineSchedule(question, ctx) {
@@ -322,7 +353,9 @@ function buildRuleBasedAnswer(question, aiData) {
     nabavkaLines.forEach((l) => answerLines.push(l));
     if (products.length) answerLines.push(`Najbliži proizvodi/template-i: ${products.map((p) => pick(p, ['naziv', 'name', 'sifra'], 'Proizvod')).join(', ')}.`);
     if (cutting.selected.length && (intent.key === 'plan_rezanja' || intent.key === 'rezervisi_materijal' || intent.key === 'napravi_nalog')) {
+        answerLines.push(`Materijal: ${cutting.materijal || '—'}${cutting.debljina ? ' ' + cutting.debljina + 'µ' : ''} — ceo posao ide iz JEDNOG materijala (ne mešam vrste).`);
         answerLines.push(`Za rezanje predlažem ${cutting.selected.length} rolnu/rolni, ukupno ${Math.round(cutting.totalM).toLocaleString('sr-RS')} m, prosečan otpad širine ${cutting.avgWaste.toFixed(1)} mm.`);
+        if (cutting.alternative?.length) answerLines.push(`Alternative: ${cutting.alternative.map((a) => `${a.materijal}${a.debljina ? ' ' + a.debljina + 'µ' : ''} (${a.rolni} rolni, ${a.ukupnoM.toLocaleString('sr-RS')} m, otpad ${a.minOtpad} mm)`).join('; ')}.`);
         if (cutting.remaining > 0) answerLines.push(`Nedostaje još ${Math.round(cutting.remaining).toLocaleString('sr-RS')} m za pun zahtev.`);
     }
     if (schedule.plan.length && (intent.key === 'plan_proizvodnje' || intent.key === 'napravi_nalog')) {
