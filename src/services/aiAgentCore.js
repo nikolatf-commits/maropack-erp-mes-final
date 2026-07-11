@@ -252,8 +252,62 @@ function buildRuleBasedAnswer(question, aiData) {
     }
 
     if (intent.key === 'nabavka') {
-        const low = warehouse.filter((g) => g.metara < 10000 || g.kg < 200).slice(0, 10);
-        actions.push({ type: 'NABAVKA', title: 'Materijali za proveru/nabavku', payload: low, next: ['Proveri minimalne zalihe', 'Napravi predlog porudžbine'] });
+        // Čita MINIMUME koje si ti postavio u Material master (kolona: minimalna_zaliha = Minimum kg).
+        const master = arr(ctx.material_master).concat(arr(ctx.materijali));
+        const INACTIVE = ['prodat', 'utros', 'iskoris', 'isporu', 'storn', 'otpis', 'obrisan', 'arhiv'];
+        const rolne = [...arr(ctx.rolne), ...arr(ctx.magacin)].filter((r) => {
+            const st = norm(pick(r, ['status'], ''));
+            return !INACTIVE.some((x) => st.includes(x));
+        });
+        const kljuc = (v, pv, oz, deb) => [norm(v), norm(pv), norm(oz), n(deb)].join('|');
+
+        // stanje (kg i m) po kombinaciji materijala iz mastera
+        const stanje = {};
+        for (const r of rolne) {
+            const k = kljuc(pick(r, ['vrsta', 'tip', 'materijal'], ''), pick(r, ['pod_vrsta', 'podvrsta'], ''), pick(r, ['oznaka', 'oznaka_materijala'], ''), pick(r, ['debljina', 'deb'], 0));
+            stanje[k] = stanje[k] || { kg: 0, m: 0, rolni: 0 };
+            stanje[k].kg += n(pick(r, ['kg_neto', 'kg', 'neto_kg', 'kg_bruto', 'tezina'], 0));
+            stanje[k].m += n(pick(r, ['metraza_ost', 'metraza', 'metara', 'duzina', 'ostatak_m'], 0));
+            stanje[k].rolni += 1;
+        }
+
+        const low = master
+            .map((m) => {
+                const minKg = n(pick(m, ['minimalna_zaliha', 'min_kg', 'minimum_kg', 'min_zaliha'], 0));
+                if (minKg <= 0) return null;                       // samo materijali kojima si POSTAVIO minimum
+                const k = kljuc(pick(m, ['vrsta'], ''), pick(m, ['pod_vrsta', 'podvrsta'], ''), pick(m, ['oznaka'], ''), pick(m, ['debljina'], 0));
+                const st = stanje[k] || { kg: 0, m: 0, rolni: 0 };
+                const manjak = Math.max(0, minKg - st.kg);
+                if (manjak <= 0) return null;                      // iznad minimuma — ne treba nabavka
+                return {
+                    materijal: [pick(m, ['vrsta'], ''), pick(m, ['oznaka'], ''), pick(m, ['debljina'], '') ? pick(m, ['debljina'], '') + 'µ' : ''].filter(Boolean).join(' '),
+                    proizvodjac: pick(m, ['proizvodjac', 'dobavljac'], '—'),
+                    sirina: 0,
+                    rolni: st.rolni,
+                    kg: st.kg, metara: st.m,
+                    min_kg: minKg,
+                    nedostaje_kg: Math.round(manjak),
+                    predlog_kg: Math.ceil(manjak / 50) * 50,          // zaokruži na 50 kg
+                    kritican: st.kg < minKg * 0.35
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => (b.kritican - a.kritican) || (b.nedostaje_kg - a.nedostaje_kg))
+            .slice(0, 20);
+
+        const saMinimumom = master.filter((m) => n(pick(m, ['minimalna_zaliha', 'min_kg'], 0)) > 0).length;
+        if (!saMinimumom) {
+            answerLines.push('Nabavka: ni za jedan materijal nije postavljena minimalna zaliha (Minimum kg) u Material master bazi. Postavi minimume pa mogu da javim šta treba naručiti.');
+            warnings.push('Nema definisanih minimuma (minimalna_zaliha) u Material master — nabavka se ne može proceniti.');
+        } else if (low.length) {
+            const kriticni = low.filter((g) => g.kritican).length;
+            insights.push(`Nabavka: ${low.length} materijala ispod TVOG minimuma (od ${saMinimumom} sa definisanim minimumom)${kriticni ? `, ${kriticni} kritično` : ''}.`);
+            answerLines.push(`Treba naručiti: ${low.slice(0, 5).map((g) => `${g.materijal} (ima ${Math.round(g.kg)} kg, min ${g.min_kg} kg → fali ${g.nedostaje_kg} kg)`).join('; ')}${low.length > 5 ? ` i još ${low.length - 5}` : ''}.`);
+            actions.push({ type: 'NABAVKA', title: `Materijali ispod minimuma (${low.length})`, payload: low, next: ['Proveri minimalne zalihe', 'Napravi predlog porudžbine'] });
+        } else {
+            answerLines.push(`Nabavka: svih ${saMinimumom} materijala sa definisanim minimumom je iznad minimalne zalihe. Nema potrebe za nabavkom.`);
+            insights.push('Sve zalihe su iznad tvojih minimuma — nema hitne nabavke.');
+        }
     }
 
     if (intent.key === 'analiza_otpada') {

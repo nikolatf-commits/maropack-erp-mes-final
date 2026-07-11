@@ -18,6 +18,7 @@ function ActionCard({ action, onExecute }) {
     const isCut = action.type === 'PLAN_REZANJA';
     const isSchedule = action.type === 'PLAN_PROIZVODNJE';
     const isExec = action.type === 'KREIRAJ_NALOG_OD_PROIZVODA';
+    const isBuy = action.type === 'NABAVKA';
     return <div style={{ ...card, borderColor: isExec ? '#86efac' : '#bfdbfe', background: isExec ? '#f0fdf4' : '#eff6ff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
             <div>
@@ -50,6 +51,25 @@ function ActionCard({ action, onExecute }) {
                 <div style={{ color: '#475569', fontSize: 13, marginTop: 4 }}>Mašina: <b>{x.machine?.naziv || x.machine?.name || 'Nije dodeljena'}</b></div>
                 <div style={{ color: '#475569', fontSize: 13 }}>Procena: {x.procenjeno_h}h</div>
             </div>)}
+        </div>}
+
+        {isBuy && <div style={{ marginTop: 14, overflowX: 'auto' }}>
+            {Array.isArray(payload) && payload.length ? <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ color: '#64748b', textAlign: 'left' }}>
+                    <th style={{ padding: 6 }}>Materijal</th><th>Proizvođač</th><th>Rolni</th><th>Na stanju (kg)</th><th>Minimum (kg)</th><th>Manjak (kg)</th><th>Predlog nabavke</th>
+                </tr></thead>
+                <tbody>
+                    {payload.map((g, i) => <tr key={i} style={{ borderTop: '1px solid #bfdbfe', background: g.kritican ? '#fef2f2' : 'transparent' }}>
+                        <td style={{ padding: 8, fontWeight: 900 }}>{g.kritican ? '🔴 ' : ''}{g.materijal}</td>
+                        <td>{g.proizvodjac || '—'}</td>
+                        <td>{g.rolni}</td>
+                        <td style={{ color: g.kritican ? '#b91c1c' : '#0f172a', fontWeight: 800 }}>{Math.round(g.kg).toLocaleString('sr-RS')}</td>
+                        <td>{Math.round(g.min_kg || 0).toLocaleString('sr-RS')}</td>
+                        <td style={{ color: '#b45309', fontWeight: 800 }}>{g.nedostaje_kg ? Math.round(g.nedostaje_kg).toLocaleString('sr-RS') : '—'}</td>
+                        <td style={{ color: '#15803d', fontWeight: 900 }}>{g.predlog_kg ? Math.round(g.predlog_kg).toLocaleString('sr-RS') + ' kg' : '—'}</td>
+                    </tr>)}
+                </tbody>
+            </table> : <div style={{ color: '#64748b' }}>Nema materijala ispod tvojih minimuma (Material master → Minimum kg).</div>}
         </div>}
 
         {Array.isArray(action.next) && <div style={{ marginTop: 14 }}>
