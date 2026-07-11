@@ -42,7 +42,8 @@ export function extractNumbers(question = '') {
     const kg = [];
     const q = String(question || '');
     for (const m of q.matchAll(/(\d+(?:[.,]\d+)?)\s*(mm|milimetara|sirina|širina)/gi)) widths.push(Number(m[1].replace(',', '.')));
-    for (const m of q.matchAll(/(\d+(?:[.,]\d+)?)\s*(m|metara)/gi)) meters.push(Number(m[1].replace(',', '.')));
+    // metri: "m" ali NE "mm" (negativni lookahead), pa "840 mm" ne ulazi u metražu
+    for (const m of q.matchAll(/(\d+(?:[.,]\d+)?)\s*(m(?!m)|metara|metra|met\b)/gi)) meters.push(Number(m[1].replace(',', '.')));
     for (const m of q.matchAll(/(\d+(?:[.,]\d+)?)\s*(kg|kilograma)/gi)) kg.push(Number(m[1].replace(',', '.')));
     return { widths, meters, kg };
 }
@@ -205,6 +206,7 @@ function buildRuleBasedAnswer(question, aiData) {
     const actions = [];
     const warnings = [];
     const insights = [];
+    const nabavkaLines = [];
 
     if (products.length) insights.push(`Našao sam ${products.length} mogućih proizvoda/template-a koji odgovaraju upitu.`);
     if (tpl && tpl.metara) insights.push(tpl.tip === 'kesa'
@@ -297,15 +299,15 @@ function buildRuleBasedAnswer(question, aiData) {
 
         const saMinimumom = master.filter((m) => n(pick(m, ['minimalna_zaliha', 'min_kg'], 0)) > 0).length;
         if (!saMinimumom) {
-            answerLines.push('Nabavka: ni za jedan materijal nije postavljena minimalna zaliha (Minimum kg) u Material master bazi. Postavi minimume pa mogu da javim šta treba naručiti.');
+            nabavkaLines.push('Nabavka: ni za jedan materijal nije postavljena minimalna zaliha (Minimum kg) u Material master bazi. Postavi minimume pa mogu da javim šta treba naručiti.');
             warnings.push('Nema definisanih minimuma (minimalna_zaliha) u Material master — nabavka se ne može proceniti.');
         } else if (low.length) {
             const kriticni = low.filter((g) => g.kritican).length;
             insights.push(`Nabavka: ${low.length} materijala ispod TVOG minimuma (od ${saMinimumom} sa definisanim minimumom)${kriticni ? `, ${kriticni} kritično` : ''}.`);
-            answerLines.push(`Treba naručiti: ${low.slice(0, 5).map((g) => `${g.materijal} (ima ${Math.round(g.kg)} kg, min ${g.min_kg} kg → fali ${g.nedostaje_kg} kg)`).join('; ')}${low.length > 5 ? ` i još ${low.length - 5}` : ''}.`);
+            nabavkaLines.push(`Treba naručiti: ${low.slice(0, 5).map((g) => `${g.materijal} (ima ${Math.round(g.kg)} kg, min ${g.min_kg} kg → fali ${g.nedostaje_kg} kg)`).join('; ')}${low.length > 5 ? ` i još ${low.length - 5}` : ''}.`);
             actions.push({ type: 'NABAVKA', title: `Materijali ispod minimuma (${low.length})`, payload: low, next: ['Proveri minimalne zalihe', 'Napravi predlog porudžbine'] });
         } else {
-            answerLines.push(`Nabavka: svih ${saMinimumom} materijala sa definisanim minimumom je iznad minimalne zalihe. Nema potrebe za nabavkom.`);
+            nabavkaLines.push(`Nabavka: svih ${saMinimumom} materijala sa definisanim minimumom je iznad minimalne zalihe. Nema potrebe za nabavkom.`);
             insights.push('Sve zalihe su iznad tvojih minimuma — nema hitne nabavke.');
         }
     }
@@ -317,6 +319,7 @@ function buildRuleBasedAnswer(question, aiData) {
 
     const answerLines = [];
     answerLines.push(`Prepoznao sam zahtev kao: ${intent.label}.`);
+    nabavkaLines.forEach((l) => answerLines.push(l));
     if (products.length) answerLines.push(`Najbliži proizvodi/template-i: ${products.map((p) => pick(p, ['naziv', 'name', 'sifra'], 'Proizvod')).join(', ')}.`);
     if (cutting.selected.length && (intent.key === 'plan_rezanja' || intent.key === 'rezervisi_materijal' || intent.key === 'napravi_nalog')) {
         answerLines.push(`Za rezanje predlažem ${cutting.selected.length} rolnu/rolni, ukupno ${Math.round(cutting.totalM).toLocaleString('sr-RS')} m, prosečan otpad širine ${cutting.avgWaste.toFixed(1)} mm.`);
