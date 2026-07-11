@@ -74,6 +74,32 @@ function summarizeWarehouse(ctx) {
 }
 
 
+
+// Iz pitanja izvlači traženi materijal: vrstu (BOPP/CPP/PET/PE/ALU/PAPIR...), oznaku (FXCB, FXC...) i debljinu (20µ)
+export function extractMaterial(question = '', ctx = {}) {
+    const q = norm(question);
+    const VRSTE = ['bopp', 'cpp', 'opp', 'pet', 'pe', 'pa', 'alu', 'papir', 'ldpe', 'hdpe', 'mopp'];
+    const vrsta = VRSTE.find((v) => new RegExp('\\b' + v + '\\b', 'i').test(q)) || '';
+
+    // pod-vrste i oznake učimo iz Material master / magacina (npr. "Transparent", "FXCB")
+    const podVrste = new Set(), oznake = new Set();
+    const izvori = arr(ctx.material_master).concat(arr(ctx.materijali), arr(ctx.magacin).slice(0, 800), arr(ctx.rolne).slice(0, 800));
+    for (const m of izvori) {
+        const pv = norm(pick(m, ['pod_vrsta', 'podvrsta', 'pod_vrsta_materijala'], ''));
+        const oz = norm(pick(m, ['oznaka', 'oznaka_materijala'], ''));
+        if (pv && pv.length >= 3) podVrste.add(pv);
+        if (oz && oz.length >= 2) oznake.add(oz);
+    }
+    let podVrsta = '', oznaka = '';
+    for (const pv of podVrste) if (q.includes(pv) && pv.length > podVrsta.length) podVrsta = pv;
+    for (const oz of oznake) if (q.includes(oz) && oz.length > oznaka.length) oznaka = oz;
+
+    let debljina = 0;
+    const dm = q.match(/(\d{1,3})\s*(µ|u\b|mic|mik|mikron)/i);
+    if (dm) debljina = Number(dm[1]);
+    return { vrsta, podVrsta, oznaka, debljina };
+}
+
 // --- Materijal iz TEMPLEJTA (isto pravilo kao Product Template Engine) ---
 // kesa: kom × (dužina+klapna+falta) × (1+škart%) ; folija/špulna: poručeno(m) × 1.05
 export function materijalIzTemplejta(p = {}) {
@@ -115,8 +141,13 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
     const { widths, meters } = extractNumbers(question);
     const targetWidth = n(opts.sirina) || widths[0] || 0;
     const targetMeters = n(opts.metara) || meters[0] || 0;
-    const targetDeb = n(opts.debljina) || 0;
+    const wanted = extractMaterial(question, ctx);
+    const targetDeb = n(opts.debljina) || wanted.debljina || 0;
     const targetProizv = norm(opts.proizvodjac || '');
+    const wantVrsta = norm(opts.vrsta || wanted.vrsta || '');
+    const wantPodVrsta = norm(opts.podVrsta || wanted.podVrsta || '');
+    const wantOznaka = norm(opts.oznaka || wanted.oznaka || '');
+    const zadatMaterijal = !!(wantVrsta || wantPodVrsta || wantOznaka);
     const INACTIVE = ['prodat', 'utros', 'iskoris', 'isporu', 'storn', 'otpis', 'obrisan', 'arhiv', 'rezerv'];
 
     const rolls = [...arr(ctx.rolne), ...arr(ctx.magacin)]
@@ -124,6 +155,9 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
             raw: r,
             id: pick(r, ['br_rolne', 'broj_rolne', 'qr_code', 'oznaka', 'id'], 'ROLNA'),
             materijal: pick(r, ['vrsta', 'tip', 'materijal', 'oznaka_materijala', 'naziv'], 'Materijal'),
+            vrsta: pick(r, ['vrsta', 'tip', 'materijal'], ''),
+            pod_vrsta: pick(r, ['pod_vrsta', 'podvrsta'], ''),
+            oznaka: pick(r, ['oznaka', 'oznaka_materijala'], ''),
             sirina: n(pick(r, ['sirina', 'width_mm', 'sirina_mm'], 0)),
             deb: n(pick(r, ['deb', 'debljina', 'debljina_um', 'mikroni'], 0)),
             proizvodjac: pick(r, ['dobavljac', 'proizvodjac'], ''),
@@ -137,8 +171,13 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
             if (INACTIVE.some((x) => st.includes(x))) return false;   // samo na stanju
             if (r.metara <= 0) return false;
             if (targetWidth && r.sirina < targetWidth) return false;   // NIKAD uža od ciljne
-            if (targetDeb && r.deb && Math.abs(r.deb - targetDeb) > 3) return false; // debljina ±3µ
+            // Debljina ±3µ (isto kao izbor materijala u templejtu)
+            if (targetDeb && r.deb && Math.abs(r.deb - targetDeb) > 3) return false;
             if (targetProizv && norm(r.proizvodjac) !== targetProizv) return false;  // proizvođač ako je zadat
+            // TRAŽENI MATERIJAL — vrsta / pod-vrsta / oznaka moraju da se poklope (kad su zadati)
+            if (wantVrsta && !norm([r.vrsta, r.materijal].join(' ')).includes(wantVrsta)) return false;
+            if (wantPodVrsta && !norm([r.pod_vrsta, r.materijal].join(' ')).includes(wantPodVrsta)) return false;
+            if (wantOznaka && !norm([r.oznaka, r.materijal].join(' ')).includes(wantOznaka)) return false;
             return true;
         })
         .sort((a, b) => {
@@ -166,6 +205,7 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
         grupe[k].najstarija = Math.min(grupe[k].najstarija, r.datum);
     }
     const kandidati = Object.values(grupe).sort((a, b) => {
+        // (kad je materijal zadat u pitanju, svi kandidati su ionako samo taj materijal)
         const pa = (targetMeters && a.ukupnoM >= targetMeters) ? 0 : 1;   // 1) pokriva celu potrebu
         const pb = (targetMeters && b.ukupnoM >= targetMeters) ? 0 : 1;
         if (pa !== pb) return pa - pb;
@@ -202,7 +242,8 @@ function proposeCuttingPlan(question, ctx, opts = {}) {
         ? (targetWidth / (selected.reduce((s, x) => s + x.roll.sirina, 0) / selected.length)) * 100 : 0;
     return {
         targetWidth, targetMeters, targetDeb, targetProizv, selected, totalM, remaining: Math.max(0, remaining), avgWaste, iskoriscenje,
-        materijal: grupa ? grupa.materijal : '', debljina: grupa ? grupa.deb : 0, alternative
+        materijal: grupa ? grupa.materijal : '', debljina: grupa ? grupa.deb : 0, alternative,
+        zadat: zadatMaterijal, trazeno: { vrsta: wantVrsta, podVrsta: wantPodVrsta, oznaka: wantOznaka, debljina: targetDeb }, nemaMaterijala: zadatMaterijal && !rolls.length
     };
 }
 
@@ -354,12 +395,17 @@ function buildRuleBasedAnswer(question, aiData) {
     if (products.length) answerLines.push(`Najbliži proizvodi/template-i: ${products.map((p) => pick(p, ['naziv', 'name', 'sifra'], 'Proizvod')).join(', ')}.`);
     if (cutting.selected.length && (intent.key === 'plan_rezanja' || intent.key === 'rezervisi_materijal' || intent.key === 'napravi_nalog')) {
         answerLines.push(`Materijal: ${cutting.materijal || '—'}${cutting.debljina ? ' ' + cutting.debljina + 'µ' : ''} — ceo posao ide iz JEDNOG materijala (ne mešam vrste).`);
+        if (cutting.zadat) answerLines.push(`Traženo (iz upita): ${[cutting.trazeno.vrsta, cutting.trazeno.podVrsta, cutting.trazeno.oznaka, cutting.trazeno.debljina ? cutting.trazeno.debljina + 'µ (±3µ)' : ''].filter(Boolean).join(' · ').toUpperCase()} — tražim ISKLJUČIVO taj materijal, širina ≥ ${cutting.targetWidth || '—'} mm, FIFO.`);
         answerLines.push(`Za rezanje predlažem ${cutting.selected.length} rolnu/rolni, ukupno ${Math.round(cutting.totalM).toLocaleString('sr-RS')} m, prosečan otpad širine ${cutting.avgWaste.toFixed(1)} mm.`);
         if (cutting.alternative?.length) answerLines.push(`Alternative: ${cutting.alternative.map((a) => `${a.materijal}${a.debljina ? ' ' + a.debljina + 'µ' : ''} (${a.rolni} rolni, ${a.ukupnoM.toLocaleString('sr-RS')} m, otpad ${a.minOtpad} mm)`).join('; ')}.`);
         if (cutting.remaining > 0) answerLines.push(`Nedostaje još ${Math.round(cutting.remaining).toLocaleString('sr-RS')} m za pun zahtev.`);
     }
     if (schedule.plan.length && (intent.key === 'plan_proizvodnje' || intent.key === 'napravi_nalog')) {
         answerLines.push(`Za proizvodnju imam ${schedule.plan.length} predloga rasporeda po mašinama.`);
+    }
+    if (cutting.nemaMaterijala) {
+        answerLines.push(`Nema nijedne rolne koja odgovara traženom materijalu (${[cutting.trazeno.vrsta, cutting.trazeno.podVrsta, cutting.trazeno.oznaka, cutting.trazeno.debljina ? cutting.trazeno.debljina + 'µ ±3µ' : ''].filter(Boolean).join(' ').toUpperCase()}) u širini ≥ ${cutting.targetWidth || 0} mm. Ne podmećem drugi materijal.`);
+        warnings.push('Traženi materijal nije nađen u magacinu u traženoj širini — proveri zalihe ili promeni širinu/debljinu.');
     }
     if (!actions.length) answerLines.push('Mogu da dam analizu iz povezanih tabela, ali za izvršnu akciju treba precizirati: proizvod/kupac, količinu, širinu, metražu i tip operacije.');
 
