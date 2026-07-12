@@ -428,6 +428,7 @@ function ToggleButton({ active, children, onClick }) {
 
 
 function MaterialInlineSelector({ layer, onPatch }) {
+    const { t } = useLang();
     const { materijali, dobavljaci, loading } = useMaterialMaster();
     const useLive = materijali.length > 0;
     const [rucniProizvodjac, setRucniProizvodjac] = useState(false);
@@ -498,19 +499,19 @@ function MaterialInlineSelector({ layer, onPatch }) {
     const uid = "mls-" + (layer?._uid || (layer && (layer._uid = Math.random().toString(36).slice(2, 7))) || "x");
     return <>
         {/* Vrsta — lista + slobodan unos */}
-        <input style={input} list={uid + "-v"} value={vrsta} placeholder="Vrsta"
+        <input style={input} list={uid + "-v"} value={vrsta} placeholder={t("ph.vrsta")}
             onChange={e => onPatch({ vrsta: e.target.value, pod_vrsta: "", oznaka_materijala: "", oznaka: "", debljina: "" })} />
         <datalist id={uid + "-v"}>{vrste.map(v => <option key={v} value={v} />)}</datalist>
         {/* Pod vrsta — lista + slobodan unos */}
-        <input style={input} list={uid + "-pv"} value={pod_vrsta} placeholder="Pod vrsta"
+        <input style={input} list={uid + "-pv"} value={pod_vrsta} placeholder={t("ph.pod_vrsta")}
             onChange={e => onPatch({ pod_vrsta: e.target.value, oznaka_materijala: "", oznaka: "", debljina: "" })} />
         <datalist id={uid + "-pv"}>{podVrste.map(p => <option key={p} value={p} />)}</datalist>
         {/* Oznaka — lista + slobodan unos */}
-        <input style={input} list={uid + "-oz"} value={oznaka} placeholder="Oznaka"
+        <input style={input} list={uid + "-oz"} value={oznaka} placeholder={t("ph.oznaka")}
             onChange={e => onPatch({ oznaka_materijala: e.target.value, oznaka: e.target.value, debljina: "" })} />
         <datalist id={uid + "-oz"}>{oznake.map(o => <option key={o} value={o} />)}</datalist>
         {/* Proizvođač — lista + slobodan unos */}
-        <input style={input} list={uid + "-pr"} value={proizvodjac} placeholder="Proizvođač"
+        <input style={input} list={uid + "-pr"} value={proizvodjac} placeholder={t("ph.proizvodjac")}
             onChange={e => onPatch({ proizvodjac: e.target.value })} />
         <datalist id={uid + "-pr"}>{dobavljaci.map(d => <option key={d} value={d} />)}</datalist>
         {/* Debljina — lista + slobodan unos */}
@@ -659,7 +660,7 @@ function RollPreview({ folija, idealna = "" }) {
             <span>Materijal: {sirM || "—"} mm · iskorišćenje {isk.toFixed(1)}%{otpad ? " · otpad " + otpad.toFixed(0) + " mm (po " + ol.toFixed(0) + " levo/desno)" : ""}</span>
         </div>
         <div style={{ display: "flex", minHeight: 72, borderTop: `1px solid ${BLUE}` }}>
-            {segs.length ? segs.map((s, i) => <div key={i} style={{ flex: `${Math.max(s.w, 6)} 1 0`, minWidth: s.w < 18 ? 42 : 50, borderRight: i === segs.length - 1 ? "none" : `1px solid ${s.waste ? RED : BLUE}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.waste ? RED : BLUE, background: s.waste ? "#fee2e2" : "transparent", fontSize: 11, fontWeight: 900, textAlign: "center", padding: 3 }}>{s.label}</div>) : <div style={{ padding: 16, color: "#64748b", fontWeight: 800 }}>Unesi širinu materijala i širinu trake.</div>}
+            {segs.length ? segs.map((s, i) => <div key={i} style={{ flex: `${Math.max(s.w, 6)} 1 0`, minWidth: s.w < 18 ? 42 : 50, borderRight: i === segs.length - 1 ? "none" : `1px solid ${s.waste ? RED : BLUE}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.waste ? RED : BLUE, background: s.waste ? "#fee2e2" : "transparent", fontSize: 11, fontWeight: 900, textAlign: "center", padding: 3 }}>{s.label}</div>) : <div style={{ padding: 16, color: "#64748b", fontWeight: 800 }}>{t("ph.unesi_sirine")}</div>}
         </div>
         {folija.kpdf.enabled && <div style={{ padding: "8px 12px", background: "#fff7ed", color: "#9a3412", fontWeight: 800, fontSize: 12 }}>KPDF / perforacija: {folija.kpdf.tip} · {folija.kpdf.odnos} · {folija.kpdf.smer} · pozicija {folija.kpdf.pozicija || "—"}</div>}
     </div>;
@@ -2064,13 +2065,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <label style={labelStyle()}>{t("tmpl.sirina_materijala")}</label>
                             <input style={{ ...fieldStyle(), background: "#eff6ff", color: "#2446b8", fontWeight: 900 }}
                                 value={form.folija.rezanje.sirinaMaterijala || form.idealnaSirinaMaterijala || ""}
-                                onChange={e => update("folija.rezanje.sirinaMaterijala", e.target.value)} placeholder="auto iz idealne širine" />
+                                onChange={e => update("folija.rezanje.sirinaMaterijala", e.target.value)} placeholder={t("ph.auto_idealna")} />
                         </div>
                         <div>
                             <label style={labelStyle()}>{t("tmpl.sirina_trake")}</label>
                             <input style={{ ...fieldStyle(), background: form.folija.rezanje.sirinaTrake ? "#fff" : "#eff6ff", color: "#2446b8" }}
                                 value={form.folija.rezanje.sirinaTrake || form.dimenzijaSirina || ""}
-                                onChange={e => update("folija.rezanje.sirinaTrake", e.target.value)} placeholder="auto iz dim. širine" />
+                                onChange={e => update("folija.rezanje.sirinaTrake", e.target.value)} placeholder={t("ph.auto_dim")} />
                         </div>
                         <div>
                             <label style={labelStyle()}>{t("tmpl.broj_traka")}</label>
@@ -2081,7 +2082,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <label style={labelStyle()}>{t("tmpl.duzina_rolne")}</label>
                             <input style={{ ...fieldStyle(), background: form.folija.rezanje.duzinaRolne ? "#fff" : "#eff6ff", color: "#2446b8" }}
                                 value={form.folija.rezanje.duzinaRolne || form.porucenaKolicina || ""}
-                                onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)} placeholder="auto iz poručene kol." />
+                                onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)} placeholder={t("ph.auto_porucena")} />
                         </div>
                         <div>
                             <label style={labelStyle()}>{t("tmpl.precnik_rolne")}</label>
@@ -2194,7 +2195,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <div key={grupa.id} style={{ marginBottom: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 6px" }}>
                                 <span style={{ width: 8, height: 8, borderRadius: 2, background: grupa.c }} />
-                                <span style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", fontWeight: 800, color: "#334155" }}>{grupa.l}</span>
+                                <span style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", fontWeight: 800, color: "#334155" }}>{t("grupa." + grupa.id, grupa.l)}</span>
                             </div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
                                 {KESA_OPCIJE.filter(op => grupa.keys.includes(op.k)).map(op => {
@@ -2217,13 +2218,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                     return (
                                         <div key={op.k} style={{ border: "1px solid #dbe3ef", borderRadius: 8, padding: "8px 10px", background: on ? "#ecfdf5" : "#fff" }}>
                                             <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, color: "#334155", cursor: "pointer", fontSize: 13 }}>
-                                                <input type="checkbox" checked={on} onChange={e => setOpt({ on: e.target.checked, sel: (op.tip === "danet" && e.target.checked) ? "DA" : sel })} /> {op.l}
+                                                <input type="checkbox" checked={on} onChange={e => setOpt({ on: e.target.checked, sel: (op.tip === "danet" && e.target.checked) ? "DA" : sel })} /> {t("opt." + op.k, op.l)}
                                             </label>
                                             {on && (
                                                 <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
                                                     {op.tip === "lista" && (
                                                         <select value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()}>
-                                                            <option value="">— izaberi —</option>
+                                                            <option value="">{t("ph.izaberi")}</option>
                                                             {op.vals.map(v => <option key={v} value={v}>{v}</option>)}
                                                         </select>
                                                     )}
@@ -2234,7 +2235,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                         <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(op.pos.length, 4)}, 1fr)`, gap: 6 }}>
                                                             {op.pos.map(pf => (
                                                                 <div key={pf}>
-                                                                    <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{POS_LBL[pf]}</label>
+                                                                    <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{t("pos." + pf, POS_LBL[pf])}</label>
                                                                     <input value={pos[pf] || ""} onChange={e => setOpt({ pos: { [pf]: e.target.value } })} style={fieldStyle()} />
                                                                 </div>
                                                             ))}
