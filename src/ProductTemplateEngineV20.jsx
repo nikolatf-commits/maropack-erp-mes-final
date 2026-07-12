@@ -6,6 +6,7 @@ import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
+import { useLang } from "./LanguageProvider.jsx";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -1287,6 +1288,7 @@ function inferTemplateOperations(tpl = {}) {
 }
 
 function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
+    const { t } = useLang();
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
     const [nalogModal, setNalogModal] = useState(false);
@@ -1906,47 +1908,47 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            <ToggleButton active={form.type === "folija"} onClick={() => setType("folija")}>🎞️ Folija template</ToggleButton>
-            <ToggleButton active={form.type === "kesa"} onClick={() => setType("kesa")}>🛍️ Kesa template + crtež</ToggleButton>
-            <ToggleButton active={form.type === "spulna"} onClick={() => setType("spulna")}>🧵 Špulna template</ToggleButton>
+            <ToggleButton active={form.type === "folija"} onClick={() => setType("folija")}>🎞️ {t("tmpl.folija")}</ToggleButton>
+            <ToggleButton active={form.type === "kesa"} onClick={() => setType("kesa")}>🛍️ {t("tmpl.kesa")}</ToggleButton>
+            <ToggleButton active={form.type === "spulna"} onClick={() => setType("spulna")}>🧵 {t("tmpl.spulna")}</ToggleButton>
         </div>
 
-        <Section title="Osnovni podaci narudžbe" color={GREEN}>
+        <Section title={t("tmpl.osnovni")} color={GREEN}>
             {/* Red 1 — Identifikacija */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                <Input label="Šifra proizvoda" value={form.sifra} onChange={v => update("sifra", v)} placeholder="interni kod" />
-                <Input label="Kupac" value={form.kupac} onChange={v => update("kupac", v)} placeholder="npr. Medomix" />
-                <Input label="Naziv proizvoda" value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
-                <Select label="Tip proizvoda" value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
+                <Input label={t("tmpl.sifra")} value={form.sifra} onChange={v => update("sifra", v)} placeholder="interni kod" />
+                <Input label={t("tmpl.kupac")} value={form.kupac} onChange={v => update("kupac", v)} placeholder="npr. Medomix" />
+                <Input label={t("tmpl.naziv")} value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
+                <Select label={t("tmpl.tip_proizvoda")} value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                    <div>
-                        <label style={labelStyle()}>Poručena količina (m)</label>
-                        <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                            onChange={e => update("porucenaKolicina", e.target.value)} style={fieldStyle()} />
-                    </div>
-                    <div>
-                        <label style={labelStyle()}>+5% uvećana količina (auto)</label>
-                        <input readOnly value={form.porucenaKolicina ? Math.ceil(Number(form.porucenaKolicina) * 1.05).toLocaleString("sr-RS") : "—"}
-                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                    </div>
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
-                    </div>
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
-                    </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                <div>
+                    <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
+                    <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                        onChange={e => update("porucenaKolicina", e.target.value)} style={fieldStyle()} />
                 </div>
+                <div>
+                    <label style={labelStyle()}>+5% uvećana količina (auto)</label>
+                    <input readOnly value={form.porucenaKolicina ? Math.ceil(Number(form.porucenaKolicina) * 1.05).toLocaleString("sr-RS") : "—"}
+                        style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                </div>
+                <div>
+                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                </div>
+            </div>
             )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
-                <Input label="Idealna širina materijala (mm)" value={form.idealnaSirinaMaterijala}
+                <Input label={t("tmpl.idealna_sirina")} value={form.idealnaSirinaMaterijala}
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
@@ -2003,7 +2005,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
         {form.type === "folija" && (
             <>
-                <Section title="Folija — slojevi i materijali" color={BLUE}>
+                <Section title={t("tmpl.materijali")} color={BLUE}>
                     <MaterialLayersOneRowTable
                         title="MATERIJALI FOLIJE"
                         layers={form.folija.layers || []}
@@ -2020,7 +2022,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     />
                 </Section>
 
-                <Section title="Parametri štampanja" color={BLUE}>
+                <Section title={t("tmpl.stampa_param")} color={BLUE}>
                     <Grid cols={4}>
                         {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje").map(k => (
                             <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
@@ -2035,7 +2037,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </div>
                 </Section>
 
-                <Section title="Parametri kaširanja / laminiranja" color={BLUE}>
+                <Section title={t("tmpl.kasiranje")} color={BLUE}>
                     <Grid cols={3}>
                         <div>
                             <label style={labelStyle()}>Broj kaširanja (auto)</label>
@@ -2054,7 +2056,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </Grid>
                 </Section>
 
-                <Section title="Rezanje i finalna rolna" color={BLUE}>
+                <Section title={t("tmpl.rezanje")} color={BLUE}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 14 }}>
                         <div>
                             <label style={labelStyle()}>Širina materijala (mm)</label>
@@ -2134,13 +2136,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
         {form.type === "kesa" && (
             <>
-                <Section title="Kesa — osnovni podaci" color={GREEN}>
+                <Section title={t("tmpl.kesa_osnovni")} color={GREEN}>
                     <Grid cols={4}>
-                        {[["kolicina", "Poručena količina (kom)"], ["skart", "Škart (%)"], ["datum", "Datum"]].map(([k, l]) => (
+                        {[["kolicina", t("tmpl.kesa_kolicina")], ["skart", t("tmpl.skart")], ["datum", t("common.datum")]].map(([k, l]) => (
                             <Input key={k} label={l} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
                         <div>
-                            <label style={labelStyle()}>Potrebno materijala (auto)</label>
+                            <label style={labelStyle()}>{t("tmpl.potrebno_materijala")}</label>
                             <input readOnly value={(() => { const m = orderMetraze(form).kolPlus; return m ? m.toLocaleString("sr-RS") + " m" : "—"; })()}
                                 style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }}
                                 title="kom × (dužina+klapna+falta) × (1+škart%)" />
@@ -2155,9 +2157,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     })()}
                 </Section>
 
-                <Section title="Dimenzije i konstrukcija kese" color={BLUE}>
+                <Section title={t("tmpl.dimenzije_kese")} color={BLUE}>
                     <Grid cols={4}>
-                        <Select label="Tip kese" value={form.kesa.tipKese || "flach"} onChange={v => setForm(prev => {
+                        <Select label={t("tmpl.tip_kese")} value={form.kesa.tipKese || "flach"} onChange={v => setForm(prev => {
                             const n = clone(prev);
                             n.kesa.tipKese = v;
                             n.kesa.options = { ...(n.kesa.options || {}) };
@@ -2170,7 +2172,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </Grid>
                 </Section>
 
-                <Section title="Materijali kese" color={GREEN}>
+                <Section title={t("tmpl.materijali")} color={GREEN}>
                     <MaterialLayersOneRowTable
                         title="MATERIJALI KESE"
                         layers={form.kesa.layers || []}
@@ -2255,7 +2257,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     ))}
                 </Section>
 
-                <Section title="Tehnički crtež kese (maropack)" color={BLUE}>
+                <Section title={t("tmpl.crtez")} color={BLUE}>
                     <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
                 </Section>
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getNavGroups } from "./config/navigation.js";
+import { LanguageProvider, useLang, LanguageSwitcher } from "./LanguageProvider.jsx";
 import { supabase } from "./supabase.js";
 import { LOGO_B64, SPULNA_B64 } from "./constants.js";
 import html2canvas from "html2canvas";
@@ -1686,7 +1687,8 @@ function MainAppContent() {
 
     // ✅ FINAL CLEAN ACCORDION NAVIGATION STRUCTURE
     // Navigacija je izdvojena u src/config/navigation.js da App.jsx ne drži meni u sebi.
-    const navGroupsAll = getNavGroups(isAdmin, userProfile?.uloga);
+    const { lang } = useLang();
+    const navGroupsAll = getNavGroups(isAdmin, userProfile?.uloga, lang);
     // Magacioneri sa ulogom "radnik" (magacin2, magacin3) vide SAMO Magacin modul.
     const samoMagacinRola = userProfile?.uloga === "radnik";
     const navGroups = samoMagacinRola
@@ -1718,6 +1720,11 @@ function MainAppContent() {
             <div style={{ width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
                 <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
                     <img src={LOGO_B64} alt="Maropack" style={{ maxWidth: 160, height: 42, objectFit: "contain" }} />
+                </div>
+
+                {/* PREKIDAČ JEZIKA (SR / EN / DE) */}
+                <div style={{ padding: "10px 10px 0" }}>
+                    <LanguageSwitcher />
                 </div>
 
                 <nav style={{ padding: "10px 8px", flex: 1, overflowY: "auto" }}>
@@ -2176,9 +2183,11 @@ function MainAppContent() {
 // ============================================
 export default function App() {
     return (
-        <AuthProvider>
-            <AppContent />
-        </AuthProvider>
+        <LanguageProvider defaultLang="sr">
+            <AuthProvider>
+                <AppContent />
+            </AuthProvider>
+        </LanguageProvider>
     );
 }
 

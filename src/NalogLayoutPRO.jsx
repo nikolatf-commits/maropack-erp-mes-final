@@ -2,8 +2,7 @@ import React from "react";
 import QRCode from "qrcode";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 import { pantoneHex } from "./data/pantone.js";
-import { kesaToConfig, kesaSvgString } from "./CrtezKese.jsx";
-import { KESA_OPCIJE, FOOD_TEXT, toCrtezKesa, KESA_GRUPE } from "./kesaOpcije.js";
+import { translate, useLang } from "./LanguageProvider.jsx";
 
 /* ---------- helpers ---------- */
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
@@ -164,8 +163,8 @@ function rezSvg(D) { const total = D.rez.sirinaMat || 840; const lanes = D.rez.l
 const COLm = '#d97706', COLs = '#2563eb', COLk = '#4338ca', COLp = '#7c3aed';
 function infoC(l, v) { return '<div class="c"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v || '—') + '</div></div>'; }
 function stat(l, v, u, c) { return '<div class="stat"><div class="bar" style="background:' + c + '"></div><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + ' <span class="u">' + esc(u) + '</span></div></div>'; }
-function statRow(D) { return '<div class="stats">' + stat('Količina', fmtN(D.kolicina), 'm', COLm) + stat('Ukupna debljina', D.TOTu, 'µm', '#0ea5e9') + stat('Slojeva', D.LAY.length, D.LAY.length === 4 ? 'kvadripleks' : (D.LAY.length === 3 ? 'tripleks' : (D.LAY.length === 2 ? 'dupleks' : 'sloj')), '#14b8a6') + stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp) + '</div>'; }
-function infoBlock(D) { return '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) + infoC('Šifra', D.sifra) + infoC('Tip', D.tipLabel) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', D.sirinaMat + ' mm') + infoC('Rok', D.rok) + '</div>'; }
+function statRow(D) { return '<div class="stats">' + stat(T("nalog.kolicina"), fmtN(D.kolicina), 'm', COLm) + stat('Ukupna debljina', D.TOTu, 'µm', '#0ea5e9') + stat('Slojeva', D.LAY.length, D.LAY.length === 4 ? 'kvadripleks' : (D.LAY.length === 3 ? 'tripleks' : (D.LAY.length === 2 ? 'dupleks' : 'sloj')), '#14b8a6') + stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp) + '</div>'; }
+function infoBlock(D) { return '<div class="info">' + infoC(T("nalog.kupac", "Kupac"), D.kupac) + infoC(T("nalog.proizvod"), D.proizvod) + infoC('Šifra', D.sifra) + infoC('Tip', D.tipLabel) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', D.sirinaMat + ' mm') + infoC('Rok', D.rok) + '</div>'; }
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
@@ -176,14 +175,14 @@ function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td>
 function totalKg(D) { return D.LAY.reduce(function (s, l) { return s + l.gm2 * D.kgF; }, 0).toFixed(1); }
 
 function pMat(D) {
-    const c = COLm; return pageWrap(D, hd(D, '📦', 'NALOG ZA MATERIJAL', c, 'materijal') + '<div class="body">' + statRow(D) + infoBlock(D) +
+    const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + statRow(D) + infoBlock(D) +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
         '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(D.kolicina) + '</td><td class="n">—</td></tr>'; }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
 
 function pStampa(D) {
-    const c = COLs; const L0 = D.LAY.find(function (l) { return l.st; }) || D.LAY[0] || { n: '', pv: '', oz: '', pr: '', u: 0, gm2: 0, c: '#3b82f6' }; const chips = (D.boje.length ? D.boje : [{ sw: '#22d3ee', lab: '1·Cyan' }, { sw: '#ec4899', lab: '2·Magenta' }, { sw: '#facc15', lab: '3·Yellow' }, { sw: '#1f2937', lab: '4·Black' }]).map(function (b) { return '<div class="chip"><span class="sw" style="background:' + b.sw + '"></span>' + esc(b.lab) + '</div>'; }).join(''); return pageWrap(D, hd(D, '🖨️', 'NALOG ZA ŠTAMPU', c, 'štampa') + '<div class="body">' + statRow(D) + infoBlock(D) +
+    const c = COLs; const L0 = D.LAY.find(function (l) { return l.st; }) || D.LAY[0] || { n: '', pv: '', oz: '', pr: '', u: 0, gm2: 0, c: '#3b82f6' }; const chips = (D.boje.length ? D.boje : [{ sw: '#22d3ee', lab: '1·Cyan' }, { sw: '#ec4899', lab: '2·Magenta' }, { sw: '#facc15', lab: '3·Yellow' }, { sw: '#1f2937', lab: '4·Black' }]).map(function (b) { return '<div class="chip"><span class="sw" style="background:' + b.sw + '"></span>' + esc(b.lab) + '</div>'; }).join(''); return pageWrap(D, hd(D, '🖨️', T("nalog.nalog_stampa"), c, 'štampa') + '<div class="body">' + statRow(D) + infoBlock(D) +
         '<div class="sec">' + secH(1, c, 'Materijal koji se štampa', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody><tr><td><span class="dot-c" style="background:' + L0.c + '"></span>1</td><td>' + esc(L0.n) + '</td><td>' + esc(L0.pv || '—') + '</td><td>' + esc(L0.oz || '—') + '</td><td>' + esc(L0.pr || '—') + '</td><td class="n">' + L0.u + ' µm</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + kg(D, L0) + '</td></tr></tbody></table></div>' +
         '<div class="sec">' + secH(2, c, 'Parametri štampe', 'iz templejta') + '<div class="info">' + infoC('Mašina', D.stampa.masina) + infoC('Strana', D.stampa.strana) + infoC('Broj boja', D.stampa.brojBoja) + infoC('Smer', D.stampa.smer) + infoC('Kliše', D.stampa.klise) + infoC('Obim valjka', D.stampa.obimValjka) + infoC('Hilzna', D.stampa.hilzna) + infoC('Štamparija', D.stampa.stamparija) + '</div></div>' +
         '<div class="sec">' + secH(3, c, 'Redosled boja', '') + '<div class="chips">' + chips + '</div></div>' +
@@ -199,7 +198,7 @@ function passCard(title, spoj, rowsHtml, c) { return '<div style="border:1px sol
 function ord(i) { return ['Prvo', 'Drugo', 'Treće', 'Četvrto', 'Peto'][i] || ((i + 1) + '.'); }
 function pKas(D) {
     const c = COLk; const L = D.LAY; let cards = ''; for (let i = 1; i < L.length; i++) { const prevNames = L.slice(0, i).map(function (x) { return x.n; }).join('/'); const allNames = L.slice(0, i + 1).map(function (x) { return x.n; }).join('/'); let rows; if (i === 1) rows = passRow('Sloj 1', L[0]) + passRow('Sloj 2', L[1]); else rows = passLam('Međuproizvod', 'Laminat ' + prevNames, L.slice(0, i).reduce(function (s, x) { return s + x.u; }, 0)) + passRow('Sloj ' + (i + 1), L[i]); cards += passCard(ord(i - 1) + ' kaširanje', prevNames + ' + ' + L[i].n + ' → ' + allNames, rows, c); } if (!cards) cards = '<div class="ulaz">Jednoslojni materijal — nema kaširanja.</div>';
-    return pageWrap(D, hd(D, '🔗', 'NALOG ZA KAŠIRANJE', c, 'kaširanje') + '<div class="body">' + statRow(D) +
+    return pageWrap(D, hd(D, '🔗', T("nalog.nalog_kasiranje"), c, 'kaširanje') + '<div class="body">' + statRow(D) +
         '<div class="ulaz"><b>Ulaz:</b> ' + esc(L.map(function (x) { return x.n; }).join(' + ')) + ' — laminat se kašira u ' + Math.max(0, L.length - 1) + ' prolaza.</div>' +
         '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', (Math.max(0, L.length - 1)) + ' kaširanja') + cards + '</div>' +
         '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' + infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', D.kas.broj) + infoC('Redosled', L.map(function (x) { return x.n; }).join('/')) + infoC('Ukupna debljina', D.TOTu + ' µm') + infoC('', '') + infoC('', '') + '</div></div>' +
@@ -218,81 +217,15 @@ function pRez(D) {
 
 function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 500, 860) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
 
-function buildPagesHTML(nalog, vrsta, qr) {
+function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
+    const T = (k, f) => translate(lang, k, f);
     const D = buildD(nalog);
     D.qr = qr || "";
-    D.kesaObj = nalog.kesa || nalog;
-    D.kesaCfg = kesaToConfig(toCrtezKesa(D.kesaObj));
     D.rolne = (nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || []).slice(0, 6).map(function (r) { return { qr: r.qr || r.qr_kod || r.id, n: r.vrsta, oz: r.oznaka || r.oznaka_materijala, u: r.debljina || r.deb, lot: r.lot || r.LOT, lok: r.lokacija || r.location }; });
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);
     if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna") + pPerfBig(D);
-    if (vrsta === "kesa") return pKesa(D);
     return pMat(D);
-}
-
-function pKesa(D) {
-    const c = '#b91c1c';
-    const cfg = D.kesaCfg || {};
-    const k = D.kesaObj || {};
-    const TIPN = { flach: "Flachbeutel", klappen: "Klappenbeutel", bodenfalten: "Bodenfaltenbeutel", bodennaht: "Bodennahtbeutel", header: "Headerbeutel", banderole: "Banderole", rolle: "Beutel auf Rolle", brief: "Briefhülle", doppel: "Doppeltasche", easy: "Easy-Opening Beutel", flaschen: "Flaschenbeutel", heiss: "Heißgenadelte Beutel", kreuz: "Kreuzbodenbeutel", mehr: "Mehrkammerbeutel", zweifarbig: "Zweifarbige Beutel", zweikammer: "Zweikammerbeutel" };
-    const DNO = { ravno: "Ravno", faltna: "Faltna dno", naht: "Var na dnu", kreuz: "Ukršteno dno" };
-    const tipN = TIPN[cfg.tip] || k.tipKese || "Kesa";
-    const svg = kesaSvgString(cfg, { kote: true, bottomViews: true, info: false });
-    const opt = k.options || {}, sel = k.optSel || {}, pos = k.positions || {}, txt = k.optText || {};
-    const valOf = function (o) {
-        if (opt[o.k]) {
-            let v = o.tip === "danet" ? "DA" : (o.tip === "broj" ? ((sel[o.k] || "") + (o.jed ? " " + o.jed : "")).trim() : (sel[o.k] || "DA"));
-            const p = pos[o.k] || {}, t = txt[o.k] || {}, extra = [];
-            if (p.odstojanje) extra.push(esc(p.odstojanje));
-            if (p.odVrha) extra.push(esc(p.odVrha) + " mm od vrha");
-            if (p.odDna) extra.push(esc(p.odDna) + " mm od dna");
-            if (p.levo) extra.push(esc(p.levo) + " mm levo");
-            if (p.sirina && p.visina) extra.push(esc(p.sirina) + "×" + esc(p.visina) + " mm");
-            Object.keys(t).forEach(function (kk) { if (t[kk]) extra.push(esc(t[kk])); });
-            return esc(v) + (extra.length ? " · " + extra.join(" · ") : "");
-        }
-        return o.tip === "danet" ? "NE" : (o.k === "stampa" ? "Bez štampe" : "0");
-    };
-    const tpRow = function (label, value, on) {
-        return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:10.5px;padding:3px 0;border-bottom:1px solid #f1f5f9"><span style="color:#64748b">' + esc(label) + '</span><span style="font-weight:700;text-align:right;max-width:60%;color:' + (on ? '#0f172a' : '#94a3b8') + '">' + value + '</span></div>';
-    };
-    const foodOn = !!opt["hrana"];
-    const optByKey = {};
-    KESA_OPCIJE.forEach(function (o) { optByKey[o.k] = o; });
-    const grpCard = function (g) {
-        let rows = '';
-        if (g.id === 'konstrukcija') rows += tpRow('Širina', esc(cfg.sirina) + ' mm', true) + tpRow('Dužina', esc(cfg.duzina) + ' mm', true);
-        g.keys.forEach(function (key) {
-            const o = optByKey[key];
-            if (!o || o.food) return;
-            rows += tpRow(o.l, valOf(o), !!opt[o.k]);
-        });
-        return '<div style="border:1px solid #e8ebf1;border-radius:10px;overflow:hidden">' +
-            '<div style="background:' + g.c + ';color:#fff;font-weight:800;font-size:10.5px;letter-spacing:.4px;padding:5px 10px">' + esc(g.l) + '</div>' +
-            '<div style="padding:3px 10px">' + rows + '</div></div>';
-    };
-    const tpkHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start">' + KESA_GRUPE.map(grpCard).join('') + '</div>' +
-        (foodOn ? '<div style="margin-top:8px;font-size:10.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 8px">📋 ' + esc(FOOD_TEXT) + '</div>' : '');
-    const izabrane = KESA_OPCIJE.filter(function (o) { return opt[o.k] && !o.food; }).map(function (o) { return esc(o.l) + (sel[o.k] ? ' ' + esc(sel[o.k]) : ''); });
-    const legend = '<div style="margin-top:10px;text-align:center;font-size:11px;color:#475569;border:1px dashed #cbd5e1;border-radius:8px;padding:7px">' +
-        '<b>' + esc(tipN) + ' ' + esc(cfg.sirina) + ' × ' + esc(cfg.duzina) + (cfg.vrh === 'klapna' ? ' + ' + esc(cfg.klMm) : '') + ' mm</b>' +
-        (izabrane.length ? ' · ' + izabrane.slice(0, 8).join(' · ') : '') + ' — kote u mm</div>';
-    const materijal = k.materijal || (k.layers && k.layers[0] && (k.layers[0].oznaka || k.layers[0].vrsta)) || '—';
-    const idealSir = k.idealnaSirinaMaterijala || k.ideal || (D.kesaObj && D.kesaObj.idealnaSirinaMaterijala) || '—';
-    const stats = '<div class="stats">' + stat('Dimenzije', cfg.sirina + '×' + cfg.duzina, 'mm', c) + stat('Količina', fmtN(D.kolicina), 'kom', COLm) + stat('Tip kese', tipN, '', '#7c3aed') + stat('Dno', DNO[cfg.dno] || 'Ravno', (cfg.dno === 'faltna' && cfg.extraMm ? '(' + cfg.extraMm + 'mm)' : ''), '#0ea5e9') + '</div>';
-    const info = '<div class="info">' +
-        infoC('Broj naloga', D.broj) + infoC('Br. porudžbine', k.porudzbina || D.porudzbina) + infoC('Datum porudžbine', k.datum_por || D.datum) + infoC('Datum isporuke', D.rok) +
-        infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) + infoC('Šifra', D.sifra) + infoC('Materijal', materijal) +
-        infoC('Idealna širina', idealSir !== '—' ? idealSir + ' mm' : '—') + infoC('Debljina', k.debljina ? k.debljina + ' µ' : '—') + infoC('Tip kese', tipN) + infoC('Klapna', cfg.vrh === 'klapna' ? (cfg.klMm + ' mm') : '—') +
-        '</div>';
-    const page1 = pageWrap(D, hd(D, '🛍️', 'NALOG ZA KESU', c, 'kesa') + '<div class="body">' + stats + info +
-        '<div class="sec">' + secH(1, c, 'Tehnički podaci za kesu', '') + '<div style="padding:4px 2px">' + tpkHtml + '</div></div>' +
-        foot('Nalog izradio', 'Datum naloga', 'Nalog odobrio') + '</div>', 'Strana 1 · kesa — podaci');
-    const page2 = pageWrap(D, hd(D, '📐', 'TEHNIČKI CRTEŽ KESE', c, 'kesa') + '<div class="body">' +
-        '<div class="sec">' + secH(1, c, 'Tehnički crtež sa kotama', tipN) + '<div class="framed">' + svg + '</div>' + legend + '</div>' +
-        foot('Nalog izradio', 'Datum naloga', 'Nalog odobrio') + '</div>', 'Strana 2 · kesa — crtež');
-    return page1 + page2;
 }
 
 /* ---------- CSS (v6) ---------- */
@@ -366,12 +299,12 @@ const V6_CSS = `
 `;
 
 export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
+    const { lang } = useLang();
     let vrsta = String(activeTab || nalog.tip_naloga || nalog.vrsta_naloga || "").toLowerCase();
     if (vrsta.includes("mater")) vrsta = "materijal";
     else if (vrsta.includes("štamp") || vrsta.includes("stamp")) vrsta = "stampa";
     else if (vrsta.includes("kaš") || vrsta.includes("kas")) vrsta = "kasiranje";
     else if (vrsta.includes("perf") || vrsta.includes("rez")) vrsta = "perforacija_rezanje";
-    else if (vrsta.includes("kesa") || vrsta.includes("beutel")) vrsta = "kesa";
     else vrsta = "materijal";
     const broj = nalog.master_broj || nalog.broj_naloga || nalog.broj || (nalog.master_nalog && nalog.master_nalog.broj_naloga) || "";
     const [qr, setQr] = React.useState("");
@@ -381,7 +314,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         QRCode.toDataURL(url, { margin: 0, width: 160 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
     }, [broj]);
-    const htmlStr = buildPagesHTML(nalog, vrsta, qr);
+    const htmlStr = buildPagesHTML(nalog, vrsta, qr, lang);
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
             <style>{V6_CSS}</style>
