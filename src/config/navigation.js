@@ -48,8 +48,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
             items: [
                 { k: 'lista_proizvoda_kupci', l: 'Lista proizvoda po kupcima', i: '🗂️' },
                 { k: 'baza_proizvoda_pro', l: 'Baza proizvoda PRO', i: '📦' },
-                { k: 'template_engine', l: 'Template Engine', i: '🧩' },
-                { k: 'baza_materijala', l: 'Baza materijala', i: '🧪' }
+                { k: 'template_engine', l: 'Template Engine', i: '🧩' }
             ]
         },
         {
