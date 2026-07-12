@@ -1,7 +1,11 @@
+// Centralna konfiguracija menija — sa prevodima (SR/EN/DE).
+// Tekstovi se prevode preko i18n rečnika; ključ prevoda = k (stavka) / key (grupa).
+import { translate } from "../i18n.js";
+
 // Centralna konfiguracija menija.
 // Ovde menjamo meni, a App.jsx samo renderuje grupe i stavke.
 
-export function getNavGroups(isAdmin, userRole) {
+function getNavGroupsRaw(isAdmin, userRole) {
     if (userRole === 'magacioner') {
         return [
             {
@@ -45,6 +49,7 @@ export function getNavGroups(isAdmin, userRole) {
                 { k: 'lista_proizvoda_kupci', l: 'Lista proizvoda po kupcima', i: '🗂️' },
                 { k: 'baza_proizvoda_pro', l: 'Baza proizvoda PRO', i: '📦' },
                 { k: 'template_engine', l: 'Template Engine', i: '🧩' },
+                { k: 'baza_materijala', l: 'Baza materijala', i: '🧪' }
             ]
         },
         {
@@ -66,6 +71,7 @@ export function getNavGroups(isAdmin, userRole) {
             icon: '🏪',
             items: [
                 { k: 'rolne_engine', l: 'Magacin rolni i materijala', i: '🏪' },
+                { k: 'analiza_potrosnje_materijala', l: 'Analiza potrošnje materijala', i: '📊' },
                 { k: 'kalkulator_maticnih', l: 'Kalkulator matičnih rolni', i: '📊' },
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
                 { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' },
@@ -106,4 +112,17 @@ export function getNavGroups(isAdmin, userRole) {
             ]
         }
     ];
+}
+
+// Prevedeni meni — App.jsx poziva ovo (prosledi lang iz useLang()).
+export function getNavGroups(isAdmin, userRole, lang = "sr") {
+    const T = (key, fallback) => translate(lang, key, fallback);
+    return getNavGroupsRaw(isAdmin, userRole).map((g) => ({
+        ...g,
+        label: T(`nav.${g.key}`, g.label),
+        items: (g.items || []).map((it) => ({
+            ...it,
+            l: T(`nav.${it.k}`, it.l),
+        })),
+    }));
 }

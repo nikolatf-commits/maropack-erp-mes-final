@@ -522,6 +522,7 @@ function MaterialInlineSelector({ layer, onPatch }) {
 }
 
 function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, onRemove, onPatch, showKg = false, showMetara = false, showCena = true, idealnaSirina = "", porucenaKolicina = "" }) {
+    const { t } = useLang();
     const safeLayers = layers.length ? layers : [clone(emptyLayer)];
     const tableWrap = { border: "1px solid #dbe3ef", borderRadius: 14, overflow: "hidden", background: "#fff" };
     const th = { background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#334155", fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: .25, padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" };
@@ -539,9 +540,9 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
             <div>
                 <h3 style={{ margin: 0, color: "#0f172a", fontSize: 18, fontWeight: 950 }}>{title}</h3>
-                <div style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>Vrsta, oznaka, debljina, koeficijent, težina i širina su u jednom redu.</div>
+                <div style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>{t("tmpl.materijali_opis")}</div>
             </div>
-            <button onClick={onAdd} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 999, padding: "9px 14px", fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" }}>+ Dodaj sloj</button>
+            <button onClick={onAdd} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 999, padding: "9px 14px", fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" }}>+ {t("tmpl.dodaj_sloj")}</button>
         </div>
         <div style={tableWrap}>
             <div style={{ overflowX: "auto" }}>
@@ -549,20 +550,20 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
                     <thead>
                         <tr>
                             <th style={{ ...th, width: 38 }}>#</th>
-                            <th style={{ ...th, width: 120 }}>Vrsta materijala</th>
-                            <th style={{ ...th, width: 120 }}>Pod vrsta</th>
-                            <th style={{ ...th, width: 140 }}>Oznaka materijala</th>
-                            <th style={{ ...th, width: 140 }}>Proizvođač</th>
-                            <th style={{ ...th, width: 95 }}>Debljina</th>
-                            <th style={{ ...th, width: 95 }}>Koeficijent</th>
-                            <th style={{ ...th, width: 105 }}>Težina g/m²</th>
-                            <th style={{ ...th, width: 100 }}>Širina mm</th>
-                            {showKg && <th style={{ ...th, width: 90 }}>Kg</th>}
-                            {showMetara && <th style={{ ...th, width: 110 }}>Potrebno m</th>}
-                            {showCena && <th style={{ ...th, width: 100 }}>Cena €/kg</th>}
+                            <th style={{ ...th, width: 120 }}>{t("tmpl.vrsta")}</th>
+                            <th style={{ ...th, width: 120 }}>{t("tmpl.pod_vrsta")}</th>
+                            <th style={{ ...th, width: 140 }}>{t("tmpl.oznaka")}</th>
+                            <th style={{ ...th, width: 140 }}>{t("tmpl.proizvodjac")}</th>
+                            <th style={{ ...th, width: 95 }}>{t("tmpl.debljina")}</th>
+                            <th style={{ ...th, width: 95 }}>{t("tmpl.koeficijent")}</th>
+                            <th style={{ ...th, width: 105 }}>{t("tmpl.tezina_gm2")}</th>
+                            <th style={{ ...th, width: 100 }}>{t("tmpl.sirina_mm")}</th>
+                            {showKg && <th style={{ ...th, width: 90 }}>{t("tmpl.kg")}</th>}
+                            {showMetara && <th style={{ ...th, width: 110 }}>{t("tmpl.potrebno_m")}</th>}
+                            {showCena && <th style={{ ...th, width: 100 }}>{t("tmpl.cena")} €/kg</th>}
                             <th style={{ ...th, width: 55, textAlign: "center" }}>Š</th>
                             <th style={{ ...th, width: 55, textAlign: "center" }}>L</th>
-                            <th style={{ ...th, width: 70, textAlign: "center" }}>Akcije</th>
+                            <th style={{ ...th, width: 70, textAlign: "center" }}>{t("tmpl.akcije")}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -606,19 +607,19 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
             <div style={{ padding: "14px 16px", background: "#f8fafc", borderTop: "2px solid #e2e8f0" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 10 }}>
                     <div style={{ background: "#fff", border: "1px solid #dbeafe", borderLeft: "4px solid #2446b8", borderRadius: 10, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Ukupna debljina</div>
+                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{t("tmpl.ukupna_debljina")}</div>
                         <div style={{ fontSize: 17, fontWeight: 950, color: "#2446b8" }}>{totalDeb ? `${totalDeb} µ` : "—"}</div>
                     </div>
                     <div style={{ background: "#fff", border: "1px solid #bbf7d0", borderLeft: "4px solid #059669", borderRadius: 10, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Ukupno g/m²</div>
+                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{t("tmpl.ukupno_gm2")}</div>
                         <div style={{ fontSize: 17, fontWeight: 950, color: "#059669" }}>{totalGm2.toFixed(1)} g/m²</div>
                     </div>
                     <div style={{ background: "#fff", border: "1px solid #dbeafe", borderLeft: "4px solid #2446b8", borderRadius: 10, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Prosečan koef.</div>
+                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{t("tmpl.prosecan_koef")}</div>
                         <div style={{ fontSize: 17, fontWeight: 950, color: "#2446b8" }}>{avgKoef.toFixed(2)}</div>
                     </div>
                     {showCena && totalCena > 0 && <div style={{ background: "#fff", border: "1px solid #bbf7d0", borderLeft: "4px solid #059669", borderRadius: 10, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Ukupna cena</div>
+                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{t("tmpl.ukupna_cena")}</div>
                         <div style={{ fontSize: 17, fontWeight: 950, color: "#059669" }}>{totalCena.toFixed(2)} €/kg</div>
                     </div>}
                     {showKg && porucenaKolicina && (() => {
@@ -631,13 +632,14 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
                         </div> : null;
                     })()}
                 </div>
-                <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>✅ Š = Štampa se &nbsp;|&nbsp; ☑ L = Lakira se</div>
+                <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>✅ {t("tmpl.legenda_stampa")} &nbsp;|&nbsp; ☑ {t("tmpl.legenda_lak")}</div>
             </div>
         </div>
     </div>;
 }
 
 function RollPreview({ folija, idealna = "" }) {
+    const { t } = useLang();
     const rez = folija.rezanje || {};
     const nn = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const sirM = nn(rez.sirinaMaterijala) || nn(idealna);
@@ -653,7 +655,7 @@ function RollPreview({ folija, idealna = "" }) {
     if (od > 0) segs.push({ w: od, waste: true, label: "OTPAD " + od.toFixed(0) });
     return <div style={{ border: `2px solid ${BLUE}`, borderRadius: 10, overflow: "hidden", background: "#eef4ff" }}>
         <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 11, fontWeight: 900, color: BLUE }}>
-            <span>Zamišljeni prikaz finalne rolne</span>
+            <span>{t("tmpl.prikaz_rolne")}</span>
             <span>Materijal: {sirM || "—"} mm · iskorišćenje {isk.toFixed(1)}%{otpad ? " · otpad " + otpad.toFixed(0) + " mm (po " + ol.toFixed(0) + " levo/desno)" : ""}</span>
         </div>
         <div style={{ display: "flex", minHeight: 72, borderTop: `1px solid ${BLUE}` }}>
@@ -1896,14 +1898,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     return <div style={{ padding: 18, background: "#f1f5f9", minHeight: "100vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div>
-                <h2 style={{ margin: 0, fontSize: 24, color: "#0f172a", fontWeight: 950 }}>📦 Product Template Engine PRO V26</h2>
+                <h2 style={{ margin: 0, fontSize: 24, color: "#0f172a", fontWeight: 950 }}>📦 {t("tmpl.engine_naslov")}</h2>
                 <div style={{ color: "#64748b", fontSize: 13 }}>Centralna baza proizvoda za folije, kese i špulne — V26 Real Template Mapping → Kalkulacija → Ponuda → Master nalog — kalkulacija, ponuda, nalozi, QC i AI koriste isti template.</div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={generisiNalogeMaterijal} style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ Generiši nalog materijala</button>
-                <button onClick={saveTemplate} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 Sačuvaj template</button>
-                <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 Ponuda iz template-a</button>
-                <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 AI Workflow</button>
+                <button onClick={generisiNalogeMaterijal} style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ {t("tmpl.generisi_nalog")}</button>
+                <button onClick={saveTemplate} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {t("tmpl.sacuvaj_template")}</button>
+                <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 {t("tmpl.ponuda_iz_template")}</button>
+                <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 {t("tmpl.ai_workflow")}</button>
             </div>
         </div>
 
@@ -1974,7 +1976,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 <div style={{ fontSize: 16, fontWeight: 950, color: "#059669" }}>{kol.toLocaleString("sr-RS")} m</div>
                             </div>
                             <div style={{ background: "#fff", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Ukupno g/m²</div>
+                                <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{t("tmpl.ukupno_gm2")}</div>
                                 <div style={{ fontSize: 16, fontWeight: 950, color: "#2446b8" }}>{totalGm2.toFixed(1)} g/m²</div>
                             </div>
                             {sirinaM > 0 && <div style={{ background: "#fff", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 12px" }}>
@@ -2007,7 +2009,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <>
                 <Section title={t("tmpl.materijali")} color={BLUE}>
                     <MaterialLayersOneRowTable
-                        title="MATERIJALI FOLIJE"
+                        title={t("tmpl.materijali_folije")}
                         layers={form.folija.layers || []}
                         showKg
                         showMetara
@@ -2059,45 +2061,45 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Section title={t("tmpl.rezanje")} color={BLUE}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 14 }}>
                         <div>
-                            <label style={labelStyle()}>Širina materijala (mm)</label>
+                            <label style={labelStyle()}>{t("tmpl.sirina_materijala")}</label>
                             <input style={{ ...fieldStyle(), background: "#eff6ff", color: "#2446b8", fontWeight: 900 }}
                                 value={form.folija.rezanje.sirinaMaterijala || form.idealnaSirinaMaterijala || ""}
                                 onChange={e => update("folija.rezanje.sirinaMaterijala", e.target.value)} placeholder="auto iz idealne širine" />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Širina trake (mm)</label>
+                            <label style={labelStyle()}>{t("tmpl.sirina_trake")}</label>
                             <input style={{ ...fieldStyle(), background: form.folija.rezanje.sirinaTrake ? "#fff" : "#eff6ff", color: "#2446b8" }}
                                 value={form.folija.rezanje.sirinaTrake || form.dimenzijaSirina || ""}
                                 onChange={e => update("folija.rezanje.sirinaTrake", e.target.value)} placeholder="auto iz dim. širine" />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Broj traka (auto)</label>
+                            <label style={labelStyle()}>{t("tmpl.broj_traka")}</label>
                             <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
                                 value={form.folija.rezanje.brojTraka || "—"} title="Računa se: širina materijala ÷ širina trake" />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Dužina rolne (m)</label>
+                            <label style={labelStyle()}>{t("tmpl.duzina_rolne")}</label>
                             <input style={{ ...fieldStyle(), background: form.folija.rezanje.duzinaRolne ? "#fff" : "#eff6ff", color: "#2446b8" }}
                                 value={form.folija.rezanje.duzinaRolne || form.porucenaKolicina || ""}
                                 onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)} placeholder="auto iz poručene kol." />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Prečnik rolne (mm)</label>
+                            <label style={labelStyle()}>{t("tmpl.precnik_rolne")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.precnikRolne || ""}
                                 onChange={e => update("folija.rezanje.precnikRolne", e.target.value)} placeholder="npr. 400" />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Dorada</label>
+                            <label style={labelStyle()}>{t("tmpl.dorada")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.dorada || ""}
                                 onChange={e => update("folija.rezanje.dorada", e.target.value)} />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Smer GP</label>
+                            <label style={labelStyle()}>{t("tmpl.smer_gp")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.smerGP || ""}
                                 onChange={e => update("folija.rezanje.smerGP", e.target.value)} />
                         </div>
                         <div>
-                            <label style={labelStyle()}>Širine traka — lista (mm)</label>
+                            <label style={labelStyle()}>{t("tmpl.sirine_traka")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.sirineTraka || ""}
                                 onChange={e => update("folija.rezanje.sirineTraka", e.target.value)} placeholder="npr. 85,85,85,85" />
                         </div>
@@ -2112,7 +2114,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     </div>
                 </Section>
 
-                <Section title="KPDF / perforacija" color={ORANGE}>
+                <Section title={t("tmpl.kpdf")} color={ORANGE}>
                     <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900, marginBottom: 12 }}>
                         <input
                             type="checkbox"
@@ -2174,7 +2176,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
                 <Section title={t("tmpl.materijali")} color={GREEN}>
                     <MaterialLayersOneRowTable
-                        title="MATERIJALI KESE"
+                        title={t("tmpl.materijali_kese")}
                         layers={form.kesa.layers || []}
                         showCena
                         idealnaSirina={form.idealnaSirinaMaterijala}
@@ -2187,7 +2189,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     />
                 </Section>
 
-                <Section title="Tehničke opcije kese — operacije se odmah vide na crtežu" color={ORANGE}>
+                <Section title={t("tmpl.opcije")} color={ORANGE}>
                     {KESA_GRUPE.map(grupa => (
                         <div key={grupa.id} style={{ marginBottom: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 6px" }}>
@@ -2261,7 +2263,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
                 </Section>
 
-                <Section title="Transport i pakovanje" color={GREEN}>
+                <Section title={t("tmpl.transport")} color={GREEN}>
                     <Grid cols={3}>
                         <Input label="Cena transporta €/kg" value={form.kesa.transportKg} onChange={v => update("kesa.transportKg", v)} />
                         <Input label="Pakovanje" value={form.kesa.pakovanje} onChange={v => update("kesa.pakovanje", v)} />
@@ -2280,7 +2282,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             </Section>
             <Section title="Materijali špulne" color="#7c3aed">
                 <MaterialLayersOneRowTable
-                    title="MATERIJALI ŠPULNE"
+                    title={t("tmpl.materijali_spulne")}
                     layers={form.spulna.layers || []}
                     showCena
                     onAdd={() => addLayer("spulna")}
@@ -2293,7 +2295,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <SpoolDrawing spulna={form.spulna} update={update} />
         </>}
 
-        <Section title="📚 Biblioteka sačuvanih template-a" color="#0f172a">
+        <Section title={"📚 " + t("tmpl.biblioteka")} color="#0f172a">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Ukupno</div><div style={{ fontSize: 24, fontWeight: 950 }}>{saved.length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Folije</div><div style={{ fontSize: 24, fontWeight: 950, color: BLUE }}>{saved.filter(t => t.tip === "folija").length}</div></div>
