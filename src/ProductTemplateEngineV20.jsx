@@ -1908,8 +1908,12 @@ async function sledeciBrojNaloga() {
                     let dod = oznaka;
                     if (prethodno && !prethodno.includes(broj)) dod = prethodno + ", " + oznaka;
                     else if (prethodno) dod = prethodno;
+                    // STATUS: rolna ostaje "Na stanju" dok god ima SLOBODNIH metara —
+                    // tako je vide svi ekrani i može se koristiti za druge naloge.
+                    // "Rezervisano" tek kad je cela zauzeta.
+                    // (Kolona `rezervisano` nosi koliko je uzeto, `dodeljeno_nalogu` za koje naloge.)
                     return supabase.from("magacin")
-                        .update({ status: punoRez ? "Rezervisano" : "Delimično rezervisano", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
+                        .update({ status: punoRez ? "Rezervisano" : "Na stanju", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
                         .eq("id", item.rolna_id);
                 }));
                 // Istoriju beleži DB trigger (promena rezervisano/dodeljeno_nalogu).

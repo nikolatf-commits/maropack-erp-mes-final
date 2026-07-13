@@ -1980,7 +1980,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         try {
             if (!supabase?.__notConfigured && r.id) {
                 const { error } = await supabase.from("magacin").update({
-                    status: punoRez ? "Rezervisano" : "Delimično rezervisano",
+                    // Rolna ostaje "Na stanju" dok ima slobodnih metara — može za druge naloge.
+                    status: punoRez ? "Rezervisano" : "Na stanju",
                     dodeljeno_nalogu: dod || null,
                     rezervisano: noviRez || null,
                     napomena: f.napomena || r.napomena || null,
@@ -1998,7 +1999,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         alocirano_m: m, kg_po_m: kgPoM, kg_alocirano: Math.round(kgPoM * m * 100) / 100, status: "rezervisano",
                     });
                 } catch (e) { console.warn("stavka:", e.message); }
-                await logHistory({ qr: r.qr, event: "RUČNA REZERVACIJA", opis: `Rezervisano ${fmt(m, 0)} m za ${ref || "—"} · ukupno rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoRez ? "Rezervisano" : "Delimično rezervisano" });
+                await logHistory({ qr: r.qr, event: "RUČNA REZERVACIJA", opis: `Rezervisano ${fmt(m, 0)} m za ${ref || "—"} · ukupno rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoRez ? "Rezervisano" : "Na stanju (delimično rezervisana)" });
             }
         } catch (e) { msg?.("Rezervacija nije upisana: " + (e?.message || e), "err"); return; }
         setRezForm(null);
