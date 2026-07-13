@@ -2038,47 +2038,47 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                <div>
-                    <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                        <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                            onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
-                        <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
-                            style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
-                            <option value="m">m</option>
-                            <option value="kom">kom</option>
-                            <option value="kg">kg</option>
-                        </select>
-                    </div>
-                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
-                        {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
-                            : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
-                                : "metri GOTOVE trake"}
-                    </div>
-                </div>
-                {(() => {
-                    const ob = folijaObracun(form);
-                    return <div>
-                        <label style={labelStyle()}>Matična rolna +5% (auto)</label>
-                        <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
-                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                        <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
-                            {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                    <div>
+                        <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                                onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
+                                style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
+                                <option value="m">m</option>
+                                <option value="kom">kom</option>
+                                <option value="kg">kg</option>
+                            </select>
                         </div>
-                    </div>;
-                })()}
-                <div>
-                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+                            {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
+                                : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
+                                    : "metri GOTOVE trake"}
+                        </div>
+                    </div>
+                    {(() => {
+                        const ob = folijaObracun(form);
+                        return <div>
+                            <label style={labelStyle()}>Matična rolna +5% (auto)</label>
+                            <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
+                                style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                            <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                                {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
+                            </div>
+                        </div>;
+                    })()}
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                    </div>
                 </div>
-                <div>
-                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
-                </div>
-            </div>
             )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
@@ -2599,8 +2599,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                             ? fmt(Number(form.porucenaKolicina) || 0) + " " + (form.jedinicaUnosa || "m")
                                             : fmt(Number(form.kesa?.kolicina) || 0) + " kom"}
                                     </b>
-                                    {(() => { const om = orderMetraze(form); return om.ban > 1
-                                        ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24" }}>{om.ban} {form.type === "kesa" ? "bana" : "trake"}</b></> : null; })()}
+                                    {(() => {
+                                        const om = orderMetraze(form); return om.ban > 1
+                                            ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24" }}>{om.ban} {form.type === "kesa" ? "bana" : "trake"}</b></> : null;
+                                    })()}
                                     &nbsp;·&nbsp; Matična rolna (+škart): <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b>
                                     &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
                                     <div style={{ fontSize: 10, opacity: .75, marginTop: 3 }}>Iz magacina se skida <b>{fmt(kolPlus)} m</b> matične rolne po sloju — ne dužina gotove trake.</div>
