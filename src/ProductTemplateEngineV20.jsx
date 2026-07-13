@@ -1759,24 +1759,32 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
             // Delimična rezervacija: rezerviši SAMO alocirane metre, ostatak rolne ostaje slobodan.
             const ref = form.sifra || form.naziv || "";
-            const rezervisani = new Set();
-            for (const item of izborData) {
-                if (item.rolna_id && !item.rucni && !rezervisani.has(item.rolna_id) && Number(item.alocirano_m) > 0) {
-                    rezervisani.add(item.rolna_id);
+            const zaRezervaciju = izborData.filter(it =>
+                it.rolna_id && !it.rucni && Number(it.alocirano_m) > 0
+            ).filter((it, i, arr) => arr.findIndex(x => x.rolna_id === it.rolna_id) === i);
+
+            if (zaRezervaciju.length) {
+                // Bilo: po 2 upita SEKVENCIJALNO za svaku rolnu (select + update) → sporo.
+                // Sada: 1 select za sve, pa svi update-i paralelno.
+                const ids = zaRezervaciju.map(it => it.rolna_id);
+                const { data: curRows } = await supabase
+                    .from("magacin").select("id, dodeljeno_nalogu").in("id", ids);
+                const prethodnoMap = {};
+                (curRows || []).forEach(r => { prethodnoMap[r.id] = String(r.dodeljeno_nalogu || "").trim(); });
+
+                await Promise.all(zaRezervaciju.map(item => {
                     const noviRez = Math.round((Number(item.rez_pre) || 0) + (Number(item.alocirano_m) || 0));
                     const ukupno = Number(item.metraza) || 0;
                     const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
-                    // dodeljeno_nalogu: dodaj ref (ako više naloga deli rolnu) bez dupliranja
+                    const prethodno = prethodnoMap[item.rolna_id] || "";
                     let dod = ref;
-                    const { data: cur } = await supabase.from("magacin").select("dodeljeno_nalogu").eq("id", item.rolna_id).single();
-                    const prethodno = String(cur?.dodeljeno_nalogu || "").trim();
-                    if (prethodno && !prethodno.split(",").map(s => s.trim()).includes(ref)) dod = prethodno + ", " + ref;
+                    if (prethodno && !prethodno.split(",").map(x => x.trim()).includes(ref)) dod = prethodno + ", " + ref;
                     else if (prethodno) dod = prethodno;
-                    await supabase.from("magacin")
+                    return supabase.from("magacin")
                         .update({ status: punoRez ? "Rezervisano" : "Delimično rezervisano", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
                         .eq("id", item.rolna_id);
-                    // Istoriju beleži DB trigger (promena rezervisano/dodeljeno_nalogu).
-                }
+                }));
+                // Istoriju beleži DB trigger (promena rezervisano/dodeljeno_nalogu).
             }
 
             // Sačuvaj nalog za materijal — stvarna šema: status + parametri (jsonb)
@@ -1792,6 +1800,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     kolicina_za_rad: kolPlus,
                     idealna_sirina: form.idealnaSirinaMaterijala || "",
                     izabrane_rolne: izborData,
+                    rezervisane_rolne: izborData,   // nalog (NalogLayoutPRO) traži i pod ovim imenom
                     template: form,
                     datum: new Date().toLocaleDateString("sr-RS"),
                 },

@@ -33,7 +33,19 @@ function bojaHex(b) {
     return pantoneHex(b.oznaka || b.boja || b.naziv) || b.hex || "#94a3b8";
 }
 
+const _gdCache = typeof WeakMap !== "undefined" ? new WeakMap() : null;
 function getData(nalog) {
+    // Keš: getData se zove iz buildD, buildLayers, citajRolne, kesaD, spulnaD...
+    // Bez keša se isti JSON iz baze parsira 5+ puta po nalogu — to je bilo glavno usporenje.
+    if (_gdCache && nalog && typeof nalog === "object") {
+        const hit = _gdCache.get(nalog);
+        if (hit) return hit;
+    }
+    const out = _getData(nalog);
+    if (_gdCache && nalog && typeof nalog === "object") _gdCache.set(nalog, out);
+    return out;
+}
+function _getData(nalog) {
     const linked = enrichNalogForPrint(nalog || {});
     const od = safeJson(linked.order_data, {}) || {};
     const resObj = safeJson(linked.res, {}) || {};
@@ -206,7 +218,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> ' + fmtN(D.komUkupno) + ' kom × ' + D.korak + ' mm = ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = <b>' + fmtN(D.metriMat) + ' m matične rolne</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || D.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—')) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
 
@@ -321,7 +333,7 @@ function pKesaMat(D, K) {
         th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolne.map(function (r, i) {
             const l = D.LAY[i] || {};
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(K.mMatPlus) + '</td><td class="n">' + (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—') + '</td></tr>';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
         }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
@@ -501,7 +513,7 @@ function pSpMat(D, S) {
         th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolne.map(function (r, i) {
             const l = D.LAY[i] || {};
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(S.metriMat) + '</td><td class="n">' + (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—') + '</td></tr>';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || S.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—')) + '</td></tr>';
         }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
@@ -559,11 +571,50 @@ function pSpulna(D, S) {
 
 /* ========================= KRAJ ŠPULNA ========================= */
 
+/* Rolne za nalog.
+ * potvrdiNalogMaterijal() ih upisuje kao `parametri.izabrane_rolne` (izborData),
+ * a ranije se ovde tražilo samo `rezervisane_rolne` — pa se nikad nisu prikazivale.
+ * Sada se čitaju iz svih mesta gde mogu da stoje.
+ */
+function citajRolne(nalog) {
+    const par = safeJson(nalog.parametri, {}) || {};
+    const res = safeJson(nalog.res, {}) || {};
+    const od = safeJson(nalog.order_data, {}) || {};
+    const src =
+        (Array.isArray(nalog.rezervisane_rolne) && nalog.rezervisane_rolne) ||
+        (Array.isArray(nalog.rezervisaneRolne) && nalog.rezervisaneRolne) ||
+        (Array.isArray(nalog.rolne) && nalog.rolne) ||
+        (Array.isArray(par.izabrane_rolne) && par.izabrane_rolne) ||
+        (Array.isArray(res.izabrane_rolne) && res.izabrane_rolne) ||
+        (Array.isArray(od.izabrane_rolne) && od.izabrane_rolne) ||
+        (Array.isArray(nalog.izabrane_rolne) && nalog.izabrane_rolne) ||
+        [];
+
+    return src
+        .filter(function (r) { return r && (r.br_rolne || r.qr || r.qr_kod || r.rolna_id || r.id); })
+        .slice(0, 12)
+        .map(function (r) {
+            const alok = num(r.alocirano_m || r.alocirano || r.metraza);
+            const kgpm = num(r.kg_po_m);
+            return {
+                qr: r.br_rolne || r.qr || r.qr_kod || r.rolna_id || r.id,
+                n: r.snap_vrsta || r.vrsta || r.materijal || r.tip || "",
+                oz: r.snap_oznaka || r.oznaka || r.oznaka_materijala || "",
+                u: r.snap_debljina || r.debljina || r.deb || "",
+                lot: r.lot || r.LOT || "—",
+                lok: r.lokacija || r.palet || r.location || "—",
+                alok: alok,
+                kg: kgpm > 0 && alok > 0 ? +(kgpm * alok).toFixed(1) : null,
+                sloj: num(r.sloj) || 0,
+            };
+        });
+}
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
-    D.rolne = (nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || []).slice(0, 6).map(function (r) { return { qr: r.qr || r.qr_kod || r.id, n: r.vrsta, oz: r.oznaka || r.oznaka_materijala, u: r.debljina || r.deb, lot: r.lot || r.LOT, lok: r.lokacija || r.location }; });
+    D.rolne = citajRolne(nalog);
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
@@ -674,11 +725,18 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         QRCode.toDataURL(url, { margin: 0, width: 160 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
     }, [broj]);
-    const htmlStr = buildPagesHTML(nalog, vrsta, qr, lang);
+    // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
+    const htmlStr = React.useMemo(
+        () => buildPagesHTML(nalog, vrsta, qr, lang),
+        [nalog, vrsta, qr, lang]
+    );
 
     // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.
-    const D = buildD(nalog);
-    const kesaRaw = (D.jeKesa && vrsta === "kesa") ? getData(nalog).kesa : null;
+    const kesaRaw = React.useMemo(() => {
+        const D = buildD(nalog);
+        return (D.jeKesa && vrsta === "kesa") ? getData(nalog).kesa : null;
+    }, [nalog, vrsta]);
+    const proizvod = React.useMemo(() => buildD(nalog).proizvod, [nalog]);
 
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
@@ -689,7 +747,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
                     <div className="body" style={{ padding: "24px 28px" }}>
                         <div className="cap2">Prilog · uz nalog {broj}</div>
                         <div className="bigttl">TEHNIČKI CRTEŽ KESE — KOTIRANO</div>
-                        <div className="bigsub">{D.proizvod} · sve mere u mm</div>
+                        <div className="bigsub">{proizvod} · sve mere u mm</div>
                         <div style={{ marginTop: 14 }}>
                             <CrtezKese config={kesaToConfig(toCrtezKesa(kesaRaw))} width="100%" />
                         </div>
