@@ -48,22 +48,50 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const [refreshTick, setRefreshTick] = useState(0);
 
     // Nalog napravljen u templejtu se ranije nije video dok se stranica ne osveži.
-    // Sada: (1) templejt emituje "maropack:nalozi-changed", (2) Supabase realtime na tabele.
+    //
+    // BUG (popravljen): kanal je imao FIKSNO ime i osvežavao se na SVAKU promenu bilo kog
+    // naloga u bazi. Ako se komponenta montira više puta, kanali se sudaraju, a refetch
+    // okida u rafalu → ekran treperi (belo/crno) i sve je sporo.
+    //
+    // Sada: jedinstveno ime kanala, filter SAMO na ovaj nalog, i odlaganje (debounce).
     useEffect(() => {
-        const osvezi = () => setRefreshTick((t) => t + 1);
-        if (typeof window !== "undefined") window.addEventListener("maropack:nalozi-changed", osvezi);
+        if (!brojNaloga) return;
+        let tajmer = null;
+        const osvezi = () => {
+            clearTimeout(tajmer);
+            tajmer = setTimeout(() => setRefreshTick((t) => t + 1), 400);   // debounce
+        };
+
+        // Event iz templejta — osveži samo ako je nastao BAŠ ovaj nalog.
+        const naEvent = (e) => {
+            const broj = e?.detail?.broj;
+            if (!broj || String(broj) === String(brojNaloga)) osvezi();
+        };
+        if (typeof window !== "undefined") window.addEventListener("maropack:nalozi-changed", naEvent);
+
         let ch = null;
         try {
-            ch = supabase.channel("nalozi-live")
-                .on("postgres_changes", { event: "*", schema: "public", table: "radni_nalozi" }, osvezi)
-                .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, osvezi)
+            const ime = "nalozi-" + String(brojNaloga).replace(/[^\w-]/g, "") + "-" + Math.random().toString(36).slice(2, 8);
+            ch = supabase.channel(ime)
+                .on("postgres_changes",
+                    { event: "*", schema: "public", table: "radni_nalozi", filter: "broj_naloga=eq." + brojNaloga },
+                    osvezi)
+                .on("postgres_changes",
+                    { event: "*", schema: "public", table: "operativni_nalozi" },
+                    (p) => {
+                        // operativni nalozi imaju broj MP-2026-0008-MATERIJAL → poredi prefiks
+                        const b = String(p?.new?.broj_naloga || p?.old?.broj_naloga || "");
+                        if (b.startsWith(String(brojNaloga))) osvezi();
+                    })
                 .subscribe();
         } catch (e) { }
+
         return () => {
-            if (typeof window !== "undefined") window.removeEventListener("maropack:nalozi-changed", osvezi);
+            clearTimeout(tajmer);
+            if (typeof window !== "undefined") window.removeEventListener("maropack:nalozi-changed", naEvent);
             try { if (ch) supabase.removeChannel(ch); } catch (e) { }
         };
-    }, []);
+    }, [brojNaloga]);
 
     useEffect(() => {
         async function load() {
