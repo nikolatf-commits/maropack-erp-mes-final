@@ -3,8 +3,12 @@ import QRCode from "qrcode";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
 import { pantoneHex } from "./data/pantone.js";
 import { translate, useLang } from "./LanguageProvider.jsx";
+import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
+import { toCrtezKesa, KESA_OPCIJE } from "./kesaOpcije.js";
 
 /* ---------- helpers ---------- */
+let LANG = "sr";
+function T(k, f) { return translate(LANG, k, f); }
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
 function val(v, f = "—") { return v === undefined || v === null || v === "" ? f : v; }
 function pick(o, ks, f = "") { for (const k of ks) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; return f; }
@@ -39,14 +43,17 @@ function getData(nalog) {
     const templateData = safeJson(linked.templateData || tpl.data || od.templateData, {}) || {};
     const t = templateData && Object.keys(templateData).length ? templateData : tpl;
     const folija = linked.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const kesa = linked.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
     const pdf = linked.pdf || od.pdf || t.pdf || {};
-    return { linked, od, t, folija, pdf };
+    return { linked, od, t, folija, kesa, pdf };
 }
 
 function buildLayers(nalog) {
-    const { od, folija } = getData(nalog);
+    const { od, folija, kesa } = getData(nalog);
+    const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
+    const src = jeKesa ? kesa : folija;
     const normalized = normalizeLayers(nalog, nalog.tip_proizvoda || nalog.tip) || [];
-    const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : (Array.isArray(folija.layers) && folija.layers.length ? folija.layers : normalized)) || [];
+    const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : (Array.isArray(src.layers) && src.layers.length ? src.layers : normalized)) || [];
     return arr.slice(0, 6).map((m, i) => ({
         n: m.vrsta || m.materijal || m.naziv || ("Sloj " + (i + 1)),
         pv: m.pod_vrsta || m.podvrsta || m.podVrsta || "",
@@ -64,7 +71,8 @@ function buildLayers(nalog) {
 
 /* ---------- D (podaci za v6) ---------- */
 function buildD(nalog) {
-    const { od, t, folija } = getData(nalog);
+    const { od, t, folija, kesa } = getData(nalog);
+    const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
     const LAY = buildLayers(nalog);
     const TOTu = LAY.reduce((s, l) => s + l.u, 0);
     const kolicina = num(nalog.metraza || nalog.kol || nalog.kolicina || t.porucenaKolicina || od.kolicina) || 0;
@@ -72,17 +80,29 @@ function buildD(nalog) {
     const fr = folija.finalRoll || {};
     const st = folija.stampa || {};
     const sirinaMat = num(rz.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(LAY[0] && LAY[0].sirina) || num(nalog.sirina) || 840;
-    const kgF = (kolicina / 1000) * (sirinaMat / 1000);
-    // boje
-    const boje = (Array.isArray(st.boje) ? st.boje : []).map((b, i) => ({
-        sw: bojaHex(b), lab: (i + 1) + "·" + (b.oznaka || b.tip || "boja") + (b.klise ? "·" + b.klise : ""),
-    }));
-    // rezanje
+
+    // rezanje - MORA pre kgF, jer broj traka ulazi u obracun kilaze
     let lanes = Array.isArray(rz.sirineTraka) && rz.sirineTraka.length ? rz.sirineTraka.map(num).filter(Boolean) : [];
+    if (typeof rz.sirineTraka === "string" && !lanes.length) lanes = String(rz.sirineTraka).split(",").map(num).filter(Boolean);
     if (!lanes.length && Array.isArray(rz.trake) && rz.trake.length) lanes = rz.trake.map((x) => num(x.sirina || x.width)).filter(Boolean);
     if (!lanes.length && num(rz.brojTraka) && num(rz.sirinaTrake)) lanes = Array.from({ length: num(rz.brojTraka) }, () => num(rz.sirinaTrake));
     const usedW = lanes.reduce((s, x) => s + x, 0);
     const otpad = num(rz.otpad) || Math.max(0, sirinaMat - usedW);
+
+    // ---- OBRACUN (ispravljeno) ----
+    // `kolicina` = metri GOTOVE TRAKE. Rezanje NE skracuje duzinu - multiplicira je po traci.
+    // Zato je maticna rolna N puta KRACA, i po njoj se racuna kilaza.
+    const N = lanes.length || num(rz.brojTraka) || 1;
+    const korak = num(t.dimenzijaDuzina) || 0;
+    const metriMat = N > 0 ? kolicina / N : kolicina;
+    const komPoTraci = korak > 0 ? Math.round(metriMat * 1000 / korak) : 0;
+    const komUkupno = komPoTraci * N;
+    const kgF = (metriMat / 1000) * (sirinaMat / 1000);   // bilo: kolicina umesto metriMat
+
+    // boje
+    const boje = (Array.isArray(st.boje) ? st.boje : []).map((b, i) => ({
+        sw: bojaHex(b), lab: (i + 1) + "\u00b7" + (b.oznaka || b.tip || "boja") + (b.klise ? "\u00b7" + b.klise : ""),
+    }));
     // perforacija
     const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija : {};
     return {
@@ -96,6 +116,7 @@ function buildD(nalog) {
         dimenzije: (num(t.dimenzijaSirina) || "?") + " × " + (num(t.dimenzijaDuzina) || "?") + " mm",
         kom: od.kom || t.porucenaKolicinaKom || nalog.kom || "—",
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
+        metriMat, N, korak, komPoTraci, komUkupno, jeKesa,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         stampa: {
             masina: st.masina, strana: st.strana, brojBoja: st.brojBoja, smer: st.smerOdmotavanja,
@@ -108,7 +129,8 @@ function buildD(nalog) {
         rez: {
             sirinaMat, lanes, otpad, brojTraka: lanes.length || num(rz.brojTraka),
             sirinaTrake: num(rz.sirinaTrake) || lanes[0] || 0,
-            precnik: num(fr.precnik) || num(rz.precnikRolne) || 400, duzina: num(fr.duzina) || num(rz.duzinaRolne) || kolicina,
+            precnik: num(fr.precnik) || num(rz.precnikRolne) || 400,
+            duzina: metriMat,   // svaka traka je duga koliko i maticna rolna (bilo: zaostalih 15.000)
             hilzna: num(fr.hilzna) || num(st.precnikHilzne) || 152, smer: fr.smerOdmotavanja || st.smerOdmotavanja || "Na glavu",
         },
         perf: {
@@ -171,13 +193,14 @@ function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class
 function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<img class="hdqr" src="' + D.qr + '" alt="QR"/>' : '') + '</div></div>'; }
 function pageWrap(D, inner, pp) { return '<div class="a4">' + inner + '<div class="pp2">' + esc(D.broj) + '</div><div class="pp">' + esc(pp) + '</div></div>'; }
 function kg(D, l) { return (l.gm2 * D.kgF).toFixed(1); }
-function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.kolicina) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
+function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
 function totalKg(D) { return D.LAY.reduce(function (s, l) { return s + l.gm2 * D.kgF; }, 0).toFixed(1); }
 
 function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + statRow(D) + infoBlock(D) +
+        '<div class="ulaz"><b>Obračun:</b> ' + fmtN(D.komUkupno) + ' kom × ' + D.korak + ' mm = ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = <b>' + fmtN(D.metriMat) + ' m matične rolne</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(D.kolicina) + '</td><td class="n">—</td></tr>'; }).join('') + '</tbody></table></div>' +
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
 
@@ -210,18 +233,169 @@ function pRez(D) {
         '<div class="ulaz"><b>Ulaz:</b> kaširana rolna, ulazna širina ' + D.sirinaMat + ' mm → ' + (D.rez.brojTraka || '—') + ' traka po ' + (D.rez.sirinaTrake || '—') + ' mm.</div>' +
         '<div class="sec">' + secH(1, c, 'Prikaz rezanja (po širini)', 'iz templejta') + '<div class="fig"><div class="cap">Raspored traka po širini</div>' + rezSvg(D) + '</div></div>' +
         '<div class="sec">' + secH(2, c, 'Plan rezanja', 'iz templejta') + '<div class="info">' + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Broj traka', D.rez.brojTraka || '—') + infoC('Širina trake', (D.rez.sirinaTrake || '—') + ' mm') + infoC('Otpad', (D.rez.otpad || 0) + ' mm') + infoC('Prečnik rolne', D.rez.precnik + ' mm') + infoC('Dužina', fmtN(D.rez.duzina) + ' m') + infoC('Hilzna', D.rez.hilzna + ' mm') + infoC('Smer', D.rez.smer) + '</div></div>' +
-        (lanes.length ? '<div class="sec">' + secH(3, c, 'Trake', '') + '<table>' + th(['Traka', { t: 'Širina', n: 1 }, { t: 'Metara', n: 1 }, 'Perforacija'], c) + '<tbody>' + lanes.map(function (lw, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + lw + ' mm</td><td class="n">' + fmtN(D.rez.duzina) + '</td><td>' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kol.</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
+        (lanes.length ? '<div class="sec">' + secH(3, c, 'Trake', '') + '<table>' + th(['Traka', { t: 'Širina', n: 1 }, { t: 'Metara', n: 1 }, { t: 'Kom', n: 1 }, 'Perforacija'], c) + '<tbody>' + lanes.map(function (lw, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + lw + ' mm</td><td class="n">' + fmtN(D.rez.duzina) + '</td><td class="n">' + fmtN(D.komPoTraci) + '</td><td>' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kol.</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
         '<div class="ulaz" style="margin-top:16px">🖼 <b>Izgled na finalnoj rolni</b> i <b>perforacija (kotirano)</b> su na posebnim stranama.</div>' +
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
 }
 
 function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 500, 860) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
 
+
+/* ============================ KESA ============================ */
+// Naziv tipa kese — iz TIPOVI (CrtezKese.jsx), isti izvor kao templejt.
+function kesaTipLabel(tip) {
+    const src = Array.isArray(TIPOVI)
+        ? TIPOVI
+        : Object.entries(TIPOVI || {}).map(function (e) { return { key: e[0], label: (e[1] && e[1].label) || e[1] }; });
+    const hit = src.find(function (x) { return (x.key || x.id || x.value) === tip; });
+    return (hit && (hit.label || hit.naziv)) || tip;
+}
+const OPT_LBL = {
+    duplofan: "Duplofan traka", eurozumba: "Eurozumba", okrugla_zumba: "Okrugla zumba", kosa_klapna: "Kosa klapna",
+    anleger: "Anleger", utor: "Utor", stampa: "Štampa", poprecna_perf: "Poprečna perforacija", bocni_var: "Bočni var",
+    kontinualni_var: "Kontinualni var", poprecni_var: "Poprečni var", falta_dno: "Falta na dnu", var_dno: "Var na dnu",
+    otvor_dno: "Otvor na dnu", pakovanje_trn: "Pakovanje na trnu", busene_rupe: "Bušene rupe", adh_traka: "ADH traka",
+    ojacanje: "Ojačanje", toplotni_var: "Termo/toplotni var", mikroperforacija: "Mikroperforacija",
+};
+
+// Opisi opcija dolaze iz kesaOpcije.js (KESA_OPCIJE) — jedan izvor istine sa templejtom.
+const OPT_OPIS = (function () {
+    const m = {};
+    const src = Array.isArray(KESA_OPCIJE) ? KESA_OPCIJE : Object.values(KESA_OPCIJE || {});
+    src.forEach(function (o) {
+        if (!o) return;
+        const k = o.key || o.id || o.value;
+        if (k) m[k] = o.opis || o.description || o.napomena || o.label || "";
+    });
+    return m;
+})();
+
+function kesaD(nalog) {
+    const { od, t, kesa } = getData(nalog);
+    const k = kesa || {};
+    const W = num(k.sirina), H = num(k.duzina), KL = num(k.klapna), FA = num(k.falta);
+    const ban = Math.max(1, num(k.ban) || 1);
+    const skart = num(k.skart) || 5;
+    const korakK = H + KL + FA;
+    const kom = num(k.kolicina) || num(nalog.kom) || num(od.kom) || 0;
+    const mTrake = kom * korakK / 1000;
+    const mMat = ban > 0 ? mTrake / ban : mTrake;
+    const mMatPlus = mMat * (1 + skart / 100);
+    const sirMat = num(k.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || (ban * W);
+    const kgF = (mMatPlus / 1000) * (sirMat / 1000);
+    const opts = (k.options && typeof k.options === "object") ? Object.keys(k.options).filter(function (x) { return k.options[x]; }) : [];
+    const gr = [];
+    if (ban * W > sirMat) gr.push(ban + " × " + W + " mm = " + (ban * W) + " mm ne staje u ulaznu širinu " + sirMat + " mm.");
+    if (!korakK) gr.push("Nema koraka (dužina + klapna + falta).");
+    return {
+        raw: k, W: W, H: H, KL: KL, FA: FA, ban: ban, skart: skart, korakK: korakK, kom: kom,
+        mTrake: Math.ceil(mTrake), mMat: Math.ceil(mMat), mMatPlus: Math.ceil(mMatPlus),
+        sirMat: sirMat, kgF: kgF, otpad: Math.max(0, sirMat - ban * W),
+        tip: k.tipKese || "ravna", takt: num(k.takt), tolerancija: k.tolerancija || "±5%",
+        pakovanje: k.pakovanje || "—", grafika: k.grafika || "—", transportKg: k.transportKg || "—",
+        opts: opts, greske: gr,
+    };
+}
+
+function kesaStat(D, K) {
+    return '<div class="stats">' + stat('Komada', fmtN(K.kom), 'kom', COLm) + stat('Ban', K.ban, K.ban > 1 ? 'trake' : 'traka', '#0ea5e9') +
+        stat('Matična rolna', fmtN(K.mMatPlus), 'm (+' + K.skart + '%)', '#14b8a6') +
+        stat('Slojeva', D.LAY.length, D.LAY.length === 1 ? 'mono' : (D.LAY.length === 2 ? 'dupleks' : 'tripleks'), COLp) + '</div>';
+}
+function kesaInfo(D, K) {
+    return '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) + infoC('Šifra', D.sifra) +
+        infoC('Tip kese', kesaTipLabel(K.tip)) + infoC('Širina × visina', K.W + ' × ' + K.H + ' mm') +
+        infoC('Klapna', K.KL + ' mm') + infoC('Falta', K.FA + ' mm') + infoC('Rok', D.rok) + '</div>';
+}
+function kesaObracun(K) {
+    return (K.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + K.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
+        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + K.H + ' + ' + K.KL + ' + ' + K.FA + ' = <b>' + K.korakK + ' mm</b> &nbsp;·&nbsp; ' +
+        fmtN(K.kom) + ' kom × ' + (K.korakK / 1000).toFixed(3) + ' m = ' + fmtN(K.mTrake) + ' m trake &divide; ' + K.ban + ' = ' + fmtN(K.mMat) + ' m &nbsp;·&nbsp; +' + K.skart + '% škart = <b>' + fmtN(K.mMatPlus) + ' m matične rolne</b> (širina ' + K.sirMat + ' mm)</div>';
+}
+function kesaTotalKg(D, K) { return D.LAY.reduce(function (a, l) { return a + l.gm2 * K.kgF; }, 0).toFixed(1); }
+
+/* 1/4 materijal */
+function pKesaMat(D, K) {
+    const c = COLm;
+    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; });
+    return pageWrap(D, hd(D, '📦', 'NALOG ZA MATERIJAL', c, '1/4') + '<div class="body">' + kesaStat(D, K) + kesaInfo(D, K) + kesaObracun(K) +
+        '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' +
+        th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        D.LAY.map(function (l, i) {
+            return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + K.sirMat + '</td><td class="n">' + fmtN(K.mMatPlus) + '</td><td class="n">' + (l.gm2 * K.kgF).toFixed(1) + '</td></tr>';
+        }).join('') +
+        '<tr class="tot"><td colspan="9" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + kesaTotalKg(D, K) + '</td></tr></tbody></table></div>' +
+
+        '<div class="sec">' + secH(2, c, 'Raspored po širini (ban)', '') + '<table>' +
+        th(['Ban', { t: 'Širina kese', n: 1 }, { t: 'Metara', n: 1 }, { t: 'Komada', n: 1 }], c) + '<tbody>' +
+        Array.from({ length: K.ban }, function (_, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + K.W + ' mm</td><td class="n">' + fmtN(K.mMatPlus) + '</td><td class="n">' + fmtN(Math.round(K.kom / K.ban)) + '</td></tr>'; }).join('') +
+        '<tr class="tot"><td>Ulazna širina ' + K.sirMat + ' mm</td><td class="n">otpad ' + K.otpad + ' mm</td><td class="n">—</td><td class="n">' + fmtN(K.kom) + '</td></tr></tbody></table></div>' +
+
+        '<div class="sec">' + secH(3, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' +
+        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        rolne.map(function (r, i) {
+            const l = D.LAY[i] || {};
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(K.mMatPlus) + '</td><td class="n">' + (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
+}
+
+/* 2/4 kasiranje */
+function pKesaKas(D, K) {
+    const c = COLk, L = D.LAY;
+    const prolazi = L.length > 1 ? L.slice(1).map(function (l, i) {
+        const pre = L.slice(0, i + 1);
+        const naziv = pre.map(function (x) { return x.n; }).join('/');
+        const deb = pre.reduce(function (a, x) { return a + x.u; }, 0);
+        const RB = ['PRVO', 'DRUGO', 'TREĆE', 'ČETVRTO'][i] || (i + 1) + '.';
+        return '<div class="subsec"><div class="subh" style="color:' + c + '">' + (i + 1) + '. ' + RB + ' KAŠIRANJE <span style="float:right">SPOJ: ' + esc(naziv) + ' + ' + esc(l.n) + ' → ' + esc(naziv + '/' + l.n) + '</span></div>' +
+            '<table>' + th(['Komponenta', 'Vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }], c) + '<tbody>' +
+            '<tr><td>' + (i === 0 ? 'Sloj 1' : 'Međuproizvod') + '</td><td>' + esc(i === 0 ? L[0].n : 'Laminat ' + naziv) + '</td><td>' + esc(i === 0 ? (L[0].oz || '—') : '—') + '</td><td>' + esc(i === 0 ? (L[0].pr || '—') : '—') + '</td><td class="n">' + deb + ' µm</td></tr>' +
+            '<tr><td>Sloj ' + (i + 2) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td></tr>' +
+            '</tbody></table></div>';
+    }).join('') : '<div class="ulaz">Mono materijal — kaširanje se ne radi.</div>';
+    return pageWrap(D, hd(D, '🔗', 'NALOG ZA KAŠIRANJE', c, '2/4') + '<div class="body">' + kesaStat(D, K) + kesaInfo(D, K) +
+        '<div class="ulaz"><b>Ulaz:</b> ' + L.map(function (l) { return esc(l.n); }).join(' + ') + ' — kašira se u ' + Math.max(0, L.length - 1) + ' prolaza. Matična rolna ' + fmtN(K.mMatPlus) + ' m × ' + K.sirMat + ' mm.</div>' +
+        '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', Math.max(0, L.length - 1) + ' kaširanja') + prolazi + '</div>' +
+        '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' +
+        infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', Math.max(0, L.length - 1)) +
+        infoC('Redosled', L.map(function (l) { return l.n; }).join('/')) + infoC('Ukupna debljina', D.TOTu + ' µm') +
+        infoC('Metara', fmtN(K.mMatPlus) + ' m') + infoC('Ukupno kg', kesaTotalKg(D, K) + ' kg') + '</div></div>' +
+        foot('Operater kaširanja', 'Kontrola kvaliteta', 'Predao na kesarku') + '</div>', 'Strana 2 · kaširanje');
+}
+
+/* 3/4 tehnicke karakteristike */
+function pKesa(D, K) {
+    const c = '#b91c1c';
+    const opcije = K.opts.length
+        ? '<table>' + th(['Opcija', 'Opis / uputstvo operateru'], c) + '<tbody>' +
+        K.opts.map(function (o) { return '<tr><td style="width:34%"><b style="color:' + c + '">✓</b> ' + esc(OPT_LBL[o] || o) + '</td><td style="font-weight:600;color:#475569">' + esc(OPT_OPIS[o] || '—') + '</td></tr>'; }).join('') +
+        '</tbody></table>'
+        : '<div class="ulaz">Bez dodatnih opcija.</div>';
+    return pageWrap(D, hd(D, '🛍', 'NALOG ZA KESU — TEHNIČKE KARAKTERISTIKE', c, '3/4') + '<div class="body">' + kesaStat(D, K) + kesaInfo(D, K) +
+        '<div class="sec">' + secH(1, c, 'Dimenzije kese', 'iz templejta') + '<div class="info">' +
+        infoC('Tip kese', kesaTipLabel(K.tip)) + infoC('Širina (W)', K.W + ' mm') + infoC('Visina (H)', K.H + ' mm') + infoC('Klapna', K.KL + ' mm') +
+        infoC('Falta (dno)', K.FA + ' mm') + infoC('Korak na traci', K.korakK + ' mm') + infoC('Tolerancija', K.tolerancija) + infoC('Grafika', K.grafika) + '</div></div>' +
+        '<div class="sec">' + secH(2, c, 'Parametri mašine', 'iz templejta') + '<div class="info">' +
+        infoC('Ban', K.ban + (K.ban > 1 ? ' trake' : ' traka')) + infoC('Takt', K.takt ? K.takt + ' /min' : '—') + infoC('Ulazna širina', K.sirMat + ' mm') + infoC('Otpad', K.otpad + ' mm') +
+        infoC('Materijal', D.LAY.map(function (l) { return l.n; }).join('/')) + infoC('Debljina', D.TOTu + ' µm') + infoC('Pakovanje', K.pakovanje) + infoC('Transport kg', K.transportKg) + '</div></div>' +
+        '<div class="sec">' + secH(3, c, 'Opcije i dorada', K.opts.length + ' izabrano') + opcije + '</div>' +
+        '<div class="ulaz" style="margin-top:14px">📐 <b>Tehnički crtež kese (kotirano)</b> je na posebnoj strani — vidi sledeću stranu.</div>' +
+        foot('Operater kesarke', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana 3 · kesa');
+}
+/* ========================== KRAJ KESA ========================== */
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
-    const T = (k, f) => translate(lang, k, f);
+    LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = (nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || []).slice(0, 6).map(function (r) { return { qr: r.qr || r.qr_kod || r.id, n: r.vrsta, oz: r.oznaka || r.oznaka_materijala, u: r.debljina || r.deb, lot: r.lot || r.LOT, lok: r.lokacija || r.location }; });
+    if (D.jeKesa) {
+        const K = kesaD(nalog);
+        if (vrsta === "kasiranje") return pKesaKas(D, K);
+        if (vrsta === "kesa") return pKesa(D, K);
+        return pKesaMat(D, K);
+    }
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);
     if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna") + pPerfBig(D);
@@ -230,6 +404,9 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
 
 /* ---------- CSS (v6) ---------- */
 const V6_CSS = `
+.nv6 .subsec{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:9px}
+.nv6 .subh{background:#f6f8fc;padding:8px 12px;font-size:11px;font-weight:900;letter-spacing:.4px;border-bottom:1px solid var(--line)}
+.nv6 .subsec table{border:0;border-radius:0}
 .nv6{--ink:#0f172a;--mut:#6b7280;--line:#e8ebf1;font-family:Inter,Arial,sans-serif;color:var(--ink)}
 .nv6 *{box-sizing:border-box}
 .nv6 .a4{width:794px;min-height:1123px;background:#fff;margin:0 auto 26px;box-shadow:0 14px 40px rgba(0,0,0,.18);position:relative;display:flex;flex-direction:column;overflow:hidden}
@@ -303,6 +480,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     let vrsta = String(activeTab || nalog.tip_naloga || nalog.vrsta_naloga || "").toLowerCase();
     if (vrsta.includes("mater")) vrsta = "materijal";
     else if (vrsta.includes("štamp") || vrsta.includes("stamp")) vrsta = "stampa";
+    else if (vrsta.includes("kes")) vrsta = "kesa";
     else if (vrsta.includes("kaš") || vrsta.includes("kas")) vrsta = "kasiranje";
     else if (vrsta.includes("perf") || vrsta.includes("rez")) vrsta = "perforacija_rezanje";
     else vrsta = "materijal";
@@ -315,10 +493,29 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         return () => { on = false; };
     }, [broj]);
     const htmlStr = buildPagesHTML(nalog, vrsta, qr, lang);
+
+    // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.
+    const D = buildD(nalog);
+    const kesaRaw = (D.jeKesa && vrsta === "kesa") ? getData(nalog).kesa : null;
+
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
             <style>{V6_CSS}</style>
             <div dangerouslySetInnerHTML={{ __html: htmlStr }} />
+            {kesaRaw && (
+                <div className="a4">
+                    <div className="body" style={{ padding: "24px 28px" }}>
+                        <div className="cap2">Prilog · uz nalog {broj}</div>
+                        <div className="bigttl">TEHNIČKI CRTEŽ KESE — KOTIRANO</div>
+                        <div className="bigsub">{D.proizvod} · sve mere u mm</div>
+                        <div style={{ marginTop: 14 }}>
+                            <CrtezKese config={kesaToConfig(toCrtezKesa(kesaRaw))} width="100%" />
+                        </div>
+                    </div>
+                    <div className="pp2">{broj}</div>
+                    <div className="pp">Strana 4 · crtež kese (prilog)</div>
+                </div>
+            )}
         </div>
     );
 }

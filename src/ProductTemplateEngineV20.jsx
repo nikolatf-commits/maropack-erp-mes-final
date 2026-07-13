@@ -289,6 +289,7 @@ const defaultForm = {
     sifra: "",
     napomena: "",
     porucenaKolicina: "",
+    jedinicaUnosa: "m",          // "m" = metri gotove trake | "kom" | "kg"
     dimenzijaSirina: "",
     dimenzijaDuzina: "",
     idealnaSirinaMaterijala: "",
@@ -404,6 +405,91 @@ function orderMetraze(f) {
     }
     const kol = n(f.porucenaKolicina);
     return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FOLIJA — jedan izvor istine. Unos može biti KOM, KG ili M (metri gotove trake).
+// Ključno pravilo: rezanje NE skraćuje dužinu — MULTIPLICIRA je po traci.
+//   metri trake         = kom × korak
+//   metri MATIČNE rolne = metri trake / N        ← ovo je ranije nedostajalo
+//   m²                  = metri matične × ulazna širina
+//   kg                  = m² × g/m²
+// ─────────────────────────────────────────────────────────────────────────────
+function folijaObracun(form, skartPct = 5) {
+    const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const layers = (form.folija?.layers || []).filter(l => N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) > 0 || (N_(l.debljina) && N_(l.koeficijent)));
+    const rez = form.folija?.rezanje || {};
+
+    const sirMatMm = N_(rez.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
+    const trakaMm = N_(rez.sirinaTrake) || N_(form.dimenzijaSirina);
+    const korakM = N_(form.dimenzijaDuzina) / 1000;                 // dužina jednog komada duž trake
+    const sirMatM = sirMatMm / 1000;
+
+    // Broj traka: ručni override ima prednost, inače auto po širini
+    const rucno = Math.floor(N_(rez.brojTrakaOverride));
+    const N = rucno > 0 ? rucno
+        : (sirMatMm && trakaMm ? Math.max(1, Math.floor(sirMatMm / trakaMm)) : 1);
+
+    const totalGm2 = layers.reduce((a, l) => {
+        const g = N_(l.gm2 ?? l.tezina ?? l.tezinaGm2);
+        return a + (g || N_(l.debljina) * N_(l.koeficijent));
+    }, 0);
+
+    const jed = form.jedinicaUnosa || "m";
+    const v = N_(form.porucenaKolicina);
+    const greske = [];
+
+    let kom = 0, metriTrake = 0, metriMat = 0;
+
+    if (jed === "kom") {
+        kom = v;
+        metriTrake = kom * korakM;
+        metriMat = N ? metriTrake / N : 0;
+        if (!korakM) greske.push("Za unos u KOM treba dimenzija — dužina (mm).");
+    } else if (jed === "kg") {
+        const m2 = totalGm2 > 0 ? (v * 1000) / totalGm2 : 0;
+        metriMat = sirMatM > 0 ? m2 / sirMatM : 0;
+        metriTrake = metriMat * N;
+        kom = korakM > 0 ? metriTrake / korakM : 0;
+        if (!totalGm2) greske.push("Za unos u KG slojevi moraju imati g/m².");
+        if (!sirMatM) greske.push("Za unos u KG treba idealna širina materijala.");
+    } else { // "m" — metri GOTOVE TRAKE (ono što kupac poručuje)
+        metriTrake = v;
+        metriMat = N ? metriTrake / N : 0;
+        kom = korakM > 0 ? metriTrake / korakM : 0;
+    }
+
+    const f = 1 + (skartPct / 100);
+    const metriMatPlus = metriMat * f;                              // ← ovo se skida iz magacina
+    const m2Plus = metriMatPlus * sirMatM;
+
+    if (trakaMm && sirMatMm && N * trakaMm > sirMatMm) {
+        greske.push(`${N} × ${trakaMm} mm = ${N * trakaMm} mm ne staje u ${sirMatMm} mm.`);
+    }
+
+    const slojevi = layers.map((l, i) => {
+        const g = N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) || (N_(l.debljina) * N_(l.koeficijent));
+        return {
+            naziv: l.material || l.oznaka_materijala || l.vrsta || `Sloj ${i + 1}`,
+            gm2: g,
+            metara: Math.ceil(metriMatPlus),
+            kg: +(g * sirMatM * metriMatPlus / 1000).toFixed(1),
+        };
+    });
+
+    return {
+        N, korakM, sirMatMm, trakaMm, totalGm2, skartPct,
+        otpadMm: Math.max(0, sirMatMm - N * trakaMm),
+        kom: Math.round(kom),
+        komPoTraci: N ? Math.round(kom / N) : 0,
+        metriTrake: Math.ceil(metriTrake),
+        metriMat: Math.ceil(metriMat),
+        metriMatPlus: Math.ceil(metriMatPlus),
+        m2: +m2Plus.toFixed(1),
+        slojevi,
+        kgUkupno: +slojevi.reduce((a, s) => a + s.kg, 0).toFixed(1),
+        greske,
+    };
 }
 function fieldStyle() { return { width: "100%", padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" }; }
 function labelStyle() { return { display: "block", fontSize: 10, color: "#475569", fontWeight: 800, textTransform: "uppercase", marginBottom: 5, letterSpacing: 0.4 }; }
@@ -1459,6 +1545,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         if (!form.idealnaSirinaMaterijala) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
         if (form.type === "kesa") {
             if (!(orderMetraze(form).kolPlus > 0)) { msg && msg("Unesi poručenu količinu (kom) i dimenzije kese!", "err"); return; }
+        } else if (form.type === "folija") {
+            const ob = folijaObracun(form);
+            if (!(ob.metriMatPlus > 0)) { msg && msg(`Unesi poručenu količinu (${form.jedinicaUnosa || "m"}) i dimenzije!`, "err"); return; }
+            if (ob.greske.length) { msg && msg(ob.greske[0], "err"); return; }
         } else if (!(Number(form.porucenaKolicina) > 0)) { msg && msg("Unesi poručenu količinu (m)!", "err"); return; }
         // Svaki sloj mora imati vrstu, oznaku i debljinu
         const nepotpun = layers.findIndex(l =>
@@ -1926,28 +2016,47 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                <div>
-                    <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
-                    <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                        onChange={e => update("porucenaKolicina", e.target.value)} style={fieldStyle()} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                    <div>
+                        <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                                onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
+                                style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
+                                <option value="m">m</option>
+                                <option value="kom">kom</option>
+                                <option value="kg">kg</option>
+                            </select>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+                            {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
+                                : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
+                                    : "metri GOTOVE trake"}
+                        </div>
+                    </div>
+                    {(() => {
+                        const ob = folijaObracun(form);
+                        return <div>
+                            <label style={labelStyle()}>Matična rolna +5% (auto)</label>
+                            <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
+                                style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                            <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                                {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
+                            </div>
+                        </div>;
+                    })()}
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                    </div>
                 </div>
-                <div>
-                    <label style={labelStyle()}>+5% uvećana količina (auto)</label>
-                    <input readOnly value={form.porucenaKolicina ? Math.ceil(Number(form.porucenaKolicina) * 1.05).toLocaleString("sr-RS") : "—"}
-                        style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                </div>
-                <div>
-                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
-                </div>
-                <div>
-                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
-                </div>
-            </div>
             )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
@@ -1955,10 +2064,57 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
-            {/* AUTO KALKULACIJA — pojavljuje se čim ima podataka */}
-            {(() => {
+            {/* AUTO KALKULACIJA — FOLIJA (poštuje broj traka, radi za kom/kg/m) */}
+            {form.type === "folija" && (() => {
+                const ob = folijaObracun(form);
+                if (!ob.slojevi.length || (!ob.kom && !ob.metriMat)) return null;
+                const Box = ({ l, v, hi, sub }) => (
+                    <div style={{ background: "#fff", border: `1px solid ${hi ? "#86efac" : "#bbf7d0"}`, borderLeft: hi ? "5px solid #059669" : undefined, borderRadius: 10, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{l}</div>
+                        <div style={{ fontSize: hi ? 20 : 16, fontWeight: 950, color: hi ? "#059669" : "#2446b8" }}>{v}</div>
+                        {sub && <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>{sub}</div>}
+                    </div>
+                );
+                const fmt = (x) => Number(x || 0).toLocaleString("sr-RS");
+                return (
+                    <div style={{ background: "#f0fdf4", border: "1px solid #059669", borderRadius: 12, padding: "14px 16px", marginTop: 4 }}>
+                        <div style={{ fontWeight: 950, color: "#059669", fontSize: 13, marginBottom: 10 }}>
+                            📊 Auto kalkulacija — unos u <span style={{ textTransform: "uppercase" }}>{form.jedinicaUnosa || "m"}</span>
+                        </div>
+                        {ob.greske.length > 0 && (
+                            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 10px", marginBottom: 10, color: RED, fontSize: 12, fontWeight: 800 }}>
+                                {ob.greske.map((g, i) => <div key={i}>⚠ {g}</div>)}
+                            </div>
+                        )}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 10, marginBottom: 10 }}>
+                            <Box l="Komada" v={fmt(ob.kom)} sub={ob.N > 1 ? `${fmt(ob.komPoTraci)} po traci × ${ob.N}` : null} />
+                            <Box l="Metri trake" v={`${fmt(ob.metriTrake)} m`} sub={`korak ${(ob.korakM * 1000).toFixed(0)} mm`} />
+                            <Box l="Broj traka" v={ob.N} sub={ob.trakaMm ? `${ob.trakaMm} mm · otpad ${ob.otpadMm.toFixed(0)} mm` : null} />
+                            <Box l="Ukupno g/m²" v={ob.totalGm2.toFixed(1)} sub={`${ob.sirMatMm} mm širina`} />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10, marginBottom: 10 }}>
+                            <Box l="Matična rolna (neto)" v={`${fmt(ob.metriMat)} m`} />
+                            <Box l={`Matična rolna +${ob.skartPct}%`} v={`${fmt(ob.metriMatPlus)} m`} hi sub="← ovo se skida iz magacina" />
+                            <Box l="UKUPNO KG" v={`${fmt(ob.kgUkupno)} kg`} hi sub={`${fmt(ob.m2)} m²`} />
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {ob.slojevi.map((s, i) => (
+                                <div key={i} style={{ background: "#fff", border: "1px solid #d1fae5", borderRadius: 8, padding: "7px 12px", fontSize: 12 }}>
+                                    <span style={{ fontWeight: 950 }}>{s.naziv}</span>
+                                    <span style={{ color: "#64748b", marginLeft: 8 }}>{s.gm2} g/m²</span>
+                                    <span style={{ color: "#059669", fontWeight: 900, marginLeft: 8 }}>→ {fmt(s.kg)} kg</span>
+                                    <span style={{ color: "#2446b8", fontWeight: 900, marginLeft: 8 }}>/ {fmt(s.metara)} m</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* AUTO KALKULACIJA — kesa / špulna (stara logika, nedirnuta) */}
+            {form.type !== "folija" && (() => {
                 const kol = Math.ceil(Number(form.porucenaKolicina || 0) * 1.05);
-                const layers = form.type === "folija" ? (form.folija?.layers || []) : form.type === "kesa" ? (form.kesa?.layers || []) : (form.spulna?.layers || []);
+                const layers = form.type === "kesa" ? (form.kesa?.layers || []) : (form.spulna?.layers || []);
                 const validLayers = layers.filter(l => Number(l.gm2 || l.tezina || l.tezinaGm2 || 0) > 0);
                 if (!kol || !validLayers.length) return null;
                 const totalGm2 = validLayers.reduce((a, l) => a + Number(l.gm2 || l.tezina || l.tezinaGm2 || 0), 0);
@@ -2016,7 +2172,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         showMetara
                         showCena
                         idealnaSirina={form.idealnaSirinaMaterijala || form.folija?.rezanje?.sirinaMaterijala || ""}
-                        porucenaKolicina={form.porucenaKolicina || ""}
+                        porucenaKolicina={folijaObracun(form).metriMat || ""}
                         onAdd={() => addLayer("folija")}
                         onRemove={(i) => removeLayer("folija", i)}
                         onPatch={(i, patch) => {
