@@ -1648,12 +1648,29 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     }
 
     // ─── GENERIŠI NALOG ZA MATERIJAL ────────────────────────────
-// Operacije po tipu proizvoda — redosled je bitan (redosled kolona u operativni_nalozi).
-const OPERACIJE = {
-    folija: ["materijal", "stampa", "kasiranje", "perforacija_rezanje"],
-    kesa: ["materijal", "kasiranje", "kesa"],
-    spulna: ["materijal", "spulna"],
-};
+// Operacije se IZVODE IZ TEMPLEJTA — ne pravi se nalog za operaciju koja se ne radi.
+//   štampa    → samo ako je bar jedan sloj označen za štampu
+//   kaširanje → samo ako ima više od jednog sloja
+// (Primer iz baze: MP-2026-0007 = materijal · stampa · perforacija_rezanje — bez kaširanja.)
+function operacijeZa(form) {
+    const L = (form.type === "folija" ? form.folija?.layers
+        : form.type === "kesa" ? form.kesa?.layers
+            : form.spulna?.layers) || [];
+    const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se);
+    const imaKasiranje = L.length > 1;
+
+    if (form.type === "spulna") return ["materijal", "spulna"];
+    if (form.type === "kesa") {
+        return ["materijal",
+            ...(imaStampu ? ["stampa"] : []),
+            ...(imaKasiranje ? ["kasiranje"] : []),
+            "kesa"];
+    }
+    return ["materijal",
+        ...(imaStampu ? ["stampa"] : []),
+        ...(imaKasiranje ? ["kasiranje"] : []),
+        "perforacija_rezanje"];
+}
 
 // Sledeći broj naloga: MP-<godina>-<4 cifre>. Uzima najveći postojeći za tekuću godinu.
 async function sledeciBrojNaloga() {
