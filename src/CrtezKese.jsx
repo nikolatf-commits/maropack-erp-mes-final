@@ -118,7 +118,7 @@ function buildSvgPro(c, u, lang = "sr") {
 
   let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern>`;
   let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="640" height="${H}" fill="url(#grid${u})"/><line x1="640" y1="0" x2="640" y2="${H}" stroke="#111827" stroke-width="1"/>`;
-  g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter">" + T("crtez.prednji") + "</text>`;
+  g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter">${T("crtez.prednji")}</text>`;
   g += `<ellipse cx="${cx}" cy="${q(y1 + 11)}" rx="${q(bw * 0.5)}" ry="7" fill="${INK}" opacity=".1"/>`;
   const body = `M ${q(x0)} ${q(y0)} C ${q(x0 - bulge)} ${q(y0 + bh * .3)} ${q(x0 - bulge)} ${q(y0 + bh * .7)} ${q(x0)} ${q(y1)} L ${q(x1)} ${q(y1)} C ${q(x1 + bulge)} ${q(y0 + bh * .7)} ${q(x1 + bulge)} ${q(y0 + bh * .3)} ${q(x1)} ${q(y0)} Z`;
   g += `<path d="${body}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.8"/>`;
@@ -190,7 +190,7 @@ function buildSvgPro(c, u, lang = "sr") {
   });
   // ===== BOČNI PRESEK =====
   const sx = 90, syT = 560, sD = (dno === "faltna" || dno === "kreuz") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
-  g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">" + T("crtez.presek") + "</text>`;
+  g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.presek")}</text>`;
   if (dno === "faltna" || dno === "kreuz") {
     g += `<path d="M ${sx} ${sby} L ${sx} ${sby - 14} C ${sx} ${sby - sH * .5} ${sx + sD / 2 - topW / 2} ${syT + 18} ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 + topW / 2} ${syT + 10} C ${sx + sD / 2 + topW / 2} ${syT + 18} ${sx + sD} ${sby - sH * .5} ${sx + sD} ${sby - 14} L ${sx + sD} ${sby} Z" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
     g += `<path d="M ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 - topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT + 10}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.2"/>`;
@@ -203,7 +203,7 @@ function buildSvgPro(c, u, lang = "sr") {
   }
   // ===== POGLED ODOZDO =====
   const bx = 320, bY = 575, bW = 170, bDp = (dno === "faltna" || dno === "kreuz") ? 92 : 26;
-  g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">" + T("crtez.odozdo") + "</text>`;
+  g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.odozdo")}</text>`;
   g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.6"/>`;
   if (dno === "faltna") {
     g += `<rect x="${bx}" y="${bY + bDp / 2 - 5}" width="${bW}" height="10" fill="url(#seal${u})"/><line x1="${bx}" y1="${bY + bDp / 2}" x2="${bx + bW}" y2="${bY + bDp / 2}" stroke="${INK}" stroke-width="1.1"/>`;
@@ -217,11 +217,11 @@ function buildSvgPro(c, u, lang = "sr") {
   if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, `${extraMm}`);
   // ===== LEGENDA DESNO =====
   const LX = 670;
-  g += `<text x="${LX}" y="70" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text><text x="${LX}" y="92" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">" + T("crtez.naslov") + "</text>`;
+  g += `<text x="${LX}" y="70" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text><text x="${LX}" y="92" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
   const tn = (TIPOVI[c.tip] && TIPOVI[c.tip].n) || "Kesa";
   const meta = [["Tip", tn], ["Dimenzije", sirina + " × " + duzina + " mm"], [vrh === "klapna" ? "Klapna" : "Vrh", vrh === "klapna" ? (klMm + " mm" + (klTip === "schrag" ? " (kosa)" : "")) : vrh], ["Dno", dno === "faltna" ? ("Faltna " + extraMm + " mm") : (dno === "naht" ? "Var na dnu" : (dno === "kreuz" ? "Ukršteno" : "Ravno"))]];
   let my = 116; meta.forEach((m) => { g += `<text x="${LX}" y="${my}" font-size="11" fill="${SUB}" font-family="Inter">${m[0]}</text><text x="${W - 30}" y="${my}" font-size="11" fill="${INK}" text-anchor="end" font-weight="700" font-family="ui-monospace,Menlo">${m[1]}</text><line x1="${LX}" y1="${my + 6}" x2="${W - 30}" y2="${my + 6}" stroke="#eef2f7" stroke-width="1"/>`; my += 23; });
-  g += `<text x="${LX}" y="${my + 18}" font-size="11" fill="${SUB}" font-weight="800" letter-spacing="1" font-family="Inter">" + T("crtez.pozicije") + "</text>`;
+  g += `<text x="${LX}" y="${my + 18}" font-size="11" fill="${SUB}" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.pozicije")}</text>`;
   let ly = my + 42;
   if (!legend.length) g += `<text x="${LX}" y="${ly}" font-size="11" fill="${LINE}" font-family="Inter">— nema dodatnih opcija —</text>`;
   legend.forEach((it, i) => {

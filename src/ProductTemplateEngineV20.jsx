@@ -399,9 +399,19 @@ function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
-        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;
+        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;   // korak, m
         const kom = n(k.kolicina), skart = n(k.skart);
-        return { kol: Math.round(kom * duzM), kolPlus: Math.ceil(kom * duzM * (1 + skart / 100)), kom, duzM };
+        // BAN = broj traka po sirini. Rezanje NE skracuje duzinu - multiplicira je po traci,
+        // pa je maticna rolna BAN puta KRACA. Ranije se nije delilo -> trazilo se BAN x vise materijala.
+        const ban = Math.max(1, n(k.ban) || 1);
+        const mTrake = kom * duzM;            // metri gotove trake
+        const mMat = mTrake / ban;            // metri maticne rolne  <-- ispravka
+        return {
+            kol: Math.round(mMat),
+            kolPlus: Math.ceil(mMat * (1 + skart / 100)),
+            kom, duzM, ban,
+            mTrake: Math.round(mTrake),
+        };
     }
     const kol = n(f.porucenaKolicina);
     return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
@@ -2016,47 +2026,47 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                    <div>
-                        <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
-                        <div style={{ display: "flex", gap: 6 }}>
-                            <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                                onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
-                            <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
-                                style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
-                                <option value="m">m</option>
-                                <option value="kom">kom</option>
-                                <option value="kg">kg</option>
-                            </select>
-                        </div>
-                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
-                            {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
-                                : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
-                                    : "metri GOTOVE trake"}
-                        </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                <div>
+                    <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                        <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                            onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                        <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
+                            style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
+                            <option value="m">m</option>
+                            <option value="kom">kom</option>
+                            <option value="kg">kg</option>
+                        </select>
                     </div>
-                    {(() => {
-                        const ob = folijaObracun(form);
-                        return <div>
-                            <label style={labelStyle()}>Matična rolna +5% (auto)</label>
-                            <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
-                                style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                            <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
-                                {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
-                            </div>
-                        </div>;
-                    })()}
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
-                    </div>
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+                        {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
+                            : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
+                                : "metri GOTOVE trake"}
                     </div>
                 </div>
+                {(() => {
+                    const ob = folijaObracun(form);
+                    return <div>
+                        <label style={labelStyle()}>Matična rolna +5% (auto)</label>
+                        <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
+                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                        <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                            {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
+                        </div>
+                    </div>;
+                })()}
+                <div>
+                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                </div>
+            </div>
             )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
@@ -2304,14 +2314,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <label style={labelStyle()}>{t("tmpl.potrebno_materijala")}</label>
                             <input readOnly value={(() => { const m = orderMetraze(form).kolPlus; return m ? m.toLocaleString("sr-RS") + " m" : "—"; })()}
                                 style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }}
-                                title="kom × (dužina+klapna+falta) × (1+škart%)" />
+                                title="kom × (dužina+klapna+falta) ÷ ban × (1+škart%)" />
                         </div>
                     </Grid>
                     {(() => {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 Metraža materijala = <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) × <b>(1 + {Number(form.kesa.skart) || 0}%)</b> = <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b>
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>
+                            &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
+                            &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
+                            {m.ban > 1 && <div style={{ marginTop: 4, color: "#b91c1c", fontWeight: 700 }}>
+                                Ban {m.ban} → matična rolna je {m.ban}× kraća nego ukupna dužina traka.
+                            </div>}
                         </div>;
                     })()}
                 </Section>

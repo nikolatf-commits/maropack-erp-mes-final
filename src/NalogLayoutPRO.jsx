@@ -242,13 +242,10 @@ function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px
 
 
 /* ============================ KESA ============================ */
-// Naziv tipa kese — iz TIPOVI (CrtezKese.jsx), isti izvor kao templejt.
+// Naziv tipa kese — iz TIPOVI (CrtezKese.jsx). Polje je `n`. Ima ih 16, ne 6.
 function kesaTipLabel(tip) {
-    const src = Array.isArray(TIPOVI)
-        ? TIPOVI
-        : Object.entries(TIPOVI || {}).map(function (e) { return { key: e[0], label: (e[1] && e[1].label) || e[1] }; });
-    const hit = src.find(function (x) { return (x.key || x.id || x.value) === tip; });
-    return (hit && (hit.label || hit.naziv)) || tip;
+    const t = (TIPOVI || {})[tip];
+    return (t && t.n) || tip || "—";
 }
 const OPT_BY_KEY = {};
 KESA_OPCIJE.forEach(function (o) { OPT_BY_KEY[o.k] = o; });
