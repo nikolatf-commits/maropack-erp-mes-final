@@ -413,6 +413,18 @@ function orderMetraze(f) {
             mTrake: Math.round(mTrake),
         };
     }
+    if (f.type === "folija") {
+        // Ne cita vise sirovu porucenaKolicina kao metre! Ide kroz folijaObracun,
+        // koji postuje jedinicu unosa (kom/kg/m) i BROJ TRAKA.
+        // kol / kolPlus su METRI MATICNE ROLNE - to je ono sto se skida iz magacina.
+        const ob = folijaObracun(f);
+        return {
+            kol: ob.metriMat, kolPlus: ob.metriMatPlus,
+            kom: ob.kom, duzM: ob.korakM,
+            ban: ob.N, mTrake: ob.metriTrake,
+            slojevi: ob.slojevi, kgUkupno: ob.kgUkupno,
+        };
+    }
     const kol = n(f.porucenaKolicina);
     return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
 }
@@ -480,7 +492,7 @@ function folijaObracun(form, skartPct = 5) {
     const slojevi = layers.map((l, i) => {
         const g = N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) || (N_(l.debljina) * N_(l.koeficijent));
         return {
-            naziv: l.material || l.oznaka_materijala || l.vrsta || `Sloj ${i + 1}`,
+            naziv: l.oznaka || l.komercijalnaOznaka || l.material || l.oznaka_materijala || l.vrsta || `Sloj ${i + 1}`,
             gm2: g,
             metara: Math.ceil(metriMatPlus),
             kg: +(g * sirMatM * metriMatPlus / 1000).toFixed(1),
@@ -2581,7 +2593,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Nalog za materijal — izbor rolni</div>
                                 <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>⚡ {form.naziv || "Proizvod"}</div>
                                 <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>
-                                    {form.kupac} &nbsp;·&nbsp; Poručeno: <b style={{ color: "#4ade80" }}>{fmt(kol)} m</b> &nbsp;·&nbsp; {form.type === "kesa" ? "Za rad (+škart)" : "Za rad (+5%)"}: <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b> &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
+                                    {form.kupac}
+                                    &nbsp;·&nbsp; Poručeno: <b style={{ color: "#4ade80" }}>
+                                        {form.type === "folija"
+                                            ? fmt(Number(form.porucenaKolicina) || 0) + " " + (form.jedinicaUnosa || "m")
+                                            : fmt(Number(form.kesa?.kolicina) || 0) + " kom"}
+                                    </b>
+                                    {(() => { const om = orderMetraze(form); return om.ban > 1
+                                        ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24" }}>{om.ban} {form.type === "kesa" ? "bana" : "trake"}</b></> : null; })()}
+                                    &nbsp;·&nbsp; Matična rolna (+škart): <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b>
+                                    &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
+                                    <div style={{ fontSize: 10, opacity: .75, marginTop: 3 }}>Iz magacina se skida <b>{fmt(kolPlus)} m</b> matične rolne po sloju — ne dužina gotove trake.</div>
                                 </div>
                             </div>
                             <button onClick={() => setNalogModal(false)} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
