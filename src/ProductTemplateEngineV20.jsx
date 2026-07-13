@@ -1723,9 +1723,11 @@ async function sledeciBrojNaloga() {
             // ─────────────────────────────────────────────────────────────────
             // KORAK 2 — izbor rolni (sada već znamo broj naloga)
             // ─────────────────────────────────────────────────────────────────
+            // Bilo: select("*") nad svim rolnama (736 redova × sve kolone) → sporo otvaranje dijaloga.
+            // Sada: samo kolone koje dijalog stvarno koristi, i samo rolne koje se mogu izabrati.
             const { data: rolne } = await supabase.from("magacin")
-                .select("*")
-                .not("status", "in", '("Iskorišćeno","iskoriscena","potrosena")')
+                .select("id, br_rolne, qr_code, vrsta, pod_vrsta, oznaka_materijala, komercijalnaOznaka, proizvodjac, dobavljac, deb, debljina, sirina, metraza, metraza_ost, rezervisano, kg, kg_neto, lot, palet, lokacija, status, datum_ulaza, dodeljeno_nalogu")
+                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana"])
                 .order("sirina");
 
             setNalogRolne(rolne || []);
@@ -1960,22 +1962,29 @@ async function sledeciBrojNaloga() {
                     kg_alocirano: Math.round(((Number(it.kg_po_m) || 0) * (Number(it.alocirano_m) || 0)) * 100) / 100,
                     status: "rezervisano",
                 }));
-            if (stavke.length) {
-                const { error: stErr } = await supabase.from("materijal_stavke").insert(stavke);
-                if (stErr) console.warn("materijal_stavke insert:", stErr.message);
-            }
-            // Poveži operativni nalog (materijal) sa ovim izborom rolni
-            if (opMatId) {
-                await supabase.from("operativni_nalozi").update({
-                    status: "ceka_magacin",
-                    parametri_operacije: {
-                        materijali_nalog_id: nalogId,
-                        izabrane_rolne: izborData,
-                        kolicina_za_rad: kolPlus,
-                    },
-                }).eq("id", opMatId);
-            }
+            // Ova dva upisa su nezavisna — idu paralelno (bilo sekvencijalno).
+            await Promise.all([
+                stavke.length
+                    ? supabase.from("materijal_stavke").insert(stavke)
+                        .then(({ error }) => { if (error) console.warn("materijal_stavke:", error.message); })
+                    : Promise.resolve(),
+                opMatId
+                    ? supabase.from("operativni_nalozi").update({
+                        status: "ceka_magacin",
+                        parametri_operacije: {
+                            materijali_nalog_id: nalogId,
+                            izabrane_rolne: izborData,
+                            kolicina_za_rad: kolPlus,
+                        },
+                    }).eq("id", opMatId)
+                    : Promise.resolve(),
+            ]);
             setNalogSaved(true);
+            // Javi ostalim ekranima (Pregled naloga, Materijal za naloge) da je nastao nov nalog —
+            // ranije se nalog nije video dok se stranica ne osveži.
+            if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
+            }
             msg && msg("✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");

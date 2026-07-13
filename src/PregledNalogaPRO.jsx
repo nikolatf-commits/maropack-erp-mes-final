@@ -45,6 +45,26 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         setNalozi((naloziProp || []).map(enrichNalogForPrint));
     }, [naloziProp]);
 
+    const [refreshTick, setRefreshTick] = useState(0);
+
+    // Nalog napravljen u templejtu se ranije nije video dok se stranica ne osveži.
+    // Sada: (1) templejt emituje "maropack:nalozi-changed", (2) Supabase realtime na tabele.
+    useEffect(() => {
+        const osvezi = () => setRefreshTick((t) => t + 1);
+        if (typeof window !== "undefined") window.addEventListener("maropack:nalozi-changed", osvezi);
+        let ch = null;
+        try {
+            ch = supabase.channel("nalozi-live")
+                .on("postgres_changes", { event: "*", schema: "public", table: "radni_nalozi" }, osvezi)
+                .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, osvezi)
+                .subscribe();
+        } catch (e) { }
+        return () => {
+            if (typeof window !== "undefined") window.removeEventListener("maropack:nalozi-changed", osvezi);
+            try { if (ch) supabase.removeChannel(ch); } catch (e) { }
+        };
+    }, []);
+
     useEffect(() => {
         async function load() {
             if (!brojNaloga) return;
@@ -112,7 +132,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             setLoading(false);
         }
         load();
-    }, [brojNaloga]);
+    }, [brojNaloga, refreshTick]);
 
     // Povuci originalni template iz `proizvodi` (dizajn na rolni, perforacija, broj traka…)
     const tplKey = useMemo(() => {
