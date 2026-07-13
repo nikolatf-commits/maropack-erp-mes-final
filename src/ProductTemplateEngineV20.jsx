@@ -1493,6 +1493,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     const [nalogSaving, setNalogSaving] = useState(false);
     const [nalogSaved, setNalogSaved] = useState(false);
     const [rucniUnos, setRucniUnos] = useState({});
+    const [nalogBroj, setNalogBroj] = useState("");        // MP-2026-0008 — dobija se PRE izbora rolni
+    const [masterId, setMasterId] = useState(null);        // radni_nalozi.id
+    const [opMaterijalId, setOpMaterijalId] = useState(null); // operativni_nalozi.id (tip_naloga=materijal)
     const [saved, setSaved] = useState([]);
 
     function update(path, value) {
@@ -1645,6 +1648,28 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     }
 
     // ─── GENERIŠI NALOG ZA MATERIJAL ────────────────────────────
+// Operacije po tipu proizvoda — redosled je bitan (redosled kolona u operativni_nalozi).
+const OPERACIJE = {
+    folija: ["materijal", "stampa", "kasiranje", "perforacija_rezanje"],
+    kesa: ["materijal", "kasiranje", "kesa"],
+    spulna: ["materijal", "spulna"],
+};
+
+// Sledeći broj naloga: MP-<godina>-<4 cifre>. Uzima najveći postojeći za tekuću godinu.
+async function sledeciBrojNaloga() {
+    const god = new Date().getFullYear();
+    const pref = "MP-" + god + "-";
+    const { data } = await supabase
+        .from("radni_nalozi")
+        .select("broj_naloga")
+        .like("broj_naloga", pref + "%")
+        .order("broj_naloga", { ascending: false })
+        .limit(1);
+    const zadnji = data && data[0] && data[0].broj_naloga;
+    const n = zadnji ? (parseInt(String(zadnji).split("-").pop(), 10) || 0) : 0;
+    return pref + String(n + 1).padStart(4, "0");
+}
+
     async function generisiNalogeMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
         if (!layers.length) { msg && msg("Unesi bar jedan sloj materijala!", "err"); return; }
@@ -1669,9 +1694,66 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         setNalogSaved(false);
         setNalogIzbor({});
         setRucniUnos({});
+        setNalogBroj(""); setMasterId(null); setOpMaterijalId(null);
 
         try {
-            // Učitaj sve dostupne rolne iz magacina
+            // ─────────────────────────────────────────────────────────────────
+            // KORAK 1 — kreiraj NALOGE i dobij BROJ (pre izbora rolni!).
+            // Ranije se rolna rezervisala na šifru proizvoda, pa dva naloga sa
+            // istim proizvodom nisu mogla da se razlikuju. Sada je ključ broj naloga.
+            // ─────────────────────────────────────────────────────────────────
+            const broj = await sledeciBrojNaloga();
+            const proizvod = form.naziv || form.sifra || "";
+            const ob = form.type === "spulna" ? spulnaObracun(form)
+                : form.type === "folija" ? folijaObracun(form) : null;
+            const om = orderMetraze(form);
+
+            const zajednicko = {
+                broj_naloga: broj,
+                tip_proizvoda: form.type,
+                kupac: form.kupac || "",
+                naziv: proizvod,
+                proizvod: proizvod,
+            };
+
+            const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
+                ...zajednicko,
+                status: "kreiran",
+                parametri: {
+                    sifra: form.sifra || "",
+                    template: form,
+                    porucena_kolicina: om.kol,
+                    kolicina_za_rad: om.kolPlus,
+                    idealna_sirina: form.idealnaSirinaMaterijala || "",
+                    jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
+                        : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
+                    datum: new Date().toLocaleDateString("sr-RS"),
+                },
+                rezultati: ob ? { obracun: ob } : {},
+            }]).select("id").single();
+            if (mErr) throw new Error("radni_nalozi: " + mErr.message);
+
+            const ops = (OPERACIJE[form.type] || ["materijal"]).map((op, i) => ({
+                ...zajednicko,
+                glavni_nalog_id: master.id,
+                tip_naloga: op,
+                // materijal ide odmah magacioneru; ostale operacije čekaju
+                status: op === "materijal" ? "ceka_magacin" : "ceka",
+                redosled: i + 1,
+                parametri: { sifra: form.sifra || "", template: form },
+            }));
+            const { data: opIns, error: oErr } = await supabase
+                .from("operativni_nalozi").insert(ops).select("id, tip_naloga");
+            if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
+
+            setNalogBroj(broj);
+            setMasterId(master.id);
+            const opMat = (opIns || []).find(x => x.tip_naloga === "materijal");
+            setOpMaterijalId(opMat ? opMat.id : null);
+
+            // ─────────────────────────────────────────────────────────────────
+            // KORAK 2 — izbor rolni (sada već znamo broj naloga)
+            // ─────────────────────────────────────────────────────────────────
             const { data: rolne } = await supabase.from("magacin")
                 .select("*")
                 .not("status", "in", '("Iskorišćeno","iskoriscena","potrosena")')
@@ -1758,7 +1840,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             });
 
             // Delimična rezervacija: rezerviši SAMO alocirane metre, ostatak rolne ostaje slobodan.
-            const ref = form.sifra || form.naziv || "";
+            // KLJUČ je BROJ NALOGA (jedinstven), a naziv proizvoda ide uz njega
+            // da magacioner vidi ZA ŠTA uzima rolnu:
+            //     dodeljeno_nalogu = "MP-2026-0008 · SPANAC 600 HR MAXI"
+            // Ranije je bilo ref = šifra proizvoda → dva naloga sa istim proizvodom
+            // delila su iste rolne i magacioner je istu rolnu mogao da izda dvaput.
+            const proizvodNaziv = form.naziv || form.sifra || "";
+            const ref = nalogBroj || form.sifra || form.naziv || "";
+            const oznaka = nalogBroj ? (nalogBroj + (proizvodNaziv ? " · " + proizvodNaziv : "")) : ref;
+
             const zaRezervaciju = izborData.filter(it =>
                 it.rolna_id && !it.rucni && Number(it.alocirano_m) > 0
             ).filter((it, i, arr) => arr.findIndex(x => x.rolna_id === it.rolna_id) === i);
@@ -1777,8 +1867,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     const ukupno = Number(item.metraza) || 0;
                     const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
                     const prethodno = prethodnoMap[item.rolna_id] || "";
-                    let dod = ref;
-                    if (prethodno && !prethodno.split(",").map(x => x.trim()).includes(ref)) dod = prethodno + ", " + ref;
+                    // Rolnu mogu deliti više naloga — dodaj oznaku bez dupliranja.
+                    let dod = oznaka;
+                    if (prethodno && !prethodno.includes(nalogBroj || oznaka)) dod = prethodno + ", " + oznaka;
                     else if (prethodno) dod = prethodno;
                     return supabase.from("magacin")
                         .update({ status: punoRez ? "Rezervisano" : "Delimično rezervisano", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
@@ -1791,6 +1882,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const nalogData = {
                 status: "ceka_magacin",
                 parametri: {
+                    broj_naloga: nalogBroj || null,
+                    glavni_nalog_id: masterId || null,
+                    operativni_nalog_id: opMaterijalId || null,
                     tip_naloga: "materijal",
                     tip_proizvoda: form.type,
                     naziv: form.naziv || "",
@@ -1814,7 +1908,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const stavke = izborData
                 .filter(it => it.rolna_id && Number(it.alocirano_m) > 0 && !it.rucni)
                 .map(it => ({
-                    nalog_ref: ref,
+                    nalog_ref: ref,                 // = broj naloga (MP-2026-0008)
                     materijali_nalog_id: nalogId,
                     rolna_id: it.rolna_id,
                     br_rolne: it.br_rolne,
@@ -1835,8 +1929,22 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 const { error: stErr } = await supabase.from("materijal_stavke").insert(stavke);
                 if (stErr) console.warn("materijal_stavke insert:", stErr.message);
             }
+            // Poveži operativni nalog (materijal) sa ovim izborom rolni
+            if (opMaterijalId) {
+                await supabase.from("operativni_nalozi").update({
+                    status: "ceka_magacin",
+                    parametri_operacije: {
+                        materijali_nalog_id: nalogId,
+                        izabrane_rolne: izborData,
+                        kolicina_za_rad: kolPlus,
+                    },
+                }).eq("id", opMaterijalId);
+            }
+            if (masterId) {
+                await supabase.from("radni_nalozi").update({ status: "ceka_magacin" }).eq("id", masterId);
+            }
             setNalogSaved(true);
-            msg && msg("✅ Nalog za materijal kreiran i poslat magacioneru!");
+            msg && msg("✅ " + (nalogBroj || "Nalog") + " — rolne rezervisane i poslate magacioneru!");
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
@@ -2108,7 +2216,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <div style={{ color: "#64748b", fontSize: 13 }}>Centralna baza proizvoda za folije, kese i špulne — V26 Real Template Mapping → Kalkulacija → Ponuda → Master nalog — kalkulacija, ponuda, nalozi, QC i AI koriste isti template.</div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={generisiNalogeMaterijal} style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ {t("tmpl.generisi_nalog")}</button>
+                <button onClick={generisiNalogeMaterijal} title="Kreira master + operativne naloge, dobija broj, pa otvara izbor rolni"
+                    style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ Kreiraj naloge</button>
                 <button onClick={saveTemplate} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {t("tmpl.sacuvaj_template")}</button>
                 <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 {t("tmpl.ponuda_iz_template")}</button>
                 <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 {t("tmpl.ai_workflow")}</button>
@@ -2131,47 +2240,47 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
-                    <div>
-                        <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
-                        <div style={{ display: "flex", gap: 6 }}>
-                            <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
-                                onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
-                            <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
-                                style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
-                                <option value="m">m</option>
-                                <option value="kom">kom</option>
-                                <option value="kg">kg</option>
-                            </select>
-                        </div>
-                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
-                            {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
-                                : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
-                                    : "metri GOTOVE trake"}
-                        </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
+                <div>
+                    <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                        <input type="number" value={form.porucenaKolicina || ""} placeholder="npr. 50000"
+                            onChange={e => update("porucenaKolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                        <select value={form.jedinicaUnosa || "m"} onChange={e => update("jedinicaUnosa", e.target.value)}
+                            style={{ ...fieldStyle(), width: 82, fontWeight: 900, color: BLUE, background: "#eff6ff", cursor: "pointer" }}>
+                            <option value="m">m</option>
+                            <option value="kom">kom</option>
+                            <option value="kg">kg</option>
+                        </select>
                     </div>
-                    {(() => {
-                        const ob = folijaObracun(form);
-                        return <div>
-                            <label style={labelStyle()}>Matična rolna +5% (auto)</label>
-                            <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
-                                style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
-                            <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
-                                {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
-                            </div>
-                        </div>;
-                    })()}
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — širina (mm)</label>
-                        <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
-                            onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
-                    </div>
-                    <div>
-                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
-                        <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
-                            onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+                        {form.jedinicaUnosa === "kom" ? "broj komada (etiketa/kesica)"
+                            : form.jedinicaUnosa === "kg" ? "ukupna kilaža svih slojeva"
+                                : "metri GOTOVE trake"}
                     </div>
                 </div>
+                {(() => {
+                    const ob = folijaObracun(form);
+                    return <div>
+                        <label style={labelStyle()}>Matična rolna +5% (auto)</label>
+                        <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
+                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
+                        <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                            {ob.N > 1 ? `${ob.N} traka → matična je ${ob.N}× kraća` : "1 traka"}
+                        </div>
+                    </div>;
+                })()}
+                <div>
+                    <label style={labelStyle()}>Dimenzija — širina (mm)</label>
+                    <input type="number" value={form.dimenzijaSirina || ""} placeholder="npr. 85"
+                        onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                    <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                    <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
+                        onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
+                </div>
+            </div>
             )}
             {/* Red 3 — Materijal + napomena */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
@@ -2806,19 +2915,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Nalog za materijal — izbor rolni</div>
                                 <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>⚡ {form.naziv || "Proizvod"}</div>
                                 <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>
+                                    {nalogBroj && <><b style={{ color: "#fbbf24", fontSize: 14 }}>{nalogBroj}</b> &nbsp;·&nbsp; </>}
                                     {form.kupac}
                                     &nbsp;·&nbsp; Poručeno: <b style={{ color: "#4ade80" }}>
                                         {form.type === "folija"
                                             ? fmt(Number(form.porucenaKolicina) || 0) + " " + (form.jedinicaUnosa || "m")
                                             : fmt(Number(form.kesa?.kolicina) || 0) + " kom"}
                                     </b>
-                                    {(() => {
-                                        const om = orderMetraze(form); return om.ban > 1
-                                            ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24" }}>{om.ban} {form.type === "kesa" ? "bana" : "trake"}</b></> : null;
-                                    })()}
+                                    {(() => { const om = orderMetraze(form); return om.ban > 1
+                                        ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24" }}>{om.ban} {form.type === "kesa" ? "bana" : "trake"}</b></> : null; })()}
                                     &nbsp;·&nbsp; Matična rolna (+škart): <b style={{ color: "#4ade80" }}>{fmt(kolPlus)} m</b>
                                     &nbsp;·&nbsp; Idealna širina: <b style={{ color: "#60a5fa" }}>{val(sir)} mm</b>
-                                    <div style={{ fontSize: 10, opacity: .75, marginTop: 3 }}>Iz magacina se skida <b>{fmt(kolPlus)} m</b> matične rolne po sloju — ne dužina gotove trake.</div>
+                                    <div style={{ fontSize: 10, opacity: .75, marginTop: 3 }}>
+                                        Iz magacina se skida <b>{fmt(kolPlus)} m</b> matične rolne po sloju — ne dužina gotove trake.
+                                        {nalogBroj && <> Rolne se vezuju za <b>{nalogBroj} · {form.naziv || form.sifra}</b>.</>}
+                                    </div>
                                 </div>
                             </div>
                             <button onClick={() => setNalogModal(false)} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>

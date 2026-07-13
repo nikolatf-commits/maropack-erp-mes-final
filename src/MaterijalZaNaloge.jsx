@@ -75,47 +75,33 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
         setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" });
-        const broj = it.master.broj_naloga || it.op.broj_naloga || "";
-        // ROLNE KOJE SU VEĆ DODELJENE OVOM NALOGU.
-        //
-        // BUG (popravljen): templejt (potvrdiNalogMaterijal) upisuje
-        //   magacin.dodeljeno_nalogu = form.sifra || form.naziv   → npr. "SPANAC 600 HR MAXI"
-        // a ovde se tražilo samo po broju naloga ("MP-2026-0006") → nikad se ne poklope,
-        // pa je magacioner video 0/0 iako je rolna bila rezervisana i skinuta sa stanja.
-        //
-        // Sada tražimo po SVIM referencama pod kojima rolna može biti vezana:
-        //   broj naloga · šifra proizvoda · naziv proizvoda
-        // i dodatno preko ledgera (materijal_stavke.nalog_ref).
-        const par = (function () { const p = it.op.parametri || it.master.parametri; try { return typeof p === "string" ? JSON.parse(p) : (p || {}); } catch (e) { return {}; } })();
-        const refs = [...new Set([
-            broj,
-            par.sifra, par.naziv,
-            it.master.sifra, it.op.sifra,
-            it.master.proizvod, it.master.naziv,
-        ].map((x) => String(x || "").trim()).filter(Boolean))];
+        const broj = it.op.broj_naloga || it.master.broj_naloga || "";
 
+        // Rolne su vezane za BROJ NALOGA:  magacin.dodeljeno_nalogu = "MP-2026-0008 · PROIZVOD"
+        // (ranije je bilo vezano za šifru proizvoda, pa su dva naloga sa istim
+        //  proizvodom delila iste rolne — magacioner je istu rolnu mogao izdati dvaput)
         let rows = [];
         try {
-            // 1) direktno po dodeljeno_nalogu (bilo koja referenca)
-            const nizovi = await Promise.all(
-                refs.map((r) => supabase.from("magacin").select("*").ilike("dodeljeno_nalogu", "%" + r + "%").limit(60))
-            );
             const mapa = {};
-            nizovi.forEach(({ data }) => (data || []).forEach((r) => { mapa[r.id] = r; }));
+            if (broj) {
+                const { data } = await supabase.from("magacin").select("*")
+                    .ilike("dodeljeno_nalogu", "%" + broj + "%").limit(60);
+                (data || []).forEach((r) => { mapa[r.id] = r; });
 
-            // 2) preko ledgera — materijal_stavke.nalog_ref drži istu referencu
-            const { data: st0 } = await supabase
-                .from("materijal_stavke").select("rolna_id, nalog_ref")
-                .in("nalog_ref", refs).in("status", ["rezervisano", "izdato"]).limit(200);
-            const ledgerIds = [...new Set((st0 || []).map((x) => x.rolna_id).filter(Boolean))]
-                .filter((id) => !mapa[id]);
-            if (ledgerIds.length) {
-                const { data: mr } = await supabase.from("magacin").select("*").in("id", ledgerIds).limit(60);
-                (mr || []).forEach((r) => { mapa[r.id] = r; });
+                // dopuna iz ledgera (materijal_stavke.nalog_ref = broj naloga)
+                const { data: st0 } = await supabase.from("materijal_stavke")
+                    .select("rolna_id").eq("nalog_ref", broj)
+                    .in("status", ["rezervisano", "izdato"]).limit(200);
+                const ids = [...new Set((st0 || []).map((x) => x.rolna_id).filter(Boolean))]
+                    .filter((id) => !mapa[id]);
+                if (ids.length) {
+                    const { data: mr } = await supabase.from("magacin").select("*").in("id", ids).limit(60);
+                    (mr || []).forEach((r) => { mapa[r.id] = r; });
+                }
             }
             rows = Object.values(mapa);
         } catch (e) { }
-        setRefsInfo(refs.join(" · "));
+        setRefsInfo(broj);
         setRolls(rows);
         // Alokacija po rolni iz ledgera (materijal_stavke) — koliko ovaj nalog drži na svakoj rolni
         try {
@@ -125,9 +111,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const aMap = {}, sMap = {}, iMap = {};
                 (st || []).forEach((s) => {
                     // preferiraj stavku ovog naloga (nalog_ref sadržan u dodeljeno_nalogu rolne)
-                    const r = rows.find((x) => x.id === s.rolna_id);
-                    const pripada = !r || refs.some((ref) => String(r.dodeljeno_nalogu || "").includes(ref))
-                        || refs.includes(String(s.nalog_ref || ""));
+                    const pripada = !broj || String(s.nalog_ref || "") === broj;
                     if (pripada || aMap[s.rolna_id] == null) {
                         aMap[s.rolna_id] = num(s.alocirano_m);
                         sMap[s.rolna_id] = s;
@@ -274,7 +258,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     <div style={{ fontWeight: 900, marginBottom: 5 }}>Ovom nalogu nisu dodeljene rolne.</div>
                     <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
                         Kancelarija ih dodeljuje u templejtu, dugmetom <b>„Generiši nalog materijala"</b> → izbor rolni → <b>„Potvrdi i pošalji magacioneru"</b>.
-                        <div style={{ marginTop: 6, color: "#94a3b8" }}>Traženo po: {refsInfo || "—"}</div>
+                        <div style={{ marginTop: 6, color: "#94a3b8" }}>Nalog: {refsInfo || "—"}</div>
                     </div>
                 </div>}
 
