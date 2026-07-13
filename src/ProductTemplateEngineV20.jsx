@@ -1697,59 +1697,11 @@ async function sledeciBrojNaloga() {
         setNalogBroj(""); setMasterId(null); setOpMaterijalId(null);
 
         try {
-            // ─────────────────────────────────────────────────────────────────
-            // KORAK 1 — kreiraj NALOGE i dobij BROJ (pre izbora rolni!).
-            // Ranije se rolna rezervisala na šifru proizvoda, pa dva naloga sa
-            // istim proizvodom nisu mogla da se razlikuju. Sada je ključ broj naloga.
-            // ─────────────────────────────────────────────────────────────────
-            const broj = await sledeciBrojNaloga();
-            const proizvod = form.naziv || form.sifra || "";
-            const ob = form.type === "spulna" ? spulnaObracun(form)
-                : form.type === "folija" ? folijaObracun(form) : null;
-            const om = orderMetraze(form);
-
-            const zajednicko = {
-                broj_naloga: broj,
-                tip_proizvoda: form.type,
-                kupac: form.kupac || "",
-                naziv: proizvod,
-                proizvod: proizvod,
-            };
-
-            const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
-                ...zajednicko,
-                status: "kreiran",
-                parametri: {
-                    sifra: form.sifra || "",
-                    template: form,
-                    porucena_kolicina: om.kol,
-                    kolicina_za_rad: om.kolPlus,
-                    idealna_sirina: form.idealnaSirinaMaterijala || "",
-                    jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
-                        : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
-                    datum: new Date().toLocaleDateString("sr-RS"),
-                },
-                rezultati: ob ? { obracun: ob } : {},
-            }]).select("id").single();
-            if (mErr) throw new Error("radni_nalozi: " + mErr.message);
-
-            const ops = (OPERACIJE[form.type] || ["materijal"]).map((op, i) => ({
-                ...zajednicko,
-                glavni_nalog_id: master.id,
-                tip_naloga: op,
-                // materijal ide odmah magacioneru; ostale operacije čekaju
-                status: op === "materijal" ? "ceka_magacin" : "ceka",
-                redosled: i + 1,
-                parametri: { sifra: form.sifra || "", template: form },
-            }));
-            const { data: opIns, error: oErr } = await supabase
-                .from("operativni_nalozi").insert(ops).select("id, tip_naloga");
-            if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
-
-            setNalogBroj(broj);
-            setMasterId(master.id);
-            const opMat = (opIns || []).find(x => x.tip_naloga === "materijal");
-            setOpMaterijalId(opMat ? opMat.id : null);
+            // NE PRAVIMO NALOG OVDE!
+            // Ranije se nalog upisivao u bazu već na klik dugmeta — pa ako operater
+            // odustane ili ne izabere rolne, u bazi ostane prazan nalog i potroši se broj.
+            // Nalog se sada kreira TEK u potvrdiNalogMaterijal(), i to samo ako su
+            // sve potrebe pokrivene rolnama.
 
             // ─────────────────────────────────────────────────────────────────
             // KORAK 2 — izbor rolni (sada već znamo broj naloga)
@@ -1778,24 +1730,90 @@ async function sledeciBrojNaloga() {
     async function potvrdiNalogMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
         const { kol, kolPlus } = orderMetraze(form);
+
+        // ── TVRDA PROVERA — nalog se NE pravi ako rolne nisu izabrane i potrebe pokrivene.
+        //    Ranije je ovde stajao window.confirm koji je dozvoljavao da se nepokriven
+        //    nalog svejedno pošalje magacioneru. To više nije moguće.
+        const bezRolne = [];
         const nepokriveni = [];
         layers.forEach((_, i) => {
-            if (rucniUnos[i]) return;
+            if (rucniUnos[i]) return;                      // ručni unos = svesna odluka operatera
             const izabrane = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
+            if (!izabrane.length) { bezRolne.push(i + 1); return; }
             const zbir = izabrane.reduce((s, r) => s + slobodnoM(r), 0);
-            if (zbir < kolPlus) nepokriveni.push(i + 1);
+            if (zbir < kolPlus - 1) nepokriveni.push({ sloj: i + 1, ima: Math.round(zbir), treba: Math.round(kolPlus) });
         });
-        if (nepokriveni.length) {
-            const ok = typeof window !== "undefined" && window.confirm
-                ? window.confirm(`Slojevi ${nepokriveni.join(", ")} nisu pokriveni (kombinacija rolni je manja od potrebne metraže). Svejedno poslati nalog magacioneru?`)
-                : true;
-            if (!ok) return;
+
+        if (bezRolne.length) {
+            msg && msg("Nije moguće poslati nalog: sloj " + bezRolne.join(", ") + " nema izabranu rolnu.", "err");
+            return;
         }
+        if (nepokriveni.length) {
+            const d = nepokriveni.map(x => "sloj " + x.sloj + " (" + x.ima.toLocaleString("sr-RS") + " / " + x.treba.toLocaleString("sr-RS") + " m)").join(", ");
+            msg && msg("Nije moguće poslati nalog — nedovoljno materijala: " + d + ". Dodaj rolne ili smanji količinu.", "err");
+            return;
+        }
+        if (!layers.length) { msg && msg("Nema slojeva materijala.", "err"); return; }
 
         setNalogSaving(true);
 
         try {
-            // Kreiraj izbor data — više rolni po sloju (kombinacija), sa alociranom metražom
+            // ─────────────────────────────────────────────────────────────────
+            // KORAK 1 — TEK SADA se kreira nalog (sve potrebe su pokrivene rolnama).
+            // Broj naloga je ključ za rezervaciju: dva naloga sa istim proizvodom
+            // više ne dele iste rolne.
+            // ─────────────────────────────────────────────────────────────────
+            const broj = await sledeciBrojNaloga();
+            const proizvod = form.naziv || form.sifra || "";
+            const obr = form.type === "spulna" ? spulnaObracun(form)
+                : form.type === "folija" ? folijaObracun(form) : null;
+
+            const zajednicko = {
+                broj_naloga: broj,
+                tip_proizvoda: form.type,
+                kupac: form.kupac || "",
+                naziv: proizvod,
+                proizvod: proizvod,
+            };
+
+            const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
+                ...zajednicko,
+                status: "ceka_magacin",
+                parametri: {
+                    sifra: form.sifra || "",
+                    template: form,
+                    porucena_kolicina: kol,
+                    kolicina_za_rad: kolPlus,
+                    idealna_sirina: form.idealnaSirinaMaterijala || "",
+                    jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
+                        : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
+                    datum: new Date().toLocaleDateString("sr-RS"),
+                },
+                rezultati: obr ? { obracun: obr } : {},
+            }]).select("id").single();
+            if (mErr) throw new Error("radni_nalozi: " + mErr.message);
+
+            const ops = operacijeZa(form).map((op, i) => ({
+                ...zajednicko,
+                broj_naloga: broj + "-" + op.toUpperCase(),
+                glavni_nalog_id: master.id,
+                tip_naloga: op,
+                status: op === "materijal" ? "ceka_magacin" : "ceka",
+                redosled: i + 1,
+                parametri: { sifra: form.sifra || "", template: form },
+            }));
+            const { data: opIns, error: oErr } = await supabase
+                .from("operativni_nalozi").insert(ops).select("id, tip_naloga");
+            if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
+
+            const mId = master.id;
+            const opMat = (opIns || []).find(x => x.tip_naloga === "materijal");
+            const opMatId = opMat ? opMat.id : null;
+            setNalogBroj(broj); setMasterId(mId); setOpMaterijalId(opMatId);
+
+            // ─────────────────────────────────────────────────────────────────
+            // KORAK 2 — rezervacija rolni na BROJ NALOGA
+            // ─────────────────────────────────────────────────────────────────
             const izborData = [];
             layers.forEach((l, i) => {
                 const izabrane = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
@@ -1845,9 +1863,9 @@ async function sledeciBrojNaloga() {
             //     dodeljeno_nalogu = "MP-2026-0008 · SPANAC 600 HR MAXI"
             // Ranije je bilo ref = šifra proizvoda → dva naloga sa istim proizvodom
             // delila su iste rolne i magacioner je istu rolnu mogao da izda dvaput.
-            const proizvodNaziv = form.naziv || form.sifra || "";
-            const ref = nalogBroj || form.sifra || form.naziv || "";
-            const oznaka = nalogBroj ? (nalogBroj + (proizvodNaziv ? " · " + proizvodNaziv : "")) : ref;
+            const proizvodNaziv = proizvod;
+            const ref = broj;
+            const oznaka = broj + (proizvodNaziv ? " · " + proizvodNaziv : "");
 
             const zaRezervaciju = izborData.filter(it =>
                 it.rolna_id && !it.rucni && Number(it.alocirano_m) > 0
@@ -1869,7 +1887,7 @@ async function sledeciBrojNaloga() {
                     const prethodno = prethodnoMap[item.rolna_id] || "";
                     // Rolnu mogu deliti više naloga — dodaj oznaku bez dupliranja.
                     let dod = oznaka;
-                    if (prethodno && !prethodno.includes(nalogBroj || oznaka)) dod = prethodno + ", " + oznaka;
+                    if (prethodno && !prethodno.includes(broj)) dod = prethodno + ", " + oznaka;
                     else if (prethodno) dod = prethodno;
                     return supabase.from("magacin")
                         .update({ status: punoRez ? "Rezervisano" : "Delimično rezervisano", dodeljeno_nalogu: dod, rezervisano: noviRez || null })
@@ -1882,9 +1900,9 @@ async function sledeciBrojNaloga() {
             const nalogData = {
                 status: "ceka_magacin",
                 parametri: {
-                    broj_naloga: nalogBroj || null,
-                    glavni_nalog_id: masterId || null,
-                    operativni_nalog_id: opMaterijalId || null,
+                    broj_naloga: broj,
+                    glavni_nalog_id: mId,
+                    operativni_nalog_id: opMatId,
                     tip_naloga: "materijal",
                     tip_proizvoda: form.type,
                     naziv: form.naziv || "",
@@ -1930,7 +1948,7 @@ async function sledeciBrojNaloga() {
                 if (stErr) console.warn("materijal_stavke insert:", stErr.message);
             }
             // Poveži operativni nalog (materijal) sa ovim izborom rolni
-            if (opMaterijalId) {
+            if (opMatId) {
                 await supabase.from("operativni_nalozi").update({
                     status: "ceka_magacin",
                     parametri_operacije: {
@@ -1938,13 +1956,10 @@ async function sledeciBrojNaloga() {
                         izabrane_rolne: izborData,
                         kolicina_za_rad: kolPlus,
                     },
-                }).eq("id", opMaterijalId);
-            }
-            if (masterId) {
-                await supabase.from("radni_nalozi").update({ status: "ceka_magacin" }).eq("id", masterId);
+                }).eq("id", opMatId);
             }
             setNalogSaved(true);
-            msg && msg("✅ " + (nalogBroj || "Nalog") + " — rolne rezervisane i poslate magacioneru!");
+            msg && msg("✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
