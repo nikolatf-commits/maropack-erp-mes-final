@@ -4,7 +4,7 @@ import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDat
 import { pantoneHex } from "./data/pantone.js";
 import { translate, useLang } from "./LanguageProvider.jsx";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
-import { toCrtezKesa, KESA_OPCIJE } from "./kesaOpcije.js";
+import { toCrtezKesa, KESA_OPCIJE, KESA_GRUPE, KESA_TIP_PRESET, FOOD_TEXT, opcijaNaloga } from "./kesaOpcije.js";
 
 /* ---------- helpers ---------- */
 let LANG = "sr";
@@ -250,25 +250,8 @@ function kesaTipLabel(tip) {
     const hit = src.find(function (x) { return (x.key || x.id || x.value) === tip; });
     return (hit && (hit.label || hit.naziv)) || tip;
 }
-const OPT_LBL = {
-    duplofan: "Duplofan traka", eurozumba: "Eurozumba", okrugla_zumba: "Okrugla zumba", kosa_klapna: "Kosa klapna",
-    anleger: "Anleger", utor: "Utor", stampa: "Štampa", poprecna_perf: "Poprečna perforacija", bocni_var: "Bočni var",
-    kontinualni_var: "Kontinualni var", poprecni_var: "Poprečni var", falta_dno: "Falta na dnu", var_dno: "Var na dnu",
-    otvor_dno: "Otvor na dnu", pakovanje_trn: "Pakovanje na trnu", busene_rupe: "Bušene rupe", adh_traka: "ADH traka",
-    ojacanje: "Ojačanje", toplotni_var: "Termo/toplotni var", mikroperforacija: "Mikroperforacija",
-};
-
-// Opisi opcija dolaze iz kesaOpcije.js (KESA_OPCIJE) — jedan izvor istine sa templejtom.
-const OPT_OPIS = (function () {
-    const m = {};
-    const src = Array.isArray(KESA_OPCIJE) ? KESA_OPCIJE : Object.values(KESA_OPCIJE || {});
-    src.forEach(function (o) {
-        if (!o) return;
-        const k = o.key || o.id || o.value;
-        if (k) m[k] = o.opis || o.description || o.napomena || o.label || "";
-    });
-    return m;
-})();
+const OPT_BY_KEY = {};
+KESA_OPCIJE.forEach(function (o) { OPT_BY_KEY[o.k] = o; });
 
 function kesaD(nalog) {
     const { od, t, kesa } = getData(nalog);
@@ -367,19 +350,49 @@ function pKesaKas(D, K) {
 /* 3/4 tehnicke karakteristike */
 function pKesa(D, K) {
     const c = '#b91c1c';
-    const opcije = K.opts.length
-        ? '<table>' + th(['Opcija', 'Opis / uputstvo operateru'], c) + '<tbody>' +
-        K.opts.map(function (o) { return '<tr><td style="width:34%"><b style="color:' + c + '">✓</b> ' + esc(OPT_LBL[o] || o) + '</td><td style="font-weight:600;color:#475569">' + esc(OPT_OPIS[o] || '—') + '</td></tr>'; }).join('') +
-        '</tbody></table>'
-        : '<div class="ulaz">Bez dodatnih opcija.</div>';
+    const k = K.raw || {};
+    const opt = k.options || {}, sel = k.optSel || {}, pos = k.positions || {}, txt = k.optText || {};
+    const preset = KESA_TIP_PRESET[K.tip] || [];
+
+    // grupisano po KESA_GRUPE, sa oznakom da li je opcija standardna za tip ili posebno tražena
+    const grupe = KESA_GRUPE.map(function (g) {
+        const red = g.keys.filter(function (key) { return opt[key]; }).map(function (key) {
+            const op = OPT_BY_KEY[key];
+            if (!op) return '';
+            const tekst = opcijaNaloga(op, sel[key], pos[key]);
+            const dodatno = Object.keys(txt[key] || {}).map(function (tk) { return txt[key][tk]; }).filter(Boolean).join(' · ');
+            const std = preset.indexOf(key) >= 0;
+            return '<tr>' +
+                '<td style="width:30%"><span class="dot-c" style="background:' + g.c + '"></span><b>' + esc(op.l) + '</b></td>' +
+                '<td style="width:50%;font-weight:700">' + esc(tekst.replace(op.l, '').replace(/^\s*·?\s*/, '') || 'DA') + (dodatno ? '<br><span style="font-weight:600;color:#64748b">' + esc(dodatno) + '</span>' : '') + '</td>' +
+                '<td style="width:20%">' + (std
+                    ? '<span style="font-size:9px;font-weight:900;color:#64748b;background:#f1f5f9;padding:3px 8px;border-radius:99px">standardno za tip</span>'
+                    : '<span style="font-size:9px;font-weight:900;color:#b45309;background:#fef3c7;padding:3px 8px;border-radius:99px">POSEBNO TRAŽENO</span>') + '</td></tr>';
+        }).filter(Boolean).join('');
+        if (!red) return '';
+        return '<div class="subsec"><div class="subh" style="color:' + g.c + '">' + esc(g.l.toUpperCase()) + '</div><table><tbody>' + red + '</tbody></table></div>';
+    }).filter(Boolean).join('');
+
+    const brOpcija = Object.keys(opt).filter(function (x) { return opt[x]; }).length;
+    const foodBox = opt.hrana
+        ? '<div class="ulaz" style="border-left-color:#059669;background:#ecfdf5;color:#065f46;margin-top:12px"><b>⚠ ' + esc(FOOD_TEXT) + '</b></div>'
+        : '';
+
     return pageWrap(D, hd(D, '🛍', 'NALOG ZA KESU — TEHNIČKE KARAKTERISTIKE', c, '3/4') + '<div class="body">' + kesaStat(D, K) + kesaInfo(D, K) +
         '<div class="sec">' + secH(1, c, 'Dimenzije kese', 'iz templejta') + '<div class="info">' +
         infoC('Tip kese', kesaTipLabel(K.tip)) + infoC('Širina (W)', K.W + ' mm') + infoC('Visina (H)', K.H + ' mm') + infoC('Klapna', K.KL + ' mm') +
-        infoC('Falta (dno)', K.FA + ' mm') + infoC('Korak na traci', K.korakK + ' mm') + infoC('Tolerancija', K.tolerancija) + infoC('Grafika', K.grafika) + '</div></div>' +
+        infoC('Falta (dno)', K.FA + ' mm') + infoC('Korak na traci', K.korakK + ' mm') +
+        infoC('Tolerancija količine', sel.tolerancija_kol || K.tolerancija) + infoC('Pakovati', sel.pakovati || '—') + '</div></div>' +
+
         '<div class="sec">' + secH(2, c, 'Parametri mašine', 'iz templejta') + '<div class="info">' +
-        infoC('Ban', K.ban + (K.ban > 1 ? ' trake' : ' traka')) + infoC('Takt', K.takt ? K.takt + ' /min' : '—') + infoC('Ulazna širina', K.sirMat + ' mm') + infoC('Otpad', K.otpad + ' mm') +
-        infoC('Materijal', D.LAY.map(function (l) { return l.n; }).join('/')) + infoC('Debljina', D.TOTu + ' µm') + infoC('Pakovanje', K.pakovanje) + infoC('Transport kg', K.transportKg) + '</div></div>' +
-        '<div class="sec">' + secH(3, c, 'Opcije i dorada', K.opts.length + ' izabrano') + opcije + '</div>' +
+        infoC('Ban', K.ban + (K.ban > 1 ? ' trake' : ' traka')) + infoC('Takt', K.takt ? K.takt + ' /min' : '—') +
+        infoC('Ulazna širina', K.sirMat + ' mm') + infoC('Otpad', K.otpad + ' mm') +
+        infoC('Materijal', D.LAY.map(function (l) { return l.n; }).join('/')) + infoC('Debljina', D.TOTu + ' µm') +
+        infoC('Metara', fmtN(K.mMatPlus) + ' m') + infoC('Ukupno kg', kesaTotalKg(D, K) + ' kg') + '</div></div>' +
+
+        '<div class="sec">' + secH(3, c, 'Opcije i dorada', brOpcija + ' čekirano') +
+        (grupe || '<div class="ulaz">Bez dodatnih opcija.</div>') + foodBox + '</div>' +
+
         '<div class="ulaz" style="margin-top:14px">📐 <b>Tehnički crtež kese (kotirano)</b> je na posebnoj strani — vidi sledeću stranu.</div>' +
         foot('Operater kesarke', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana 3 · kesa');
 }
