@@ -4,6 +4,8 @@ import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDat
 import { pantoneHex } from "./data/pantone.js";
 import { translate, useLang } from "./LanguageProvider.jsx";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
+import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
+import { kutijaPoKljucu, KUTIJA_LBL } from "./kutije.js";
 import { toCrtezKesa, KESA_OPCIJE, KESA_GRUPE, KESA_TIP_PRESET, FOOD_TEXT, opcijaNaloga } from "./kesaOpcije.js";
 
 /* ---------- helpers ---------- */
@@ -44,14 +46,17 @@ function getData(nalog) {
     const t = templateData && Object.keys(templateData).length ? templateData : tpl;
     const folija = linked.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
     const kesa = linked.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
+    const spulna = linked.spulna || od.spulna || t.spulna || (t.data && t.data.spulna) || {};
     const pdf = linked.pdf || od.pdf || t.pdf || {};
-    return { linked, od, t, folija, kesa, pdf };
+    return { linked, od, t, folija, kesa, spulna, pdf };
 }
 
 function buildLayers(nalog) {
-    const { od, folija, kesa } = getData(nalog);
-    const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
-    const src = jeKesa ? kesa : folija;
+    const { od, folija, kesa, spulna } = getData(nalog);
+    const tip_ = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase();
+    const jeKesa = tip_.includes("kes");
+    const jeSpulna = tip_.includes("spul") || tip_.includes("špul");
+    const src = jeSpulna ? spulna : (jeKesa ? kesa : folija);
     const normalized = normalizeLayers(nalog, nalog.tip_proizvoda || nalog.tip) || [];
     const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : (Array.isArray(src.layers) && src.layers.length ? src.layers : normalized)) || [];
     return arr.slice(0, 6).map((m, i) => ({
@@ -73,6 +78,7 @@ function buildLayers(nalog) {
 function buildD(nalog) {
     const { od, t, folija, kesa } = getData(nalog);
     const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
+    const jeSpulna = /spul|špul/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const LAY = buildLayers(nalog);
     const TOTu = LAY.reduce((s, l) => s + l.u, 0);
     const kolicina = num(nalog.metraza || nalog.kol || nalog.kolicina || t.porucenaKolicina || od.kolicina) || 0;
@@ -116,7 +122,7 @@ function buildD(nalog) {
         dimenzije: (num(t.dimenzijaSirina) || "?") + " × " + (num(t.dimenzijaDuzina) || "?") + " mm",
         kom: od.kom || t.porucenaKolicinaKom || nalog.kom || "—",
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
-        metriMat, N, korak, komPoTraci, komUkupno, jeKesa,
+        metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         stampa: {
             masina: st.masina, strana: st.strana, brojBoja: st.brojBoja, smer: st.smerOdmotavanja,
@@ -395,11 +401,175 @@ function pKesa(D, K) {
 }
 /* ========================== KRAJ KESA ========================== */
 
+
+/* =========================== ŠPULNA =========================== */
+const SPULNA_SKICA = spulnaTechnicalDrawing;
+/*  Obračun po Excel nalogu (Radni_nalog 0150/2026):
+ *    ukupno m   = broj špulni × metara po špulni      156 × 20.000 = 3.120.000 m
+ *    m²         = ukupno m × W/1000                   × 0,020      =    62.400 m²
+ *    kg         = m² × Σ g/m²                          × 60 g/m²   =     3.744 kg
+ *    broj traka = širina materijala ÷ W               480 ÷ 20     =        24
+ *    matična    = ukupno m ÷ broj traka               ÷ 24         =   130.000 m
+ *  (kilaža je ista računata preko m² ili preko matične rolne — provereno)
+ */
+function spulnaD(nalog) {
+    const { od, t, spulna } = getData(nalog);
+    const p = spulna || {};
+    const W = num(p.W) || 20;                                   // širina trake / špulne
+    const sirMat = num(p.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || 480;
+    const maxM = num(p.maxMetara) || 20000;                     // max metara na jednoj špulni
+    const gm2 = (buildLayers(nalog) || []).reduce(function (a, l) { return a + (l.gm2 || 0); }, 0);
+    const skart = num(p.skart) || 0;
+    const jed = p.jedinicaUnosa || "m2";                        // m2 | kom | kg | m
+    const v = num(p.kolicina) || num(nalog.kom) || num(od.kom) || 0;
+
+    let m2 = 0;
+    if (jed === "kom") m2 = v * maxM * (W / 1000);
+    else if (jed === "kg") m2 = gm2 > 0 ? (v * 1000) / gm2 : 0;
+    else if (jed === "m") m2 = v * (W / 1000);
+    else m2 = v;                                                 // m²
+
+    const m2Rad = m2 * (1 + skart / 100);
+    const ukupnoM = W > 0 ? m2Rad / (W / 1000) : 0;              // metri gotove trake
+    const spulni = maxM > 0 ? Math.ceil(ukupnoM / maxM) : 0;
+    const N = W > 0 ? Math.max(1, Math.floor(sirMat / W)) : 1;   // traka po širini
+    const metriMat = N > 0 ? ukupnoM / N : ukupnoM;              // matična rolna
+    const kg = m2Rad * gm2 / 1000;
+    const kgF = m2Rad / 1000;                                    // množilac za kg po sloju
+
+    const poPaleti = num(p.rolniPoPaleti) || 18;
+    const palete = poPaleti > 0 ? spulni / poPaleti : 0;
+
+    const gr = [];
+    if (!W) gr.push("Nema širine trake (W).");
+    if (!gm2) gr.push("Slojevi nemaju g/m² — kilaža se ne može izračunati.");
+    if (N * W > sirMat) gr.push(N + " × " + W + " mm ne staje u " + sirMat + " mm.");
+
+    return {
+        raw: p, W: W, sirMat: sirMat, maxM: maxM, gm2: gm2, skart: skart, jed: jed, unos: v,
+        Da: num(p.Da) || num(p.da) || 158, Di: num(p.Di) || num(p.di) || 152,
+        C: num(p.C) || 0, G: num(p.G) || 0, Tw: num(p.T) || 280, D: num(p.D) || 385,
+        sirHilzne: num(p.sirinaHilzne) || num(p.T) || 300,
+        smer: p.smer || "Gap winding",
+        smerNamotavanja: p.smerNamotavanja || "—",
+        tezinaBruto: p.tezinaBruto || "",
+        sideA: p.sideA || "Silikon", sideB: p.sideB || "Papir",
+        materijal: p.materijal || "—",
+        kutija: (function () { const b = kutijaPoKljucu(p.kutija); return b ? KUTIJA_LBL(b) : (p.kutija || "—"); })(), poPaleti: poPaleti,
+        napomena: p.napomena || "",
+        m2: Math.round(m2), m2Rad: Math.round(m2Rad),
+        ukupnoM: Math.round(ukupnoM), spulni: spulni, hilzne: spulni, kutije: spulni,
+        palete: palete, N: N, metriMat: Math.round(metriMat),
+        otpad: Math.max(0, sirMat - N * W),
+        kg: kg, kgF: kgF, greske: gr,
+    };
+}
+
+function spStat(D, S) {
+    return '<div class="stats">' +
+        stat('Špulni', fmtN(S.spulni), 'kom', COLm) +
+        stat('Po špulni', fmtN(S.maxM), 'm', '#0ea5e9') +
+        stat('Matična rolna', fmtN(S.metriMat), 'm', '#14b8a6') +
+        stat('Traka', S.N, '×' + S.W + 'mm', COLp) + '</div>';
+}
+function spInfo(D, S) {
+    return '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) + infoC('Šifra', D.sifra) +
+        infoC('Materijal', S.materijal) + infoC('Širina materijala', S.sirMat + ' mm') +
+        infoC('Side A / Side B', S.sideA + ' / ' + S.sideB) + infoC('Ukupno m²', fmtN(S.m2Rad) + ' m²') + infoC('Rok', D.rok) + '</div>';
+}
+function spObracun(S) {
+    return (S.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + S.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
+        '<div class="ulaz"><b>Obračun:</b> ' + fmtN(S.spulni) + ' špulni × ' + fmtN(S.maxM) + ' m = <b>' + fmtN(S.ukupnoM) + ' m</b> trake ' +
+        '&nbsp;·&nbsp; × ' + (S.W / 1000).toFixed(3) + ' m (W) = <b>' + fmtN(S.m2Rad) + ' m²</b> ' +
+        '&nbsp;·&nbsp; × ' + fmtN(S.gm2) + ' g/m² = <b>' + fmtN(S.kg) + ' kg</b><br>' +
+        'Rezanje: ' + S.sirMat + ' mm ÷ ' + S.W + ' mm = <b>' + S.N + ' traka</b> → matična rolna <b>' + fmtN(S.metriMat) + ' m</b> (otpad ' + S.otpad + ' mm)</div>';
+}
+
+/* 1/3 — materijal */
+function pSpMat(D, S) {
+    const c = COLm;
+    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; });
+    return pageWrap(D, hd(D, '📦', 'NALOG ZA MATERIJAL', c, '1/2') + '<div class="body">' + spStat(D, S) + spInfo(D, S) + spObracun(S) +
+        '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' +
+        th(['Sloj', 'Vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        D.LAY.map(function (l, i) {
+            return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + S.sirMat + '</td><td class="n">' + fmtN(S.metriMat) + '</td><td class="n">' + fmtN(l.gm2 * S.kgF) + '</td></tr>';
+        }).join('') +
+        '<tr class="tot"><td colspan="8" style="text-align:right">UKUPNO (' + fmtN(S.m2Rad) + ' m²)</td><td class="n">' + fmtN(S.kg) + '</td></tr></tbody></table></div>' +
+
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' +
+        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        rolne.map(function (r, i) {
+            const l = D.LAY[i] || {};
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(S.metriMat) + '</td><td class="n">' + (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
+}
+
+/* 2/2 — tehničke karakteristike + skica iz templejta */
+const SP_LEGENDA = [
+    ["W", "Širina trake (mm)"],
+    ["T", "Širina hilzne / jezgra (mm)"],
+    ["D", "Maksimalni prečnik špulne (mm)"],
+    ["Da", "Spoljašnji prečnik hilzne (mm)"],
+    ["Di", "Unutrašnji prečnik hilzne (mm)"],
+    ["G", "Gap — razmak između kraja namotaja i ivice špulne (mm)"],
+    ["C", "Zazor — bočni zazor između materijala i ivice (mm)"],
+    ["Gap winding", "Namotavanje sa razmakom (gap)"],
+    ["Overlapped winding", "Namotavanje sa preklapanjem"],
+];
+
+function pSpulna(D, S) {
+    const c = '#7c3aed';
+    return pageWrap(D, hd(D, '🧵', 'NALOG ZA ŠPULNU — TEHNIČKE KARAKTERISTIKE', c, '2/2') + '<div class="body">' + spStat(D, S) + spInfo(D, S) +
+
+        '<div class="sec">' + secH(1, c, 'Dimenzije špulne', 'iz templejta') + '<div class="info">' +
+        infoC('W — širina trake', S.W + ' mm') + infoC('da — spoljni Ø hilzne', S.Da + ' mm') + infoC('di — unutrašnji Ø hilzne', S.Di + ' mm') + infoC('C — zazor', S.C + ' mm') +
+        infoC('G — gap', S.G + ' mm') + infoC('T — širina hilzne', S.Tw + ' mm') + infoC('D — max Ø špulne', S.D + ' mm') + infoC('Max metara / špulni', fmtN(S.maxM) + ' m') + '</div></div>' +
+
+        '<div class="sec">' + secH(2, c, 'Tehnički prikaz (skica)', 'iz templejta') +
+        '<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:14;align-items:center">' +
+        '<div class="framed" style="padding:10px"><img src="' + SPULNA_SKICA + '" alt="Tehnički crtež špulne" style="width:100%;height:auto;display:block"/></div>' +
+        '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:11px;font-weight:950;color:#334155;margin-bottom:7px">LEGENDA</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:10px;border:0"><tbody>' +
+        SP_LEGENDA.map(function (r) {
+            return '<tr><td style="width:58px;padding:5px 4px;border-bottom:1px solid #eef2f7;font-weight:950;color:#0f172a">' + esc(r[0]) + '</td>' +
+                '<td style="padding:5px 4px;border-bottom:1px solid #eef2f7;color:#475569;font-weight:700">' + esc(r[1]) + '</td></tr>';
+        }).join('') + '</tbody></table></div></div></div>' +
+
+        '<div class="sec">' + secH(3, c, 'Količine', '') + '<table>' +
+        th(['Stavka', { t: 'Poručeno', n: 1 }, { t: 'Za rad', n: 1 }, 'Jed.'], c) + '<tbody>' +
+        '<tr><td><b>m²</b></td><td class="n">' + fmtN(S.m2) + '</td><td class="n">' + fmtN(S.m2Rad) + '</td><td>m²</td></tr>' +
+        '<tr><td><b>Metara trake</b></td><td class="n">' + fmtN(S.ukupnoM) + '</td><td class="n">' + fmtN(S.ukupnoM) + '</td><td>m</td></tr>' +
+        '<tr><td><b>Špulni</b></td><td class="n">' + fmtN(S.spulni) + '</td><td class="n">' + fmtN(S.spulni) + '</td><td>kom</td></tr>' +
+        '<tr><td><b>Hilzni</b></td><td class="n">' + fmtN(S.hilzne) + '</td><td class="n">' + fmtN(S.hilzne) + '</td><td>kom</td></tr>' +
+        '<tr><td><b>Kutija</b></td><td class="n">' + fmtN(S.kutije) + '</td><td class="n">' + fmtN(S.kutije) + '</td><td>kom</td></tr>' +
+        '<tr class="tot"><td><b>Kilaža materijala</b></td><td class="n">' + fmtN(S.kg) + '</td><td class="n">' + fmtN(S.kg) + '</td><td>kg</td></tr>' +
+        '</tbody></table></div>' +
+
+        '<div class="sec">' + secH(4, c, 'Pakovanje proizvoda', '') + '<div class="info">' +
+        infoC('Pakovanje u kutije', S.kutija) + infoC('Rolni po paleti', S.poPaleti) + infoC('Broj paleta', S.palete.toFixed(1)) +
+        infoC('Tip namotavanja', S.smer) + infoC('Smer namotavanja', S.smerNamotavanja) + infoC('Težina bruto', S.tezinaBruto ? S.tezinaBruto + ' kg' : '—') +
+        infoC('Side A', S.sideA) + infoC('Side B', S.sideB) + '</div>' +
+        (S.napomena ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c;margin-top:10px"><b>Napomena:</b> ' + esc(S.napomena) + '</div>' : '') + '</div>' +
+
+        foot('Operater namotavanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana 2 · špulna');
+}
+
+/* ========================= KRAJ ŠPULNA ========================= */
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = (nalog.rezervisane_rolne || nalog.rezervisaneRolne || nalog.rolne || []).slice(0, 6).map(function (r) { return { qr: r.qr || r.qr_kod || r.id, n: r.vrsta, oz: r.oznaka || r.oznaka_materijala, u: r.debljina || r.deb, lot: r.lot || r.LOT, lok: r.lokacija || r.location }; });
+    if (D.jeSpulna) {
+        const S = spulnaD(nalog);
+        // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
+        if (vrsta === "spulna" || vrsta === "formatiranje") return pSpulna(D, S);
+        return pSpMat(D, S);
+    }
     if (D.jeKesa) {
         const K = kesaD(nalog);
         if (vrsta === "kasiranje") return pKesaKas(D, K);
@@ -491,6 +661,8 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     if (vrsta.includes("mater")) vrsta = "materijal";
     else if (vrsta.includes("štamp") || vrsta.includes("stamp")) vrsta = "stampa";
     else if (vrsta.includes("kes")) vrsta = "kesa";
+    else if (vrsta.includes("format")) vrsta = "formatiranje";
+    else if (vrsta.includes("spul") || vrsta.includes("špul")) vrsta = "spulna";
     else if (vrsta.includes("kaš") || vrsta.includes("kas")) vrsta = "kasiranje";
     else if (vrsta.includes("perf") || vrsta.includes("rez")) vrsta = "perforacija_rezanje";
     else vrsta = "materijal";

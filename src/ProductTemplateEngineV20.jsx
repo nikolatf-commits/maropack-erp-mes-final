@@ -6,6 +6,7 @@ import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
+import { KUTIJE, KUTIJA_LBL, proveriKutiju, predloziKutiju, kutijaPoKljucu, poPaletiZa } from "./kutije.js";
 import { useLang } from "./LanguageProvider.jsx";
 
 // =====================================================================
@@ -380,6 +381,14 @@ const defaultForm = {
         naziv: "",
         materijal: "Papir silikonizirani 60gr",
         layers: [{ vrsta: "PAPIR", oznaka: "SILIKON", debljina: "60", koeficijent: "1.00", gm2: "60", sirina: "360", cena: "" }],
+        // narudžbina
+        kolicina: "",
+        jedinicaUnosa: "m2",        // m2 | kom (špulni) | kg | m (trake)
+        skart: "0",
+        // materijal / strane
+        sideA: "Silikon",
+        sideB: "Papir",
+        // dimenzije
         W: "25",
         Da: "158",
         Di: "152",
@@ -389,11 +398,76 @@ const defaultForm = {
         D: "380",
         sirinaMaterijala: "360",
         maxMetara: "8000",
-        smer: "Gap winding"
+        sirinaHilzne: "300",
+        smer: "Gap winding",
+        // pakovanje
+        kutija: "",
+        rolniPoPaleti: "18",
+        napomena: ""
     }
 };
 
 function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ŠPULNA — obračun. Isti lanac kao u nalogu (NalogLayoutPRO.spulnaD),
+// proveren protiv Excel naloga 0150/2026 (Lil Packaging, trake 20 mm):
+//   156 špulni × 20.000 m = 3.120.000 m  →  × 0,020 m (W) = 62.400 m²
+//   62.400 m² × 60 g/m² = 3.744 kg   ·   480 ÷ 20 = 24 trake  →  matična 130.000 m
+// ─────────────────────────────────────────────────────────────────────────────
+function spulnaObracun(form) {
+    const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const p = form.spulna || {};
+    const W = N_(p.W);
+    const sirMat = N_(p.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
+    const maxM = N_(p.maxMetara);
+    const gm2 = (p.layers || []).reduce((a, l) => a + (N_(l.gm2) || N_(l.debljina) * N_(l.koeficijent)), 0);
+    const skart = N_(p.skart);
+    const jed = p.jedinicaUnosa || "m2";
+    const v = N_(p.kolicina);
+    const greske = [];
+
+    let m2 = 0;
+    if (jed === "kom") m2 = v * maxM * (W / 1000);
+    else if (jed === "kg") m2 = gm2 > 0 ? (v * 1000) / gm2 : 0;
+    else if (jed === "m") m2 = v * (W / 1000);
+    else m2 = v;
+
+    const m2Rad = m2 * (1 + skart / 100);
+    const ukupnoM = W > 0 ? m2Rad / (W / 1000) : 0;
+    const spulni = maxM > 0 ? Math.ceil(ukupnoM / maxM) : 0;
+    const N = W > 0 ? Math.max(1, Math.floor(sirMat / W)) : 1;
+    const metriMat = N > 0 ? ukupnoM / N : ukupnoM;
+    const kg = m2Rad * gm2 / 1000;
+    const poPaleti = N_(p.rolniPoPaleti) || 18;
+
+    if (!W) greske.push("Nema širine trake (W).");
+    if (!maxM) greske.push("Nema max metara na špulni.");
+    if (!gm2) greske.push("Slojevi nemaju g/m².");
+    if (!sirMat) greske.push("Nema širine materijala.");
+    if (W && sirMat && N * W > sirMat) greske.push(N + " × " + W + " mm ne staje u " + sirMat + " mm.");
+
+    return {
+        W, sirMat, maxM, gm2, skart, jed,
+        m2: Math.round(m2), m2Rad: Math.round(m2Rad),
+        ukupnoM: Math.round(ukupnoM),
+        spulni, hilzne: spulni, kutije: spulni,
+        palete: poPaleti > 0 ? spulni / poPaleti : 0,
+        N, otpad: Math.max(0, sirMat - N * W),
+        metriMat: Math.round(metriMat),
+        kg: +kg.toFixed(1),
+        slojevi: (p.layers || []).map((l, i) => {
+            const g = N_(l.gm2) || N_(l.debljina) * N_(l.koeficijent);
+            return {
+                naziv: l.oznaka || l.vrsta || ("Sloj " + (i + 1)),
+                gm2: g,
+                kg: +(m2Rad * g / 1000).toFixed(1),
+                metara: Math.ceil(metriMat),
+            };
+        }),
+        greske,
+    };
+}
 // Metraža materijala za nalog: kesa = kom × (dužina+klapna+falta) × (1+škart%); folija/špulna = poručena (m) × 1.05
 function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
@@ -423,6 +497,16 @@ function orderMetraze(f) {
             kom: ob.kom, duzM: ob.korakM,
             ban: ob.N, mTrake: ob.metriTrake,
             slojevi: ob.slojevi, kgUkupno: ob.kgUkupno,
+        };
+    }
+    if (f.type === "spulna") {
+        const ob = spulnaObracun(f);
+        // kol / kolPlus = METRI MATIČNE ROLNE — to se skida iz magacina.
+        return {
+            kol: ob.metriMat, kolPlus: ob.metriMat,
+            kom: ob.spulni, duzM: 0,
+            ban: ob.N, mTrake: ob.ukupnoM,
+            slojevi: ob.slojevi, kgUkupno: ob.kg,
         };
     }
     const kol = n(f.porucenaKolicina);
@@ -2460,10 +2544,130 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
         {form.type === "spulna" && <>
             <Section title="Špulna — osnovni podaci" color="#7c3aed">
-                <Grid cols={2}>
-                    <Input label="Naziv" value={form.spulna.naziv} onChange={v => update("spulna.naziv", v)} placeholder="npr. Trake 25mm - 8000m" />
-                    <Input label="Materijal / opis" value={form.spulna.materijal} onChange={v => update("spulna.materijal", v)} placeholder="npr. Papir silikonizirani 60gr" />
+                <Grid cols={4}>
+                    <Input label="Naziv" value={form.spulna.naziv} onChange={v => update("spulna.naziv", v)} placeholder="npr. Trake 20mm - 20 000m" />
+                    <Input label="Materijal / opis" value={form.spulna.materijal} onChange={v => update("spulna.materijal", v)} placeholder="npr. Papir silikonizirani 60 gr" />
+                    <Input label="Side A" value={form.spulna.sideA} onChange={v => update("spulna.sideA", v)} placeholder="Silikon" />
+                    <Input label="Side B" value={form.spulna.sideB} onChange={v => update("spulna.sideB", v)} placeholder="Papir" />
                 </Grid>
+                <Grid cols={4}>
+                    <div>
+                        <label style={labelStyle()}>Poručena količina</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.spulna.kolicina || ""} placeholder="npr. 62400"
+                                onChange={e => update("spulna.kolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.spulna.jedinicaUnosa || "m2"} onChange={e => update("spulna.jedinicaUnosa", e.target.value)}
+                                style={{ ...fieldStyle(), width: 88, fontWeight: 900, color: "#7c3aed", background: "#f5f3ff", cursor: "pointer" }}>
+                                <option value="m2">m²</option>
+                                <option value="kom">špulni</option>
+                                <option value="kg">kg</option>
+                                <option value="m">m trake</option>
+                            </select>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+                            {form.spulna.jedinicaUnosa === "kom" ? "broj špulni"
+                                : form.spulna.jedinicaUnosa === "kg" ? "ukupna kilaža materijala"
+                                    : form.spulna.jedinicaUnosa === "m" ? "ukupni metri trake"
+                                        : "poručeno m² (kao u Excel nalogu)"}
+                        </div>
+                    </div>
+                    <Input label="Škart (%)" value={form.spulna.skart} onChange={v => update("spulna.skart", v)} placeholder="0" />
+                    {(() => {
+                        const izabrana = kutijaPoKljucu(form.spulna.kutija);
+                        const gr = izabrana ? proveriKutiju(izabrana, form.spulna) : [];
+                        const predlog = predloziKutiju(form.spulna);
+                        return <div>
+                            <label style={labelStyle()}>Pakovanje u kutije</label>
+                            <select value={form.spulna.kutija || ""} onChange={e => {
+                                const b = kutijaPoKljucu(e.target.value);
+                                setForm(prev => {
+                                    const n = clone(prev);
+                                    n.spulna.kutija = e.target.value;
+                                    // predlog po dubini kutije — operater ga može ručno promeniti
+                                    if (b) n.spulna.rolniPoPaleti = String(poPaletiZa(b));
+                                    return n;
+                                });
+                            }} style={{ ...fieldStyle(), fontWeight: 800, cursor: "pointer", borderColor: gr.length ? RED : undefined }}>
+                                <option value="">— izaberi kutiju —</option>
+                                {KUTIJE.map(b => <option key={b.k} value={b.k}>{KUTIJA_LBL(b)}</option>)}
+                            </select>
+                            {gr.length > 0 && <div style={{ fontSize: 10, color: RED, marginTop: 4, fontWeight: 800 }}>
+                                {gr.map((g, i) => <div key={i}>⚠ {g}</div>)}
+                                {predlog && <div style={{ color: "#059669" }}>→ Predlog: {KUTIJA_LBL(predlog)}</div>}
+                            </div>}
+                            {!form.spulna.kutija && predlog && <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                                → Odgovara: {KUTIJA_LBL(predlog)}
+                            </div>}
+                            {izabrana && !gr.length && <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
+                                ✓ Ø{form.spulna.D || "—"} i T={form.spulna.T || "—"} staju · hilzna Ø{izabrana.hilzna}
+                            </div>}
+                        </div>;
+                    })()}
+                    {(() => {
+                        const b = kutijaPoKljucu(form.spulna.kutija);
+                        const pred = b ? poPaletiZa(b) : 0;
+                        const rucno = pred && Number(form.spulna.rolniPoPaleti) !== pred;
+                        return <div>
+                            <Input label="Rolni po paleti" value={form.spulna.rolniPoPaleti} onChange={v => update("spulna.rolniPoPaleti", v)} placeholder="18" />
+                            {b && <div style={{ fontSize: 10, marginTop: 4, fontWeight: 800, color: rucno ? "#d97706" : "#64748b" }}>
+                                {rucno
+                                    ? <>✎ ručno izmenjeno (predlog za dubinu {b.d} mm je {pred})</>
+                                    : <>predlog: kutija dubine {b.d} mm → {pred} po paleti · može se menjati</>}
+                            </div>}
+                        </div>;
+                    })()}
+                </Grid>
+                <Grid cols={1}>
+                    <Input label="Napomena (ide crveno na nalog)" value={form.spulna.napomena} onChange={v => update("spulna.napomena", v)} placeholder="npr. Silikon spolja, papir unutra" />
+                </Grid>
+
+                {/* AUTO KALKULACIJA — ŠPULNA */}
+                {(() => {
+                    const ob = spulnaObracun(form);
+                    if (!ob.m2Rad && !ob.spulni) return null;
+                    const fmt = (x) => Number(x || 0).toLocaleString("sr-RS");
+                    const Box = ({ l, v, hi, sub }) => (
+                        <div style={{ background: "#fff", border: `1px solid ${hi ? "#c4b5fd" : "#ddd6fe"}`, borderLeft: hi ? "5px solid #7c3aed" : undefined, borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{l}</div>
+                            <div style={{ fontSize: hi ? 20 : 16, fontWeight: 950, color: hi ? "#7c3aed" : "#4c1d95" }}>{v}</div>
+                            {sub && <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>{sub}</div>}
+                        </div>
+                    );
+                    return (
+                        <div style={{ background: "#faf5ff", border: "1px solid #7c3aed", borderRadius: 12, padding: "14px 16px", marginTop: 12 }}>
+                            <div style={{ fontWeight: 950, color: "#7c3aed", fontSize: 13, marginBottom: 10 }}>
+                                🧵 Auto kalkulacija — unos u <span style={{ textTransform: "uppercase" }}>{ob.jed === "m2" ? "m²" : ob.jed}</span>
+                            </div>
+                            {ob.greske.length > 0 && (
+                                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 10px", marginBottom: 10, color: RED, fontSize: 12, fontWeight: 800 }}>
+                                    {ob.greske.map((g, i) => <div key={i}>⚠ {g}</div>)}
+                                </div>
+                            )}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 10, marginBottom: 10 }}>
+                                <Box l="Za rad m²" v={fmt(ob.m2Rad) + " m²"} sub={ob.skart ? `+${ob.skart}% škart` : null} />
+                                <Box l="Metara trake" v={fmt(ob.ukupnoM) + " m"} sub={`W = ${ob.W} mm`} />
+                                <Box l="Špulni" v={fmt(ob.spulni)} sub={`max ${fmt(ob.maxM)} m / špulni`} />
+                                <Box l="Broj traka" v={ob.N} sub={`${ob.sirMat} mm · otpad ${ob.otpad} mm`} />
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 10, marginBottom: 10 }}>
+                                <Box l="Hilzni" v={fmt(ob.hilzne) + " kom"} />
+                                <Box l="Kutija" v={fmt(ob.kutije) + " kom"} sub={`${ob.palete.toFixed(1)} paleta`} />
+                                <Box l="Matična rolna" v={fmt(ob.metriMat) + " m"} hi sub="← skida se iz magacina" />
+                                <Box l="Potrebno KG" v={fmt(ob.kg) + " kg"} hi sub={`${fmt(ob.gm2)} g/m²`} />
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {ob.slojevi.map((l, i) => (
+                                    <div key={i} style={{ background: "#fff", border: "1px solid #ede9fe", borderRadius: 8, padding: "7px 12px", fontSize: 12 }}>
+                                        <span style={{ fontWeight: 950 }}>{l.naziv}</span>
+                                        <span style={{ color: "#64748b", marginLeft: 8 }}>{l.gm2} g/m²</span>
+                                        <span style={{ color: "#7c3aed", fontWeight: 900, marginLeft: 8 }}>→ {fmt(l.kg)} kg</span>
+                                        <span style={{ color: "#4c1d95", fontWeight: 900, marginLeft: 8 }}>/ {fmt(l.metara)} m</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
             </Section>
             <Section title="Materijali špulne" color="#7c3aed">
                 <MaterialLayersOneRowTable
