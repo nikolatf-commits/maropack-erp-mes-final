@@ -132,17 +132,36 @@ export function mapDbRolna(r) {
 }
 
 // Otporno čitanje jedne tabele: ako tabela/kolona fali, vraća [] umesto da sruši sve.
+// PAGINACIJA: PostgREST vraća najviše 1000 redova po upitu. Bez ovoga je `magacin`
+// (1151 reda) tiho sečen na 1000 — isti bag koji je u prikazu rolni davao 725 umesto 835.
 async function safeSelect(table, orderCol = "created_at") {
-    try {
-        const { data, error } = await supabase.from(table).select("*").order(orderCol, { ascending: false });
-        if (!error) return data || [];
-        const retry = await supabase.from(table).select("*");
-        if (retry.error) { console.warn(`fetchCoreData: tabela "${table}" — ${retry.error.message}`); return []; }
-        return retry.data || [];
-    } catch (e) {
-        console.warn(`fetchCoreData: tabela "${table}" — ${e?.message || e}`);
-        return [];
+    const PAGE = 1000;
+    const svi = [];
+    let redosled = true; // prvo probamo sa order-om, pa bez njega ako kolona ne postoji
+
+    for (let od = 0; ; od += PAGE) {
+        let q = supabase.from(table).select("*");
+        if (redosled && orderCol) q = q.order(orderCol, { ascending: false });
+
+        let { data, error } = await q.range(od, od + PAGE - 1);
+
+        if (error && redosled) {
+            // Verovatno tabela nema tu kolonu za sortiranje — probaj bez order-a.
+            redosled = false;
+            const retry = await supabase.from(table).select("*").range(od, od + PAGE - 1);
+            data = retry.data; error = retry.error;
+        }
+        if (error) {
+            console.warn(`fetchCoreData: tabela "${table}" — ${error.message}`);
+            return svi;
+        }
+        if (!data || data.length === 0) break;
+
+        svi.push(...data);
+        if (data.length < PAGE) break;
+        if (od > 100000) break; // sigurnosna kočnica
     }
+    return svi;
 }
 
 export async function fetchCoreData() {

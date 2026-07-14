@@ -1351,17 +1351,44 @@ function MainAppContent() {
         }
         loadDataRef.current = loadData;
         loadData();
+
+        // fetchCoreData() cita DEVET tabela odjednom (magacin ima 1000+ redova).
+        // Realtime ume da posalje vise dogadjaja u nizu (npr. rezervacija vise rolni
+        // za jedan nalog), pa se to ranije pretvaralo u vise punih preucitavanja
+        // zaredom — otud sporo kreiranje naloga. Sada se sazimaju u jedno.
+        let debounceTimer = null;
+        const loadDataDebounced = function () {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function () { debounceTimer = null; loadData(); }, 400);
+        };
+
         const ch = supabase.channel('maropack-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'proizvodi' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'ponude' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'nalozi' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'radni_nalozi' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'master_nalozi' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'rolne' }, function () { loadData(); })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'production_sessions' }, function () { loadData(); })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'proizvodi' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'ponude' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'nalozi' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'radni_nalozi' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'master_nalozi' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'rolne' }, loadDataDebounced)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'production_sessions' }, loadDataDebounced)
             .subscribe();
-        return function () { supabase.removeChannel(ch); };
+
+        // ProductTemplateEngine emituje ovaj dogadjaj kad napravi nalog, ali ga do sada
+        // niko nije slusao — pa se nov nalog nije video dok se cela aplikacija ne osvezi.
+        // Ovo radi i kad realtime replikacija za radni_nalozi/operativni_nalozi
+        // nije ukljucena u Supabase (Database → Replication).
+        const onNaloziChanged = function () { loadData(); };
+        window.addEventListener("maropack:nalozi-changed", onNaloziChanged);
+        // Povratak u tab / na telefon posle rada u drugoj aplikaciji.
+        const onFocus = function () { if (document.visibilityState === "visible") loadDataDebounced(); };
+        document.addEventListener("visibilitychange", onFocus);
+
+        return function () {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            supabase.removeChannel(ch);
+            window.removeEventListener("maropack:nalozi-changed", onNaloziChanged);
+            document.removeEventListener("visibilitychange", onFocus);
+        };
     }, [user]);
 
     async function updN(id, f, v) {
