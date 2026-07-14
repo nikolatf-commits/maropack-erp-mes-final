@@ -1676,12 +1676,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     async function sledeciBrojNaloga() {
         const god = new Date().getFullYear();
         const pref = "MP-" + god + "-";
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from("radni_nalozi")
             .select("broj_naloga")
             .like("broj_naloga", pref + "%")
             .order("broj_naloga", { ascending: false })
             .limit(1);
+        // Bez ovoga: pad upita → n = 0 → nov nalog dobije MP-<god>-0001,
+        // tj. broj koji vec postoji, pa se rezervacije dva naloga pomesaju.
+        if (error) throw new Error("Ne mogu da odredim sledeci broj naloga: " + error.message);
         const zadnji = data && data[0] && data[0].broj_naloga;
         const n = zadnji ? (parseInt(String(zadnji).split("-").pop(), 10) || 0) : 0;
         return pref + String(n + 1).padStart(4, "0");
@@ -1917,8 +1920,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 // Bilo: po 2 upita SEKVENCIJALNO za svaku rolnu (select + update) → sporo.
                 // Sada: 1 select za sve, pa svi update-i paralelno.
                 const ids = zaRezervaciju.map(it => it.rolna_id);
-                const { data: curRows } = await supabase
+                const { data: curRows, error: cErr } = await supabase
                     .from("magacin").select("id, dodeljeno_nalogu").in("id", ids);
+                // Ako ovo padne tiho, `prethodno` bude prazno i update PREGAZI
+                // dodeljeno_nalogu drugih naloga na istoj rolni.
+                if (cErr) throw new Error("magacin (citanje rezervacija): " + cErr.message);
                 const prethodnoMap = {};
                 (curRows || []).forEach(r => { prethodnoMap[r.id] = String(r.dodeljeno_nalogu || "").trim(); });
 
@@ -1964,8 +1970,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 },
             };
 
-            const { data: nalogIns } = await supabase.from("materijali_nalozi").insert([nalogData]).select("id").single();
-            const nalogId = nalogIns?.id || null;
+            // Ovo je JEDINI upis koji nosi izabrane_rolne do magacioner-ekrana.
+            // Ako tiho propadne, rolne ostanu rezervisane u magacinu, a magacioner
+            // dobije nalog BEZ rolni ("rolne nisu izabrane"). Zato greska mora da pukne.
+            const { data: nalogIns, error: nErr } = await supabase
+                .from("materijali_nalozi").insert([nalogData]).select("id").single();
+            if (nErr) throw new Error("materijali_nalozi: " + nErr.message);
+            if (!nalogIns?.id) throw new Error("materijali_nalozi: baza nije vratila id naloga.");
+            const nalogId = nalogIns.id;
 
             // Ledger: jedan red po (nalog × rolna × sloj) — izvor istine za analize.
             const idealnaSir = Number(form.idealnaSirinaMaterijala) || null;
@@ -1993,7 +2005,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             await Promise.all([
                 stavke.length
                     ? supabase.from("materijal_stavke").insert(stavke)
-                        .then(({ error }) => { if (error) console.warn("materijal_stavke:", error.message); })
+                        .then(({ error }) => {
+                            // Ledger je izvor istine za analize i za ekran magacionera.
+                            // Ranije je greska isla samo u console.warn i niko je nije video.
+                            if (error) throw new Error("materijal_stavke: " + error.message);
+                        })
                     : Promise.resolve(),
                 opMatId
                     ? supabase.from("operativni_nalozi").update({
