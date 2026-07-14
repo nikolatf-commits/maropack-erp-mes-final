@@ -1656,18 +1656,34 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const L = (form.type === "folija" ? form.folija?.layers
             : form.type === "kesa" ? form.kesa?.layers
                 : form.spulna?.layers) || [];
-        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se);
-        const imaKasiranje = L.length > 1;
+        // Stampa se prepoznaje i kad cekboks "Š" na sloju NIJE stikliran, a
+        // parametri stampe postoje (brojBoja / lista boja). Ranije se gledao samo
+        // cekboks, pa je nalog za stampu izostajao iako su boje unete.
+        const st = (form.type === "folija" ? form.folija?.stampa
+            : form.type === "kesa" ? form.kesa?.stampa
+                : form.spulna?.stampa) || {};
+        const brojBoja = Number(st.brojBoja) || 0;
+        const imaBoje = Array.isArray(st.boje) && st.boje.some(b => b && b.tip !== "Lak");
+        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
+
+        // Lakiranje je zasebna operacija: cekboks "K"/lak na sloju ili boja tipa "Lak".
+        const imaLak = L.some(l => l.lak) || (Array.isArray(st.boje) && st.boje.some(b => b && b.tip === "Lak"));
+
+        const kas = (form.type === "folija" ? form.folija?.kasiranje
+            : form.type === "kesa" ? form.kesa?.kasiranje : null) || {};
+        const imaKasiranje = L.length > 1 || Number(kas.brojKasiranja) > 0;
 
         if (form.type === "spulna") return ["materijal", "spulna"];
         if (form.type === "kesa") {
             return ["materijal",
                 ...(imaStampu ? ["stampa"] : []),
+                ...(imaLak ? ["lakiranje"] : []),
                 ...(imaKasiranje ? ["kasiranje"] : []),
                 "kesa"];
         }
         return ["materijal",
             ...(imaStampu ? ["stampa"] : []),
+            ...(imaLak ? ["lakiranje"] : []),
             ...(imaKasiranje ? ["kasiranje"] : []),
             "perforacija_rezanje"];
     }
