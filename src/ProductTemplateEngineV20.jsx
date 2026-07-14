@@ -1723,14 +1723,37 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             // ─────────────────────────────────────────────────────────────────
             // KORAK 2 — izbor rolni (sada već znamo broj naloga)
             // ─────────────────────────────────────────────────────────────────
-            // Bilo: select("*") nad svim rolnama (736 redova × sve kolone) → sporo otvaranje dijaloga.
-            // Sada: samo kolone koje dijalog stvarno koristi, i samo rolne koje se mogu izabrati.
-            const { data: rolne } = await supabase.from("magacin")
-                .select("id, br_rolne, qr_code, vrsta, pod_vrsta, oznaka_materijala, komercijalnaOznaka, proizvodjac, dobavljac, deb, debljina, sirina, metraza, metraza_ost, rezervisano, kg, kg_neto, lot, palet, lokacija, status, datum_ulaza, dodeljeno_nalogu")
-                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana"])
-                .order("sirina");
+            // Kolone MORAJU postojati u tabeli magacin. Ranija verzija je tražila
+            // kg, debljina, proizvodjac, komercijalnaOznaka, datum_ulaza — tih kolona
+            // NEMA (kg_neto, deb, dobavljac, oznaka_materijala, datum_prijema su prave).
+            // PostgREST na nepostojecu kolonu obori CEO upit, data postane undefined,
+            // lista rolni ostane prazna → "Nema odgovarajućih rolni" iako rolna postoji.
+            const MAG_KOLONE = [
+                "id", "br_rolne", "qr_code", "vrsta", "pod_vrsta", "oznaka_materijala",
+                "dobavljac", "deb", "sirina", "metraza", "metraza_ost", "rezervisano",
+                "kg_neto", "lot", "palet", "lokacija", "status", "dodeljeno_nalogu",
+                // datumi su obavezni — rolnaDatum() ih koristi za FIFO redosled
+                "datum_proizvodnje", "datum_prijema", "datum", "created_at",
+            ].join(", ");
 
-            setNalogRolne(rolne || []);
+            // Paginacija: PostgREST vraca max 1000 redova po upitu.
+            const PAGE = 1000;
+            let rolne = [];
+            for (let od = 0; ; od += PAGE) {
+                const { data, error } = await supabase.from("magacin")
+                    .select(MAG_KOLONE)
+                    .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana"])
+                    .order("sirina")
+                    .range(od, od + PAGE - 1);
+
+                if (error) throw error;              // NE gutamo gresku u tisini
+                if (!data || data.length === 0) break;
+                rolne.push(...data);
+                if (data.length < PAGE) break;
+                if (od > 100000) break;              // sigurnosna kocnica
+            }
+
+            setNalogRolne(rolne);
 
             // Auto-predloži rolnu za svaki sloj
             const autoIzbor = {};
