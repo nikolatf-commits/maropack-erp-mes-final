@@ -208,7 +208,7 @@ function infoBlock(D) { return '<div class="info">' + infoC(T("nalog.kupac", "Ku
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
-function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<img class="hdqr" src="' + D.qr + '" alt="QR"/>' : '') + '</div></div>'; }
+function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<div class="qrbox"><img class="hdqr" src="' + D.qr + '" alt="QR"/><div class="cap">SKENIRAJ<br>START · PAUZA · KRAJ</div></div>' : '') + '</div></div>'; }
 function pageWrap(D, inner, pp) { return '<div class="a4">' + inner + '<div class="pp2">' + esc(D.broj) + '</div><div class="pp">' + esc(pp) + '</div></div>'; }
 function kg(D, l) { return (l.gm2 * D.kgF).toFixed(1); }
 function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
@@ -697,7 +697,9 @@ const V6_CSS = `
 .nv6 .meta-strip .m{flex:1;min-width:90px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;text-align:center}
 .nv6 .meta-strip .m b{display:block;font-size:8.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;font-weight:800}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
-.nv6 .hdqr{width:54px;height:54px;background:#fff;border-radius:8px;padding:4px;margin-left:10px}
+.nv6 .hdqr{width:74px;height:74px;background:#fff;border-radius:8px;padding:5px;display:block}
+.nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
+.nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
 @media print{
   .nv6 .a4{box-shadow:none;margin:0;width:210mm;min-height:297mm;page-break-after:always}
   body *{visibility:hidden!important}
@@ -719,12 +721,23 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else vrsta = "materijal";
     const broj = nalog.master_broj || nalog.broj_naloga || nalog.broj || (nalog.master_nalog && nalog.master_nalog.broj_naloga) || "";
     const [qr, setQr] = React.useState("");
+    // QR na nalogu.
+    //
+    // RANIJE: ?nalog=MP-2026-0015 → otvarao samo PREGLED naloga (bez dugmadi).
+    // SADA:   ?opid=<id operacije> → App.jsx otvara RadnikOperacija sa
+    //         START / PAUZA / ZAVRŠI za BAŠ TU operaciju sa papira.
+    //         (Radnik uzme nalog za štampu, skenira → dobije dugmad za štampu.)
+    // Ako operacija nema id (npr. preview iz templejta), pada nazad na ?nalog=.
+    const opid = nalog.id || nalog.op_id || nalog.operativni_nalog_id || "";
     React.useEffect(() => {
         let on = true;
-        const url = (typeof window !== "undefined" ? window.location.origin : "") + "/?nalog=" + encodeURIComponent(broj || "");
-        QRCode.toDataURL(url, { margin: 0, width: 160 }).then((d) => { if (on) setQr(d); }).catch(() => { });
+        const origin = (typeof window !== "undefined" ? window.location.origin : "");
+        const url = opid
+            ? origin + "/?opid=" + encodeURIComponent(opid)
+            : origin + "/?nalog=" + encodeURIComponent(broj || "");
+        QRCode.toDataURL(url, { margin: 1, width: 320 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
-    }, [broj]);
+    }, [broj, opid]);
     // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
     const htmlStr = React.useMemo(
         () => buildPagesHTML(nalog, vrsta, qr, lang),
