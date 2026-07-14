@@ -61,11 +61,25 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function load() {
         setLoading(true);
         try {
-            const { data: ops } = await supabase.from("operativni_nalozi").select("*").eq("tip_naloga", "materijal").in("status", ["ceka", "ceka_magacin", "Ceka", "čeka", "spremanje"]).order("redosled", { ascending: true }).limit(60);
+            // NE vuci parametri/rezultati (jsonb sa CELIM templejtom, desetine KB po nalogu).
+            // Ovaj ekran koristi samo broj, kupca i naziv — sve ostalo je bio mrtav teret
+            // koji je na telefonu pravio sekunde cekanja.
+            const { data: ops, error: oErr } = await supabase.from("operativni_nalozi")
+                .select("id, broj_naloga, glavni_nalog_id, tip_naloga, status, redosled")
+                .eq("tip_naloga", "materijal")
+                .in("status", ["ceka", "ceka_magacin", "Ceka", "čeka", "spremanje"])
+                .order("redosled", { ascending: true }).limit(60);
+            if (oErr) throw oErr;
             const list = ops || [];
             const masterIds = [...new Set(list.map((o) => o.glavni_nalog_id).filter(Boolean))];
             let masters = [];
-            if (masterIds.length) { const { data: ms } = await supabase.from("radni_nalozi").select("*").in("id", masterIds); masters = ms || []; }
+            if (masterIds.length) {
+                const { data: ms, error: mErr } = await supabase.from("radni_nalozi")
+                    .select("id, broj_naloga, kupac, naziv, proizvod, tip_proizvoda, status")
+                    .in("id", masterIds);
+                if (mErr) throw mErr;
+                masters = ms || [];
+            }
             const byId = {}; masters.forEach((m) => { byId[m.id] = m; });
             setItems(list.map((o) => ({ op: o, master: byId[o.glavni_nalog_id] || {} })));
         } catch (e) { msg && msg("Greška pri učitavanju: " + (e.message || e), "err"); }
@@ -75,7 +89,17 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
         setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" });
-        const broj = it.op.broj_naloga || it.master.broj_naloga || "";
+        // VAZNO: operativni nalog ima broj SA SUFIKSOM operacije:
+        //     op.broj_naloga      = "MP-2026-0015-MATERIJAL"
+        // ali rolne i ledger nose CIST broj naloga:
+        //     magacin.dodeljeno_nalogu    = "MP-2026-0015 · SPANAC 600 HR MAXI"
+        //     materijal_stavke.nalog_ref  = "MP-2026-0015"
+        // Ranije se koristio op.broj_naloga (sa sufiksom), pa oba upita nisu nalazila
+        // nista i magacioner je dobijao "Ovom nalogu nisu dodeljene rolne".
+        const SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
+        const brojMaster = String(it.master?.broj_naloga || "").trim();
+        const brojOp = String(it.op?.broj_naloga || "").trim().replace(SUFIKS, "");
+        const broj = brojMaster || brojOp;
 
         // Rolne su vezane za BROJ NALOGA:  magacin.dodeljeno_nalogu = "MP-2026-0008 · PROIZVOD"
         // (ranije je bilo vezano za šifru proizvoda, pa su dva naloga sa istim
@@ -84,23 +108,30 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         try {
             const mapa = {};
             if (broj) {
-                const { data } = await supabase.from("magacin").select("*")
+                const { data, error } = await supabase.from("magacin").select("*")
                     .ilike("dodeljeno_nalogu", "%" + broj + "%").limit(60);
+                if (error) throw error;
                 (data || []).forEach((r) => { mapa[r.id] = r; });
 
                 // dopuna iz ledgera (materijal_stavke.nalog_ref = broj naloga)
-                const { data: st0 } = await supabase.from("materijal_stavke")
+                const { data: st0, error: sErr } = await supabase.from("materijal_stavke")
                     .select("rolna_id").eq("nalog_ref", broj)
                     .in("status", ["rezervisano", "izdato"]).limit(200);
+                if (sErr) throw sErr;
                 const ids = [...new Set((st0 || []).map((x) => x.rolna_id).filter(Boolean))]
                     .filter((id) => !mapa[id]);
                 if (ids.length) {
-                    const { data: mr } = await supabase.from("magacin").select("*").in("id", ids).limit(60);
+                    const { data: mr, error: mErr } = await supabase.from("magacin").select("*").in("id", ids).limit(60);
+                    if (mErr) throw mErr;
                     (mr || []).forEach((r) => { mapa[r.id] = r; });
                 }
             }
             rows = Object.values(mapa);
-        } catch (e) { }
+        } catch (e) {
+            // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
+            // isto kao da nalog stvarno nema rolne. Sada se vidi.
+            msg && msg("Ne mogu da učitam rolne naloga: " + (e?.message || e), "err");
+        }
         setRefsInfo(broj);
         setRolls(rows);
         // Alokacija po rolni iz ledgera (materijal_stavke) — koliko ovaj nalog drži na svakoj rolni
