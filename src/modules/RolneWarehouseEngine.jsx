@@ -2969,6 +2969,30 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
     }
 
+    // Rezervacije po NALOZIMA za sve rolne na trenutnoj strani — jedan upit, ne po rolni.
+    const [rezPoNalogu, setRezPoNalogu] = useState({});   // { rolna_id: [{nalog_ref, alocirano_m, izdato_m}] }
+    useEffect(() => {
+        const ids = (pagedRolls || []).filter(r => number(r.rezervisano) > 0).map(r => r.id).filter(Boolean);
+        if (!ids.length || !supabase || supabase.__notConfigured) { setRezPoNalogu({}); return; }
+        let ziv = true;
+        (async () => {
+            try {
+                const { data } = await supabase.from("materijal_stavke")
+                    .select("rolna_id, nalog_ref, alocirano_m, izdato_m, status")
+                    .in("rolna_id", ids)
+                    .in("status", ["rezervisano", "izdato"]);
+                if (!ziv) return;
+                const m = {};
+                (data || []).forEach(x => {
+                    if (!x.rolna_id || !x.nalog_ref) return;
+                    (m[x.rolna_id] = m[x.rolna_id] || []).push(x);
+                });
+                setRezPoNalogu(m);
+            } catch (e) { if (ziv) setRezPoNalogu({}); }
+        })();
+        return () => { ziv = false; };
+    }, [pagedRolls]);
+
     function rezBarCell(r) {
         const total = rolnaUkupnoM(r);
         if (normalizeStatus(r.status) === "proizvodnja") {
@@ -3001,6 +3025,39 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, fontWeight: 700, whiteSpace: "nowrap" }}>
                             {delim ? <><b style={{ color: "#15803d" }}>{fmt(slob, 0)} slob.</b> · {fmt(rez, 0)} rez.</> : (punoRez ? <>{fmt(rez, 0)} m rezervisano</> : <b style={{ color: "#15803d" }}>{fmt(slob, 0)} m slobodno</b>)}
                         </div>
+
+                        {/* POD KOJIM NALOGOM je rezervisana — i koliko je čiji.
+                            Jedna rolna može da služi više naloga; svaki ima svoj red. */}
+                        {rez > 0 && (() => {
+                            const st = rezPoNalogu[r.id] || [];
+                            if (st.length) {
+                                return (
+                                    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                                        {st.slice(0, 3).map((x, i) => (
+                                            <div key={i} style={{ fontSize: 10, fontWeight: 800, whiteSpace: "nowrap", color: x.status === "izdato" ? "#7c3aed" : "#a16207" }}>
+                                                {x.status === "izdato" ? "📤" : "🔒"} {x.nalog_ref}
+                                                <span style={{ color: "#64748b", marginLeft: 5 }}>
+                                                    {fmt(number(x.izdato_m) || number(x.alocirano_m), 0)} m
+                                                </span>
+                                            </div>
+                                        ))}
+                                        {st.length > 3 && (
+                                            <div onClick={() => openRezPopup(r)} style={{ fontSize: 10, fontWeight: 800, color: "#2563eb", cursor: "pointer" }}>
+                                                + još {st.length - 3} naloga ▾
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            }
+                            // fallback: bar iz kolone dodeljeno_nalogu (ako ledger nema red)
+                            const dod = String(r.dodeljeno_nalogu || "").trim();
+                            if (!dod) return null;
+                            return (
+                                <div style={{ fontSize: 10, fontWeight: 800, color: "#a16207", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }} title={dod}>
+                                    🔒 {dod}
+                                </div>
+                            );
+                        })()}
                     </>
                 )}
             </div>
