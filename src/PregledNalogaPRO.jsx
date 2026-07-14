@@ -34,10 +34,19 @@ function productTabs(tipProizvoda) {
     return ["materijal", "stampa", "kasiranje", "perforacija_rezanje"];
 }
 
+// Operativni nalozi imaju broj SA SUFIKSOM operacije ("MP-2026-0016-PERFORACIJA_REZANJE"),
+// a glavni nalog u radni_nalozi ima CIST broj ("MP-2026-0016"). Bez skidanja sufiksa
+// pretraga glavnog naloga ne nadje nista, lista operacija ostane prazna, tab padne na
+// "materijal", a `find()` na osnovniNalog — pa se stampa naslov jedne operacije
+// sa brojem i QR-om DRUGE. Radnik bi skenirao "materijal" a startovao rezanje.
+const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
+function skiniSufiks(b) { return String(b || "").trim().replace(OP_SUFIKS, ""); }
+
 export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose }) {
     const [nalozi, setNalozi] = useState(naloziProp);
     const [loading, setLoading] = useState(false);
-    const [tab, setTab] = useState("materijal");
+    // Pocetni tab = operacija koju je korisnik STVARNO kliknuo (ranije uvek "materijal").
+    const [tab, setTab] = useState(() => nalogType(osnovniNalog) || "materijal");
     const [tplRow, setTplRow] = useState(null);
     const [rezRolne, setRezRolne] = useState([]);
 
@@ -98,7 +107,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             if (!brojNaloga) return;
             setLoading(true);
             try {
-                const safeBroj = String(brojNaloga).replace(/[,()]/g, "").trim();
+                const safeBroj = skiniSufiks(String(brojNaloga).replace(/[,()]/g, "").trim());
 
                 // Novi izvor istine: radni_nalozi + operativni_nalozi.
                 // 1) Prvo tražimo glavni nalog po broju.
@@ -225,13 +234,21 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         if (dostupni.length && !dostupni.some(t => t.tip === tab)) setTab(dostupni[0].tip);
     }, [dostupni, tab]);
 
+    // Fallback na osnovniNalog SAMO ako je to bas ta operacija. Ranije se slepo
+    // uzimao bilo koji prosledjeni nalog, pa je papir dobijao naslov jedne operacije
+    // i broj/QR druge (npr. "NALOG ZA MATERIJAL" sa brojem PERFORACIJA_REZANJE).
+    const nadjen = nalozi.find(n => nalogType(n) === tab)
+        || (nalogType(osnovniNalog) === tab ? osnovniNalog : null);
+
     const aktivni = {
-        ...enrichNalogForPrint(nalozi.find(n => nalogType(n) === tab) || osnovniNalog),
-        ponBr: brojNaloga || osnovniNalog.ponBr,
+        ...enrichNalogForPrint(nadjen || {}),
+        ponBr: skiniSufiks(brojNaloga) || osnovniNalog.ponBr,
         tip_proizvoda: tipProizvoda,
         tip_naloga: tab,
         naziv: TABOVI.find(t => t.tip === tab)?.naziv || "Radni nalog",
     };
+    // Bez ovoga bi QR na papiru nosio opid pogresne operacije.
+    if (!nadjen) { aktivni.id = null; aktivni.broj_naloga = ""; }
 
     // Dopuni nalog podacima iz originalnog template-a (dizajn na rolni, perforacija, broj traka),
     // ali vrednosti samog naloga imaju prednost.

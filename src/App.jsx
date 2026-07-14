@@ -2231,6 +2231,14 @@ function AppContent() {
 
     // Not logged in → show Login
     if (!user) {
+        // IZUZETAK: QR sa papirnog naloga (?opid=<id operacije>).
+        // Radnik za masinom skenira i odmah dobija START / PAUZA / ZAVRSENO —
+        // bez kucanja emaila i sifre pored masine. Ko je radio se belezi tako sto
+        // radnik upise svoje ime i prezime u samoj operaciji (kolona `radnik`).
+        // SVESNA ODLUKA: ko dohvati papir moze da menja status TE operacije.
+        // Ostatak aplikacije (magacin, cene, brisanje) ostaje iza logina.
+        const opidBezLogina = new URLSearchParams(window.location.search).get("opid");
+        if (opidBezLogina) return <RadnikOperacija opid={opidBezLogina} />;
         return <Login />;
     }
 
