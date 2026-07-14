@@ -260,6 +260,9 @@ function normalizeStatus(status) {
     if (!s) return "dostupna";
     if (["na stanju", "dostupna", "available", "slobodna"].includes(lower)) return "dostupna";
     if (["rezervisano", "rezervisana", "reserved"].includes(lower)) return "rezervisana";
+    // Delimično rezervisana rolna: deo metraže je rezervisan za nalog, ostatak je SLOBODAN
+    // i sme da se koristi za druge naloge. Mora ostati vidljiva na stanju.
+    if (["delimično rezervisano", "delimicno rezervisano", "delimično rezervisana", "delimicno rezervisana", "partially reserved"].includes(lower)) return "delimicno";
     if (["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(lower)) return "potrosena";
     if (["u proizvodnji", "u_proizvodnji", "proizvodnja", "wip"].includes(lower)) return "proizvodnja";
     if (["formatirana", "formatirano"].includes(lower)) return "formatirana";
@@ -270,6 +273,7 @@ function displayStatus(status) {
     const st = normalizeStatus(status);
     if (st === "dostupna") return "Na stanju";
     if (st === "rezervisana") return "Rezervisano";
+    if (st === "delimicno") return "Delimično rezervisano";
     if (st === "potrosena") return "Iskorišćeno";
     if (st === "proizvodnja") return "U proizvodnji";
     if (st === "formatirana") return "Formatirana";
@@ -280,6 +284,7 @@ function toDbStatus(status) {
     const st = normalizeStatus(status);
     if (st === "dostupna") return "Na stanju";
     if (st === "rezervisana") return "Rezervisano";
+    if (st === "delimicno") return "Delimično rezervisano";
     if (st === "potrosena") return "Iskorišćeno";
     if (st === "formatirana") return "Formatirana";
     if (st === "blokirana") return "Blokirana";
@@ -287,7 +292,15 @@ function toDbStatus(status) {
 }
 function isRollVisibleOnStock(r) {
     const st = normalizeStatus(r?.status);
-    return ["dostupna", "rezervisana", "formatirana"].includes(st) && number(r?.metraza_ost ?? r?.duzina ?? r?.metraza) > 0;
+    // "delimicno" MORA biti ovde — inače rolna sa delimičnom rezervacijom nestane
+    // i sa stanja i sa rezervisanih (postoji u bazi, ali je nigde ne vidiš).
+    return ["dostupna", "rezervisana", "delimicno", "formatirana"].includes(st) && number(r?.metraza_ost ?? r?.duzina ?? r?.metraza) > 0;
+}
+
+// Slobodni metri rolne = ukupna metraža − već rezervisano (za druge naloge).
+function slobodnoNaRolni(r) {
+    const uk = number(r?.metraza_ost ?? r?.duzina ?? r?.metraza);
+    return Math.max(0, uk - number(r?.rezervisano));
 }
 function statusColor(s) {
     const st = normalizeStatus(s);
@@ -883,7 +896,7 @@ export function findMatchingRolls(requirement = {}) {
     const wantedSirina = number(requirement.sirina || requirement.sirinaMm);
     const tolerance = number(requirement.tolerancijaSirine || 2);
     return rolls
-        .filter((r) => isRollVisibleOnStock(r))
+        .filter((r) => isRollVisibleOnStock(r) && slobodnoNaRolni(r) > 0)
         .filter((r) => !wantedVrsta || String(r.vrsta || r.materijal || "").toLowerCase().includes(wantedVrsta))
         .filter((r) => !wantedDeb || Math.abs(number(r.debljina) - wantedDeb) < 0.01)
         .filter((r) => !wantedSirina || number(r.sirina) >= wantedSirina - tolerance)
@@ -1557,7 +1570,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             .sort((a, b) => b.manjak - a.manjak);
         const zaPorucivanje = ispodMinimuma.length;
 
-        return { total: naStanjuRolne.length, totalM, totalKg, totalValue, dostupna: byStatus.dostupna || 0, rezervisana: byStatus.rezervisana || 0, formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0, zaPorucivanje, ispodMinimuma };
+        const delimicno = byStatus.delimicno || 0;
+        // Delimično rezervisana rolna ima i rezervisanih i SLOBODNIH metara —
+        // zato ulazi u oba brojača, a slobodni metri se vide u koloni "Slobodno".
+        return {
+            total: naStanjuRolne.length, totalM, totalKg, totalValue,
+            dostupna: (byStatus.dostupna || 0) + delimicno,
+            rezervisana: (byStatus.rezervisana || 0) + delimicno,
+            delimicno,
+            formatirana: byStatus.formatirana || 0, potrosena: byStatus.potrosena || 0,
+            slobodnoM: naStanjuRolne.reduce((a, r) => a + slobodnoNaRolni(r), 0),
+            zaPorucivanje, ispodMinimuma
+        };
     }, [rolne, materialMaster]);
 
     const popisExpectedRolls = useMemo(() => {
@@ -1956,7 +1980,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         try {
             if (!supabase?.__notConfigured && r.id) {
                 const { error } = await supabase.from("magacin").update({
-                    status: punoRez ? "Rezervisano" : "Delimično rezervisano",
+                    // Rolna ostaje "Na stanju" dok ima slobodnih metara — može za druge naloge.
+                    status: punoRez ? "Rezervisano" : "Na stanju",
                     dodeljeno_nalogu: dod || null,
                     rezervisano: noviRez || null,
                     napomena: f.napomena || r.napomena || null,
@@ -1974,7 +1999,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                         alocirano_m: m, kg_po_m: kgPoM, kg_alocirano: Math.round(kgPoM * m * 100) / 100, status: "rezervisano",
                     });
                 } catch (e) { console.warn("stavka:", e.message); }
-                await logHistory({ qr: r.qr, event: "RUČNA REZERVACIJA", opis: `Rezervisano ${fmt(m, 0)} m za ${ref || "—"} · ukupno rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoRez ? "Rezervisano" : "Delimično rezervisano" });
+                await logHistory({ qr: r.qr, event: "RUČNA REZERVACIJA", opis: `Rezervisano ${fmt(m, 0)} m za ${ref || "—"} · ukupno rez. ${fmt(noviRez, 0)} / ${fmt(total, 0)}`, stanje: punoRez ? "Rezervisano" : "Na stanju (delimično rezervisana)" });
             }
         } catch (e) { msg?.("Rezervacija nije upisana: " + (e?.message || e), "err"); return; }
         setRezForm(null);
@@ -3055,7 +3080,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                     <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Rolni</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.total}</div></div>
-                    <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div></div>
+                    <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Na stanju</div><div style={{ fontSize: 22, fontWeight: 950 }}>{stats.dostupna}</div>{stats.delimicno > 0 && <div style={{ fontSize: 10, color: "#d97706", fontWeight: 800 }}>{stats.delimicno} delimično</div>}</div>
+                    <div style={{ ...card, padding: 12 }}><div style={{ color: "#64748b", fontSize: 11, fontWeight: 900 }}>Slobodno m</div><div style={{ fontSize: 22, fontWeight: 950, color: "#059669" }}>{Math.round(stats.slobodnoM).toLocaleString("sr-RS")}</div></div>
                 </div>
 
                 {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, estimateKgForMeters, onOpenScanner: () => openMobileScanner("popis"), onOpenLocationScanner: () => openLocationScanner("popis"), locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
@@ -3550,7 +3576,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.kg} onChange={(e) => setColFilter("kg", e.target.value)} placeholder="kg" /></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lot} onChange={(e) => setColFilter("lot", e.target.value)} placeholder="Lot" /></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lokacija} onChange={(e) => setColFilter("lokacija", e.target.value)} placeholder="Lokacija" /></th>
-                                    <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
+                                    <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Delimično rezervisano">Delimično rezervisano</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
                                     <th style={filterTh}></th>
                                     <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                                 </tr>
