@@ -52,6 +52,24 @@ const FALLBACK_MATERIAL_DROPDOWNS = {
     proizvodjaci: ["Plastchim", "Taghleef", "Rossella", "Inter Gradex", "Jindal", "Cosmo", "Treofan", "Innovia", "Uflex", "Polyplex", "Toray", "Mitsubishi"],
 };
 
+// Supabase/PostgREST vraca najvise 1000 redova po upitu. Sve sto cita celu
+// tabelu MORA da ide kroz paginaciju, inace se podaci tiho seku.
+async function fetchAllRows(client, table, tweak) {
+    const PAGE = 1000;
+    const all = [];
+    for (let od = 0; ; od += PAGE) {
+        let q = client.from(table).select("*");
+        if (typeof tweak === "function") q = tweak(q);
+        const { data, error } = await q.range(od, od + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        if (od > 100000) break; // sigurnosna kocnica
+    }
+    return all;
+}
+
 function uniqSorted(values, fallback = []) {
     const merged = [...(Array.isArray(values) ? values : []), ...(Array.isArray(fallback) ? fallback : [])]
         .map((v) => typeof v === "number" ? v : String(v ?? "").trim())
@@ -1183,13 +1201,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         let loadedFromSupabase = false;
         try {
             if (!supabase?.__notConfigured) {
-                const { data, error } = await supabase
-                    .from("magacin")
-                    .select("*")
-                    .order("created_at", { ascending: false });
-
-                if (error) throw error;
-                sourceRolls = (data || []).map(mapDbRollToEngine);
+                // Bez paginacije se tabela tiho sece na 1000 redova i deo rolni
+                // nikad ne stigne do ekrana (1151 u bazi -> 725 prikazanih).
+                // Filter "obrisano" ide na server, ne u JS.
+                const all = await fetchAllRows(supabase, "magacin", (q) =>
+                    q.neq("status", "obrisano").order("created_at", { ascending: false })
+                );
+                sourceRolls = all.map(mapDbRollToEngine);
                 loadedFromSupabase = true;
             }
         } catch (e) {
@@ -2387,9 +2405,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             const backup = {};
             for (const table of tableNames) {
                 try {
-                    const { data, error } = await supabase.from(table).select("*");
-                    if (!error) backup[table] = data || [];
-                } catch { }
+                    // Paginirano: backup pre reseta ne sme da preskoci nijedan red.
+                    backup[table] = await fetchAllRows(supabase, table);
+                } catch (e) {
+                    // Ako backup bilo koje tabele padne, NE brisemo nista.
+                    msg?.("Backup tabele " + table + " nije uspeo — reset je prekinut.", "err");
+                    return;
+                }
             }
             try {
                 await supabase.from("magacin_backup_snapshots").insert({
