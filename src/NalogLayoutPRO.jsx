@@ -610,15 +610,177 @@ function citajRolne(nalog) {
         });
 }
 
+function formatiranjeD(nalog) {
+    const par = (typeof safeJson === "function" ? safeJson(nalog.parametri, {}) : (nalog.parametri || {})) || {};
+    const res = (typeof safeJson === "function" ? safeJson(nalog.res, {}) : (nalog.res || {})) || {};
+    const f = nalog.formatiranje || par.formatiranje || res.formatiranje || {};
+
+    const matSir = num(f.sirina_mm) || num(f.matSir) || 0;
+    const plan = (Array.isArray(f.plan_reza) ? f.plan_reza : []).map(function (s) {
+        return {
+            duzina: num(s.duzina_m),
+            otpad: num(s.otpad_mm),
+            trake: (Array.isArray(s.trake) ? s.trake : []).map(function (t) {
+                return { sir: num(t.sirina_mm), odr: t.odrediste || "stanje", nap: t.napomena || "" };
+            }),
+        };
+    });
+
+    // izvedene role za tabelu (LOT nasleđuje bazu; brojač se nastavlja na izvršenju)
+    const lotBaza = f.lot_baza || f.lot || "LOT";
+    let seq = 0;
+    const role = [];
+    plan.forEach(function (s) {
+        s.trake.forEach(function (t) {
+            role.push({
+                lot: lotBaza + "-" + (++seq),
+                sir: t.sir, duz: s.duzina, odr: t.odr,
+                nap: t.nap || (String(t.odr) === "stanje" ? "bočni ostatak" : ""),
+            });
+        });
+    });
+
+    // statistika
+    let korisno = 0, cut = 0, otpadM2 = 0, utrosak = 0;
+    plan.forEach(function (s) {
+        s.trake.forEach(function (t) { korisno += t.sir * s.duzina; });
+        cut += matSir * s.duzina;
+        otpadM2 += s.otpad * s.duzina;
+        utrosak += s.duzina;
+    });
+    const isk = cut ? Math.round((korisno / cut) * 1000) / 10 : 0;
+
+    const gr = [];
+    if (!matSir) gr.push("Nema širine matične rolne.");
+    if (!plan.length) gr.push("Nema plana reza — pokreni predlog (korak 1).");
+
+    return {
+        matBr: f.br_rolne || f.matBr || "—",
+        matSir: matSir,
+        materijal: f.materijal || "—",
+        proizvodjac: f.proizvodjac || f.dobavljac || "—",
+        izvor_ponbr: f.izvor_ponbr || null,
+        preventivno: !!f.preventivno || !f.izvor_ponbr,
+        lotBaza: lotBaza,
+        utrosak: num(f.utrosak_m) || utrosak,
+        plan: plan, role: role,
+        novih: role.length, otpadM2: Math.round(otpadM2), isk: isk,
+        greske: gr,
+    };
+}
+
+/* Plan reza — SVG fig blok (isti vizuelni jezik kao rezSvg) */
+function fmtSvg(F) {
+    const X0 = 118, X1 = 706, barW = X1 - X0, rowH = 78, barH = 46, W = F.matSir || 1;
+    const scale = barW / W;
+    const BOJ = function (odr) {
+        if (String(odr) === "stanje" || !odr) return { f: "#e5e7eb", s: "#64748b", t: "#475569", lab: "stanje" };
+        if (String(odr).indexOf("nalog") === 0) return { f: "#dbeafe", s: "#1d4ed8", t: "#1d4ed8", lab: "nalog" };
+        return { f: "#dcfce7", s: "#059669", t: "#047857", lab: "nalog" };
+    };
+    const H = F.plan.length * rowH + 16;
+    let o = "";
+    o += '<defs><pattern id="fmtHatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#fef2f2"/><line x1="0" y1="0" x2="0" y2="7" stroke="#fca5a5" stroke-width="2"/></pattern></defs>';
+    F.plan.forEach(function (s, i) {
+        const y = i * rowH + 6, by = y + 14;
+        // labela segmenta u levom žlebu
+        o += '<text x="6" y="' + (by + 18) + '" font-size="10.5" font-weight="900" fill="#334155">SEGMENT ' + (i + 1) + '</text>';
+        o += '<text x="6" y="' + (by + 33) + '" font-size="10" font-weight="800" fill="#64748b">' + fmtN(s.duzina) + ' m</text>';
+        // matična kao okvir
+        o += '<rect x="' + X0 + '" y="' + by + '" width="' + barW + '" height="' + barH + '" fill="#eef4fc" stroke="#1e3a8a" stroke-width="1.2"/>';
+        let x = X0;
+        s.trake.forEach(function (t) {
+            const w = t.sir * scale, col = BOJ(t.odr), usko = w < 46;
+            o += '<rect x="' + x + '" y="' + by + '" width="' + w + '" height="' + barH + '" fill="' + col.f + '" stroke="' + col.s + '" stroke-width="1"/>';
+            o += '<text x="' + (x + w / 2) + '" y="' + (by + (usko ? barH / 2 + 3 : barH / 2 - 2)) + '" text-anchor="middle" font-size="11" font-weight="900" fill="' + col.t + '">' + t.sir + '</text>';
+            if (!usko) o += '<text x="' + (x + w / 2) + '" y="' + (by + barH / 2 + 12) + '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + col.t + '" opacity="0.85">' + col.lab + '</text>';
+            x += w;
+        });
+        // otpad
+        const ow = s.otpad * scale;
+        if (ow > 1) {
+            o += '<rect x="' + x + '" y="' + by + '" width="' + ow + '" height="' + barH + '" fill="url(#fmtHatch)" stroke="#fca5a5" stroke-width="1"/>';
+            if (ow > 34) o += '<text x="' + (x + ow / 2) + '" y="' + (by + barH / 2 + 3) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="#dc2626">' + s.otpad + '</text>';
+        }
+    });
+    return '<svg viewBox="0 0 720 ' + H + '" width="100%" style="max-width:660px;background:#fff">' + o + '</svg>';
+}
+
+function pFormatiranje(D, F) {
+    const c = COLp; // #7c3aed — familija rezanja
+    const odrPill = function (odr) {
+        const st = String(odr) === "stanje" || !odr;
+        const col = st ? "#64748b" : (String(odr).indexOf("nalog") === 0 ? "#1d4ed8" : "#059669");
+        const txt = st ? "na stanje" : String(odr).replace("nalog:", "nalog ");
+        return '<span style="background:' + col + '14;color:' + col + ';border:1px solid ' + col + '33;border-radius:7px;padding:2px 8px;font-size:11px;font-weight:800">' + esc(txt) + '</span>';
+    };
+
+    const statRow =
+        '<div class="stats">' +
+        stat('Utrošak matične', fmtN(F.utrosak), 'm', COLm) +
+        stat('Novih rolni', F.novih, 'kom', '#14b8a6') +
+        stat('Iskorišćenje', fmtN(F.isk), '%', c) +
+        stat('Otpad', fmtN(F.otpadM2), 'mm·m', '#ef4444') +
+        '</div>';
+
+    const info =
+        '<div class="info">' +
+        infoC('Matična rolna', F.matBr + ' · ' + F.matSir + ' mm') +
+        infoC('Materijal', F.materijal) +
+        infoC('Proizvođač', F.proizvodjac) +
+        infoC('Poreklo', F.preventivno ? 'Preventivno' : ('iz naloga ' + (F.izvor_ponbr || '—'))) +
+        infoC('LOT baza', F.lotBaza) +
+        infoC('Mašina', '— (skenira radnik)') +
+        infoC('Radnik', '— (skenira radnik)') +
+        infoC('Utrošak', fmtN(F.utrosak) + ' m') +
+        '</div>';
+
+    const greske = F.greske && F.greske.length
+        ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + F.greske.map(esc).join('<br>⚠ ') + '</div>'
+        : '';
+
+    const planSek =
+        '<div class="sec">' + secH(1, c, 'Plan reza', 'po matičnoj') +
+        '<div class="ulaz"><b>Rez:</b> matična ' + esc(F.matBr) + ' · ' + F.matSir + ' mm → ' + F.plan.length +
+        ' segment' + (F.plan.length === 1 ? '' : 'a') + ' · utrošak <b>' + fmtN(F.utrosak) + ' m</b> · iskorišćenje <b>' + fmtN(F.isk) + '%</b> · otpad ' + fmtN(F.otpadM2) + ' mm·m</div>' +
+        '<div class="framed" style="padding:12px 10px">' + fmtSvg(F) + '</div>' +
+        '<div style="display:flex;gap:16px;font-size:10.5px;font-weight:700;color:#64748b;margin-top:8px">' +
+        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#dbeafe;border:1.5px solid #1d4ed8;vertical-align:-1px"></span> za nalog</span>' +
+        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#e5e7eb;border:1.5px solid #64748b;vertical-align:-1px"></span> na stanje</span>' +
+        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#fef2f2;border:1.5px solid #fca5a5;vertical-align:-1px"></span> otpad</span>' +
+        '</div></div>';
+
+    const roleSek =
+        '<div class="sec">' + secH(2, c, 'Nove role (' + F.novih + ')', 'QR nalepnice se štampaju uz nalog') +
+        '<table>' + th(['LOT', { t: 'Širina', n: 1 }, { t: 'Dužina (m)', n: 1 }, 'Kome ide', 'Napomena'], c) + '<tbody>' +
+        F.role.map(function (r) {
+            return '<tr><td style="font-family:ui-monospace,monospace;font-weight:800">' + esc(r.lot) + '</td>' +
+                '<td class="n">' + r.sir + ' mm</td>' +
+                '<td class="n">' + fmtN(r.duz) + '</td>' +
+                '<td>' + odrPill(r.odr) + '</td>' +
+                '<td>' + (r.nap ? esc(r.nap) : '—') + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+
+    return pageWrap(
+        D,
+        hd(D, '✂️', 'NALOG ZA FORMATIRANJE', c, 'formatiranje') +
+        '<div class="body">' + statRow + info + greske + planSek + roleSek +
+        foot('Operater (mašina)', 'Datum / vreme', 'U magacin / na nalog') + '</div>',
+        'Strana · formatiranje'
+    );
+}
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
+    if (vrsta === "formatiranje") return pFormatiranje(D, formatiranjeD(nalog));
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
-        if (vrsta === "spulna" || vrsta === "formatiranje") return pSpulna(D, S);
+        if (vrsta === "spulna") return pSpulna(D, S);
         return pSpMat(D, S);
     }
     if (D.jeKesa) {
