@@ -16,8 +16,8 @@ import { pripremiIzvrsenje } from "./formatiranjeExec.js";
        nalog: { broj: nalog.broj_naloga, id: nalog.id },
        user_id: radnik?.id || null,
      });
-     if (rez.ok) { /* rez.nastale = role za štampu nalepnica */ }
-     else { /* rez.greske */ }
+     if (rez.ok) { ...koristi rez.nastale (role za štampu nalepnica)... }
+     else { ...rez.greske... }
 
    Podrazumevano NE piše vezne kolone (rezervisano_za_nalog / formatiranje_nalog /
    operativni_nalog_id) da bi radilo bez izmene šeme — sve info je u `napomena`,
