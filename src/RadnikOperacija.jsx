@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
+import { izvrsiFormatiranje } from "./modules/izvrsiFormatiranje.js";
 
 // =====================================================================
 // RadnikOperacija — telefonska radnička strana za JEDNU operaciju.
@@ -167,6 +168,31 @@ export default function RadnikOperacija({ opid }) {
             uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), napomena: fin.napomena || "",
         }).eq("id", opid);
         if (error) setErr("Završetak nije uspeo: " + error.message);
+
+        // Formatiranje: stvarni rez kroz bazu na ZAVRŠENO (samo formatiranje-nalog, jednom)
+        if (!error) {
+            try {
+                const plan = op?.parametri?.formatiranje;
+                if (plan && plan.br_rolne && !op?.parametri?.formatiranje_izvrseno) {
+                    const { data: mrows } = await supabase.from("magacin").select("*").eq("br_rolne", plan.br_rolne).limit(1);
+                    const matica = mrows && mrows[0];
+                    if (matica) {
+                        const rez = await izvrsiFormatiranje(supabase, matica, plan, {
+                            nalog: { broj: op.broj_naloga, id: op.id }, user_id: op.radnik || null,
+                        });
+                        if (rez && rez.ok) {
+                            await supabase.from("operativni_nalozi").update({
+                                parametri: { ...op.parametri, formatiranje_izvrseno: true, formatiranje_role: (rez.nastale || []).length },
+                            }).eq("id", opid);
+                        } else if (rez && rez.greske && rez.greske.length) {
+                            setErr("Formatiranje: " + rez.greske.join(" · "));
+                        }
+                    } else {
+                        setErr("Formatiranje: matična " + plan.br_rolne + " nije nađena u magacinu.");
+                    }
+                }
+            } catch (eF) { console.warn("Formatiranje na ZAVRŠENO nije izvršeno:", eF); }
+        }
         setBusy(false); setShowFinish(false); reload();
     }
 

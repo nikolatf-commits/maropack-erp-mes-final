@@ -96,6 +96,7 @@ import AIChatAssistant from './AIChatAssistant.jsx';
 import AIWasteOptimizer from './AIWasteOptimizer.jsx';
 import AIQualityInspector from './AIQualityInspector.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
+import FormatiranjePoPotrebi from './modules/FormatiranjePoPotrebi.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';
@@ -2055,6 +2056,10 @@ function MainAppContent() {
 
                 {page === "formatiranje_rolni" && (
                     <FormatiranjeRolniPRO msg={msg} />
+                )}
+
+                {page === "formatiranje_po_potrebi" && (
+                    <FormatiranjePoPotrebi msg={msg} />
                 )}
 
                 {/* RADNI NALOZI */}

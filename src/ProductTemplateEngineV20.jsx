@@ -3,6 +3,8 @@ import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoefic
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
+import { kreirajFormatiranjeIzNaloga } from "./modules/formatiranjeIzNaloga.js";
+import { nadjiSpojRolne } from "./modules/spojRolneMatch.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
@@ -1487,6 +1489,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
     const [nalogModal, setNalogModal] = useState(false);
+    const [formatirajSire, setFormatirajSire] = useState(false);
     const [nalogRolne, setNalogRolne] = useState([]);
     const [nalogIzbor, setNalogIzbor] = useState({});
     const [nalogLoading, setNalogLoading] = useState(false);
@@ -2045,6 +2048,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
             }
             msg && msg("✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
+
+            // Formatiranje po potrebi: SAMO ako je operater čekirao (rolne šire od idealne)
+            if (formatirajSire) {
+                try {
+                    const _fmt = await kreirajFormatiranjeIzNaloga(supabase, {
+                        broj, glavni_nalog_id: mId, idealnaSir, izborData,
+                        proizvod, kupac: form.kupac || "", tip_proizvoda: form.type,
+                    });
+                    if (_fmt.brojevi && _fmt.brojevi.length) {
+                        msg && msg("Formatiranje → kreirano: " + _fmt.brojevi.join(", "));
+                    }
+                } catch (eFmt) { console.warn("Formatiranje iz naloga nije kreirano:", eFmt); }
+            }
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
@@ -3004,6 +3020,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             }
 
             const sviIzabrani = layers.every((_, i) => rucniUnos[i] || izabraneZa(i).length > 0);
+            const imaSirih = sir > 0 && layers.some((_, i) => !rucniUnos[i] && izabraneZa(i).some(r => (Number(r.sirina) || 0) > sir + 3));
+            const spojNaStanju = nadjiSpojRolne(nalogRolne, layers, { minSirina: sir });
 
             return (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
@@ -3049,6 +3067,28 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                     {!kolPlus && (
                                         <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 700, color: "#92400e" }}>
                                             ⚠️ Poručena količina (m) nije uneta — ne mogu tačno da izračunam potrebu ni da kombinujem rolne. Zatvori, unesi „Poručena količina (m)" u osnovnim podacima, pa ponovo generiši.
+                                        </div>
+                                    )}
+                                    {spojNaStanju.length > 0 && (
+                                        <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 10, padding: "12px 14px" }}>
+                                            <div style={{ fontSize: 12.5, fontWeight: 900, color: "#7c3aed", marginBottom: 6 }}>
+                                                Spoj rolne na stanju — pokrivaju sve slojeve ({spojNaStanju.length})
+                                            </div>
+                                            <div style={{ fontSize: 11, color: "#6b21a8", marginBottom: 8 }}>
+                                                Postoji gotova kaširana rolna za ovu kombinaciju. Ako je koristiš umesto sastavljanja po slojevima, rezerviši je u magacinu (Magacin rolni → Rezerviši).
+                                            </div>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                {spojNaStanju.map((r) => (
+                                                    <div key={r.id || r.br_rolne} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e9d5ff", borderRadius: 8, padding: "8px 11px", fontSize: 12, flexWrap: "wrap" }}>
+                                                        <div>
+                                                            <b style={{ color: "#0f172a" }}>{r.br_rolne}</b>
+                                                            <span style={{ color: "#7c3aed", fontWeight: 700, marginLeft: 8 }}>{r.vrsta}</span>
+                                                            <span style={{ color: "#64748b", marginLeft: 8 }}>{r.sirina} mm · {Number(r._slobodno).toLocaleString("sr-RS")} m slobodno</span>
+                                                        </div>
+                                                        <span style={{ fontSize: 10.5, color: "#94a3b8" }}>{r.oznaka_materijala}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                     {layers.map((l, i) => {
@@ -3190,6 +3230,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                             ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
                                             : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne za sve slojeve</span>}
                                         &nbsp;·&nbsp; {layers.filter((_, i) => izabraneZa(i).length > 0 || rucniUnos[i]).length} / {layers.length} slojeva
+                                        {imaSirih && (
+                                            <label style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, fontSize: 12, fontWeight: 700, color: "#7c3aed", cursor: "pointer" }}>
+                                                <input type="checkbox" checked={formatirajSire} onChange={e => setFormatirajSire(e.target.checked)} />
+                                                Formatiraj rolne šire od idealne na {sir} mm (napravi vezane formatiranje-naloge)
+                                            </label>
+                                        )}
                                     </div>
                                     <div style={{ display: "flex", gap: 8 }}>
                                         <button onClick={() => setNalogModal(false)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
