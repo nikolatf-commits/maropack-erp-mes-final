@@ -1355,7 +1355,21 @@ function SpoolDrawing({ spulna, update }) {
         </Section>
         <Section title="Dimenzije špulne" color="#7c3aed">
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) minmax(340px, .8fr)", gap: 16, alignItems: "start" }}>
-                <Grid cols={4}>{Object.keys(spulna).filter(k => !["naziv", "materijal", "layers", "sideA", "sideB", "kolicina", "jedinicaUnosa", "skart", "rolniPoPaleti", "napomena", "smer", "smerNamotavanja", "tezinaBruto"].includes(k)).map(k => <Input key={k} label={k} value={spulna[k]} onChange={v => update(`spulna.${k}`, v)} />)}</Grid>
+                <Grid cols={4}>
+                    <Input label="Širina trake (W, mm)" value={spulna.W} onChange={v => update("spulna.W", v)} />
+                    <Input label="Širina hilzne / jezgra (T, mm)" value={spulna.T} onChange={v => update("spulna.T", v)} />
+                    <Input label="Max prečnik špulne (D, mm)" value={spulna.D} onChange={v => update("spulna.D", v)} />
+                    <Input label="Spoljašnji prečnik hilzne (Da, mm)" value={spulna.Da} onChange={v => update("spulna.Da", v)} />
+                    <Input label="Unutrašnji prečnik hilzne (Di, mm)" value={spulna.Di} onChange={v => update("spulna.Di", v)} />
+                    <Input label="Gap – razmak (G, mm)" value={spulna.G} onChange={v => update("spulna.G", v)} />
+                    <Input label="Zazor bočni (C, mm)" value={spulna.C} onChange={v => update("spulna.C", v)} />
+                    <Input label="Širina materijala (mm)" value={spulna.sirinaMaterijala} onChange={v => update("spulna.sirinaMaterijala", v)} />
+                    <Input label="Max metara (m)" value={spulna.maxMetara} onChange={v => update("spulna.maxMetara", v)} />
+                    <Input label="Širina hilzne (mm)" value={spulna.sirinaHilzne} onChange={v => update("spulna.sirinaHilzne", v)} />
+                    <Input label="Side A" value={spulna.sideA} onChange={v => update("spulna.sideA", v)} />
+                    <Input label="Side B" value={spulna.sideB} onChange={v => update("spulna.sideB", v)} />
+                    <Input label="Rolni po paleti" value={spulna.rolniPoPaleti} onChange={v => update("spulna.rolniPoPaleti", v)} />
+                </Grid>
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 950, color: "#334155", marginBottom: 10 }}>PREGLED PARAMETARA</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
@@ -2788,8 +2802,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Grid cols={4}>
                     <Input label="Naziv" value={form.spulna.naziv} onChange={v => update("spulna.naziv", v)} placeholder="npr. Trake 20mm - 20 000m" />
                     <Input label="Materijal / opis" value={form.spulna.materijal} onChange={v => update("spulna.materijal", v)} placeholder="npr. Papir silikonizirani 60 gr" />
-                    <Input label="Side A" value={form.spulna.sideA} onChange={v => update("spulna.sideA", v)} placeholder="Silikon" />
-                    <Input label="Side B" value={form.spulna.sideB} onChange={v => update("spulna.sideB", v)} placeholder="Papir" />
                 </Grid>
                 <Grid cols={4}>
                     <div>
@@ -2841,19 +2853,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             </div>}
                             {izabrana && !gr.length && <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
                                 ✓ Ø{form.spulna.D || "—"} i T={form.spulna.T || "—"} staju · hilzna Ø{izabrana.hilzna}
-                            </div>}
-                        </div>;
-                    })()}
-                    {(() => {
-                        const b = kutijaPoKljucu(form.spulna.kutija);
-                        const pred = b ? poPaletiZa(b) : 0;
-                        const rucno = pred && Number(form.spulna.rolniPoPaleti) !== pred;
-                        return <div>
-                            <Input label="Rolni po paleti" value={form.spulna.rolniPoPaleti} onChange={v => update("spulna.rolniPoPaleti", v)} placeholder="18" />
-                            {b && <div style={{ fontSize: 10, marginTop: 4, fontWeight: 800, color: rucno ? "#d97706" : "#64748b" }}>
-                                {rucno
-                                    ? <>✎ ručno izmenjeno (predlog za dubinu {b.d} mm je {pred})</>
-                                    : <>predlog: kutija dubine {b.d} mm → {pred} po paleti · može se menjati</>}
                             </div>}
                         </div>;
                     })()}
