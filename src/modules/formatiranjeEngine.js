@@ -53,7 +53,7 @@ function rangirajRolne(rolne, layer, opts = {}) {
             const okPV = !podv || !String(rp).trim() || txtEq(rp, podv);
             const okOZ = !ozn || !String(ro).trim() || txtEq(ro, ozn);
             const okSir = ignoreWidth || !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
-            const okProiz = !proizv || txtEq(r.dobavljac, proizv);
+            const okProiz = !proizv || txtEq(r.dobavljac, proizv) || txtEq(r.proizvodjac, proizv);
             return okT && okD && okS && okRez && okPV && okOZ && okSir && okProiz;
         })
         .sort((a, b) => {

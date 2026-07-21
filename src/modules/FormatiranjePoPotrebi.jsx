@@ -225,9 +225,9 @@ export default function FormatiranjePoPotrebi({ msg }) {
           materijal: [gVrsta(m), gPod(m), gOzn(m), gDeb(m) ? gDeb(m) + "µ" : ""].filter(Boolean).join(" · "),
           proizvodjac: gPro(m), izvor_ponbr: n.izvor_ponbr, preventivno: n.preventivno,
           lot_baza: m.lot || m.br_rolne || "LOT",
-          plan_reza: n.plan_reza.map((s) => ({
+          plan_reza: (n.plan_reza || []).map((s) => ({
             duzina_m: s.duzina_m, otpad_mm: s.otpad_mm,
-            trake: s.trake.map((t) => ({ sirina_mm: t.sirina_mm, odrediste: t.odrediste, napomena: t.potreba_id ? (napM[t.potreba_id] || "") : "" })),
+            trake: (s.trake || []).map((t) => ({ sirina_mm: t.sirina_mm, odrediste: t.odrediste, napomena: t.potreba_id ? (napM[t.potreba_id] || "") : "" })),
           })),
         };
         return {
@@ -303,10 +303,10 @@ export default function FormatiranjePoPotrebi({ msg }) {
                 <div style={{ fontWeight: 900 }}><span style={{ color: BLUE }}>{n.broj}</span><span style={{ color: "#94a3b8", fontWeight: 700, marginLeft: 8, fontSize: 12 }}>matična {n.br_rolne} · {n.sirina_mm} mm</span></div>
                 <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>utrošak {n.utrosak_m.toLocaleString("sr")} m</div>
               </div>
-              {n.plan_reza.map((s, k) => (
+              {(n.plan_reza || []).map((s, k) => (
                 <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 0", borderTop: k ? "1px dashed #eef2f7" : "none" }}>
                   <span style={{ fontSize: 11, fontWeight: 900, color: "#334155", minWidth: 74 }}>segment {s.duzina_m} m</span>
-                  {s.trake.map((t, ti) => <Traka key={ti} t={t} />)}
+                  {(s.trake || []).map((t, ti) => <Traka key={ti} t={t} />)}
                   {s.otpad_mm > 0 && <span style={{ border: "1px dashed #fca5a5", color: RED, borderRadius: 8, padding: "4px 9px", fontSize: 11, fontWeight: 800 }}>otpad {s.otpad_mm} mm</span>}
                 </div>
               ))}

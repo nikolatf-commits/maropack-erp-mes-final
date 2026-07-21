@@ -35,6 +35,8 @@ function dodeliBrojeveNaloga(nalozi = [], opcije = {}) {
         uvekSufiks = false,
     } = opcije;
 
+    if (!Array.isArray(nalozi) || nalozi.length === 0) return { nalozi: [], greske: [] };
+
     const greske = [];
     const used = new Set((postojeciBrojevi || []).map((x) => String(x).trim()));
 
