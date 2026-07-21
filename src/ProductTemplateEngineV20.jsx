@@ -2165,7 +2165,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             };
 
             const existingDbId = record.db_id || (typeof record.id === 'number' ? record.id : null);
-            const query = existingDbId
+            let prepisi = true;
+            if (existingDbId) {
+                prepisi = window.confirm(
+                    "Menjaš postojeći sačuvani template: „" + record.naziv + "”" + (payload.sir ? " (" + payload.sir + " mm)" : "") + ".\n\n" +
+                    "OK = PREPIŠI postojeći template\n" +
+                    "Otkaži = sačuvaj kao NOVI (postojeći ostaje netaknut)"
+                );
+            }
+            const query = (existingDbId && prepisi)
                 ? supabase.from("proizvodi").update(payload).eq("id", existingDbId).select()
                 : supabase.from("proizvodi").insert([payload]).select();
             const { data, error } = await query;
@@ -3230,10 +3238,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                             ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
                                             : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne za sve slojeve</span>}
                                         &nbsp;·&nbsp; {layers.filter((_, i) => izabraneZa(i).length > 0 || rucniUnos[i]).length} / {layers.length} slojeva
-                                        {imaSirih && (
+                                        {(
                                             <label style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, fontSize: 12, fontWeight: 700, color: "#7c3aed", cursor: "pointer" }}>
                                                 <input type="checkbox" checked={formatirajSire} onChange={e => setFormatirajSire(e.target.checked)} />
-                                                Formatiraj rolne šire od idealne na {sir} mm (napravi vezane formatiranje-naloge)
+                                                Formatiraj rolne šire od idealne{sir ? " na " + sir + " mm" : ""} (napravi vezane formatiranje-naloge){imaSirih ? "" : " — trenutno nema širih rolni u izboru"}
                                             </label>
                                         )}
                                     </div>
