@@ -312,6 +312,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 return;
             }
             alert("Nalog " + masterBroj + " je obrisan (" + deleted + " stavki).");
+            try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj: masterBroj, deleted: true } })); } catch (e) { }
             if (closeFn) closeFn();
         } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }
     }
