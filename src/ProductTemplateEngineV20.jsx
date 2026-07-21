@@ -1355,7 +1355,7 @@ function SpoolDrawing({ spulna, update }) {
         </Section>
         <Section title="Dimenzije špulne" color="#7c3aed">
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) minmax(340px, .8fr)", gap: 16, alignItems: "start" }}>
-                <Grid cols={4}>{Object.keys(spulna).filter(k => !["naziv", "materijal"].includes(k)).map(k => <Input key={k} label={k} value={spulna[k]} onChange={v => update(`spulna.${k}`, v)} />)}</Grid>
+                <Grid cols={4}>{Object.keys(spulna).filter(k => !["naziv", "materijal", "layers", "sideA", "sideB", "kolicina", "jedinicaUnosa", "skart", "rolniPoPaleti", "napomena", "smer", "smerNamotavanja", "tezinaBruto"].includes(k)).map(k => <Input key={k} label={k} value={spulna[k]} onChange={v => update(`spulna.${k}`, v)} />)}</Grid>
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 950, color: "#334155", marginBottom: 10 }}>PREGLED PARAMETARA</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
@@ -1372,7 +1372,6 @@ function SpoolDrawing({ spulna, update }) {
                 <Select label="Tip namotavanja" value={spulna.smer || "Gap winding"} onChange={v => update("spulna.smer", v)} options={["Gap winding", "Overlapped winding"]} />
                 <Select label="Smer namotavanja" value={spulna.smerNamotavanja || "Levo"} onChange={v => update("spulna.smerNamotavanja", v)} options={["Levo", "Desno"]} />
                 <Input label="Težina bruto (kg)" value={spulna.tezinaBruto || "25.50"} onChange={v => update("spulna.tezinaBruto", v)} />
-                <Input label="Napomena" value={spulna.napomena || "Standardna špulna za OPP foliju."} onChange={v => update("spulna.napomena", v)} />
             </Grid>
         </Section>
     </>;
