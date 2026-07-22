@@ -12,6 +12,7 @@ import { supabase } from "../supabase.js";
 import { nadjiSpojRolne } from "../modules/spojRolneMatch.js";
 import { predloziFormatiranje } from "../modules/formatiranjeEngine.js";
 import { dodeliBrojeveNaloga } from "../modules/dodeliBrojeve.js";
+import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne } from "./kalkulacijeCore.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
 const T = (v) => String(v ?? "").trim();
@@ -294,6 +295,89 @@ export const ALATI = {
         },
     },
 
+    cene_materijala: {
+        cita: true,
+        opis: "Cene materijala iz baze (€/kg). Koristi PRE kalkulacije da uzmeš stvarne cene umesto da pretpostavljaš.",
+        ulaz: { vrsta: { type: "string", description: "Opciono: filtriraj po vrsti/oznaci" } },
+        async izvrsi({ vrsta }) {
+            let redovi = [];
+            for (const tab of ["material_cene", "material_master", "materijali"]) {
+                try {
+                    const { data, error } = await supabase.from(tab).select("*").limit(400);
+                    if (!error && data && data.length) { redovi = data.map((r) => ({ ...r, _tabela: tab })); break; }
+                } catch (e) { }
+            }
+            if (!redovi.length) return { napomena: "Nema tabele sa cenama — pitaj korisnika za cenu €/kg." };
+            const f = vrsta ? redovi.filter((r) => UP(JSON.stringify(r)).includes(UP(vrsta))) : redovi;
+            return {
+                izvor: redovi[0]._tabela, nadjeno: f.length,
+                cene: f.slice(0, 30).map((r) => ({
+                    naziv: r.naziv || r.vrsta || r.materijal || r.oznaka || "",
+                    vrsta: r.vrsta || "", oznaka: r.oznaka || r.oznaka_materijala || "",
+                    debljina: N(r.deb ?? r.debljina) || null,
+                    gm2: N(r.gm2 ?? r.tezina ?? r.gramatura) || null,
+                    cena_kg: N(r.cena_kg ?? r.cena ?? r.cenaKg) || null,
+                })),
+            };
+        },
+    },
+
+    kalkulacija_folije: {
+        cita: true,
+        opis: "Računa kalkulaciju FOLIJE po formulama Maropack-a (Excel logika). Vraća i razrađen račun korak po korak. Ako ne znaš cenu materijala, prvo pozovi cene_materijala.",
+        ulaz: {
+            sirina: { type: "number", description: "Širina u mm" },
+            metraza: { type: "number", description: "Metraža za obračun (podrazumevano 1000 m)" },
+            materijali: {
+                type: "array", description: "Slojevi",
+                items: { type: "object", properties: { naziv: { type: "string" }, tezina: { type: "number", description: "g/m²" }, cena: { type: "number", description: "€/kg" }, stampa: { type: "boolean" }, lakira: { type: "boolean" } }, required: ["tezina", "cena"] },
+            },
+            skart: { type: "number", description: "Škart u %, tipično 10" },
+            marza: { type: "number", description: "Marža u %, tipično 27" },
+            stampaCena: { type: "number", description: "€/kg štampe" },
+            transport: { type: "number", description: "€/kg transporta" },
+            lepak: { type: "array", description: "Lepak: [{utrosak, prolazi, cena}]", items: { type: "object" } },
+            kasiranje: { type: "object", description: "{ cena } — cena kaširanja" },
+            nalog: { type: "number", description: "Koliko puta po toj metraži (za ceo nalog)" },
+        },
+        async izvrsi(a) { return kalkulacijaFolije(a); },
+    },
+
+    kalkulacija_kese: {
+        cita: true,
+        opis: "Računa kalkulaciju KESE po formulama Maropack-a. Vraća cenu na 1000 komada i po komadu, sa razrađenim računom.",
+        ulaz: {
+            sirina: { type: "number", description: "Širina kese u mm" },
+            duzina: { type: "number", description: "Dužina kese u mm" },
+            klapna: { type: "number", description: "Klapna u mm" },
+            falta: { type: "number", description: "Falta u mm" },
+            kolicina: { type: "number", description: "Broj komada" },
+            materijali: { type: "array", description: "Slojevi [{tezina g/m², cena €/kg}]", items: { type: "object" } },
+            skart: { type: "number" }, marza: { type: "number" },
+            stampa: { type: "boolean" }, stampaCena: { type: "number", description: "€/kg" },
+            transportCena: { type: "number", description: "€/kg" },
+            ostaleOpcijeEur: { type: "number", description: "Zbir ostalih opcija u € na 1000 kom" },
+        },
+        async izvrsi(a) { return kalkulacijaKese(a); },
+    },
+
+    kalkulacija_spulne: {
+        cita: true,
+        opis: "Računa kalkulaciju ŠPULNE po formulama Maropack-a. Vraća cenu po špulni i na 1000 m.",
+        ulaz: {
+            sirina: { type: "number", description: "Širina trake u mm" },
+            duzina: { type: "number", description: "Dužina u m" },
+            tezinaGM2: { type: "number", description: "Gramaža g/m²" },
+            cenaM2: { type: "number", description: "Cena materijala €/m²" },
+            troskoviM2: { type: "number", description: "Troškovi obrade €/m²" },
+            cenaKutije: { type: "number" }, cenaHilzne: { type: "number" },
+            transport: { type: "number", description: "€ po špulni" },
+            skart: { type: "number" }, marza: { type: "number" },
+            kolicina: { type: "number", description: "Broj špulni" },
+        },
+        async izvrsi(a) { return kalkulacijaSpulne(a); },
+    },
+
     // ── UPIS (traži potvrdu) ─────────────────────────────────────────────────
     kreiraj_nalog_iz_templejta: {
         cita: false,
@@ -395,6 +479,60 @@ export const ALATI = {
             }]);
             if (error) return { ok: false, poruka: "Upis nije uspeo: " + error.message };
             return { ok: true, poruka: `Formatiranje ${broj} kreirano (${matice.length} matičnih).`, broj };
+        },
+    },
+
+    sacuvaj_kalkulaciju: {
+        cita: false,
+        opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje.",
+        ulaz: {
+            tip: { type: "string", description: "folija | kesa | spulna" },
+            naziv: { type: "string", description: "Naziv proizvoda" },
+            kupac: { type: "string", description: "Kupac" },
+            ulaz: { type: "object", description: "Isti ulazni podaci kao za alat kalkulacija_* (širina, materijali, marža…)" },
+        },
+        opisPlana: (a) => `Sačuvaj kalkulaciju (${a.tip || "?"}) „${a.naziv || "bez naziva"}"${a.kupac ? " — kupac " + a.kupac : ""}`,
+        async izvrsi(a) {
+            const tip = T(a.tip).toLowerCase();
+            const naziv = T(a.naziv), kupac = T(a.kupac);
+            if (!naziv || !kupac) return { ok: false, poruka: "Fale naziv i kupac — bez njih se kalkulacija ne čuva." };
+            const u = a.ulaz || {};
+
+            // Preračunaj ovde, da u bazu ide tačan rezultat (ne prepričan).
+            let rez, tabela, red;
+            if (tip === "kesa") {
+                rez = kalkulacijaKese(u); tabela = "kalkulacije_kese";
+                red = {
+                    naziv, kupac, kolicina: N(u.kolicina) || 1000, skart: N(u.skart), marza: N(u.marza),
+                    sirina: N(u.sirina), duzina: N(u.duzina), klapna: N(u.klapna), falta: N(u.falta),
+                    materijali: u.materijali || [], rezultati: rez,
+                };
+            } else if (tip === "spulna" || tip === "špulna") {
+                rez = kalkulacijaSpulne(u); tabela = "kalkulacije_spulne";
+                red = {
+                    naziv, kupac, materijal: T(u.materijal), sirina: N(u.sirina), duzina: N(u.duzina),
+                    debljina: N(u.tezinaGM2), tezina_gm2: N(u.tezinaGM2), cena_kg: N(u.cenaM2),
+                    marza: N(u.marza), kolicina: N(u.kolicina) || 1, rezultati: rez,
+                };
+            } else {
+                rez = kalkulacijaFolije(u); tabela = "kalkulacije_folije";
+                red = {
+                    naziv, kupac, sirina: N(u.sirina), metraza: N(u.metraza) || 1000,
+                    nalog: N(u.nalog) || 1, skart: N(u.skart), marza: N(u.marza),
+                    materijali: u.materijali || [], lepak: u.lepak || [], lak: u.lak || {},
+                    kasiranje: u.kasiranje || {}, stampa_cena: N(u.stampaCena), lakiranje_cena: N(u.lakiranjeCena),
+                    transport: N(u.transport), pakovanje: N(u.pakovanje), dorada: N(u.dorada),
+                    rezultati: rez,
+                };
+            }
+
+            const { error } = await supabase.from(tabela).insert([red]);
+            if (error) return { ok: false, poruka: "Upis u " + tabela + " nije uspeo: " + error.message };
+            return {
+                ok: true,
+                poruka: `Kalkulacija „${naziv}" (${tip}) sačuvana u ${tabela}. Konačna cena: ${rez.konacna_cena} ${rez.jedinica}.`,
+                konacna_cena: rez.konacna_cena, jedinica: rez.jedinica,
+            };
         },
     },
 
