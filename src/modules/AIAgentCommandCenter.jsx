@@ -125,9 +125,9 @@ export default function AIAgentCommandCenter() {
                         <b>Greška:</b> {greska}
                         {/PODESI|nije podešen|Failed to send|not found|non-2xx/i.test(greska) && (
                             <div style={{ marginTop: 8, color: "#7f1d1d", fontSize: 12.5 }}>
-                                Proveri da je Edge Function <b>ai-agent</b> postavljena i da je ključ dodat:
-                                <br /><code>supabase functions deploy ai-agent</code>
-                                <br /><code>supabase secrets set ANTHROPIC_API_KEY=sk-ant-...</code>
+                                Proveri u Supabase → Edge Functions da funkcija <b>smart-service</b> postoji i da je
+                                u <b>Secrets</b> dodat ključ <b>ANTHROPIC_API_KEY</b>.
+                                <br />Ako se funkcija zove drugačije, promeni <code>FUNKCIJA</code> na vrhu fajla <code>aiAgentLLM.js</code>.
                             </div>
                         )}
                     </div>

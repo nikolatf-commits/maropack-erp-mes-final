@@ -15,6 +15,10 @@
 import { supabase } from "../supabase.js";
 import { alatiZaClaude, izvrsiAlat, jeUpis, opisPlana } from "./agentAlati.js";
 
+// Ime Supabase Edge Function-a. Mora se poklapati sa imenom u Supabase → Edge Functions.
+// (Supabase ume da sam dodeli ime pri kreiranju — ovde upiši tačno to ime.)
+const FUNKCIJA = "smart-service";
+
 const MAX_KRUGOVA = 8;
 
 const SISTEM = `Ti si AI agent za MAROPACK — fabriku fleksibilne ambalaže (folije, kese, špulne).
@@ -39,7 +43,7 @@ ODGOVOR:
 
 // ── poziv ka Edge Function ───────────────────────────────────────────────────
 async function pozoviClaude(messages, opcije = {}) {
-    const { data, error } = await supabase.functions.invoke("ai-agent", {
+    const { data, error } = await supabase.functions.invoke(FUNKCIJA, {
         body: { system: SISTEM, messages, tools: alatiZaClaude(), ...opcije },
     });
     if (error) {
