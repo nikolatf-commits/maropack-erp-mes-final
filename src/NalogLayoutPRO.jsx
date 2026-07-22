@@ -614,57 +614,56 @@ function formatiranjeD(nalog) {
     const par = (typeof safeJson === "function" ? safeJson(nalog.parametri, {}) : (nalog.parametri || {})) || {};
     const res = (typeof safeJson === "function" ? safeJson(nalog.res, {}) : (nalog.res || {})) || {};
     const f = nalog.formatiranje || par.formatiranje || res.formatiranje || {};
+    const listaM = (Array.isArray(f.matice) && f.matice.length) ? f.matice : [f];
 
-    const matSir = num(f.sirina_mm) || num(f.matSir) || 0;
-    const plan = (Array.isArray(f.plan_reza) ? f.plan_reza : []).map(function (s) {
-        return {
-            duzina: num(s.duzina_m),
-            otpad: num(s.otpad_mm),
-            trake: (Array.isArray(s.trake) ? s.trake : []).map(function (t) {
-                return { sir: num(t.sirina_mm), odr: t.odrediste || "stanje", nap: t.napomena || "" };
-            }),
-        };
-    });
-
-    // izvedene role za tabelu (LOT nasleđuje bazu; brojač se nastavlja na izvršenju)
-    const lotBaza = f.lot_baza || f.lot || "LOT";
-    let seq = 0;
-    const role = [];
-    plan.forEach(function (s) {
-        s.trake.forEach(function (t) {
-            role.push({
-                lot: lotBaza + "-" + (++seq),
-                sir: t.sir, duz: s.duzina, odr: t.odr,
-                nap: t.nap || (String(t.odr) === "stanje" ? "bočni ostatak" : ""),
+    function obradiMaticu(fm) {
+        const matSir = num(fm.sirina_mm) || num(fm.matSir) || 0;
+        const plan = (Array.isArray(fm.plan_reza) ? fm.plan_reza : []).map(function (s) {
+            return {
+                duzina: num(s.duzina_m),
+                otpad: num(s.otpad_mm),
+                trake: (Array.isArray(s.trake) ? s.trake : []).map(function (t) {
+                    return { sir: num(t.sirina_mm), odr: t.odrediste || "stanje", nap: t.napomena || "" };
+                }),
+            };
+        });
+        const lotBaza = fm.lot_baza || fm.lot || "LOT";
+        let seq = 0;
+        const role = [];
+        plan.forEach(function (sg) {
+            sg.trake.forEach(function (t) {
+                role.push({ lot: lotBaza + "-" + (++seq), sir: t.sir, duz: sg.duzina, odr: t.odr, nap: t.nap || (String(t.odr) === "stanje" ? "bočni ostatak" : "") });
             });
         });
-    });
+        let korisno = 0, cut = 0, otpadM2 = 0, utrosak = 0;
+        plan.forEach(function (sg) {
+            sg.trake.forEach(function (t) { korisno += t.sir * sg.duzina; });
+            cut += matSir * sg.duzina; otpadM2 += sg.otpad * sg.duzina; utrosak += sg.duzina;
+        });
+        const isk = cut ? Math.round((korisno / cut) * 1000) / 10 : 0;
+        return {
+            matBr: fm.br_rolne || fm.matBr || "—", matSir: matSir,
+            materijal: fm.materijal || "—", proizvodjac: fm.proizvodjac || fm.dobavljac || "—",
+            lotBaza: lotBaza, plan: plan, role: role,
+            novih: role.length, otpadM2: Math.round(otpadM2), isk: isk, utrosak: num(fm.utrosak_m) || utrosak,
+        };
+    }
 
-    // statistika
-    let korisno = 0, cut = 0, otpadM2 = 0, utrosak = 0;
-    plan.forEach(function (s) {
-        s.trake.forEach(function (t) { korisno += t.sir * s.duzina; });
-        cut += matSir * s.duzina;
-        otpadM2 += s.otpad * s.duzina;
-        utrosak += s.duzina;
-    });
-    const isk = cut ? Math.round((korisno / cut) * 1000) / 10 : 0;
+    const matice = listaM.map(obradiMaticu);
+    const novih = matice.reduce(function (a, m) { return a + m.novih; }, 0);
+    const utrosak = matice.reduce(function (a, m) { return a + m.utrosak; }, 0);
+    const otpadM2 = matice.reduce(function (a, m) { return a + m.otpadM2; }, 0);
+    const isk = matice.length ? Math.round(matice.reduce(function (a, m) { return a + m.isk; }, 0) / matice.length * 10) / 10 : 0;
 
     const gr = [];
-    if (!matSir) gr.push("Nema širine matične rolne.");
-    if (!plan.length) gr.push("Nema plana reza — pokreni predlog (korak 1).");
+    if (!matice.length || !matice.some(function (m) { return m.plan.length; })) gr.push("Nema plana reza — pokreni predlog (korak 1).");
 
     return {
-        matBr: f.br_rolne || f.matBr || "—",
-        matSir: matSir,
-        materijal: f.materijal || "—",
-        proizvodjac: f.proizvodjac || f.dobavljac || "—",
+        broj: f.broj || nalog.broj_naloga || nalog.broj || "—",
+        matice: matice, brMatica: matice.length,
         izvor_ponbr: f.izvor_ponbr || null,
         preventivno: !!f.preventivno || !f.izvor_ponbr,
-        lotBaza: lotBaza,
-        utrosak: num(f.utrosak_m) || utrosak,
-        plan: plan, role: role,
-        novih: role.length, otpadM2: Math.round(otpadM2), isk: isk,
+        novih: novih, utrosak: utrosak, otpadM2: otpadM2, isk: isk,
         greske: gr,
     };
 }
@@ -706,7 +705,7 @@ function fmtSvg(F) {
     return '<svg viewBox="0 0 720 ' + H + '" width="100%" style="max-width:660px;background:#fff">' + o + '</svg>';
 }
 
-function pFormatiranje(D, F) {
+function pFormatiranje(D, F, qrMap) {
     const c = COLp; // #7c3aed — familija rezanja
     const odrPill = function (odr) {
         const st = String(odr) === "stanje" || !odr;
@@ -717,7 +716,7 @@ function pFormatiranje(D, F) {
 
     const statRow =
         '<div class="stats">' +
-        stat('Utrošak matične', fmtN(F.utrosak), 'm', COLm) +
+        stat('Matičnih', F.brMatica, 'kom', COLm) +
         stat('Novih rolni', F.novih, 'kom', '#14b8a6') +
         stat('Iskorišćenje', fmtN(F.isk), '%', c) +
         stat('Otpad', fmtN(F.otpadM2), 'mm·m', '#ef4444') +
@@ -725,40 +724,46 @@ function pFormatiranje(D, F) {
 
     const info =
         '<div class="info">' +
-        infoC('Matična rolna', F.matBr + ' · ' + F.matSir + ' mm') +
-        infoC('Materijal', F.materijal) +
-        infoC('Proizvođač', F.proizvodjac) +
+        infoC('Nalog', F.broj) +
+        infoC('Matičnih rolni', String(F.brMatica)) +
         infoC('Poreklo', F.preventivno ? 'Preventivno' : ('iz naloga ' + (F.izvor_ponbr || '—'))) +
-        infoC('LOT baza', F.lotBaza) +
+        infoC('Ukupan utrošak', fmtN(F.utrosak) + ' m') +
         infoC('Mašina', '— (skenira radnik)') +
         infoC('Radnik', '— (skenira radnik)') +
-        infoC('Utrošak', fmtN(F.utrosak) + ' m') +
         '</div>';
 
     const greske = F.greske && F.greske.length
         ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + F.greske.map(esc).join('<br>⚠ ') + '</div>'
         : '';
 
-    const planSek =
-        '<div class="sec">' + secH(1, c, 'Plan reza', 'po matičnoj') +
-        '<div class="ulaz"><b>Rez:</b> matična ' + esc(F.matBr) + ' · ' + F.matSir + ' mm → ' + F.plan.length +
-        ' segment' + (F.plan.length === 1 ? '' : 'a') + ' · utrošak <b>' + fmtN(F.utrosak) + ' m</b> · iskorišćenje <b>' + fmtN(F.isk) + '%</b> · otpad ' + fmtN(F.otpadM2) + ' mm·m</div>' +
-        '<div class="framed" style="padding:12px 10px">' + fmtSvg(F) + '</div>' +
+    const legenda =
         '<div style="display:flex;gap:16px;font-size:10.5px;font-weight:700;color:#64748b;margin-top:8px">' +
         '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#dbeafe;border:1.5px solid #1d4ed8;vertical-align:-1px"></span> za nalog</span>' +
         '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#e5e7eb;border:1.5px solid #64748b;vertical-align:-1px"></span> na stanje</span>' +
         '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#fef2f2;border:1.5px solid #fca5a5;vertical-align:-1px"></span> otpad</span>' +
-        '</div></div>';
+        '</div>';
+
+    const planSek = F.matice.map(function (m, mi) {
+        return '<div class="sec">' + secH(mi + 1, c, 'Matična ' + (mi + 1) + ' — ' + esc(m.matBr), m.matSir + ' mm · ' + esc(m.materijal)) +
+            '<div class="ulaz"><b>Rez:</b> ' + m.matSir + ' mm → ' + m.plan.length + ' segment' + (m.plan.length === 1 ? '' : 'a') +
+            ' · utrošak <b>' + fmtN(m.utrosak) + ' m</b> · iskorišćenje <b>' + fmtN(m.isk) + '%</b> · otpad ' + fmtN(m.otpadM2) + ' mm·m</div>' +
+            '<div class="framed" style="padding:12px 10px">' + fmtSvg(m) + '</div>' + legenda + '</div>';
+    }).join('');
+
+    const allRole = [];
+    F.matice.forEach(function (m) { m.role.forEach(function (r) { allRole.push({ lot: r.lot, sir: r.sir, duz: r.duz, odr: r.odr, nap: r.nap, matBr: m.matBr }); }); });
 
     const roleSek =
-        '<div class="sec">' + secH(2, c, 'Nove role (' + F.novih + ')', 'QR nalepnice se štampaju uz nalog') +
-        '<table>' + th(['LOT', { t: 'Širina', n: 1 }, { t: 'Dužina (m)', n: 1 }, 'Kome ide', 'Napomena'], c) + '<tbody>' +
-        F.role.map(function (r) {
-            return '<tr><td style="font-family:ui-monospace,monospace;font-weight:800">' + esc(r.lot) + '</td>' +
+        '<div class="sec">' + secH(F.matice.length + 1, c, 'Nove role (' + F.novih + ')', 'QR nalepnice — štampaju se uz nalog') +
+        '<table>' + th([{ t: 'QR', n: 1 }, 'LOT', { t: 'Širina', n: 1 }, { t: 'Dužina (m)', n: 1 }, 'Iz matične', 'Kome ide'], c) + '<tbody>' +
+        allRole.map(function (r) {
+            const qimg = (qrMap && qrMap[r.lot]) ? '<img src="' + qrMap[r.lot] + '" alt="QR" style="width:40px;height:40px;display:block;margin:auto"/>' : '<span style="color:#cbd5e1">—</span>';
+            return '<tr><td class="n">' + qimg + '</td>' +
+                '<td style="font-family:ui-monospace,monospace;font-weight:800">' + esc(r.lot) + '</td>' +
                 '<td class="n">' + r.sir + ' mm</td>' +
                 '<td class="n">' + fmtN(r.duz) + '</td>' +
-                '<td>' + odrPill(r.odr) + '</td>' +
-                '<td>' + (r.nap ? esc(r.nap) : '—') + '</td></tr>';
+                '<td>' + esc(r.matBr) + '</td>' +
+                '<td>' + odrPill(r.odr) + '</td></tr>';
         }).join('') +
         '</tbody></table></div>';
 
@@ -771,12 +776,12 @@ function pFormatiranje(D, F) {
     );
 }
 
-function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
+function buildPagesHTML(nalog, vrsta, qr, lang = 'sr', qrRole = null) {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
-    if (vrsta === "formatiranje") return pFormatiranje(D, formatiranjeD(nalog));
+    if (vrsta === "formatiranje") return pFormatiranje(D, formatiranjeD(nalog), qrRole);
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
@@ -883,6 +888,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else vrsta = "materijal";
     const broj = nalog.master_broj || nalog.broj_naloga || nalog.broj || (nalog.master_nalog && nalog.master_nalog.broj_naloga) || "";
     const [qr, setQr] = React.useState("");
+    const [qrRole, setQrRole] = React.useState(null);
     // QR na nalogu.
     //
     // RANIJE: ?nalog=MP-2026-0015 → otvarao samo PREGLED naloga (bez dugmadi).
@@ -900,10 +906,31 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         QRCode.toDataURL(url, { margin: 1, width: 320 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
     }, [broj, opid]);
+
+    // QR nalepnice za NOVE role (formatiranje) — jedna po LOT-u.
+    React.useEffect(() => {
+        if (vrsta !== "formatiranje") { setQrRole(null); return; }
+        let on = true;
+        try {
+            const F = formatiranjeD(nalog);
+            const lots = [];
+            (F.matice || []).forEach((m) => (m.role || []).forEach((r) => { if (r.lot) lots.push(r.lot); }));
+            if (!lots.length) { setQrRole(null); return; }
+            Promise.all(lots.map((lot) =>
+                QRCode.toDataURL(String(lot), { margin: 0, width: 120 }).then((d) => [lot, d]).catch(() => [lot, ""])
+            )).then((pairs) => {
+                if (!on) return;
+                const map = {};
+                pairs.forEach(([lot, d]) => { if (d) map[lot] = d; });
+                setQrRole(map);
+            });
+        } catch (e) { if (on) setQrRole(null); }
+        return () => { on = false; };
+    }, [nalog, vrsta]);
     // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
     const htmlStr = React.useMemo(
-        () => buildPagesHTML(nalog, vrsta, qr, lang),
-        [nalog, vrsta, qr, lang]
+        () => buildPagesHTML(nalog, vrsta, qr, lang, qrRole),
+        [nalog, vrsta, qr, lang, qrRole]
     );
 
     // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.

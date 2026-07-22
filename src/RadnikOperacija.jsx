@@ -173,23 +173,25 @@ export default function RadnikOperacija({ opid }) {
         if (!error) {
             try {
                 const plan = op?.parametri?.formatiranje;
-                if (plan && plan.br_rolne && !op?.parametri?.formatiranje_izvrseno) {
-                    const { data: mrows } = await supabase.from("magacin").select("*").eq("br_rolne", plan.br_rolne).limit(1);
-                    const matica = mrows && mrows[0];
-                    if (matica) {
-                        const rez = await izvrsiFormatiranje(supabase, matica, plan, {
+                // Objedinjeni nalog ima plan.matice[]; stari nalog ima plan direktno (jedna matična)
+                const matice = (plan && Array.isArray(plan.matice) && plan.matice.length) ? plan.matice
+                    : (plan && plan.br_rolne) ? [plan] : [];
+                if (matice.length && !op?.parametri?.formatiranje_izvrseno) {
+                    let ukupnoNovih = 0; const greske = [];
+                    for (const mp of matice) {
+                        const { data: mrows } = await supabase.from("magacin").select("*").eq("br_rolne", mp.br_rolne).limit(1);
+                        const matica = mrows && mrows[0];
+                        if (!matica) { greske.push("matična " + mp.br_rolne + " nije nađena"); continue; }
+                        const rez = await izvrsiFormatiranje(supabase, matica, mp, {
                             nalog: { broj: op.broj_naloga, id: op.id }, user_id: op.radnik || null,
                         });
-                        if (rez && rez.ok) {
-                            await supabase.from("operativni_nalozi").update({
-                                parametri: { ...op.parametri, formatiranje_izvrseno: true, formatiranje_role: (rez.nastale || []).length },
-                            }).eq("id", opid);
-                        } else if (rez && rez.greske && rez.greske.length) {
-                            setErr("Formatiranje: " + rez.greske.join(" · "));
-                        }
-                    } else {
-                        setErr("Formatiranje: matična " + plan.br_rolne + " nije nađena u magacinu.");
+                        if (rez && rez.ok) ukupnoNovih += (rez.nastale || []).length;
+                        else if (rez && rez.greske && rez.greske.length) greske.push(rez.greske.join(" · "));
                     }
+                    await supabase.from("operativni_nalozi").update({
+                        parametri: { ...op.parametri, formatiranje_izvrseno: true, formatiranje_role: ukupnoNovih },
+                    }).eq("id", opid);
+                    if (greske.length) setErr("Formatiranje: " + greske.join(" · "));
                 }
             } catch (eF) { console.warn("Formatiranje na ZAVRŠENO nije izvršeno:", eF); }
         }
