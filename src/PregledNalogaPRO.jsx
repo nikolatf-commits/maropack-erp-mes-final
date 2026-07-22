@@ -302,16 +302,24 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             // 3) Oslobodi rezervisane rolne tog naloga
             try { await supabase.from("magacin").update({ dodeljeno_nalogu: null, rezervisano: false }).ilike("dodeljeno_nalogu", "%" + masterBroj + "%"); } catch (e) { }
 
-            // 4) Obriši master
-            if (masterId) await del(supabase.from("radni_nalozi").delete().eq("id", masterId));
-            else await del(supabase.from("radni_nalozi").delete().eq("broj_naloga", masterBroj));
+            // 4) Obriši master — broji se ODVOJENO, jer RLS ume da obriše 0 redova BEZ greške
+            let masterObrisan = 0;
+            const delMaster = async (q) => { const r = await q.select("id"); if (r.error) err = r.error; else { const k = r.data ? r.data.length : 0; masterObrisan += k; deleted += k; } };
+            if (masterId) await delMaster(supabase.from("radni_nalozi").delete().eq("id", masterId));
+            else await delMaster(supabase.from("radni_nalozi").delete().eq("broj_naloga", masterBroj));
 
             if (err) { alert("Brisanje nije uspelo: " + (err.message || err)); return; }
             if (deleted === 0) {
                 alert("Ništa nije obrisano. Najverovatnije baza ne dozvoljava brisanje (RLS politika). Treba dodati DELETE dozvolu u Supabase za tabele radni_nalozi i operativni_nalozi. Reci mi pa ti dam tačan SQL.");
                 return;
             }
-            alert("Nalog " + masterBroj + " je obrisan (" + deleted + " stavki).");
+            if (masterObrisan === 0) {
+                alert("PAŽNJA: operacije su obrisane, ali GLAVNI nalog " + masterBroj + " je ostao u tabeli radni_nalozi.\n\n" +
+                    "Baza ne dozvoljava brisanje (RLS politika za radni_nalozi). Nalog će zato i dalje iskakati u statistici.\n" +
+                    "Reci mi pa ti dam tačan SQL za dozvolu brisanja.");
+            } else {
+                alert("Nalog " + masterBroj + " je obrisan (" + deleted + " stavki).");
+            }
             try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj: masterBroj, deleted: true } })); } catch (e) { }
             if (closeFn) closeFn();
         } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }

@@ -128,11 +128,20 @@ export async function loadDashboardData(timeRange = 30) {
     if (naloziRes.error) throw naloziRes.error;
     if (aktivnostiRes.error) throw aktivnostiRes.error;
 
-    const nalozi = naloziRes.data || [];
-    const operacije = await ucitajOperacije(nalozi.map((n) => n.id).filter(Boolean));
+    const sviMasteri = naloziRes.data || [];
+    const operacije = await ucitajOperacije(sviMasteri.map((n) => n.id).filter(Boolean));
+
+    // Nalog je STVARAN samo ako ima svoje operacije. Glavni nalog bez ijedne operacije
+    // je ostatak nepotpunog brisanja (RLS obriše operacije, a master ostane) — takav
+    // nalog se ne vidi ni na ekranu "Glavni nalozi", pa ga ni dashboard ne broji.
+    const saOperacijama = new Set(operacije.map((o) => o.glavni_nalog_id));
+    const nalozi = sviMasteri.filter((n) => saOperacijama.has(n.id));
+    const siroci = sviMasteri.length - nalozi.length;
+    if (siroci > 0) console.warn(`Dashboard: ${siroci} glavnih naloga bez operacija (ostatak brisanja) — ne broje se.`);
 
     return {
         nalozi,
+        siroci,
         operacije,
         rolne: rolne || [],
         aktivnosti: aktivnostiRes.data || [],
