@@ -482,6 +482,126 @@ export const ALATI = {
         },
     },
 
+    pripremi_rolne_za_unos: {
+        cita: true,
+        opis: "Iz pročitane pakcing liste pravi pregledan spisak rolni + CSV tekst za proveru PRE upisa. Ne menja bazu. Uvek pozovi ovo pre ubaci_rolne_na_stanje.",
+        ulaz: {
+            rolne: {
+                type: "array", description: "Redovi iz pakcing liste",
+                items: {
+                    type: "object",
+                    properties: {
+                        vrsta: { type: "string" }, pod_vrsta: { type: "string" }, oznaka: { type: "string" },
+                        debljina: { type: "number", description: "µ ili g/m² za papir" },
+                        sirina: { type: "number", description: "mm" },
+                        metraza: { type: "number", description: "m" },
+                        kg: { type: "number" }, lot: { type: "string" },
+                        dobavljac: { type: "string" }, cena_kg: { type: "number" },
+                        lokacija: { type: "string" }, napomena: { type: "string" },
+                    },
+                },
+            },
+        },
+        async izvrsi({ rolne }) {
+            const lista = Array.isArray(rolne) ? rolne : [];
+            if (!lista.length) return { greska: "Nema redova." };
+            const problemi = [];
+            const red = lista.map((r, i) => {
+                const p = [];
+                if (!T(r.vrsta)) p.push("nema vrstu");
+                if (!N(r.sirina)) p.push("nema širinu");
+                if (!N(r.metraza) && !N(r.kg)) p.push("nema ni metre ni kg");
+                if (p.length) problemi.push(`Red ${i + 1}: ${p.join(", ")}`);
+                return {
+                    r_br: i + 1, vrsta: T(r.vrsta), pod_vrsta: T(r.pod_vrsta), oznaka: T(r.oznaka),
+                    debljina: N(r.debljina), sirina_mm: N(r.sirina), metraza_m: N(r.metraza),
+                    kg: N(r.kg), lot: T(r.lot), dobavljac: T(r.dobavljac),
+                    cena_kg: N(r.cena_kg) || null, lokacija: T(r.lokacija),
+                };
+            });
+            const zagl = "vrsta;pod_vrsta;oznaka;debljina;sirina_mm;metraza_m;kg;lot;dobavljac;cena_kg;lokacija";
+            const csv = [zagl].concat(red.map((x) =>
+                [x.vrsta, x.pod_vrsta, x.oznaka, x.debljina, x.sirina_mm, x.metraza_m, x.kg, x.lot, x.dobavljac, x.cena_kg ?? "", x.lokacija].join(";")
+            )).join("\n");
+            return {
+                broj_rolni: red.length,
+                ukupno_m: Math.round(red.reduce((a, x) => a + x.metraza_m, 0)),
+                ukupno_kg: Math.round(red.reduce((a, x) => a + x.kg, 0)),
+                problemi: problemi.length ? problemi : ["nema"],
+                rolne: red,
+                csv,
+            };
+        },
+    },
+
+    ubaci_rolne_na_stanje: {
+        cita: false,
+        opis: "Upisuje rolne iz pakcing liste u magacin (status Na stanju, sa QR brojem). MENJA BAZU — traži potvrdu.",
+        ulaz: {
+            rolne: { type: "array", description: "Isti spisak kao u pripremi_rolne_za_unos", items: { type: "object" } },
+            dobavljac: { type: "string", description: "Dobavljač za sve rolne (ako nije po redu)" },
+            napomena: { type: "string", description: "Zajednička napomena, npr. broj otpremnice" },
+        },
+        opisPlana: (a) => {
+            const n = (a.rolne || []).length;
+            const m = (a.rolne || []).reduce((s, r) => s + (Number(r.metraza) || 0), 0);
+            return `Ubaci ${n} rolni na stanje${a.dobavljac ? " (dobavljač " + a.dobavljac + ")" : ""} — ukupno ${Math.round(m)} m`;
+        },
+        async izvrsi(a) {
+            const lista = Array.isArray(a.rolne) ? a.rolne : [];
+            if (!lista.length) return { ok: false, poruka: "Nema rolni za upis." };
+            const god = new Date().getFullYear();
+            const danas = new Date().toISOString().slice(0, 10);
+
+            // jedinstven broj rolne — isti format kao u magacinu (ROLNA-GODINA-XXXXXXXXX)
+            const { data: post } = await supabase.from("magacin").select("br_rolne").ilike("br_rolne", "ROLNA-" + god + "-%").limit(5000);
+            const zauzeti = new Set((post || []).map((x) => T(x.br_rolne)));
+            const noviBroj = () => {
+                for (let i = 0; i < 20; i++) {
+                    const br = "ROLNA-" + god + "-" + String(Math.floor(100000000 + Math.random() * 899999999));
+                    if (!zauzeti.has(br)) { zauzeti.add(br); return br; }
+                }
+                return "ROLNA-" + god + "-" + Date.now();
+            };
+
+            const redovi = lista.map((r) => {
+                const m = N(r.metraza), kg = N(r.kg), cena = N(r.cena_kg);
+                const br = noviBroj();
+                return {
+                    br_rolne: br, qr_code: br,
+                    tip: T(r.vrsta), vrsta: T(r.vrsta), pod_vrsta: T(r.pod_vrsta) || null,
+                    oznaka_materijala: T(r.oznaka) || null, deb: N(r.debljina) || null,
+                    sirina: N(r.sirina) || null, metraza: m || null, metraza_ost: m || null,
+                    kg_bruto: kg || null, kg_neto: kg || null, lot: T(r.lot) || null,
+                    dobavljac: T(r.dobavljac) || T(a.dobavljac) || null,
+                    cena_kg: cena || null, vrednost: cena && kg ? Math.round(cena * kg * 100) / 100 : null,
+                    datum: danas, datum_prijema: danas,
+                    status: "Na stanju", lokacija: T(r.lokacija) || null,
+                    napomena: [T(r.napomena), T(a.napomena)].filter(Boolean).join(" — ") || null,
+                };
+            });
+
+            const { data: upisane, error } = await supabase.from("magacin").insert(redovi).select("id, br_rolne, metraza");
+            if (error) return { ok: false, poruka: "Upis nije uspeo: " + error.message };
+
+            // trag u istoriji (nije kritično ako padne)
+            try {
+                await supabase.from("magacin_istorija").insert((upisane || []).map((x) => ({
+                    rolna_id: x.id, br_rolne: x.br_rolne, akcija: "ULAZ U MAGACIN",
+                    tip_promene: "ulaz", metraza_pre: 0, metraza_posle: N(x.metraza), promena_m: N(x.metraza),
+                    napomena: "Uneto preko AI agenta iz pakcing liste" + (a.napomena ? " — " + a.napomena : ""),
+                    created_at: new Date().toISOString(),
+                })));
+            } catch (e) { }
+
+            return {
+                ok: true,
+                poruka: `Ubačeno ${(upisane || []).length} rolni na stanje.`,
+                brojevi: (upisane || []).map((x) => x.br_rolne),
+            };
+        },
+    },
+
     sacuvaj_kalkulaciju: {
         cita: false,
         opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje.",

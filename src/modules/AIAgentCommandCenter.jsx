@@ -11,6 +11,7 @@ const BRZE = [
     "Proveri da li imam materijal za SPANAC 600 na 5000 m",
     "Predloži formatiranje: 20 rolni 460 mm × 3000 m BOPP",
     "Koliko sam potrošio materijala poslednjih 30 dana?",
+    "Pročitaj priloženu pakcing listu i pripremi rolne za unos",
 ];
 
 function Poruka({ p }) {
@@ -68,18 +69,49 @@ export default function AIAgentCommandCenter() {
     const [plan, setPlan] = useState([]);
     const [istorija, setIstorija] = useState([]);   // kontekst razgovora za model
     const [greska, setGreska] = useState("");
+    const [prilozi, setPrilozi] = useState([]);
     const dno = useRef(null);
 
     useEffect(() => { dno.current?.scrollIntoView({ behavior: "smooth" }); }, [poruke, plan, busy]);
+
+    function citajFajl(file) {
+        return new Promise((res, rej) => {
+            const r = new FileReader();
+            const ime = file.name || "fajl";
+            const mime = file.type || "";
+            const jePdf = /pdf$/i.test(mime) || /\.pdf$/i.test(ime);
+            const jeSlika = /^image\//.test(mime) || /\.(png|jpe?g|webp|gif)$/i.test(ime);
+            r.onerror = () => rej(new Error("Ne mogu da pročitam " + ime));
+            if (jePdf || jeSlika) {
+                r.onload = () => res({ naziv: ime, kind: jePdf ? "pdf" : "image", mime: jeSlika ? (mime || "image/jpeg") : "application/pdf", base64: String(r.result).split(",")[1] });
+                r.readAsDataURL(file);
+            } else {
+                r.onload = () => res({ naziv: ime, kind: "text", tekst: String(r.result) });
+                r.readAsText(file);
+            }
+        });
+    }
+
+    async function dodajFajlove(files) {
+        const lista = Array.from(files || []);
+        if (!lista.length) return;
+        setGreska("");
+        try {
+            const ucitani = await Promise.all(lista.map(citajFajl));
+            setPrilozi((p) => [...p, ...ucitani]);
+        } catch (e) { setGreska(e.message || String(e)); }
+    }
 
     async function posalji(tekst) {
         const q = (tekst || unos).trim();
         if (!q || busy) return;
         setUnos(""); setGreska(""); setPlan([]);
-        setPoruke((p) => [...p, { od: "ja", tekst: q }]);
+        const opisPriloga = prilozi.length ? "\n\n[priloženo: " + prilozi.map((f) => f.naziv).join(", ") + "]" : "";
+        setPoruke((p) => [...p, { od: "ja", tekst: q + opisPriloga }]);
         setBusy(true);
         try {
-            const r = await pokreniAgenta(q, istorija);
+            const r = await pokreniAgenta(q, istorija, prilozi);
+            setPrilozi([]);
             setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci }]);
             setIstorija(r.messages || []);
             if (r.plan?.length) setPlan(r.plan);
@@ -134,6 +166,17 @@ export default function AIAgentCommandCenter() {
                 )}
 
                 <div style={card}>
+                    {prilozi.length > 0 && (
+                        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
+                            {prilozi.map((f, i) => (
+                                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 9, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>
+                                    {f.naziv}
+                                    <button onClick={() => setPrilozi((p) => p.filter((_, k) => k !== i))}
+                                        style={{ border: 0, background: "transparent", color: "#1d4ed8", cursor: "pointer", fontWeight: 900, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     <div style={{ display: "flex", gap: 9 }}>
                         <textarea
                             value={unos} onChange={(e) => setUnos(e.target.value)}
@@ -141,9 +184,16 @@ export default function AIAgentCommandCenter() {
                             rows={2} placeholder="Npr: proveri materijal za SPANAC 600 na 5000 m i otvori nalog za La Linea"
                             style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 12, padding: 12, fontSize: 14, resize: "vertical", fontFamily: "inherit" }}
                         />
-                        <button onClick={() => posalji()} disabled={busy || !unos.trim()} style={{ ...btn, background: "#1d4ed8", color: "#fff", minWidth: 96, opacity: busy || !unos.trim() ? .5 : 1 }}>
-                            Pošalji
-                        </button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                            <button onClick={() => posalji()} disabled={busy || !unos.trim()} style={{ ...btn, background: "#1d4ed8", color: "#fff", minWidth: 110, opacity: busy || !unos.trim() ? .5 : 1 }}>
+                                Pošalji
+                            </button>
+                            <label style={{ ...btn, background: "#f1f5f9", color: "#334155", border: "1px solid " + LINE, textAlign: "center", fontSize: 12, fontWeight: 700, padding: "8px 10px" }}>
+                                Dodaj fajl
+                                <input type="file" multiple accept=".pdf,.csv,.txt,image/*" style={{ display: "none" }}
+                                    onChange={(e) => { dodajFajlove(e.target.files); e.target.value = ""; }} />
+                            </label>
+                        </div>
                     </div>
                     <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11 }}>
                         {BRZE.map((q, i) => (

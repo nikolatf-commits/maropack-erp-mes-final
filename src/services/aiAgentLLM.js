@@ -38,6 +38,51 @@ KALKULACIJE:
 - Uvek prikaži razrađen račun (polje "koraci") da korisnik vidi kako si došao do cene, pa tek onda konačnu cenu.
 - Za foliju su cene na 1000 m, za kesu na 1000 komada, za špulnu po špulni — uvek napiši jedinicu.
 
+OBLICI PAKCING LISTI KOJE MAROPACK DOBIJA (znaj ih napamet):
+
+1) PLASTCHIM-T (Bugarska) — tabela: Roll No | Film Type | Thickness | Width | Diam.Ins | Diam.Outs | Length | Net kg | Gross kg
+   - RAZMAK JE HILJADITI SEPARATOR: "1 560" = 1560 mm, "28 400" = 28400 m. Nikad ne čitaj kao dva broja.
+   - Debljina je uz tip: "FXC 15" = tip FXC15, debljina 15µ. "FXPU 28" = FXPU28, 28µ.
+   - PRESKOČI redove "Pallet: ...", "Net Weight:", "Gross Weight:", "Total ..." — to su zbirovi, ne rolne.
+   - U istom PDF-u ima više pakcing listi (po nalogu) i sertifikate sa g/m² (Unit weight). Iskoristi g/m² za proveru:
+     kg ≈ širina(m) × dužina(m) × g/m² / 1000. Ako odstupa preko 10%, upozori.
+   - Uzimaj NET kg (ne gross). Dobavljač: Plastchim-T.
+
+2) TAGHLEEF (Mađarska, NATIVIA) — tabela: Plt.No | Reel Code | Item | Kg | Length | ID | OD | Joints | Reels
+   - DECIMALNI ZAREZ: "904,0" = 904.0 kg.
+   - Širina i debljina su u nazivu: "NATIVIA NTSS 30 1650 TO" = debljina 30µ, širina 1650 mm.
+   - Broj rolne dobavljača = Reel Code. Dobavljač: Taghleef.
+
+3) SAJ INDUSTRIES / SUMILON (Indija) — tabela: Pallet No | Roll No. | Mic | Core ID | Width | Length | Joint | Total GR weight with Pallet | Tare | Net Wt
+   - Tekst u PDF-u je često nečitljiv — čitaj sa SLIKE stranice.
+   - Kolona "Mic" je debljina u µ (iako piše mm). Vrsta je u naslovu iznad tabele, npr. "CT PET FILM 50 MIC" = PET 50µ.
+   - Zarez je hiljaditi separator: "1,000" = 1000 mm širine, "8,850" = 8850 m.
+   - ISPOD SVAKOG PARA ROLNI STOJI ZBIRNI RED PALETE (bez broja rolne) — NE računaj ga kao rolnu.
+   - Uzimaj "Net Wt" po rolni, NE "Total GR weight with Pallet" (to je za celu paletu).
+
+4) INTER GRADEX (Čačak) — "LISTA PAKOVANjA": Šifra | Naziv artikla, pa Koleto | Količina Kg | Sertifikat
+   - PAŽNJA: OVA LISTA NEMA METRE, samo kg po koletu (rolni).
+   - Širina i debljina su u nazivu artikla: "BOPP FILM RBT - 1215X18" = 1215 mm × 18µ;
+     "BOPA FILM KUNSHAN 960X15" = 960 mm × 15µ.
+   - Metre MORAŠ izračunati: m = kg × 1.000.000 / (širina_mm × g/m²), gde je g/m² = debljina(µ) × gustina.
+     Gustine: BOPP/PP 0.91 · PET 1.40 · BOPA/PA 1.15 · LDPE/PE 0.92 · CPP 0.90 · ALU 2.70.
+   - OBAVEZNO napiši korisniku da su metri IZRAČUNATI iz kg, a ne pročitani iz dokumenta.
+   - Broj koleta = LOT / broj rolne dobavljača. Dobavljač: Inter Gradex.
+
+OPŠTA PRAVILA ZA SVE LISTE:
+- Jedan red = jedna rolna. Zbirne redove (palete, ukupno, total) uvek preskoči.
+- Broj rolne iz dokumenta ide u LOT; naš ROLNA-... broj dodeljuje sistem.
+- Ako je fakura u istom PDF-u, iz nje možeš uzeti CENU €/kg po tipu materijala.
+- Na kraju uporedi svoj zbir kg sa "Total Net Weight" iz dokumenta. Ako se ne slaže, javi razliku.
+
+PAKCING LISTE (ulaz rolni u magacin):
+- Kad dobiješ pakcing listu / otpremnicu (PDF, slika ili tabela), pročitaj SVAKI red i izvuci:
+  vrsta, pod vrsta, oznaka, debljina (µ ili g/m² za papir), širina (mm), metraža (m), kg, LOT, dobavljač.
+- Zatim OBAVEZNO pozovi pripremi_rolne_za_unos i pokaži korisniku spisak + upozorenja o nejasnim redovima.
+- Tek kad korisnik potvrdi spisak, pozovi ubaci_rolne_na_stanje.
+- Ako ti neki podatak nedostaje ili je nečitak, NE izmišljaj — izlistaj te redove i pitaj.
+- Brojeve rolni (ROLNA-...) sistem dodeljuje sam — ne izmišljaj ih.
+
 VAŽNO O IZMENAMA:
 - Alati koji menjaju bazu (kreiranje naloga, rezervacija, formatiranje, brisanje) se NE izvršavaju odmah.
   Oni idu u plan koji korisnik potvrđuje. Zato ih pozovi tek kad si siguran, i objasni zašto.
@@ -86,8 +131,25 @@ function alatiIz(odgovor) {
  *   - plan: [] ako nema izmena, inače lista radnji koje čekaju POTVRDU
  *   - messages: nastavak razgovora (potreban za potvrdiPlan)
  */
-export async function pokreniAgenta(pitanje, prethodnePoruke = []) {
-    const messages = [...prethodnePoruke, { role: "user", content: pitanje }];
+export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = []) {
+    // Prilozi: PDF i slike idu Claude-u kao dokument/slika, tekst (CSV/TXT) kao tekst.
+    let sadrzaj = pitanje;
+    if (Array.isArray(prilozi) && prilozi.length) {
+        const blokovi = [];
+        prilozi.forEach((f) => {
+            if (f.kind === "pdf") {
+                blokovi.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } });
+            } else if (f.kind === "image") {
+                blokovi.push({ type: "image", source: { type: "base64", media_type: f.mime || "image/jpeg", data: f.base64 } });
+            } else if (f.kind === "text") {
+                blokovi.push({ type: "text", text: "Sadržaj fajla „" + (f.naziv || "fajl") + "\":\n" + String(f.tekst || "").slice(0, 60000) });
+            }
+        });
+        blokovi.push({ type: "text", text: pitanje });
+        sadrzaj = blokovi;
+    }
+
+    const messages = [...prethodnePoruke, { role: "user", content: sadrzaj }];
     const koraci = [];
     let plan = [];
 
