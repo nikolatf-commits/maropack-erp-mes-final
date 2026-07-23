@@ -75,6 +75,56 @@ function Dokument({ d }) {
     );
 }
 
+// ── Dugme za kopiranje odgovora ─────────────────────────────────────────────
+function Kopiraj({ tekst }) {
+    const [ok, setOk] = React.useState(false);
+    return (
+        <button
+            onClick={() => {
+                try {
+                    navigator.clipboard.writeText(String(tekst || ""));
+                    setOk(true); setTimeout(() => setOk(false), 1600);
+                } catch (e) { }
+            }}
+            title="Kopiraj odgovor"
+            style={{ border: "1px solid #e2e8f0", background: ok ? "#dcfce7" : "#fff", color: ok ? "#15803d" : "#64748b", borderRadius: 7, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {ok ? "Kopirano" : "Kopiraj"}
+        </button>
+    );
+}
+
+// ── Dug odgovor se sažima, da tabela od 36 redova ne pojede ceo ekran ───────
+function MozdaSazeto({ tekst, granica = 1400 }) {
+    const dug = String(tekst || "").length > granica || String(tekst || "").split("\n").length > 22;
+    const [ceo, setCeo] = React.useState(false);
+    if (!dug || ceo) {
+        return (
+            <div>
+                <Formatirano tekst={tekst} />
+                {dug && (
+                    <button onClick={() => setCeo(false)}
+                        style={{ border: 0, background: "transparent", color: "#1d4ed8", fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: "6px 0 0", fontFamily: "inherit" }}>
+                        Sažmi
+                    </button>
+                )}
+            </div>
+        );
+    }
+    const kratko = String(tekst).split("\n").slice(0, 12).join("\n");
+    return (
+        <div>
+            <div style={{ position: "relative", maxHeight: 300, overflow: "hidden" }}>
+                <Formatirano tekst={kratko} />
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 60, background: "linear-gradient(transparent,#fff)" }} />
+            </div>
+            <button onClick={() => setCeo(true)}
+                style={{ border: "1px solid #e2e8f0", background: "#f8fafc", color: "#1d4ed8", fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: "5px 11px", borderRadius: 8, marginTop: 6, fontFamily: "inherit" }}>
+                Prikaži ceo odgovor
+            </button>
+        </div>
+    );
+}
+
 // ── Razrađen prikaz onoga što će se upisati (u žutoj kartici) ───────────────
 function DetaljiPlana({ stavka }) {
     const [otvoren, setOtvoren] = React.useState(false);
@@ -206,8 +256,9 @@ function Poruka({ p }) {
                 boxShadow: ja ? "none" : "0 1px 3px rgba(15,23,42,.04)",
             }}>
                 {p.staro && <div style={{ fontSize: 10.5, fontWeight: 800, color: MUT, marginBottom: 6, letterSpacing: .4 }}>RANIJI RAZGOVOR</div>}
-                {ja ? p.tekst : <Formatirano tekst={p.tekst} />}
+                {ja ? p.tekst : <MozdaSazeto tekst={p.tekst} />}
                 {p.dokument && <Dokument d={p.dokument} />}
+                {!ja && <div style={{ marginTop: 9, display: "flex", justifyContent: "flex-end" }}><Kopiraj tekst={p.tekst} /></div>}
                 {!!(p.koraci && p.koraci.length) && (
                     <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid " + LINE, fontSize: 11.5, color: MUT }}>
                         Proverio: {p.koraci.map((k) => k.alat).join(" · ")}
@@ -247,7 +298,7 @@ function PlanKartica({ plan, busy, onPotvrdi, onOtkazi }) {
 export default function AIAgentCommandCenter() {
     const POZDRAV = {
         od: "ai",
-        tekst: "Zdravo. Reci mi šta treba.\n\nMogu da proverim magacin i templejte, izračunam kalkulaciju, predložim formatiranje, pročitam pakcing listu i unesem rolne, otvorim nalog ili rezervišem materijal. Pitaj me i struku — strukture, debljine, varenje, barijere.\n\nSve što menja podatke prvo ti pokažem na potvrdu.",
+        tekst: "Zdravo. Vidim magacin, templejte, naloge, kalkulacije i ponude — a znam i struku.\n\nSve što menja podatke prvo ti pokažem na potvrdu.",
     };
     const [poruke, setPoruke] = useState([POZDRAV]);
     const [unos, setUnos] = useState("");
@@ -354,6 +405,28 @@ export default function AIAgentCommandCenter() {
 
                 <div style={{ ...card, minHeight: 520, maxHeight: "66vh", overflowY: "auto", background: "#f8fafc", marginBottom: 14, padding: 20 }}>
                     {poruke.map((p, i) => <Poruka key={i} p={p} />)}
+                    {poruke.length <= 1 && (
+                        <div style={{ padding: "6px 2px 14px" }}>
+                            <div style={{ fontSize: 13, color: MUT, marginBottom: 12 }}>Klikni primer ili napiši svoje pitanje:</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10 }}>
+                                {[
+                                    ["Provera materijala", "Proveri da li imam materijal za SPANAC 600 na 5000 m"],
+                                    ["Kalkulacija", "Daj kalkulaciju za BOPP 460 mm, 10.000 m, sa štampom"],
+                                    ["Pakcing lista", "Priložiću pakcing listu — pročitaj je i pripremi rolne za unos"],
+                                    ["Formatiranje", "Predloži formatiranje: 20 rolni 460 mm × 3000 m BOPP"],
+                                    ["Stanje magacina", "Šta imam na stanju od BOPP-a?"],
+                                    ["Struka", "Koja struktura mi treba za kesu za 1 kg mlevene kafe?"],
+                                ].map(([naslov, pitanje]) => (
+                                    <button key={naslov} onClick={() => posalji(pitanje)} disabled={busy}
+                                        style={{ textAlign: "left", background: "#fff", border: "1px solid " + LINE, borderRadius: 12, padding: "12px 14px", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 1px 3px rgba(15,23,42,.04)" }}>
+                                        <div style={{ fontSize: 12, fontWeight: 800, color: PLAVA, marginBottom: 4 }}>{naslov}</div>
+                                        <div style={{ fontSize: 12.5, color: "#475569", lineHeight: 1.45 }}>{pitanje}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {busy && (
                         <div style={{ display: "flex", alignItems: "center", gap: 9, color: MUT, fontSize: 13.5, fontStyle: "italic", padding: "6px 2px" }}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLAVA, display: "inline-block" }} />

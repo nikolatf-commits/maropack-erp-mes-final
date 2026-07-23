@@ -24,6 +24,56 @@ function opisKonteksta(ekran, k) {
         "\n\nOdgovaraj u vezi sa ovim što je pred njim. Ako nešto nije popunjeno, reci šta fali.";
 }
 
+// ── Dugme za kopiranje odgovora ─────────────────────────────────────────────
+function Kopiraj({ tekst }) {
+    const [ok, setOk] = React.useState(false);
+    return (
+        <button
+            onClick={() => {
+                try {
+                    navigator.clipboard.writeText(String(tekst || ""));
+                    setOk(true); setTimeout(() => setOk(false), 1600);
+                } catch (e) { }
+            }}
+            title="Kopiraj odgovor"
+            style={{ border: "1px solid #e2e8f0", background: ok ? "#dcfce7" : "#fff", color: ok ? "#15803d" : "#64748b", borderRadius: 7, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {ok ? "Kopirano" : "Kopiraj"}
+        </button>
+    );
+}
+
+// ── Dug odgovor se sažima, da tabela od 36 redova ne pojede ceo ekran ───────
+function MozdaSazeto({ tekst, granica = 1400 }) {
+    const dug = String(tekst || "").length > granica || String(tekst || "").split("\n").length > 22;
+    const [ceo, setCeo] = React.useState(false);
+    if (!dug || ceo) {
+        return (
+            <div>
+                <Formatirano tekst={tekst} />
+                {dug && (
+                    <button onClick={() => setCeo(false)}
+                        style={{ border: 0, background: "transparent", color: "#1d4ed8", fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: "6px 0 0", fontFamily: "inherit" }}>
+                        Sažmi
+                    </button>
+                )}
+            </div>
+        );
+    }
+    const kratko = String(tekst).split("\n").slice(0, 12).join("\n");
+    return (
+        <div>
+            <div style={{ position: "relative", maxHeight: 300, overflow: "hidden" }}>
+                <Formatirano tekst={kratko} />
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 60, background: "linear-gradient(transparent,#fff)" }} />
+            </div>
+            <button onClick={() => setCeo(true)}
+                style={{ border: "1px solid #e2e8f0", background: "#f8fafc", color: "#1d4ed8", fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: "5px 11px", borderRadius: 8, marginTop: 6, fontFamily: "inherit" }}>
+                Prikaži ceo odgovor
+            </button>
+        </div>
+    );
+}
+
 // ── Razrađen prikaz onoga što će se upisati (u žutoj kartici) ───────────────
 function DetaljiPlana({ stavka }) {
     const [otvoren, setOtvoren] = React.useState(false);
@@ -149,6 +199,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
     const [busy, setBusy] = useState(false);
     const [korak, setKorak] = useState("");
     const [prilozi, setPrilozi] = useState([]);
+    const [siri, setSiri] = useState(false);
     const [plan, setPlan] = useState([]);
     const [istorija, setIstorija] = useState([]);
     const [greska, setGreska] = useState("");
@@ -182,6 +233,22 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
             const ucitani = await Promise.all(lista.map(citajFajl));
             setPrilozi((p) => [...p, ...ucitani]);
         } catch (e) { setGreska(e.message || String(e)); }
+    }
+
+    // Kratak opis onoga što je pokupljeno sa ekrana — da korisnik zna da agent stvarno vidi.
+    function sazetakKonteksta() {
+        try {
+            const k = typeof kontekst === "function" ? kontekst() : kontekst;
+            if (!k || typeof k !== "object") return "";
+            const delovi = [];
+            if (k.naziv) delovi.push(String(k.naziv));
+            if (k.kupac) delovi.push(String(k.kupac));
+            if (Array.isArray(k.materijali) && k.materijali.length) delovi.push(k.materijali.length + " sloj/a");
+            if (Array.isArray(k.slojevi) && k.slojevi.length) delovi.push(k.slojevi.length + " sloj/a");
+            if (k.sirina) delovi.push(k.sirina + " mm");
+            if (k.marza) delovi.push("marža " + k.marza + "%");
+            return delovi.slice(0, 4).join(" · ");
+        } catch (e) { return ""; }
     }
 
     function uzmiKontekst() {
@@ -226,7 +293,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
                 style={{
                     position: "fixed", right: 22, bottom: 22, zIndex: 9998,
                     background: "linear-gradient(135deg,#020617,#1d4ed8)", color: "#fff",
-                    border: 0, borderRadius: 999, padding: "13px 20px", fontWeight: 800, fontSize: 14,
+                    border: 0, borderRadius: 999, padding: "10px 16px", fontWeight: 800, fontSize: 13,
                     cursor: "pointer", boxShadow: "0 10px 28px rgba(29,78,216,.35)", fontFamily: "inherit",
                 }}>
                 {naslov}
@@ -236,23 +303,41 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
 
     return (
         <div style={{
-            position: "fixed", right: 0, top: 0, bottom: 0, width: "min(460px, 100vw)", zIndex: 9999,
+            position: "fixed", right: 0, top: 0, bottom: 0, width: siri ? "min(820px, 100vw)" : "min(460px, 100vw)", zIndex: 9999,
             background: "#fff", borderLeft: "1px solid " + LINE, boxShadow: "-12px 0 32px rgba(15,23,42,.12)",
             display: "flex", flexDirection: "column", fontFamily: "inherit",
         }}>
             <div style={{ background: "linear-gradient(135deg,#020617,#1d4ed8)", color: "#fff", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                     <div style={{ fontWeight: 800, fontSize: 15 }}>AI pomoć</div>
-                    <div style={{ fontSize: 11.5, color: "#dbeafe" }}>{ekran} · vidi šta je na ekranu</div>
+                    <div style={{ fontSize: 11.5, color: "#dbeafe" }}>{ekran}{sazetakKonteksta() ? " · vidim: " + sazetakKonteksta() : ""}</div>
                 </div>
-                <button onClick={() => setOtvoren(false)} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", padding: "7px 12px" }}>Zatvori</button>
+                <div style={{ display: "flex", gap: 7 }}>
+                    <button onClick={() => setSiri(!siri)} title={siri ? "Suzi" : "Proširi"}
+                        style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", padding: "7px 11px" }}>{siri ? "‹ ›" : "› ‹"}</button>
+                    <button onClick={() => setOtvoren(false)} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", padding: "7px 12px" }}>Zatvori</button>
+                </div>
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: 14, background: "#f8fafc" }}>
                 {!poruke.length && (
-                    <div style={{ color: MUT, fontSize: 13, lineHeight: 1.6 }}>
-                        Pitaj bilo šta u vezi sa ovim ekranom. Vidim šta je trenutno popunjeno.
-                        <br /><br />Sve što menja podatke prvo ću ti pokazati na potvrdu.
+                    <div>
+                        <div style={{ color: MUT, fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
+                            Pitaj u vezi sa ovim ekranom. Sve što menja podatke prvo ti pokažem na potvrdu.
+                        </div>
+                        <div style={{ display: "grid", gap: 7 }}>
+                            {(ekran.indexOf("Kalkulacija") === 0
+                                ? ["Je li ova marža realna za ovog kupca?", "Koliko materijala mi treba za ovu količinu?", "Imam li taj materijal na stanju?", "Sačuvaj ovu kalkulaciju"]
+                                : ekran.indexOf("Magacin") === 0
+                                    ? ["Šta mi je najstarije na stanju?", "Priložiću pakcing listu — pripremi rolne za unos", "Predloži formatiranje za 460 mm", "Ima li spoj rolna za PET//LDPE?"]
+                                    : ["Da li mi ova struktura odgovara za masnu hranu?", "Koliko materijala treba za 20.000 m?", "Imam li sve slojeve na stanju?", "Sačuvaj ovaj templejt"]
+                            ).map((x) => (
+                                <button key={x} onClick={() => posalji(x)} disabled={busy}
+                                    style={{ textAlign: "left", background: "#fff", border: "1px solid " + LINE, borderRadius: 9, padding: "9px 11px", fontSize: 12.5, color: "#334155", cursor: "pointer", fontFamily: "inherit" }}>
+                                    {x}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
                 {poruke.map((p, i) => (
@@ -263,7 +348,10 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
                             background: p.od === "ja" ? PLAVA : "#fff", color: p.od === "ja" ? "#fff" : INK,
                             border: p.od === "ja" ? "none" : "1px solid " + LINE,
                         }}>
-                            {p.od === "ja" ? p.tekst : <Formatirano tekst={p.tekst} />}
+                            {p.od === "ja" ? p.tekst : <MozdaSazeto tekst={p.tekst} />}
+                            {p.od !== "ja" && (
+                                <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}><Kopiraj tekst={p.tekst} /></div>
+                            )}
                             {!!(p.koraci && p.koraci.length) && (
                                 <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid " + LINE, fontSize: 10.5, color: MUT }}>
                                     Proverio: {p.koraci.map((k) => k.alat).join(" · ")}
