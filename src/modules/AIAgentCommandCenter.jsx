@@ -75,6 +75,59 @@ function Dokument({ d }) {
     );
 }
 
+// ── Lagano formatiranje odgovora: podebljano, naslovi, liste, tabele ─────────
+function Formatirano({ tekst }) {
+    const linije = String(tekst || "").split("\n");
+    const delovi = [];
+    let i = 0;
+    const jak = (t, kljuc) => {
+        const komadi = String(t).split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+        return komadi.map((c, k) => {
+            if (c.startsWith("**") && c.endsWith("**")) return <b key={k}>{c.slice(2, -2)}</b>;
+            if (c.startsWith("`") && c.endsWith("`")) return <code key={k} style={{ background: "#f1f5f9", padding: "1px 5px", borderRadius: 4, fontSize: "0.92em" }}>{c.slice(1, -1)}</code>;
+            return <span key={k}>{c}</span>;
+        });
+    };
+    while (i < linije.length) {
+        const l = linije[i];
+        // tabela
+        if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < linije.length && /^\s*\|[\s:|-]+\|\s*$/.test(linije[i + 1])) {
+            const zag = l.split("|").slice(1, -1).map((x) => x.trim());
+            i += 2;
+            const redovi = [];
+            while (i < linije.length && /^\s*\|.*\|\s*$/.test(linije[i])) {
+                redovi.push(linije[i].split("|").slice(1, -1).map((x) => x.trim()));
+                i++;
+            }
+            delovi.push(
+                <div key={delovi.length} style={{ overflowX: "auto", margin: "8px 0" }}>
+                    <table style={{ borderCollapse: "collapse", fontSize: "0.92em", width: "100%" }}>
+                        <thead><tr>{zag.map((h, k) => <th key={k} style={{ textAlign: "left", padding: "6px 9px", borderBottom: "2px solid #cbd5e1", color: "#475569", whiteSpace: "nowrap" }}>{jak(h)}</th>)}</tr></thead>
+                        <tbody>{redovi.map((r, k) => <tr key={k}>{r.map((c, j) => <td key={j} style={{ padding: "5px 9px", borderBottom: "1px solid #e2e8f0" }}>{jak(c)}</td>)}</tr>)}</tbody>
+                    </table>
+                </div>
+            );
+            continue;
+        }
+        // naslov
+        const n = l.match(/^(#{1,4})\s+(.*)$/);
+        if (n) { delovi.push(<div key={delovi.length} style={{ fontWeight: 800, fontSize: "1.05em", margin: "10px 0 4px" }}>{jak(n[2])}</div>); i++; continue; }
+        // crta
+        if (/^\s*---+\s*$/.test(l)) { delovi.push(<hr key={delovi.length} style={{ border: 0, borderTop: "1px solid #e2e8f0", margin: "10px 0" }} />); i++; continue; }
+        // lista
+        if (/^\s*[-•]\s+/.test(l)) {
+            const st = [];
+            while (i < linije.length && /^\s*[-•]\s+/.test(linije[i])) { st.push(linije[i].replace(/^\s*[-•]\s+/, "")); i++; }
+            delovi.push(<ul key={delovi.length} style={{ margin: "5px 0", paddingLeft: 20 }}>{st.map((x, k) => <li key={k} style={{ marginBottom: 2 }}>{jak(x)}</li>)}</ul>);
+            continue;
+        }
+        // običan red
+        delovi.push(<div key={delovi.length} style={{ minHeight: l.trim() ? undefined : "0.6em" }}>{jak(l)}</div>);
+        i++;
+    }
+    return <div>{delovi}</div>;
+}
+
 function Poruka({ p }) {
     const ja = p.od === "ja";
     return (
@@ -82,13 +135,13 @@ function Poruka({ p }) {
             <div style={{
                 maxWidth: ja ? "72%" : "88%",
                 padding: "13px 16px", borderRadius: 14,
-                fontSize: 14.5, lineHeight: 1.62, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                fontSize: 14.5, lineHeight: 1.62, whiteSpace: ja ? "pre-wrap" : "normal", wordBreak: "break-word",
                 background: ja ? PLAVA : "#fff", color: ja ? "#fff" : INK,
                 border: ja ? "none" : "1px solid " + LINE,
                 boxShadow: ja ? "none" : "0 1px 3px rgba(15,23,42,.04)",
             }}>
                 {p.staro && <div style={{ fontSize: 10.5, fontWeight: 800, color: MUT, marginBottom: 6, letterSpacing: .4 }}>RANIJI RAZGOVOR</div>}
-                {p.tekst}
+                {ja ? p.tekst : <Formatirano tekst={p.tekst} />}
                 {p.dokument && <Dokument d={p.dokument} />}
                 {!!(p.koraci && p.koraci.length) && (
                     <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid " + LINE, fontSize: 11.5, color: MUT }}>
