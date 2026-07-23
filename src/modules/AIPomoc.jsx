@@ -113,8 +113,10 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
         const lista = Array.from(files || []);
         if (!lista.length) return;
         setGreska("");
-        try { setPrilozi((p) => [...p, ...(await Promise.all(lista.map(citajFajl)))]); }
-        catch (e) { setGreska(e.message || String(e)); }
+        try {
+            const ucitani = await Promise.all(lista.map(citajFajl));
+            setPrilozi((p) => [...p, ...ucitani]);
+        } catch (e) { setGreska(e.message || String(e)); }
     }
 
     function uzmiKontekst() {
