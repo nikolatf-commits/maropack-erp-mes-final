@@ -133,6 +133,7 @@ export default function AIAgentCommandCenter() {
     const [poruke, setPoruke] = useState([POZDRAV]);
     const [unos, setUnos] = useState("");
     const [busy, setBusy] = useState(false);
+    const [korak, setKorak] = useState("");
     const [plan, setPlan] = useState([]);
     const [istorija, setIstorija] = useState([]);
     const [greska, setGreska] = useState("");
@@ -195,14 +196,14 @@ export default function AIAgentCommandCenter() {
         setPoruke((p) => [...p, { od: "ja", tekst: q + opisPriloga }]);
         setBusy(true);
         try {
-            const r = await pokreniAgenta(q, istorija, prilozi);
+            const r = await pokreniAgenta(q, istorija, prilozi, setKorak);
             setPrilozi([]);
             setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci, dokument: r.dokument }]);
             setIstorija(r.messages || []);
             if (r.plan?.length) setPlan(r.plan);
         } catch (e) {
             setGreska(e.message || String(e));
-        } finally { setBusy(false); }
+        } finally { setBusy(false); setKorak(""); }
     }
 
     async function izvrsi() {
@@ -215,7 +216,7 @@ export default function AIAgentCommandCenter() {
             try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { }
         } catch (e) {
             setGreska(e.message || String(e));
-        } finally { setBusy(false); }
+        } finally { setBusy(false); setKorak(""); }
     }
 
     return (
@@ -237,7 +238,7 @@ export default function AIAgentCommandCenter() {
                     {busy && (
                         <div style={{ display: "flex", alignItems: "center", gap: 9, color: MUT, fontSize: 13.5, fontStyle: "italic", padding: "6px 2px" }}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLAVA, display: "inline-block" }} />
-                            Agent radi…
+                            {korak || "Agent radi…"}
                         </div>
                     )}
                     <div ref={dno} />

@@ -21,6 +21,32 @@ const FUNKCIJA = "smart-service";
 
 const MAX_KRUGOVA = 12;
 
+// Šta se ispisuje korisniku dok agent radi — da zna zašto čeka.
+const OPIS_ALATA = {
+    stanje_magacina: "Gledam stanje magacina…",
+    nadji_rolne: "Tražim rolne…",
+    nadji_spoj_rolne: "Tražim spoj rolne…",
+    sifarnik_materijala: "Proveravam nazive materijala…",
+    lista_templejta: "Tražim templejt…",
+    detalji_templejta: "Čitam templejt…",
+    provera_materijala: "Proveravam materijal po slojevima…",
+    lista_naloga: "Gledam naloge…",
+    detalji_naloga: "Čitam nalog…",
+    predlozi_formatiranje: "Računam plan reza…",
+    analiza_otpada: "Računam potrošnju i otpad…",
+    cene_materijala: "Gledam cene…",
+    kalkulacija_folije: "Računam kalkulaciju folije…",
+    kalkulacija_kese: "Računam kalkulaciju kese…",
+    kalkulacija_spulne: "Računam kalkulaciju špulne…",
+    procitaj_kalkulacije: "Čitam sačuvane kalkulacije…",
+    procitaj_ponude: "Čitam ponude…",
+    pregled_tabele: "Čitam podatke…",
+    pretrazi_razgovore: "Tražim po ranijim razgovorima…",
+    procitaj_pravila: "Gledam pravila…",
+    pripremi_rolne_za_unos: "Sređujem spisak rolni…",
+    napravi_dokument: "Pripremam dokument…",
+};
+
 const SISTEM = `Ti si AI agent za MAROPACK — fabriku fleksibilne ambalaže (folije, kese, špulne).
 Pričaš srpski, kratko i poslovno, kao kolega koji zna proizvodnju.
 
@@ -262,7 +288,7 @@ function alatiIz(odgovor) {
  *   - plan: [] ako nema izmena, inače lista radnji koje čekaju POTVRDU
  *   - messages: nastavak razgovora (potreban za potvrdiPlan)
  */
-export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = []) {
+export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [], naKorak = null) {
     // Prilozi: PDF i slike idu Claude-u kao dokument/slika, tekst (CSV/TXT) kao tekst.
     let sadrzaj = pitanje;
     if (Array.isArray(prilozi) && prilozi.length) {
@@ -281,6 +307,8 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [])
     }
 
     const messages = [...prethodnePoruke, { role: "user", content: sadrzaj }];
+    const javi = (t) => { try { if (naKorak) naKorak(t); } catch (e) { } };
+    javi("Razmišljam…");
     const pravila = await ucitajPravila();
     const koraci = [];
     let plan = [];
@@ -310,6 +338,7 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [])
                 });
             } else {
                 koraci.push({ alat: p.name, ulaz: p.input });
+                javi(OPIS_ALATA[p.name] || ("Radim: " + p.name));
                 const r = await izvrsiAlat(p.name, p.input);
                 if (r && r.dokument) dokument = r.dokument;   // ide u ekran (dugmad Excel / PDF)
                 const cist = { ...r }; delete cist._plan_sirovo;   // sirov plan ne šaljemo modelu
@@ -317,6 +346,7 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [])
             }
         }
         messages.push({ role: "user", content: rezultati });
+        javi("Sastavljam odgovor…");
 
         if (plan.length) {
             // još jedan krug da model objasni plan korisniku

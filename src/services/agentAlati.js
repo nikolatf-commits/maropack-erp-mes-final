@@ -43,7 +43,20 @@ const naStanju = (r) => !NEAKTIVNO.test(T(r.status)) && N(r.metraza_ost ?? r.met
 const slobodno = (r) => Math.max(0, N(r.metraza_ost ?? r.metraza) - N(r.rezervisano));
 
 // Učitava celu tabelu bez seckanja na 1000 redova.
+//
+// KEŠ: u jednom pitanju agent često pozove više alata koji svi čitaju isti magacin.
+// Bez ovoga bi se 1000+ redova povlačilo po 3-4 puta i sve bi bilo osetno sporije.
+// Keš traje kratko (45 s) i briše se čim nešto upišemo u bazu.
+const _kes = new Map();
+const KES_TRAJANJE = 45000;
+
+export function ocistiKes() { _kes.clear(); }
+
 async function sve(tabela, kolone = "*") {
+    const kljuc = tabela + "|" + kolone;
+    const pogodak = _kes.get(kljuc);
+    if (pogodak && Date.now() - pogodak.kad < KES_TRAJANJE) return pogodak.podaci;
+
     const PAGE = 1000;
     let od = 0, out = [];
     for (let i = 0; i < 50; i++) {
@@ -54,6 +67,7 @@ async function sve(tabela, kolone = "*") {
         if (deo.length < PAGE) break;
         od += PAGE;
     }
+    _kes.set(kljuc, { kad: Date.now(), podaci: out });
     return out;
 }
 
@@ -1352,7 +1366,11 @@ export async function izvrsiAlat(ime, ulaz) {
     const a = ALATI[ime];
     if (!a) return { greska: "Nepoznat alat: " + ime };
     try {
-        return await a.izvrsi(ulaz || {});
+        // Svaki upis menja bazu — posle njega keš više ne važi.
+        if (a.cita === false) ocistiKes();
+        const r = await a.izvrsi(ulaz || {});
+        if (a.cita === false) ocistiKes();
+        return r;
     } catch (e) {
         return { greska: (e && e.message) || String(e) };
     }

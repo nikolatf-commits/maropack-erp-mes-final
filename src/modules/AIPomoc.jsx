@@ -29,6 +29,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
     const [poruke, setPoruke] = useState([]);
     const [unos, setUnos] = useState("");
     const [busy, setBusy] = useState(false);
+    const [korak, setKorak] = useState("");
     const [plan, setPlan] = useState([]);
     const [istorija, setIstorija] = useState([]);
     const [greska, setGreska] = useState("");
@@ -50,13 +51,13 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
         try {
             // Kontekst ekrana ide samo uz PRVO pitanje — dalje ga model već zna iz razgovora.
             const pitanje = istorija.length ? q : opisKonteksta(ekran, uzmiKontekst()) + "\n\nPITANJE: " + q;
-            const r = await pokreniAgenta(pitanje, istorija);
+            const r = await pokreniAgenta(pitanje, istorija, [], setKorak);
             setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci }]);
             setIstorija(r.messages || []);
             if (r.plan?.length) setPlan(r.plan);
         } catch (e) {
             setGreska(e.message || String(e));
-        } finally { setBusy(false); }
+        } finally { setBusy(false); setKorak(""); }
     }
 
     async function izvrsi() {
@@ -122,7 +123,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
                         </div>
                     </div>
                 ))}
-                {busy && <div style={{ color: MUT, fontSize: 12.5, fontStyle: "italic" }}>Agent radi…</div>}
+                {busy && <div style={{ color: MUT, fontSize: 12.5, fontStyle: "italic" }}>{korak || "Agent radi…"}</div>}
                 <div ref={dno} />
             </div>
 
