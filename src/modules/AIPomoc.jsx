@@ -24,6 +24,71 @@ function opisKonteksta(ekran, k) {
         "\n\nOdgovaraj u vezi sa ovim što je pred njim. Ako nešto nije popunjeno, reci šta fali.";
 }
 
+// ── Razrađen prikaz onoga što će se upisati (u žutoj kartici) ───────────────
+function DetaljiPlana({ stavka }) {
+    const [otvoren, setOtvoren] = React.useState(false);
+    const u = stavka.ulaz || {};
+
+    // nađi najveći niz u ulazu — to je ono što se masovno upisuje (rolne, matice…)
+    let niz = null, imeNiza = "";
+    Object.keys(u).forEach((k) => {
+        if (Array.isArray(u[k]) && u[k].length && (!niz || u[k].length > niz.length)) { niz = u[k]; imeNiza = k; }
+    });
+
+    if (!niz) {
+        const parovi = Object.keys(u).filter((k) => u[k] !== null && u[k] !== undefined && u[k] !== "" && typeof u[k] !== "object");
+        if (!parovi.length) return null;
+        return (
+            <div style={{ marginTop: 7 }}>
+                <button onClick={() => setOtvoren(!otvoren)} style={{ border: 0, background: "transparent", color: "#b45309", fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+                    {otvoren ? "Sakrij detalje" : "Prikaži detalje"}
+                </button>
+                {otvoren && (
+                    <div style={{ marginTop: 6, fontSize: 12, color: "#475569", display: "grid", gap: 3 }}>
+                        {parovi.map((k) => <div key={k}><b>{k}:</b> {String(u[k])}</div>)}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    const objekti = typeof niz[0] === "object" && niz[0] !== null;
+    const kolone = objekti ? Array.from(new Set(niz.flatMap((r) => Object.keys(r)))).filter((k) => niz.some((r) => r[k] !== null && r[k] !== undefined && r[k] !== "")).slice(0, 10) : [];
+
+    return (
+        <div style={{ marginTop: 8 }}>
+            <button onClick={() => setOtvoren(!otvoren)}
+                style={{ border: "1px solid #fbbf24", background: "#fff", color: "#b45309", fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: "5px 10px", borderRadius: 8, fontFamily: "inherit" }}>
+                {otvoren ? "Sakrij spisak" : "Prikaži svih " + niz.length + " (" + imeNiza + ")"}
+            </button>
+            {otvoren && (
+                <div style={{ marginTop: 8, maxHeight: 300, overflow: "auto", border: "1px solid #fde68a", borderRadius: 8, background: "#fff" }}>
+                    {objekti ? (
+                        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 11.5 }}>
+                            <thead><tr style={{ position: "sticky", top: 0, background: "#fffbeb" }}>
+                                <th style={{ padding: "6px 8px", textAlign: "left", color: "#92400e", borderBottom: "1px solid #fde68a" }}>#</th>
+                                {kolone.map((k) => <th key={k} style={{ padding: "6px 8px", textAlign: "left", color: "#92400e", borderBottom: "1px solid #fde68a", whiteSpace: "nowrap" }}>{k}</th>)}
+                            </tr></thead>
+                            <tbody>
+                                {niz.map((r, i) => (
+                                    <tr key={i}>
+                                        <td style={{ padding: "4px 8px", borderBottom: "1px solid #f8fafc", color: "#94a3b8" }}>{i + 1}</td>
+                                        {kolone.map((k) => <td key={k} style={{ padding: "4px 8px", borderBottom: "1px solid #f8fafc", whiteSpace: "nowrap" }}>{r[k] === null || r[k] === undefined ? "" : String(typeof r[k] === "object" ? JSON.stringify(r[k]).slice(0, 40) : r[k])}</td>)}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div style={{ padding: 9, fontSize: 12, display: "grid", gap: 3 }}>
+                            {niz.map((x, i) => <div key={i}>{i + 1}. {String(x)}</div>)}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Lagano formatiranje odgovora: podebljano, naslovi, liste, tabele ─────────
 function Formatirano({ tekst }) {
     const linije = String(tekst || "").split("\n");
@@ -217,6 +282,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
                     {plan.map((s, i) => (
                         <div key={i} style={{ background: "#fff", border: "1px solid #fde68a", borderRadius: 9, padding: "9px 11px", fontSize: 13, marginBottom: 6 }}>
                             <b style={{ color: "#b45309", marginRight: 6 }}>{i + 1}.</b>{s.opis}
+                            <DetaljiPlana stavka={s} />
                         </div>
                     ))}
                     <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
