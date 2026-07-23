@@ -5,6 +5,7 @@ import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import { kreirajFormatiranjeIzNaloga } from "./modules/formatiranjeIzNaloga.js";
 import { nadjiSpojRolne } from "./modules/spojRolneMatch.js";
+import AIPomoc from "./modules/AIPomoc.jsx";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
@@ -3293,6 +3294,7 @@ function BojeStampeEditor({ value, onChange }) {
     }
     return (
         <div>
+            <AIPomoc ekran="Template Engine (izrada proizvoda)" kontekst={() => ({ tip: form.type, naziv: form.naziv, sifra: form.sifra, kupac: form.kupac, idealnaSirina: form.idealnaSirinaMaterijala, slojevi: (form[form.type] && form[form.type].layers) || [], stampa: (form[form.type] && form[form.type].stampa) || null })} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <div style={{ fontWeight: 900, color: "#1d4ed8" }}>Boje po stanici (redosled štampe)</div>
                 <button onClick={add} style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12 }}>+ Dodaj boju</button>

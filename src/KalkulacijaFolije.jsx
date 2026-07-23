@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import AIPomoc from "./modules/AIPomoc.jsx";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
 import { buildMaterijaliStruktura } from './data/materialMaster.js';
@@ -751,6 +752,7 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     return (
         <div style={{ background: "#f1f5f9", minHeight: "100vh", padding: 20 }}>
+            <AIPomoc ekran="Kalkulacija folije" kontekst={() => ({ naziv, kupac, sirina, metraza, nalog, skart, marza, materijali, lepak, lak, kasiranje, stampaCena, lakiranjeCena, transport, pakovanje, dorada, rezultati })} />
             {/* HEADER */}
             <div style={{ background: "linear-gradient(135deg, #0d9488 0%, #115e59 100%)", padding: 40, borderRadius: 16, color: "white", marginBottom: 20, position: "relative" }}>
                 <div style={{ position: "absolute", top: 40, right: 40, display: "flex", gap: 8, background: "rgba(255,255,255,0.2)", padding: 6, borderRadius: 50 }}>

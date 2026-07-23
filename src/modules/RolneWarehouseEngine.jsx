@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
 import MaterijalZaNaloge from "./MaterijalZaNaloge.jsx";
+import AIPomoc from "./AIPomoc.jsx";
 import { logMagacinIstorija, mapIstorijaRow, loadOperateriMap } from "../utils/magacinIstorija.js";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -3431,6 +3432,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     return (
         <div style={{ padding: 22, background: "#f1f5f9", minHeight: "100vh", color: "#0f172a" }}>
+            <AIPomoc ekran="Magacin rolni i materijala" kontekst={() => ({ napomena: "Korisnik gleda magacin. Koristi alate za stvarno stanje." })} />
             {LabelModal}{BulkModal}{RezModal}{RezManualModal}{OslobodiModal}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
                 <div><h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>🏭 Magacin Materijala i Rolni PRO</h1><div style={{ color: "#64748b", marginTop: 4 }}>Baza materijala + unos rolni + automatski obračun kg ⇄ m + predlog rolni za nalog + QR etikete 100×140 mm.</div></div>

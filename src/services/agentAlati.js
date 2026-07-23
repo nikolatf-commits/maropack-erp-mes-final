@@ -18,6 +18,26 @@ const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
 const T = (v) => String(v ?? "").trim();
 const UP = (v) => T(v).toUpperCase();
 
+// Pretraga nezavisna od kvačica i redosleda reči: "maxi spanać" nađe "SPANAC 600 HR MAXI"
+const BEZKV = (v) => String(v ?? "").toLowerCase()
+    .replace(/š/g, "s").replace(/ć/g, "c").replace(/č/g, "c").replace(/ž/g, "z").replace(/đ/g, "dj")
+    .replace(/\s+/g, " ").trim();
+function sadrziSveReci(tekst, upit) {
+    const t = BEZKV(tekst), reci = BEZKV(upit).split(" ").filter(Boolean);
+    if (!reci.length) return true;
+    return reci.every((r) => t.includes(r));
+}
+
+// Gustine za pretvaranje kg ↔ m (g/cm³)
+const GUSTINE = { BOPP: 0.91, PP: 0.91, CPP: 0.90, PET: 1.40, BOPA: 1.15, PA: 1.15, PE: 0.92, LDPE: 0.92, HDPE: 0.95, ALU: 2.70, PAPIR: 1.00 };
+function gm2Sloja(sloj) {
+    if (N(sloj.gm2)) return N(sloj.gm2);
+    const deb = N(sloj.debljina || sloj.deb);
+    if (!deb) return 0;
+    const g = GUSTINE[UP(sloj.vrsta)] || 0.91;
+    return deb * g;              // µ × g/cm³ = g/m²
+}
+
 const NEAKTIVNO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv/i;
 const naStanju = (r) => !NEAKTIVNO.test(T(r.status)) && N(r.metraza_ost ?? r.metraza) > 0;
 const slobodno = (r) => Math.max(0, N(r.metraza_ost ?? r.metraza) - N(r.rezervisano));
@@ -37,23 +57,95 @@ async function sve(tabela, kolone = "*") {
     return out;
 }
 
+// Nalog prikazuje količinu iz SAMOG TEMPLEJTA (kesaD/spulnaD/folija je tako čitaju).
+// Zato u kopiju templejta koja ide u nalog upisujemo traženu količinu — inače bi na
+// odštampanom nalogu stajala ona iz sačuvanog templejta.
+function templejtSaKolicinom(tpl, tip, kolicina, jedinica) {
+    const k = N(kolicina);
+    if (!k) return tpl;
+    const kopija = JSON.parse(JSON.stringify(tpl || {}));
+    if (tip === "kesa") {
+        kopija.kesa = { ...(kopija.kesa || {}), kolicina: k };
+        kopija.porucenaKolicinaKom = k;
+    } else if (tip === "spulna") {
+        // Špulna računa po JEDINICI UNOSA (m2 | kom | kg | m) — bez nje broj nema značenje.
+        const j = String(jedinica || "").toLowerCase();
+        const jed = j === "kom" ? "kom" : j === "kg" ? "kg" : j === "m" ? "m" : (kopija.spulna && kopija.spulna.jedinicaUnosa) || "m2";
+        kopija.spulna = { ...(kopija.spulna || {}), kolicina: k, jedinicaUnosa: jed };
+        kopija.porucenaKolicinaKom = jed === "kom" ? k : (kopija.spulna.porucenaKolicinaKom || null);
+    } else {
+        kopija.porucenaKolicina = k;
+    }
+    return kopija;
+}
+
+// Sledeći broj naloga MP-<godina>-<4 cifre> — ista logika kao u Template Engine-u.
+async function sledeciBrojNaloga() {
+    const god = new Date().getFullYear();
+    const pref = "MP-" + god + "-";
+    const { data, error } = await supabase.from("radni_nalozi")
+        .select("broj_naloga").like("broj_naloga", pref + "%")
+        .order("broj_naloga", { ascending: false }).limit(1);
+    if (error) throw new Error("Ne mogu da odredim sledeći broj naloga: " + error.message);
+    const zadnji = data && data[0] && data[0].broj_naloga;
+    const n = zadnji ? (parseInt(String(zadnji).split("-").pop(), 10) || 0) : 0;
+    return pref + String(n + 1).padStart(4, "0");
+}
+
+// Koje operacije nastaju — preslikano iz programa (operacijeZa).
+function operacijeZaTemplejt(tpl, tip) {
+    const t = tpl || {};
+    const grana = t[tip] || t.folija || {};
+    const L = grana.layers || [];
+    const st = grana.stampa || {};
+    const brojBoja = Number(st.brojBoja) || 0;
+    const imaBoje = Array.isArray(st.boje) && st.boje.some((b) => b && b.tip !== "Lak");
+    const imaStampu = L.some((l) => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
+    const imaLak = L.some((l) => l.lak) || (Array.isArray(st.boje) && st.boje.some((b) => b && b.tip === "Lak"));
+    const kas = grana.kasiranje || {};
+    const imaKasiranje = L.length > 1 || Number(kas.brojKasiranja) > 0;
+
+    if (tip === "spulna") return ["materijal", "spulna"];
+    const sredina = [...(imaStampu ? ["stampa"] : []), ...(imaLak ? ["lakiranje"] : []), ...(imaKasiranje ? ["kasiranje"] : [])];
+    if (tip === "kesa") return ["materijal", ...sredina, "kesa"];
+    return ["materijal", ...sredina, "perforacija_rezanje"];
+}
+
 // ── Templejt: izvlači slojeve i idealnu širinu iz zapisa proizvoda ────────────
 export function templejtIz(prod) {
-    const tpl = prod?.data || prod?.template || prod || {};
-    const t = tpl.data || tpl;
-    const folija = t.folija || tpl.folija || {};
-    const layers = folija.layers || t.layers || prod?.struktura_materijala || [];
+    if (!prod) return { naziv: "", tip: "folija", idealna_sirina: 0, slojevi: [], stampa: null, kasiranje: null, sirovo: {} };
+
+    // Template Engine čuva CEO templejt u koloni res.template (tamo su i perforacija,
+    // dizajn/izgled na rolni, rezanje, štampa). Ranije se gledalo prod.data — te kolone nema.
+    const t =
+        (prod.res && (prod.res.template || prod.res.templejt)) ||
+        (prod.standardi && prod.standardi.record && prod.standardi.record.data) ||
+        (prod.data && (prod.data.template || prod.data)) ||
+        prod.template || {};
+
+    const tip = String(prod.tip || t.type || t.tip || "folija").toLowerCase();
+    const grana = t[tip] || t.folija || t.kesa || t.spulna || {};
+
+    let layers = grana.layers || t.layers || prod.mats || prod.materijali_struktura || prod.struktura_materijala || [];
+    if (!Array.isArray(layers)) layers = [];
+
     return {
-        naziv: prod?.naziv || prod?.name || t.prod || t.proizvod || "",
-        tip: prod?.tip || t.type || t.tip || "folija",
-        idealna_sirina: N(t.idealnaSirinaMaterijala || folija.idealnaSirinaMaterijala || t.idealna_sirina),
-        slojevi: (Array.isArray(layers) ? layers : []).map((l) => ({
+        naziv: prod.naziv || prod.name || t.naziv || t.prod || t.proizvod || "",
+        tip,
+        kupac: prod.kupac || t.kupac || "",
+        idealna_sirina: N(t.idealnaSirinaMaterijala || grana.idealnaSirinaMaterijala || t.idealna_sirina || prod.sir),
+        slojevi: layers.map((l) => ({
             vrsta: T(l.vrsta), pod_vrsta: T(l.pod_vrsta),
             oznaka: T(l.oznaka || l.oznaka_materijala || l.komercijalnaOznaka),
             debljina: N(l.debljina || l.deb),
+            gm2: N(l.gm2 || l.tezina),
         })).filter((l) => l.vrsta),
-        stampa: t.stampa || folija.stampa || null,
-        kasiranje: t.kasiranje || folija.kasiranje || null,
+        stampa: grana.stampa || t.stampa || null,
+        kasiranje: grana.kasiranje || t.kasiranje || null,
+        perforacija: t.perforacija || grana.perforacija || null,
+        dizajn: t.dizajn || grana.dizajn || null,
+        rezanje: t.rezanje || grana.rezanje || null,
+        // sirovo = CEO templejt; ovo ide u nalog i nosi izgled na rolni, perforaciju, sve.
         sirovo: t,
     };
 }
@@ -150,7 +242,7 @@ export const ALATI = {
         ulaz: { naziv: { type: "string", description: "Deo naziva za pretragu, npr. SPANAC" } },
         async izvrsi({ naziv }) {
             const p = await sve("proizvodi");
-            const f = naziv ? p.filter((x) => UP(x.naziv || x.name).includes(UP(naziv))) : p;
+            const f = naziv ? p.filter((x) => sadrziSveReci((x.naziv || x.name || "") + " " + (x.kupac || ""), naziv)) : p;
             return {
                 nadjeno: f.length,
                 proizvodi: f.slice(0, 25).map((x) => {
@@ -240,6 +332,47 @@ export const ALATI = {
         },
     },
 
+    detalji_naloga: {
+        cita: true,
+        opis: "Pokazuje jedan nalog do detalja: sve operacije, status, i DA LI NOSI TEMPLEJT (slojeve). Koristi posle kreiranja naloga da proveriš da li će se ispravno odštampati.",
+        ulaz: { broj_naloga: { type: "string", description: "npr. MP-2026-0021" } },
+        async izvrsi({ broj_naloga }) {
+            const broj = T(broj_naloga);
+            const { data: m } = await supabase.from("radni_nalozi").select("*").eq("broj_naloga", broj).maybeSingle();
+            if (!m) return { greska: "Nalog " + broj + " nije nađen u radni_nalozi." };
+            const { data: ops } = await supabase.from("operativni_nalozi").select("*").eq("glavni_nalog_id", m.id);
+            const operacije = (ops || []).map((o) => {
+                let par = o.parametri;
+                if (typeof par === "string") { try { par = JSON.parse(par); } catch (e) { par = {}; } }
+                par = par || {};
+                const tpl = par.template || {};
+                const sl = (tpl.folija && tpl.folija.layers) || (tpl.kesa && tpl.kesa.layers) || (tpl.spulna && tpl.spulna.layers) || tpl.layers || [];
+                const grana = tpl.folija || tpl.kesa || tpl.spulna || {};
+                return {
+                    id: o.id, tip_naloga: o.tip_naloga, status: o.status,
+                    uradjeno: N(o.uradjeno), skart: N(o.skart),
+                    nosi_templejt: sl.length > 0,
+                    slojeva: sl.length,
+                    ima_stampu: !!(grana.stampa || tpl.stampa),
+                    ima_perforaciju: !!(tpl.perforacija || grana.perforacija),
+                    ima_izgled_na_rolni: !!(tpl.dizajn || grana.dizajn),
+                    ima_rezanje: !!(tpl.rezanje || grana.rezanje),
+                    materijal: sl.map((l) => [T(l.vrsta), T(l.oznaka || l.oznaka_materijala), N(l.debljina || l.deb) ? N(l.debljina || l.deb) + "µ" : ""].filter(Boolean).join(" ")).slice(0, 5),
+                };
+            });
+            const bez = operacije.filter((o) => !o.nosi_templejt);
+            return {
+                broj: m.broj_naloga, proizvod: m.proizvod || m.naziv, kupac: m.kupac,
+                status: m.status, datum: m.created_at,
+                operacija_ukupno: operacije.length,
+                operacije,
+                upozorenje: bez.length
+                    ? `${bez.length} operacija NE nosi templejt — te strane naloga bi se odštampale prazno („0 slojeva”).`
+                    : "Sve operacije nose templejt — nalog će se ispravno odštampati.",
+            };
+        },
+    },
+
     predlozi_formatiranje: {
         cita: true,
         opis: "Računa plan reza matičnih rolni na tražene širine (koje rolne seći, koliko traka, koliki otpad). Ne menja ništa — samo predlog.",
@@ -292,6 +425,208 @@ export const ALATI = {
                 period_dana: N(dana) || 30, zapisa: redovi.length, ukupno_utroseno_m: Math.round(utroseno),
                 po_nalogu: Object.entries(poNalogu).map(([nalog, m]) => ({ nalog, metara: Math.round(m) })).sort((a, b) => b.metara - a.metara).slice(0, 15),
             };
+        },
+    },
+
+    pretrazi_razgovore: {
+        cita: true,
+        opis: "Pretražuje RANIJE razgovore sa korisnikom (AI memorija). Koristi kad se korisnik poziva na nešto od ranije: „ono što smo pričali“, „kao prošli put“, „šta sam ti rekao za X“, ili kad ti treba podatak koji je korisnik već davao (cene, marže, pravila, odluke).",
+        ulaz: {
+            pojam: { type: "string", description: "Ključna reč ili tema, npr. SPANAC, marža, Plastchim, kesa za kafu" },
+            koliko: { type: "number", description: "Koliko rezultata (podrazumevano 10)" },
+        },
+        async izvrsi({ pojam, koliko }) {
+            const n = N(koliko) || 10;
+            const q = T(pojam);
+            try {
+                let redovi = [];
+                if (q) {
+                    const { data } = await supabase.from("ai_interakcije").select("*")
+                        .or(`pitanje.ilike.%${q}%,odgovor.ilike.%${q}%`)
+                        .order("created_at", { ascending: false }).limit(n);
+                    redovi = data || [];
+                }
+                if (!redovi.length) {
+                    // rezerva: povuci skorije pa filtriraj lokalno (ako baza ne podržava .or)
+                    const { data } = await supabase.from("ai_interakcije").select("*")
+                        .order("created_at", { ascending: false }).limit(2000);
+                    const svi = data || [];
+                    redovi = q
+                        ? svi.filter((r) => UP(r.pitanje + " " + r.odgovor).includes(UP(q))).slice(0, n)
+                        : svi.slice(0, n);
+                }
+                if (!redovi.length) return { nadjeno: 0, napomena: "Nema ranijih razgovora na tu temu." };
+                return {
+                    nadjeno: redovi.length,
+                    razgovori: redovi.map((r) => ({
+                        datum: String(r.created_at || "").slice(0, 16).replace("T", " "),
+                        pitanje: String(r.pitanje || "").slice(0, 400),
+                        odgovor: String(r.odgovor || "").slice(0, 900),
+                    })),
+                };
+            } catch (e) {
+                return { greska: "Memorija nije dostupna: " + (e.message || String(e)) };
+            }
+        },
+    },
+
+    procitaj_ponude: {
+        cita: true,
+        opis: "Čita sačuvane PONUDE — broj, kupac, proizvod, količina, vrednost, status, i da li su iz njih nastali nalozi.",
+        ulaz: {
+            kupac: { type: "string", description: "Deo naziva kupca" },
+            proizvod: { type: "string", description: "Deo naziva proizvoda" },
+            status: { type: "string", description: "npr. Nova | prihvaceno | realizovana" },
+            koliko: { type: "number", description: "Koliko najskorijih (podrazumevano 25)" },
+        },
+        async izvrsi(a) {
+            const { data, error } = await supabase.from("ponude").select("*").order("created_at", { ascending: false }).limit(400);
+            if (error) return { greska: "ponude: " + error.message };
+            let red = data || [];
+            if (T(a.kupac)) red = red.filter((r) => sadrziSveReci(r.kupac || "", a.kupac));
+            if (T(a.proizvod)) red = red.filter((r) => sadrziSveReci((r.proizvod || r.naziv || ""), a.proizvod));
+            if (T(a.status)) red = red.filter((r) => sadrziSveReci(r.status || "", a.status));
+
+            // da li je iz ponude nastao nalog
+            let veze = [];
+            try {
+                const { data: rn } = await supabase.from("radni_nalozi").select("broj_naloga, ponuda_id").limit(2000);
+                veze = rn || [];
+            } catch (e) { }
+
+            return {
+                nadjeno: red.length,
+                ponude: red.slice(0, N(a.koliko) || 25).map((r) => {
+                    const pod = (typeof r.podaci === "string" ? (() => { try { return JSON.parse(r.podaci); } catch (e) { return {}; } })() : r.podaci) || {};
+                    const nal = veze.filter((x) => String(x.ponuda_id) === String(r.id)).map((x) => x.broj_naloga);
+                    return {
+                        id: r.id, broj: r.broj, datum: r.datum || r.created_at,
+                        kupac: r.kupac, proizvod: r.proizvod || r.naziv, tip: r.tip || r.tip_proizvoda,
+                        kolicina: N(r.kolicina ?? r.kol) || null,
+                        jedinica: pod.jedinica || null,
+                        cena_jedinicna: N(pod.cena_jedinicna) || null,
+                        vrednost: N(r.cena_ukupno ?? pod.vrednost) || null,
+                        status: r.status, napomena: r.nap || null,
+                        nalozi_iz_ponude: nal,
+                    };
+                }),
+            };
+        },
+    },
+
+    procitaj_kalkulacije: {
+        cita: true,
+        opis: "Čita SAČUVANE kalkulacije (folija, kesa, špulna) — koja je marža i škart korišćen, koja je bila cena, za kog kupca i kada. Koristi kad korisnik pita „koja je bila marža za X” ili „šta smo računali za tog kupca”.",
+        ulaz: {
+            naziv: { type: "string", description: "Deo naziva proizvoda" },
+            kupac: { type: "string", description: "Deo naziva kupca" },
+            tip: { type: "string", description: "folija | kesa | spulna — ako se traži samo jedna vrsta" },
+            koliko: { type: "number", description: "Koliko najskorijih (podrazumevano 20)" },
+        },
+        async izvrsi(a) {
+            const tabele = [
+                { t: "kalkulacije_folije", tip: "folija" },
+                { t: "kalkulacije_kese", tip: "kesa" },
+                { t: "kalkulacije_spulne", tip: "spulna" },
+            ].filter((x) => !T(a.tip) || x.tip === T(a.tip).toLowerCase());
+
+            let sve = [];
+            const greske = [];
+            for (const { t, tip } of tabele) {
+                try {
+                    const { data, error } = await supabase.from(t).select("*").order("created_at", { ascending: false }).limit(300);
+                    if (error) { greske.push(t + ": " + error.message); continue; }
+                    (data || []).forEach((r) => sve.push({ ...r, _tip: tip }));
+                } catch (e) { greske.push(t + ": " + (e.message || String(e))); }
+            }
+            if (!sve.length) return { nadjeno: 0, napomena: greske.length ? "Ne mogu da čitam: " + greske.join("; ") : "Nema sačuvanih kalkulacija." };
+
+            if (T(a.naziv)) sve = sve.filter((r) => sadrziSveReci(r.naziv || "", a.naziv));
+            if (T(a.kupac)) sve = sve.filter((r) => sadrziSveReci(r.kupac || "", a.kupac));
+            sve.sort((x, y) => String(y.created_at || "").localeCompare(String(x.created_at || "")));
+
+            const lim = N(a.koliko) || 20;
+            return {
+                nadjeno: sve.length,
+                kalkulacije: sve.slice(0, lim).map((r) => {
+                    const rez = (typeof r.rezultati === "string" ? (() => { try { return JSON.parse(r.rezultati); } catch (e) { return {}; } })() : r.rezultati) || {};
+                    return {
+                        id: r.id, tip: r._tip, naziv: r.naziv, kupac: r.kupac,
+                        datum: r.created_at,
+                        marza_pct: N(r.marza), skart_pct: N(r.skart),
+                        sirina: N(r.sirina) || null, duzina: N(r.duzina) || null,
+                        metraza: N(r.metraza) || null, kolicina: N(r.kolicina) || null,
+                        osnovna_cena: N(rez.osnovna_cena) || N(rez.osnovna) || null,
+                        konacna_cena: N(rez.konacna_cena) || N(rez.konacna) || null,
+                        jedinica: rez.jedinica || (r._tip === "folija" ? "€ / 1000 m" : r._tip === "kesa" ? "€ / 1000 kom" : "€ po špulni"),
+                        cena_po_kg: N(rez.cena_po_kg_sa_marzom) || null,
+                        // ulazni podaci — dovoljni da se kalkulacija PONOVI sa drugom maržom
+                        ulaz_za_ponavljanje: {
+                            sirina: N(r.sirina), metraza: N(r.metraza), nalog: N(r.nalog) || 1,
+                            duzina: N(r.duzina), klapna: N(r.klapna), falta: N(r.falta), kolicina: N(r.kolicina),
+                            skart: N(r.skart), marza: N(r.marza),
+                            materijali: r.materijali || [], lepak: r.lepak || [], lak: r.lak || {},
+                            kasiranje: r.kasiranje || {}, stampaCena: N(r.stampa_cena), lakiranjeCena: N(r.lakiranje_cena),
+                            transport: N(r.transport), pakovanje: N(r.pakovanje), dorada: N(r.dorada),
+                            tezinaGM2: N(r.tezina_gm2), cenaM2: N(r.cena_kg) || N(r.cena_m2),
+                        },
+                    };
+                }),
+                napomena: "U polju ulaz_za_ponavljanje su svi ulazi — prosledi ih alatu kalkulacija_* sa novom maržom da uporediš cene.",
+            };
+        },
+    },
+
+    pregled_tabele: {
+        cita: true,
+        opis: "Čita ostale sačuvane podatke koje nemaju svoj alat: mašine, radnici, zastoji, kontrola kvaliteta, gotovi proizvodi, faze proizvodnje, kalkulacije (opšte), plan proizvodnje. Koristi kad korisnik pita nešto van magacina/naloga/kalkulacija.",
+        ulaz: {
+            tabela: { type: "string", description: "masine | radnici | zastoji | qc_kontrole | magacin_gotovi_proizvodi | faze_proizvodnje | kalkulacije | plan_proizvodnje | nalog_aktivnosti" },
+            trazi: { type: "string", description: "Opciono: reč koja se traži bilo gde u redu" },
+            koliko: { type: "number", description: "Koliko redova (podrazumevano 30, najviše 100)" },
+        },
+        async izvrsi(a) {
+            // Bela lista + zamene imena ako se tabela drugačije zove.
+            const DOZVOLJENO = {
+                masine: ["masine"], radnici: ["radnici"],
+                zastoji: ["zastoji", "nalog_zastoji"],
+                qc_kontrole: ["qc_kontrole", "qc_zapisnici"],
+                magacin_gotovi_proizvodi: ["magacin_gotovi_proizvodi"],
+                faze_proizvodnje: ["faze_proizvodnje"],
+                kalkulacije: ["kalkulacije"],
+                plan_proizvodnje: ["plan_proizvodnje", "plan"],
+                nalog_aktivnosti: ["nalog_aktivnosti"],
+                mes_sesije: ["mes_sesije"],
+                material_master: ["material_master", "materijali"],
+            };
+            const kljuc = T(a.tabela).toLowerCase();
+            const kandidati = DOZVOLJENO[kljuc];
+            if (!kandidati) return { greska: "Tabela nije dozvoljena. Moguće: " + Object.keys(DOZVOLJENO).join(", ") };
+
+            let red = [], koriscena = "", greske = [];
+            for (const t of kandidati) {
+                try {
+                    const { data, error } = await supabase.from(t).select("*").limit(500);
+                    if (error) { greske.push(t + ": " + error.message); continue; }
+                    if (data) { red = data; koriscena = t; break; }
+                } catch (e) { greske.push(t + ": " + (e.message || String(e))); }
+            }
+            if (!koriscena) return { greska: "Ne mogu da čitam: " + greske.join("; ") };
+
+            if (T(a.trazi)) red = red.filter((r) => sadrziSveReci(JSON.stringify(r), a.trazi));
+            const lim = Math.min(N(a.koliko) || 30, 100);
+            // skrati velika polja da odgovor ne bude ogroman
+            const skrati = (r) => {
+                const o = {};
+                Object.keys(r).forEach((k) => {
+                    let v = r[k];
+                    if (v && typeof v === "object") v = JSON.stringify(v).slice(0, 300);
+                    else if (typeof v === "string" && v.length > 300) v = v.slice(0, 300) + "…";
+                    if (v !== null && v !== "" && v !== undefined) o[k] = v;
+                });
+                return o;
+            };
+            return { tabela: koriscena, ukupno: red.length, redovi: red.slice(0, lim).map(skrati) };
         },
     },
 
@@ -378,38 +713,224 @@ export const ALATI = {
         async izvrsi(a) { return kalkulacijaSpulne(a); },
     },
 
+    sifarnik_materijala: {
+        cita: true,
+        opis: "OBAVEZNO PRE UNOSA ROLNI: pokazuje kako Maropack VEĆ imenuje materijale u magacinu (postojeće kombinacije vrsta / pod vrsta / oznaka / debljina, i koji dobavljač ih šalje). Koristi da nove rolne dobiju ISTO ime kao postojeće, a ne novo.",
+        ulaz: {
+            vrsta: { type: "string", description: "Opciono: suzi na vrstu, npr. BOPP" },
+            oznaka: { type: "string", description: "Opciono: traži po oznaci, npr. FXC" },
+        },
+        async izvrsi(a) {
+            const rolne = await sve("magacin");
+            const g = {};
+            rolne.forEach((r) => {
+                if (UP(r.tip) === "SPOJ") return;                    // spoj rolne nisu ulazni materijal
+                const v = T(r.vrsta); if (!v) return;
+                const k = [v, T(r.pod_vrsta), T(r.oznaka_materijala), N(r.deb ?? r.debljina)].join("|");
+                if (!g[k]) g[k] = {
+                    vrsta: v, pod_vrsta: T(r.pod_vrsta), oznaka: T(r.oznaka_materijala),
+                    debljina: N(r.deb ?? r.debljina), rolni: 0, sirine: new Set(), dobavljaci: new Set(),
+                };
+                g[k].rolni++;
+                if (N(r.sirina)) g[k].sirine.add(N(r.sirina));
+                const d = T(r.dobavljac) || T(r.proizvodjac); if (d) g[k].dobavljaci.add(d);
+            });
+            let lista = Object.values(g).map((x) => ({
+                vrsta: x.vrsta, pod_vrsta: x.pod_vrsta, oznaka: x.oznaka, debljina: x.debljina,
+                rolni_na_stanju: x.rolni,
+                sirine_mm: Array.from(x.sirine).sort((p, q) => p - q).slice(0, 8),
+                dobavljaci: Array.from(x.dobavljaci).slice(0, 4),
+            }));
+            if (T(a.vrsta)) lista = lista.filter((x) => UP(x.vrsta).includes(UP(a.vrsta)));
+            if (T(a.oznaka)) lista = lista.filter((x) => UP(x.oznaka).includes(UP(a.oznaka)));
+            lista.sort((p, q) => q.rolni_na_stanju - p.rolni_na_stanju);
+            return {
+                napomena: "Ovo su imena koja Maropack VEĆ koristi. Nove rolne uklopi u njih — ne izmišljaj nova imena.",
+                razlicitih: lista.length,
+                materijali: lista.slice(0, 60),
+            };
+        },
+    },
+
+    procitaj_pravila: {
+        cita: true,
+        opis: "Čita naučena pravila (marže, gustine, konvencije, dogovori sa kupcima). Sistem ih ionako šalje na početku, ali pozovi ako ti treba puna lista ili tražiš po oblasti.",
+        ulaz: { oblast: { type: "string", description: "Opciono: kalkulacije | magacin | kupci | proizvodnja" } },
+        async izvrsi({ oblast }) {
+            try {
+                let q = supabase.from("ai_pravila").select("*").eq("aktivno", true).order("oblast");
+                const { data, error } = await q;
+                if (error) return { napomena: "Tabela ai_pravila ne postoji — pusti ai_pravila.sql." };
+                let redovi = data || [];
+                if (T(oblast)) redovi = redovi.filter((r) => UP(r.oblast).includes(UP(oblast)));
+                return { broj: redovi.length, pravila: redovi.map((r) => ({ id: r.id, oblast: r.oblast, pravilo: r.pravilo })) };
+            } catch (e) { return { napomena: "Pravila nisu dostupna." }; }
+        },
+    },
+
+    napravi_dokument: {
+        cita: true,
+        opis: "Pravi dokument koji korisnik može da preuzme kao Excel (CSV) ili odštampa u PDF: ponuda, specifikacija, izveštaj, spisak rolni, kalkulacija. Ne menja bazu — samo priprema dokument.",
+        ulaz: {
+            naslov: { type: "string", description: "Naslov dokumenta, npr. „Ponuda 2026-014 — La Linea”" },
+            podnaslov: { type: "string", description: "Kupac, datum, broj naloga…" },
+            zaglavlja: { type: "array", items: { type: "string" }, description: "Nazivi kolona" },
+            redovi: { type: "array", description: "Redovi tabele — svaki red je niz vrednosti", items: { type: "array", items: { type: "string" } } },
+            zakljucak: { type: "string", description: "Tekst ispod tabele: ukupno, uslovi, napomene" },
+        },
+        async izvrsi(a) {
+            const zag = Array.isArray(a.zaglavlja) ? a.zaglavlja.map(T) : [];
+            const red = Array.isArray(a.redovi) ? a.redovi.map((r) => (Array.isArray(r) ? r.map(T) : [T(r)])) : [];
+            if (!zag.length || !red.length) return { greska: "Dokument mora imati zaglavlja i bar jedan red." };
+            return {
+                dokument: {
+                    naslov: T(a.naslov) || "Dokument",
+                    podnaslov: T(a.podnaslov),
+                    zaglavlja: zag,
+                    redovi: red,
+                    zakljucak: T(a.zakljucak),
+                    napravljen: new Date().toISOString(),
+                },
+                napomena: "Dokument je spreman — korisniku su ispod poruke dugmad „Preuzmi Excel” i „Štampaj / PDF”.",
+            };
+        },
+    },
+
     // ── UPIS (traži potvrdu) ─────────────────────────────────────────────────
     kreiraj_nalog_iz_templejta: {
         cita: false,
-        opis: "Pravi radni nalog za proizvod iz templejta. MENJA BAZU — traži potvrdu korisnika.",
+        opis: "Pravi radni nalog + operativne naloge iz sačuvanog templejta, isto kao program (brojevi MP-GODINA-XXXX). PODRAZUMEVANO BEZ PONUDE — ponuda se pravi samo ako korisnik izričito traži (sa_ponudom=true). MENJA BAZU — traži potvrdu.",
         ulaz: {
             proizvod_id: { type: "string", description: "ID proizvoda" },
             kolicina: { type: "number", description: "Količina" },
+            jedinica: { type: "string", description: "m | kg | kom — u čemu je količina zadata (podrazumevano m)" },
             kupac: { type: "string", description: "Naziv kupca" },
+            sa_ponudom: { type: "boolean", description: "PODRAZUMEVANO false — nalozi se prave direktno, BEZ ponude. Postavi true SAMO ako je korisnik izričito tražio i ponudu." },
         },
-        opisPlana: (a, ctx) => `Napravi nalog za „${ctx?.naziv || a.proizvod_id}" — količina ${a.kolicina}${a.kupac ? ", kupac " + a.kupac : ""}`,
+        opisPlana: (a, ctx) => `Napravi nalog za „${ctx?.naziv || a.proizvod_id}" — ${a.kolicina} ${a.jedinica || "m"}` +
+            `${a.kupac ? ", kupac " + a.kupac : ""}${a.sa_ponudom ? " (+ ponuda)" : " (bez ponude)"}`,
         async izvrsi(a) {
             const { data: prod } = await supabase.from("proizvodi").select("*").eq("id", a.proizvod_id).maybeSingle();
             if (!prod) return { ok: false, poruka: "Proizvod nije nađen." };
             const t = templejtIz(prod);
+
+            // Ako je količina data u KILOGRAMIMA, pretvori je u metre (nalozi idu u metrima).
+            const jed = (T(a.jedinica) || (t.tip === "folija" ? "m" : t.tip === "spulna" ? "m2" : "kom")).toLowerCase();
+            let kolicina = N(a.kolicina), racun = "";
+            // Kilograme pretvaramo u metre SAMO za foliju. Špulna ima svoju jedinicu unosa
+            // (m² / kom / kg / m) i sama računa, a kesa ide u komadima.
+            if (t.tip === "folija" && jed === "kg" && kolicina > 0) {
+                const gm2Uk = t.slojevi.reduce((z, l) => z + gm2Sloja(l), 0);
+                const sir = N(t.idealna_sirina);
+                if (!gm2Uk || !sir) {
+                    return { ok: false, poruka: "Ne mogu da pretvorim kg u metre — templejtu fali " + (!sir ? "idealna širina" : "debljina sloja") + ". Zadaj količinu u metrima." };
+                }
+                const m = (kolicina * 1000000) / (sir * gm2Uk);
+                racun = `${N(a.kolicina)} kg → ${Math.round(m).toLocaleString("sr-RS")} m (širina ${sir} mm, ${Math.round(gm2Uk * 10) / 10} g/m²)`;
+                kolicina = Math.round(m);
+            }
+
+            // ── PUT A: direktno u naloge (podrazumevano — bez ponude) ────────────
+            if (!a.sa_ponudom) {
+                const broj = await sledeciBrojNaloga();
+                const tplZaNalog = templejtSaKolicinom(t.sirovo, t.tip, kolicina, jed);
+                const zajednicko = {
+                    broj_naloga: broj, tip_proizvoda: t.tip,
+                    kupac: T(a.kupac) || "", naziv: t.naziv, proizvod: t.naziv,
+                };
+                const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
+                    ...zajednicko,
+                    status: "ceka_magacin",
+                    parametri: {
+                        sifra: t.sirovo?.sifra || "",
+                        template: tplZaNalog,
+                        porucena_kolicina: kolicina,
+                        kolicina_za_rad: kolicina,
+                        idealna_sirina: t.idealna_sirina || "",
+                        jedinica_unosa: t.tip === "folija" ? "m" : t.tip === "spulna" ? "m2" : "kom",
+                        datum: new Date().toLocaleDateString("sr-RS"),
+                        izvor: "AI agent" + (racun ? " · " + racun : ""),
+                    },
+                    rezultati: {},
+                }]).select("id").single();
+                if (mErr) return { ok: false, poruka: "radni_nalozi: " + mErr.message };
+
+                const lista = operacijeZaTemplejt(t.sirovo, t.tip);
+                const ops = lista.map((op, i) => ({
+                    ...zajednicko,
+                    broj_naloga: broj + "-" + op.toUpperCase(),
+                    glavni_nalog_id: master.id,
+                    tip_naloga: op,
+                    status: op === "materijal" ? "ceka_magacin" : "ceka",
+                    redosled: i + 1,
+                    parametri: { sifra: t.sirovo?.sifra || "", template: tplZaNalog },
+                }));
+                const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
+                if (oErr) return { ok: false, poruka: "operativni_nalozi: " + oErr.message };
+
+                return {
+                    ok: true,
+                    poruka: `Nalog ${broj} napravljen za „${t.naziv}" (${racun || kolicina.toLocaleString("sr-RS") + " " + (t.tip === "folija" ? "m" : jed)}) — ` +
+                        `${ops.length} operacija: ${lista.join(", ")}. Bez ponude.`,
+                    broj, glavni_nalog_id: master.id, operacije: lista,
+                };
+            }
+
+            // ── PUT B: preko ponude (samo kad korisnik izričito traži) ────────────
             const payload = {
                 broj: "PON-AI-" + Date.now(), datum: new Date().toLocaleDateString("sr-RS"),
                 kupac: a.kupac || "AI nalog", naziv: t.naziv, proizvod: t.naziv, tip: t.tip,
-                kol: N(a.kolicina) || null, kolicina: N(a.kolicina) || null,
-                struktura: t.slojevi, mats: t.slojevi, status: "prihvaceno", nap: "Kreirano preko AI agenta",
+                kol: kolicina || null, kolicina: kolicina || null,
+                struktura: t.slojevi, mats: t.slojevi, status: "prihvaceno",
+                nap: "Kreirano preko AI agenta" + (racun ? " · " + racun : ""),
                 template_id: prod.template_id || prod.id || null,
-                res: { template: t.sirovo, operacije: [], kupac: a.kupac || "", kolicina: N(a.kolicina) },
+                res: { template: templejtSaKolicinom(t.sirovo, t.tip, kolicina, jed), operacije: [], kupac: a.kupac || "", kolicina, zadato: { kolicina: N(a.kolicina), jedinica: jed } },
             };
             const { data: pon, error: oe } = await supabase.from("ponude").insert([payload]).select().single();
             if (oe || !pon) return { ok: false, poruka: "Ponuda nije kreirana: " + (oe?.message || "nepoznato") };
             const { error: re } = await supabase.rpc("kreiraj_naloge_iz_ponude", { p_ponuda_id: pon.id });
             if (re) return { ok: false, poruka: "Ponuda napravljena, ali nalozi nisu: " + re.message };
-            let broj = "";
+            // Nađi kreirani glavni nalog
+            let broj = "", masterId = null;
             try {
-                const { data: mr } = await supabase.from("radni_nalozi").select("broj_naloga").eq("ponuda_id", pon.id).order("created_at", { ascending: false }).limit(1);
-                if (mr && mr[0]) broj = mr[0].broj_naloga;
+                const { data: mr } = await supabase.from("radni_nalozi").select("id, broj_naloga").eq("ponuda_id", pon.id).order("created_at", { ascending: false }).limit(1);
+                if (mr && mr[0]) { broj = mr[0].broj_naloga; masterId = mr[0].id; }
             } catch (e) { }
-            return { ok: true, poruka: `Nalog napravljen za „${t.naziv}"${broj ? " · " + broj : ""} (${a.kolicina}).`, broj };
+
+            // VAŽNO: RPC ne mora da prekopira templejt u same operacije. Bez toga bi
+            // odštampan nalog pokazivao "0 slojeva" i prazne parametre. Zato ga upisujemo mi.
+            let dopunjeno = 0;
+            const upozorenja = [];
+            if (masterId) {
+                try {
+                    const { data: ops } = await supabase.from("operativni_nalozi").select("id, parametri, tip_naloga").eq("glavni_nalog_id", masterId);
+                    for (const op of (ops || [])) {
+                        let par = op.parametri;
+                        if (typeof par === "string") { try { par = JSON.parse(par); } catch (e) { par = {}; } }
+                        par = par || {};
+                        const imaSlojeve = par?.template?.folija?.layers?.length || par?.template?.[t.tip]?.layers?.length;
+                        if (imaSlojeve) continue;
+                        const noviPar = {
+                            ...par,
+                            sifra: t.sirovo?.sifra || null,
+                            template: templejtSaKolicinom(t.sirovo, t.tip, kolicina, jed),
+                            kupac: a.kupac || "",
+                            kolicina: kolicina || null,
+                        };
+                        const { error: ue } = await supabase.from("operativni_nalozi")
+                            .update({ parametri: noviPar, tip_proizvoda: t.tip }).eq("id", op.id);
+                        if (ue) upozorenja.push("operacija " + op.id + ": " + ue.message); else dopunjeno++;
+                    }
+                } catch (e) { upozorenja.push("dopuna templejta: " + (e.message || String(e))); }
+            }
+
+            return {
+                ok: true,
+                poruka: `Nalog napravljen za „${t.naziv}"${broj ? " · " + broj : ""} (${racun || kolicina + " m"})` +
+                    (dopunjeno ? `, templejt upisan u ${dopunjeno} operacija.` : ".") +
+                    (upozorenja.length ? " Upozorenja: " + upozorenja.join("; ") : ""),
+                broj, glavni_nalog_id: masterId, operacija_dopunjeno: dopunjeno,
+            };
         },
     },
 
@@ -506,11 +1027,23 @@ export const ALATI = {
             const lista = Array.isArray(rolne) ? rolne : [];
             if (!lista.length) return { greska: "Nema redova." };
             const problemi = [];
+
+            // Uporedi sa postojećim imenima u magacinu — da isti materijal ne uđe pod novim imenom.
+            let postojeci = [];
+            try {
+                postojeci = (await sve("magacin")).filter((r) => UP(r.tip) !== "SPOJ" && T(r.vrsta));
+            } catch (e) { }
+            const poznat = (r) => postojeci.some((m) =>
+                UP(m.vrsta) === UP(r.vrsta) &&
+                (!T(r.oznaka) || !T(m.oznaka_materijala) || UP(m.oznaka_materijala) === UP(r.oznaka)) &&
+                (!N(r.debljina) || !N(m.deb ?? m.debljina) || Math.abs(N(m.deb ?? m.debljina) - N(r.debljina)) <= 1)
+            );
             const red = lista.map((r, i) => {
                 const p = [];
                 if (!T(r.vrsta)) p.push("nema vrstu");
                 if (!N(r.sirina)) p.push("nema širinu");
                 if (!N(r.metraza) && !N(r.kg)) p.push("nema ni metre ni kg");
+                if (T(r.vrsta) && !poznat(r)) p.push(`materijal "${T(r.vrsta)} ${T(r.oznaka)} ${N(r.debljina)}µ" NE postoji u magacinu pod tim imenom — proveri da nije isti kao neki postojeći`);
                 if (p.length) problemi.push(`Red ${i + 1}: ${p.join(", ")}`);
                 return {
                     r_br: i + 1, vrsta: T(r.vrsta), pod_vrsta: T(r.pod_vrsta), oznaka: T(r.oznaka),
@@ -653,6 +1186,125 @@ export const ALATI = {
                 poruka: `Kalkulacija „${naziv}" (${tip}) sačuvana u ${tabela}. Konačna cena: ${rez.konacna_cena} ${rez.jedinica}.`,
                 konacna_cena: rez.konacna_cena, jedinica: rez.jedinica,
             };
+        },
+    },
+
+    zapamti_pravilo: {
+        cita: false,
+        opis: "Trajno pamti pravilo koje će važiti u SVIM budućim razgovorima (npr. marža za kupca, gustina materijala, konvencija). MENJA BAZU — traži potvrdu. Predloži ovo kad korisnik kaže nešto što očigledno treba da važi ubuduće.",
+        ulaz: {
+            oblast: { type: "string", description: "kalkulacije | magacin | kupci | proizvodnja | ostalo" },
+            pravilo: { type: "string", description: "Jasno i kratko napisano pravilo, tako da se razume i bez konteksta razgovora" },
+        },
+        opisPlana: (a) => `Zapamti trajno pravilo (${a.oblast || "ostalo"}): „${a.pravilo}"`,
+        async izvrsi(a) {
+            const pravilo = T(a.pravilo);
+            if (!pravilo) return { ok: false, poruka: "Pravilo je prazno." };
+            const { error } = await supabase.from("ai_pravila").insert([{
+                oblast: T(a.oblast) || "ostalo", pravilo, izvor: "razgovor", aktivno: true,
+            }]);
+            if (error) return { ok: false, poruka: "Nije zapamćeno: " + error.message };
+            return { ok: true, poruka: "Zapamćeno trajno: " + pravilo };
+        },
+    },
+
+    obrisi_pravilo: {
+        cita: false,
+        opis: "Gasi (deaktivira) naučeno pravilo koje više ne važi. MENJA BAZU — traži potvrdu.",
+        ulaz: { id: { type: "number", description: "ID pravila iz procitaj_pravila" } },
+        opisPlana: (a) => `Obriši naučeno pravilo #${a.id}`,
+        async izvrsi(a) {
+            const { error } = await supabase.from("ai_pravila").update({ aktivno: false, updated_at: new Date().toISOString() }).eq("id", a.id);
+            if (error) return { ok: false, poruka: "Nije obrisano: " + error.message };
+            return { ok: true, poruka: "Pravilo #" + a.id + " više ne važi." };
+        },
+    },
+
+    sacuvaj_templejt: {
+        cita: false,
+        opis: "Čuva nov templejt proizvoda u bazu proizvoda (isto kao dugme „Sačuvaj template” u Template Engine-u). MENJA BAZU — traži potvrdu.",
+        ulaz: {
+            naziv: { type: "string", description: "Naziv proizvoda" },
+            tip: { type: "string", description: "folija | kesa | spulna" },
+            kupac: { type: "string" },
+            idealna_sirina: { type: "number", description: "Idealna širina materijala u mm" },
+            slojevi: {
+                type: "array", description: "Slojevi materijala",
+                items: { type: "object", properties: { vrsta: { type: "string" }, pod_vrsta: { type: "string" }, oznaka: { type: "string" }, debljina: { type: "number" } }, required: ["vrsta"] },
+            },
+            napomena: { type: "string" },
+        },
+        opisPlana: (a) => `Sačuvaj NOV templejt „${a.naziv}" (${a.tip || "folija"}${a.idealna_sirina ? ", " + a.idealna_sirina + " mm" : ""}, ${(a.slojevi || []).length} sloj/a)`,
+        async izvrsi(a) {
+            const naziv = T(a.naziv);
+            if (!naziv) return { ok: false, poruka: "Templejt mora imati naziv." };
+            const tip = (T(a.tip) || "folija").toLowerCase();
+            const slojevi = (Array.isArray(a.slojevi) ? a.slojevi : []).map((l) => ({
+                vrsta: T(l.vrsta), pod_vrsta: T(l.pod_vrsta), oznaka: T(l.oznaka), debljina: N(l.debljina),
+            })).filter((l) => l.vrsta);
+            if (!slojevi.length) return { ok: false, poruka: "Templejt mora imati bar jedan sloj." };
+
+            const data = {
+                sifra: null, idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
+                [tip]: { layers: slojevi },
+                napomena: T(a.napomena) || "Kreirano preko AI agenta",
+            };
+            const tplId = "TPL-" + Date.now();
+            const { error } = await supabase.from("proizvodi").insert([{
+                tip, naziv, kupac: T(a.kupac) || null, status: "Aktivan",
+                sir: N(a.idealna_sirina) || null,
+                mats: slojevi, materijali_struktura: slojevi,
+                res: { template: data, operacije: [] },
+                template_id: tplId, template_version: "V1",
+                standardi: { tip, kupac: T(a.kupac) || null, template_version: "V1", izvor: "AI agent" },
+                datum: new Date().toLocaleDateString("sr-RS"),
+            }]);
+            if (error) return { ok: false, poruka: "Templejt nije sačuvan: " + error.message };
+            return { ok: true, poruka: `Templejt „${naziv}" sačuvan (${slojevi.length} sloj/a).`, template_id: tplId };
+        },
+    },
+
+    napravi_ponudu: {
+        cita: false,
+        opis: "Pravi ponudu u bazi (tabela ponude) sa cenom iz kalkulacije. Iz nje se kasnije mogu napraviti nalozi. MENJA BAZU — traži potvrdu.",
+        ulaz: {
+            kupac: { type: "string" },
+            proizvod: { type: "string", description: "Naziv proizvoda" },
+            tip: { type: "string", description: "folija | kesa | spulna" },
+            kolicina: { type: "number" },
+            jedinica: { type: "string", description: "m | kom | kg" },
+            cena_jedinicna: { type: "number", description: "Cena po jedinici (npr. €/1000 m ili €/kom)" },
+            vrednost_ukupno: { type: "number", description: "Ukupna vrednost ponude u €" },
+            napomena: { type: "string", description: "Rok isporuke, uslovi plaćanja…" },
+        },
+        opisPlana: (a) => `Napravi ponudu za ${a.kupac || "kupca"} — ${a.proizvod || ""}, ${a.kolicina || "?"} ${a.jedinica || ""}${a.vrednost_ukupno ? " · " + a.vrednost_ukupno + " €" : ""}`,
+        async izvrsi(a) {
+            const kupac = T(a.kupac), proizvod = T(a.proizvod);
+            if (!kupac || !proizvod) return { ok: false, poruka: "Ponuda mora imati kupca i proizvod." };
+            const god = new Date().getFullYear();
+            let redni = 1;
+            try {
+                const { data } = await supabase.from("ponude").select("broj").ilike("broj", "PON-" + god + "-%").limit(1000);
+                redni = 1 + (data || []).length;
+            } catch (e) { }
+            const broj = "PON-" + god + "-" + String(redni).padStart(4, "0");
+            const tip = (T(a.tip) || "folija").toLowerCase();
+            const { data: pon, error } = await supabase.from("ponude").insert([{
+                broj, datum: new Date().toLocaleDateString("sr-RS"),
+                kupac, naziv: proizvod, proizvod, tip, tip_proizvoda: tip,
+                kol: N(a.kolicina) || null, kolicina: N(a.kolicina) || null,
+                cena_ukorak: null, cena_ukupno: N(a.vrednost_ukupno) || null,
+                status: "Nova",
+                nap: T(a.napomena) || "Kreirano preko AI agenta",
+                podaci: {
+                    jedinica: T(a.jedinica) || "m",
+                    cena_jedinicna: N(a.cena_jedinicna) || null,
+                    vrednost: N(a.vrednost_ukupno) || null,
+                    izvor: "AI agent",
+                },
+            }]).select("id, broj").maybeSingle();
+            if (error) return { ok: false, poruka: "Ponuda nije kreirana: " + error.message };
+            return { ok: true, poruka: `Ponuda ${(pon && pon.broj) || broj} napravljena za ${kupac} — ${proizvod}.`, broj: (pon && pon.broj) || broj };
         },
     },
 

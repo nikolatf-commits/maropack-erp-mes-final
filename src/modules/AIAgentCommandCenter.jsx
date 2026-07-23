@@ -1,32 +1,97 @@
 import React, { useEffect, useRef, useState } from "react";
-import { pokreniAgenta, potvrdiPlan } from "../services/aiAgentLLM.js";
+import { pokreniAgenta, potvrdiPlan, ucitajMemoriju } from "../services/aiAgentLLM.js";
 
-const INK = "#0f172a", MUT = "#64748b", LINE = "#e2e8f0";
-const card = { background: "#fff", border: "1px solid " + LINE, borderRadius: 16, padding: 16, boxShadow: "0 8px 24px rgba(15,23,42,.05)" };
-const btn = { border: 0, borderRadius: 11, padding: "10px 15px", fontWeight: 800, cursor: "pointer", fontSize: 13.5 };
+const INK = "#0f172a", MUT = "#64748b", LINE = "#e2e8f0", PLAVA = "#1d4ed8";
+const card = { background: "#fff", border: "1px solid " + LINE, borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,.05)" };
+const btn = { border: 0, borderRadius: 11, padding: "11px 16px", fontWeight: 700, cursor: "pointer", fontSize: 14, fontFamily: "inherit" };
 
 const BRZE = [
-    "Šta imam na stanju od BOPP-a?",
-    "Koji nalozi su aktivni?",
-    "Proveri da li imam materijal za SPANAC 600 na 5000 m",
-    "Predloži formatiranje: 20 rolni 460 mm × 3000 m BOPP",
-    "Koliko sam potrošio materijala poslednjih 30 dana?",
-    "Pročitaj priloženu pakcing listu i pripremi rolne za unos",
+    { t: "Stanje magacina", q: "Šta imam na stanju? Grupiši po materijalu." },
+    { t: "Aktivni nalozi", q: "Koji nalozi su aktivni i šta kasni?" },
+    { t: "Provera materijala", q: "Proveri da li imam materijal za SPANAC 600 na 5000 m" },
+    { t: "Formatiranje", q: "Predloži formatiranje: 20 rolni 460 mm × 3000 m BOPP" },
+    { t: "Kalkulacija", q: "Napravi kalkulaciju za BOPP 460 mm, 100µ, 10000 m, sa štampom" },
+    { t: "Pakcing lista", q: "Pročitaj priloženu pakcing listu i pripremi rolne za unos" },
+    { t: "Potrošnja", q: "Koliko sam potrošio materijala poslednjih 30 dana?" },
+    { t: "Šta smo pričali ranije?", q: "Pretraži naše ranije razgovore i podseti me na najvažnije odluke i dogovore" },
 ];
+
+function preuzmiExcel(d) {
+    const red = (niz) => niz.map((c) => {
+        const v = String(c ?? "");
+        return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }).join(";");
+    const linije = [];
+    if (d.naslov) linije.push(red([d.naslov]));
+    if (d.podnaslov) linije.push(red([d.podnaslov]));
+    if (d.naslov || d.podnaslov) linije.push("");
+    linije.push(red(d.zaglavlja));
+    d.redovi.forEach((r) => linije.push(red(r)));
+    if (d.zakljucak) { linije.push(""); linije.push(red([d.zakljucak])); }
+    // BOM da Excel ispravno prikaže naša slova
+    const blob = new Blob(["\uFEFF" + linije.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (d.naslov || "dokument").replace(/[^\w\u00C0-\u024F -]/g, "").trim().slice(0, 60) + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+
+function stampajPdf(d) {
+    const esc = (v) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const html = '<!DOCTYPE html><html lang="sr"><head><meta charset="utf-8"><title>' + esc(d.naslov) + '</title><style>' +
+        'body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0f172a;padding:32px;max-width:900px;margin:0 auto}' +
+        'h1{font-size:22px;margin:0 0 4px}.pod{color:#64748b;font-size:13px;margin-bottom:18px}' +
+        'table{border-collapse:collapse;width:100%;font-size:12.5px}' +
+        'th{text-align:left;background:#f1f5f9;padding:8px;border-bottom:2px solid #cbd5e1;font-weight:700}' +
+        'td{padding:7px 8px;border-bottom:1px solid #e2e8f0}' +
+        '.zak{margin-top:18px;padding-top:12px;border-top:2px solid #cbd5e1;font-size:13px;white-space:pre-wrap}' +
+        '.fus{margin-top:28px;color:#94a3b8;font-size:11px}' +
+        '@media print{body{padding:0}}</style></head><body>' +
+        '<h1>' + esc(d.naslov) + '</h1>' +
+        (d.podnaslov ? '<div class="pod">' + esc(d.podnaslov) + '</div>' : '') +
+        '<table><thead><tr>' + d.zaglavlja.map((h) => '<th>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+        d.redovi.map((r) => '<tr>' + r.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table>' +
+        (d.zakljucak ? '<div class="zak">' + esc(d.zakljucak) + '</div>' : '') +
+        '<div class="fus">MAROPACK d.o.o. · ' + new Date().toLocaleDateString("sr-RS") + '</div>' +
+        '<script>window.onload=function(){window.print()}<\/script></body></html>';
+    const w = window.open("", "_blank");
+    if (!w) { alert("Pregledač je blokirao novi prozor — dozvoli iskačuće prozore pa probaj opet."); return; }
+    w.document.write(html); w.document.close();
+}
+
+function Dokument({ d }) {
+    return (
+        <div style={{ marginTop: 11, padding: "11px 13px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 11 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#15803d", marginBottom: 3 }}>{d.naslov}</div>
+            {d.podnaslov && <div style={{ fontSize: 11.5, color: "#4d7c5f", marginBottom: 8 }}>{d.podnaslov}</div>}
+            <div style={{ fontSize: 11.5, color: MUT, marginBottom: 9 }}>{d.redovi.length} redova · {d.zaglavlja.length} kolona</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => preuzmiExcel(d)} style={{ ...btn, background: "#15803d", color: "#fff", fontSize: 12.5, padding: "8px 13px" }}>Preuzmi Excel</button>
+                <button onClick={() => stampajPdf(d)} style={{ ...btn, background: "#fff", color: "#15803d", border: "1px solid #bbf7d0", fontSize: 12.5, padding: "8px 13px" }}>Štampaj / PDF</button>
+            </div>
+        </div>
+    );
+}
 
 function Poruka({ p }) {
     const ja = p.od === "ja";
     return (
-        <div style={{ display: "flex", justifyContent: ja ? "flex-end" : "flex-start", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: ja ? "flex-end" : "flex-start", marginBottom: 14 }}>
             <div style={{
-                maxWidth: "82%", padding: "11px 14px", borderRadius: 14, fontSize: 14, lineHeight: 1.55,
-                whiteSpace: "pre-wrap", wordBreak: "break-word",
-                background: ja ? "#1d4ed8" : "#fff", color: ja ? "#fff" : INK,
+                maxWidth: ja ? "72%" : "88%",
+                padding: "13px 16px", borderRadius: 14,
+                fontSize: 14.5, lineHeight: 1.62, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                background: ja ? PLAVA : "#fff", color: ja ? "#fff" : INK,
                 border: ja ? "none" : "1px solid " + LINE,
+                boxShadow: ja ? "none" : "0 1px 3px rgba(15,23,42,.04)",
             }}>
+                {p.staro && <div style={{ fontSize: 10.5, fontWeight: 800, color: MUT, marginBottom: 6, letterSpacing: .4 }}>RANIJI RAZGOVOR</div>}
                 {p.tekst}
+                {p.dokument && <Dokument d={p.dokument} />}
                 {!!(p.koraci && p.koraci.length) && (
-                    <div style={{ marginTop: 9, paddingTop: 8, borderTop: "1px solid " + LINE, fontSize: 11, color: MUT }}>
+                    <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid " + LINE, fontSize: 11.5, color: MUT }}>
                         Proverio: {p.koraci.map((k) => k.alat).join(" · ")}
                     </div>
                 )}
@@ -37,18 +102,18 @@ function Poruka({ p }) {
 
 function PlanKartica({ plan, busy, onPotvrdi, onOtkazi }) {
     return (
-        <div style={{ ...card, borderColor: "#fbbf24", background: "#fffbeb", marginBottom: 12 }}>
-            <div style={{ fontWeight: 900, color: "#92400e", fontSize: 13, marginBottom: 9 }}>
-                ČEKA TVOJU POTVRDU — ovo će promeniti podatke
+        <div style={{ ...card, borderColor: "#fbbf24", background: "#fffbeb", marginBottom: 14 }}>
+            <div style={{ fontWeight: 900, color: "#92400e", fontSize: 13, marginBottom: 11, letterSpacing: .3 }}>
+                ČEKA TVOJU POTVRDU — ovo menja podatke
             </div>
-            <div style={{ display: "grid", gap: 7, marginBottom: 13 }}>
+            <div style={{ display: "grid", gap: 8, marginBottom: 15 }}>
                 {plan.map((s, i) => (
-                    <div key={i} style={{ background: "#fff", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 12px", fontSize: 13.5, color: INK }}>
-                        <b style={{ color: "#b45309", marginRight: 7 }}>{i + 1}.</b>{s.opis}
+                    <div key={i} style={{ background: "#fff", border: "1px solid #fde68a", borderRadius: 10, padding: "11px 14px", fontSize: 14, color: INK, lineHeight: 1.5 }}>
+                        <b style={{ color: "#b45309", marginRight: 8 }}>{i + 1}.</b>{s.opis}
                     </div>
                 ))}
             </div>
-            <div style={{ display: "flex", gap: 9 }}>
+            <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={onPotvrdi} disabled={busy} style={{ ...btn, background: "#16a34a", color: "#fff", opacity: busy ? .6 : 1 }}>
                     {busy ? "Izvršavam…" : "Potvrdi i izvrši"}
                 </button>
@@ -61,18 +126,38 @@ function PlanKartica({ plan, busy, onPotvrdi, onOtkazi }) {
 }
 
 export default function AIAgentCommandCenter() {
-    const [poruke, setPoruke] = useState([
-        { od: "ai", tekst: "Zdravo. Reci mi šta treba — mogu da proverim stanje magacina, templejte i naloge, predložim formatiranje, otvorim nalog ili rezervišem rolne.\n\nSve što menja podatke prvo ću ti pokazati na potvrdu." },
-    ]);
+    const POZDRAV = {
+        od: "ai",
+        tekst: "Zdravo. Reci mi šta treba.\n\nMogu da proverim magacin i templejte, izračunam kalkulaciju, predložim formatiranje, pročitam pakcing listu i unesem rolne, otvorim nalog ili rezervišem materijal. Pitaj me i struku — strukture, debljine, varenje, barijere.\n\nSve što menja podatke prvo ti pokažem na potvrdu.",
+    };
+    const [poruke, setPoruke] = useState([POZDRAV]);
     const [unos, setUnos] = useState("");
     const [busy, setBusy] = useState(false);
     const [plan, setPlan] = useState([]);
-    const [istorija, setIstorija] = useState([]);   // kontekst razgovora za model
+    const [istorija, setIstorija] = useState([]);
     const [greska, setGreska] = useState("");
     const [prilozi, setPrilozi] = useState([]);
+    const [memorija, setMemorija] = useState(0);
     const dno = useRef(null);
 
     useEffect(() => { dno.current?.scrollIntoView({ behavior: "smooth" }); }, [poruke, plan, busy]);
+
+    // Učitaj poslednje razgovore (AI memorija) pri otvaranju
+    useEffect(() => {
+        let zivo = true;
+        ucitajMemoriju(6).then((redovi) => {
+            if (!zivo || !redovi.length) return;
+            setMemorija(redovi.length);
+            const stare = [];
+            redovi.forEach((r) => {
+                if (r.pitanje) stare.push({ od: "ja", tekst: r.pitanje, staro: true });
+                if (r.odgovor) stare.push({ od: "ai", tekst: r.odgovor, staro: true });
+            });
+            setPoruke([...stare, POZDRAV]);
+        });
+        return () => { zivo = false; };
+        // eslint-disable-next-line
+    }, []);
 
     function citajFajl(file) {
         return new Promise((res, rej) => {
@@ -112,7 +197,7 @@ export default function AIAgentCommandCenter() {
         try {
             const r = await pokreniAgenta(q, istorija, prilozi);
             setPrilozi([]);
-            setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci }]);
+            setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci, dokument: r.dokument }]);
             setIstorija(r.messages || []);
             if (r.plan?.length) setPlan(r.plan);
         } catch (e) {
@@ -134,31 +219,38 @@ export default function AIAgentCommandCenter() {
     }
 
     return (
-        <div style={{ padding: 20, background: "#f1f5f9", minHeight: "100vh" }}>
-            <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+        <div style={{ padding: "18px 16px 26px", background: "#f1f5f9", minHeight: "100vh" }}>
+            <div style={{ maxWidth: 1460, margin: "0 auto" }}>
 
-                <div style={{ ...card, background: "linear-gradient(135deg,#020617,#1d4ed8)", color: "#fff", border: 0, marginBottom: 14 }}>
-                    <h1 style={{ fontSize: 26, margin: "0 0 5px" }}>AI Agent Command Center</h1>
-                    <p style={{ margin: 0, color: "#dbeafe", fontSize: 13.5 }}>
-                        Povezan sa templejtima, magacinom, nalozima i analizama. Izmene traže tvoju potvrdu.
+                <div style={{ background: "linear-gradient(135deg,#0f172a,#1d4ed8)", borderRadius: 16, padding: "22px 26px", marginBottom: 16, boxShadow: "0 8px 24px rgba(15,23,42,.12)" }}>
+                    <h1 style={{ fontSize: 25, margin: "0 0 6px", color: "#ffffff", fontWeight: 800, letterSpacing: -.2 }}>
+                        AI Agent Command Center
+                    </h1>
+                    <p style={{ margin: 0, color: "#c7d7fb", fontSize: 14, lineHeight: 1.5 }}>
+                        Povezan sa templejtima, magacinom, nalozima, kalkulacijama i analizama. Izmene traže tvoju potvrdu.
+                        {memorija > 0 && <span style={{ marginLeft: 8, color: "#93c5fd" }}>· pamti ranije razgovore</span>}
                     </p>
                 </div>
 
-                <div style={{ ...card, minHeight: 380, maxHeight: "55vh", overflowY: "auto", background: "#f8fafc", marginBottom: 12 }}>
+                <div style={{ ...card, minHeight: 520, maxHeight: "66vh", overflowY: "auto", background: "#f8fafc", marginBottom: 14, padding: 20 }}>
                     {poruke.map((p, i) => <Poruka key={i} p={p} />)}
-                    {busy && <div style={{ color: MUT, fontSize: 13, fontStyle: "italic" }}>Agent radi…</div>}
+                    {busy && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 9, color: MUT, fontSize: 13.5, fontStyle: "italic", padding: "6px 2px" }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLAVA, display: "inline-block" }} />
+                            Agent radi…
+                        </div>
+                    )}
                     <div ref={dno} />
                 </div>
 
                 {plan.length > 0 && <PlanKartica plan={plan} busy={busy} onPotvrdi={izvrsi} onOtkazi={() => { setPlan([]); setPoruke((p) => [...p, { od: "ai", tekst: "Otkazano — ništa nije promenjeno." }]); }} />}
 
                 {greska && (
-                    <div style={{ ...card, borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c", marginBottom: 12, fontSize: 13.5 }}>
+                    <div style={{ ...card, borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c", marginBottom: 14, fontSize: 14, lineHeight: 1.55 }}>
                         <b>Greška:</b> {greska}
-                        {/PODESI|nije podešen|Failed to send|not found|non-2xx/i.test(greska) && (
-                            <div style={{ marginTop: 8, color: "#7f1d1d", fontSize: 12.5 }}>
-                                Proveri u Supabase → Edge Functions da funkcija <b>smart-service</b> postoji i da je
-                                u <b>Secrets</b> dodat ključ <b>ANTHROPIC_API_KEY</b>.
+                        {/nije podešen|Failed to send|not found|non-2xx|Edge Function/i.test(greska) && (
+                            <div style={{ marginTop: 9, color: "#7f1d1d", fontSize: 13 }}>
+                                Proveri u Supabase → Edge Functions da funkcija <b>smart-service</b> postoji i da je u <b>Secrets</b> dodat ključ <b>ANTHROPIC_API_KEY</b>.
                                 <br />Ako se funkcija zove drugačije, promeni <code>FUNKCIJA</code> na vrhu fajla <code>aiAgentLLM.js</code>.
                             </div>
                         )}
@@ -167,39 +259,46 @@ export default function AIAgentCommandCenter() {
 
                 <div style={card}>
                     {prilozi.length > 0 && (
-                        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                             {prilozi.map((f, i) => (
-                                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 9, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>
+                                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#eff6ff", border: "1px solid #bfdbfe", color: PLAVA, borderRadius: 10, padding: "7px 12px", fontSize: 12.5, fontWeight: 700 }}>
                                     {f.naziv}
                                     <button onClick={() => setPrilozi((p) => p.filter((_, k) => k !== i))}
-                                        style={{ border: 0, background: "transparent", color: "#1d4ed8", cursor: "pointer", fontWeight: 900, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                                        style={{ border: 0, background: "transparent", color: PLAVA, cursor: "pointer", fontWeight: 900, fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
                                 </span>
                             ))}
                         </div>
                     )}
-                    <div style={{ display: "flex", gap: 9 }}>
+
+                    <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
                         <textarea
                             value={unos} onChange={(e) => setUnos(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); posalji(); } }}
-                            rows={2} placeholder="Npr: proveri materijal za SPANAC 600 na 5000 m i otvori nalog za La Linea"
-                            style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 12, padding: 12, fontSize: 14, resize: "vertical", fontFamily: "inherit" }}
+                            rows={3}
+                            placeholder="Npr: proveri materijal za SPANAC 600 na 5000 m i otvori nalog za La Linea…"
+                            style={{
+                                flex: 1, border: "1px solid #cbd5e1", borderRadius: 12, padding: "13px 15px",
+                                fontSize: 14.5, lineHeight: 1.5, resize: "vertical", fontFamily: "inherit", color: INK, minHeight: 76,
+                            }}
                         />
-                        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                            <button onClick={() => posalji()} disabled={busy || !unos.trim()} style={{ ...btn, background: "#1d4ed8", color: "#fff", minWidth: 110, opacity: busy || !unos.trim() ? .5 : 1 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 132 }}>
+                            <button onClick={() => posalji()} disabled={busy || !unos.trim()}
+                                style={{ ...btn, background: PLAVA, color: "#fff", flex: 1, opacity: busy || !unos.trim() ? .45 : 1 }}>
                                 Pošalji
                             </button>
-                            <label style={{ ...btn, background: "#f1f5f9", color: "#334155", border: "1px solid " + LINE, textAlign: "center", fontSize: 12, fontWeight: 700, padding: "8px 10px" }}>
+                            <label style={{ ...btn, background: "#f1f5f9", color: "#334155", border: "1px solid " + LINE, textAlign: "center", fontSize: 13, padding: "10px 12px" }}>
                                 Dodaj fajl
                                 <input type="file" multiple accept=".pdf,.csv,.txt,image/*" style={{ display: "none" }}
                                     onChange={(e) => { dodajFajlove(e.target.files); e.target.value = ""; }} />
                             </label>
                         </div>
                     </div>
-                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11 }}>
-                        {BRZE.map((q, i) => (
-                            <button key={i} onClick={() => posalji(q)} disabled={busy}
-                                style={{ ...btn, background: "#f1f5f9", color: "#334155", border: "1px solid " + LINE, fontSize: 12, fontWeight: 700, padding: "7px 11px" }}>
-                                {q}
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+                        {BRZE.map((b, i) => (
+                            <button key={i} onClick={() => posalji(b.q)} disabled={busy} title={b.q}
+                                style={{ ...btn, background: "#f8fafc", color: "#475569", border: "1px solid " + LINE, fontSize: 12.5, fontWeight: 600, padding: "8px 13px" }}>
+                                {b.t}
                             </button>
                         ))}
                     </div>

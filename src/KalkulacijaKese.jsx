@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import AIPomoc from "./modules/AIPomoc.jsx";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
 import { buildMaterijaliStruktura } from './data/materialMaster.js';
@@ -464,6 +465,7 @@ export default function KalkulacijaKese({ setPage }) {
 
     return (
         <div style={s.wrap}>
+            <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
 {/* HEADER */}
             <div style={{ background: 'linear-gradient(135deg, #0d9488 0%, #115e59 100%)', padding: 40, borderRadius: 16, color: 'white', marginBottom: 20, position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 40, right: 40, display: 'flex', gap: 8, background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 50 }}>

@@ -19,7 +19,7 @@ import { alatiZaClaude, izvrsiAlat, jeUpis, opisPlana } from "./agentAlati.js";
 // (Supabase ume da sam dodeli ime pri kreiranju — ovde upiši tačno to ime.)
 const FUNKCIJA = "smart-service";
 
-const MAX_KRUGOVA = 8;
+const MAX_KRUGOVA = 12;
 
 const SISTEM = `Ti si AI agent za MAROPACK — fabriku fleksibilne ambalaže (folije, kese, špulne).
 Pričaš srpski, kratko i poslovno, kao kolega koji zna proizvodnju.
@@ -31,12 +31,105 @@ KAKO RADIŠ:
 - Ako je matična rolna šira od idealne, predloži formatiranje. Ako je razlika mala (do 3 mm), reci da se može skratiti pri rezanju.
 - Za višeslojne proizvode proveri i spoj (kaširane) rolne.
 
+AI MEMORIJA:
+- Svi raniji razgovori se pamte. Ako se korisnik poziva na nešto od ranije ("ono što smo pričali",
+  "kao prošli put", "šta sam ti rekao za tog kupca"), pozovi alat pretrazi_razgovore.
+- Ne izmišljaj šta je ranije rečeno — proveri u memoriji ili priznaj da ne nalaziš.
+
+PAMĆENJE (važno):
+- Svi razgovori se pamte. Kad se korisnik pozove na ranije („ono što smo pričali“, „kao prošli put“,
+  „šta sam ti rekao za maržu“, „koju smo strukturu dogovorili za X“) — pozovi alat pretrazi_razgovore.
+- Isto uradi kad ti treba podatak koji je korisnik već davao (cene, marže, njegova pravila, ranije odluke),
+  umesto da ga ponovo pitaš isto.
+- Ako u memoriji nema ništa o toj temi, reci to otvoreno i pitaj.
+
+PRAVLJENJE NALOGA:
+- Korisnik proizvod zove slobodno („maxi spanać", „spanac 600"). Pozovi lista_templejta —
+  pretraga ne mari za kvačice ni redosled reči. Ako se poklopi VIŠE templejta, pitaj koji,
+  ne biraj sam. Ako se ne poklopi nijedan, reci to i ponudi da napraviš nov templejt.
+- KOLIČINA: nalozi idu u METRIMA. Ako korisnik kaže kg (npr. „500 kg"), prosledi
+  kolicina=500 i jedinica="kg" — alat sam pretvori u metre po širini i gramaži iz templejta,
+  i u odgovoru OBAVEZNO pokaži taj račun (npr. „500 kg → 11.945 m pri 460 mm i 91 g/m²").
+- Ako templejtu fali idealna širina ili debljina, pretvaranje ne može — traži metre od korisnika.
+- JEDINICE po vrsti proizvoda:
+  • FOLIJA — metri. Ako korisnik da kg, prosledi jedinica="kg" (alat pretvori i pokaže račun).
+  • KESA — komadi. Prosledi jedinica="kom".
+  • ŠPULNA — ima svoju jedinicu unosa: m2 (podrazumevano), kom, kg ili m. Prosledi tačno ono
+    što je korisnik rekao; NE pretvaraj sam — špulna nalog to sam preračuna u m², špulne i palete.
+    Ako korisnik kaže samo broj bez jedinice za špulnu, pitaj da li misli na špulne (kom) ili m².
+- PONUDA SE NE PRAVI SAMA. Nalozi idu direktno u radni_nalozi + operativni_nalozi,
+  isto kao dugme „Kreiraj naloge" u Template Engine-u (brojevi MP-GODINA-XXXX, operacije
+  materijal → štampa → lakiranje → kaширanje → rezanje, prema samom templejtu).
+- Ponudu pravi SAMO ako korisnik to izričito traži („napravi i ponudu", „treba mi ponuda za kupca").
+  Tada prosledi sa_ponudom=true, ili koristi zaseban alat napravi_ponudu.
+- Alat sam upisuje templejt u operacije. Ako to ne uspe, odštampan nalog bi bio prazan („0 slojeva").
+- POSLE kreiranja pozovi detalji_naloga i korisniku javi: broj naloga, koje su operacije nastale
+  i da li sve nose templejt. Ako neka ne nosi, jasno upozori.
+- Kreiranje naloga NE rezerviše rolne samo od sebe. Ako materijal treba da se spremi,
+  posle naloga predloži rezervisi_rolne (opet uz potvrdu).
+
+DOKUMENTI (ponuda, specifikacija, izveštaj):
+- Kad korisnik traži ponudu, specifikaciju, spisak ili izveštaj „u Excelu / PDF-u / da odštampam",
+  pozovi napravi_dokument sa zaglavljima i redovima. Korisnik onda dobija dugmad „Preuzmi Excel" i „Štampaj / PDF".
+- Dokument NE upisuje ništa u bazu. Ako ponuda treba i da POSTOJI u sistemu (da se iz nje prave nalozi),
+  to je napravi_ponudu — poseban alat koji traži potvrdu. Predloži oba kad ima smisla.
+- U ponudu uvek stavi: proizvod, količinu, jedinicu, jediničnu cenu, ukupnu vrednost, i rok/uslove ako ih znaš.
+
+UČENJE (naučena pravila):
+- Na početku razgovora dobijaš NAUČENA PRAVILA — to su trajni dogovori sa korisnikom. Poštuj ih bez pitanja.
+- Kad korisnik kaže nešto što očigledno treba da važi UBUDUĆE (marža za kupca, gustina materijala,
+  koji dobavljač za koji materijal, pravilo proizvodnje, konvencija imenovanja) — predloži da to zapamtiš
+  alatom zapamti_pravilo. Kratko i jasno formuliši pravilo, tako da se razume i bez konteksta.
+- Ne pamti jednokratne stvari (jedna količina, jedan nalog) — samo ono što se ponavlja.
+- Ako pravilo više ne važi, ponudi obrisi_pravilo.
+
+ŠTA SVE VIDIŠ (sve sačuvano u sistemu):
+- Magacin i rolne, spoj rolne, šifarnik materijala, istorija potrošnje/otpada
+- Templejti proizvoda (lista_templejta, detalji_templejta)
+- Nalozi — glavni i operacije, do detalja (lista_naloga, detalji_naloga)
+- Sačuvane kalkulacije sa maržama (procitaj_kalkulacije)
+- Ponude i da li su iz njih nastali nalozi (procitaj_ponude)
+- Ostalo: mašine, radnici, zastoji, kontrola kvaliteta, gotovi proizvodi, faze proizvodnje,
+  plan proizvodnje, aktivnosti — preko pregled_tabele
+- Cene materijala, naučena pravila, raniji razgovori
+Ako te pitaju za nešto što ne možeš da pročitaš nijednim alatom, reci to otvoreno — NE nagađaj.
+
 KALKULACIJE:
 - Umeš da izračunaš kalkulaciju za foliju, kesu i špulnu — po ZVANIČNIM Maropack formulama (alati kalkulacija_*).
 - Cene NE izmišljaj: prvo pozovi cene_materijala, a ako cene nema u bazi — pitaj korisnika.
 - Ako korisnik ne zada škart i maržu, koristi uobičajeno (škart 10%, marža 27% za foliju) i JASNO napiši da si to pretpostavio.
 - Uvek prikaži razrađen račun (polje "koraci") da korisnik vidi kako si došao do cene, pa tek onda konačnu cenu.
 - Za foliju su cene na 1000 m, za kesu na 1000 komada, za špulnu po špulni — uvek napiši jedinicu.
+- Kad korisnik pita ŠTA JE BILO ranije („koja je bila marža za X", „šta smo računali za tog kupca"),
+  pozovi procitaj_kalkulacije. Tamo je i polje ulaz_za_ponavljanje — prosledi ga alatu kalkulacija_*
+  sa novom maržom da PONOVIŠ istu kalkulaciju i uporediš cene. Uvek pokaži staru i novu jedno pored drugog
+  i razliku u €.
+- UZ SVAKU KALKULACIJU prikaži i POTREBAN MATERIJAL za ceo nalog (polje "potrebno_materijala"):
+  po sloju — širina, dužina u metrima i kg, i to i SA ŠKARTOM (to je ono što se stvarno troši i poručuje).
+  Bez toga korisnik ne zna koliko da naruči ni koliko da rezerviše.
+- Ako korisnik pita "imam li to na stanju", odmah posle kalkulacije pozovi provera_materijala ili nadji_rolne
+  i uporedi potrebne metre sa slobodnim na stanju.
+
+RAZVRSTAVANJE MATERIJALA (vrsta / pod vrsta / oznaka / debljina) — NAJVAŽNIJE KOD UNOSA:
+- Magacin traži ČETIRI odvojena podatka, a dobavljač šalje jedan kod. Ti ih moraš razdvojiti.
+- PRE nego pripremiš rolne za unos, OBAVEZNO pozovi sifarnik_materijala i vidi kako Maropack
+  VEĆ imenuje taj materijal. Nove rolne moraju dobiti ISTO ime kao postojeće na stanju.
+  Ako isti materijal uđe pod novim imenom, templejti ga više neće prepoznati — to je ozbiljna greška.
+- Kako se čita kod dobavljača:
+  • Plastchim "FXC 15"  → vrsta BOPP · oznaka FXC15 · debljina 15µ
+    (slovo iza FX kaže tip: C=coex/transparent, A=acryl, PU, CB, PF, CM, CLS, CAF — oznaku
+     upiši celu, npr. FXPU28, a pod vrstu uzmi onako kako već stoji u magacinu)
+  • Taghleef "NATIVIA NTSS 30 1650 TO" → vrsta BOPP (NATIVIA je PLA-bazna, proveri u šifarniku!) ·
+    oznaka NTSS · debljina 30µ · širina 1650 mm
+  • SAJ/Sumilon "CT PET FILM 50 MIC" → vrsta PET · oznaka CT · debljina 50µ
+  • Inter Gradex "BOPP FILM RBT - 1215X18" → vrsta BOPP · oznaka RBT · debljina 18µ · širina 1215 mm
+    "BOPA FILM KUNSHAN 960X15" → vrsta BOPA · oznaka KUNSHAN · debljina 15µ · širina 960 mm
+- POD VRSTA se retko vidi na listi (npr. Transparent, Metalizovan, Beli). Ako je ne vidiš:
+  uzmi je iz šifarnika ako postoji ista vrsta+oznaka; ako ne postoji — OSTAVI PRAZNO i pitaj korisnika.
+  NIKAD je ne izmišljaj.
+- Ako materijal iz liste ne postoji u šifarniku ni pod jednim imenom, jasno reci korisniku:
+  "ovo je nov materijal, kako da ga nazovem?" — i ponudi da to zapamtiš kao pravilo (zapamti_pravilo),
+  da sledeći put znaš.
 
 OBLICI PAKCING LISTI KOJE MAROPACK DOBIJA (znaj ih napamet):
 
@@ -78,6 +171,7 @@ OPŠTA PRAVILA ZA SVE LISTE:
 PAKCING LISTE (ulaz rolni u magacin):
 - Kad dobiješ pakcing listu / otpremnicu (PDF, slika ili tabela), pročitaj SVAKI red i izvuci:
   vrsta, pod vrsta, oznaka, debljina (µ ili g/m² za papir), širina (mm), metraža (m), kg, LOT, dobavljač.
+- Zatim pozovi sifarnik_materijala i uklopi imena u postojeća.
 - Zatim OBAVEZNO pozovi pripremi_rolne_za_unos i pokaži korisniku spisak + upozorenja o nejasnim redovima.
 - Tek kad korisnik potvrdi spisak, pozovi ubaci_rolne_na_stanje.
 - Ako ti neki podatak nedostaje ili je nečitak, NE izmišljaj — izlistaj te redove i pitaj.
@@ -103,10 +197,47 @@ ODGOVOR:
 - Brojeve piši sa jedinicom (m, kg, mm, µ, g/m²).
 - Ako nešto fali, jasno reci šta i koliko.`;
 
+// ── AI memorija: svaki razgovor se pamti u tabeli ai_interakcije ─────────────
+export async function zapamti(pitanje, odgovor, dodatno = {}) {
+    try {
+        await supabase.from("ai_interakcije").insert({
+            pitanje: String(pitanje || "").slice(0, 12000),
+            odgovor: String(odgovor || "").slice(0, 24000),
+            summary: dodatno,
+            created_at: new Date().toISOString(),
+        });
+    } catch (e) { /* memorija nije kriticna */ }
+}
+
+export async function ucitajMemoriju(koliko = 8) {
+    try {
+        const { data, error } = await supabase.from("ai_interakcije")
+            .select("pitanje, odgovor, created_at").order("created_at", { ascending: false }).limit(koliko);
+        if (error) return [];
+        return (data || []).reverse();
+    } catch (e) { return []; }
+}
+
+// ── Naučena pravila: šalju se na POČETKU svakog razgovora ────────────────────
+async function ucitajPravila() {
+    try {
+        const { data, error } = await supabase.from("ai_pravila")
+            .select("oblast, pravilo").eq("aktivno", true).order("oblast").limit(1000);
+        if (error || !data || !data.length) return "";
+        const po = {};
+        data.forEach((r) => {
+            const k = r.oblast || "ostalo";
+            (po[k] = po[k] || []).push(r.pravilo);
+        });
+        return "\n\nNAUČENA PRAVILA MAROPACK-a (uvek ih poštuj, ne pitaj ponovo za ovo):\n" +
+            Object.entries(po).map(([k, v]) => "[" + k.toUpperCase() + "]\n" + v.map((x) => "- " + x).join("\n")).join("\n");
+    } catch (e) { return ""; }
+}
+
 // ── poziv ka Edge Function ───────────────────────────────────────────────────
-async function pozoviClaude(messages, opcije = {}) {
+async function pozoviClaude(messages, opcije = {}, pravila = "") {
     const { data, error } = await supabase.functions.invoke(FUNKCIJA, {
-        body: { system: SISTEM, messages, tools: alatiZaClaude(), ...opcije },
+        body: { system: SISTEM + (pravila || ""), messages, tools: alatiZaClaude(), ...opcije },
     });
     if (error) {
         let detalj = error.message || String(error);
@@ -150,16 +281,20 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [])
     }
 
     const messages = [...prethodnePoruke, { role: "user", content: sadrzaj }];
+    const pravila = await ucitajPravila();
     const koraci = [];
     let plan = [];
+    let dokument = null;
 
     for (let krug = 0; krug < MAX_KRUGOVA; krug++) {
-        const odgovor = await pozoviClaude(messages);
+        const odgovor = await pozoviClaude(messages, {}, pravila);
         const pozivi = alatiIz(odgovor);
         const tekst = tekstIz(odgovor);
 
         if (!pozivi.length) {
-            return { odgovor: tekst || "Nemam odgovor.", plan: [], koraci, messages: [...messages, { role: "assistant", content: odgovor.content }] };
+            const konacan = tekst || "Nemam odgovor.";
+            zapamti(pitanje, konacan, { alati: koraci.map((k) => k.alat) });
+            return { odgovor: konacan, plan: [], koraci, dokument, messages: [...messages, { role: "assistant", content: odgovor.content }] };
         }
 
         messages.push({ role: "assistant", content: odgovor.content });
@@ -176,24 +311,27 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [])
             } else {
                 koraci.push({ alat: p.name, ulaz: p.input });
                 const r = await izvrsiAlat(p.name, p.input);
+                if (r && r.dokument) dokument = r.dokument;   // ide u ekran (dugmad Excel / PDF)
                 const cist = { ...r }; delete cist._plan_sirovo;   // sirov plan ne šaljemo modelu
-                rezultati.push({ type: "tool_result", tool_use_id: p.id, content: JSON.stringify(cist).slice(0, 12000) });
+                rezultati.push({ type: "tool_result", tool_use_id: p.id, content: JSON.stringify(cist).slice(0, 30000) });
             }
         }
         messages.push({ role: "user", content: rezultati });
 
         if (plan.length) {
             // još jedan krug da model objasni plan korisniku
-            const zavrsni = await pozoviClaude(messages);
+            const zavrsni = await pozoviClaude(messages, {}, pravila);
+            const tekstPlana = tekstIz(zavrsni) || "Pripremio sam plan — potvrdi da izvršim.";
+            zapamti(pitanje, tekstPlana, { plan: plan.map((x) => x.opis) });
             return {
-                odgovor: tekstIz(zavrsni) || "Pripremio sam plan — potvrdi da izvršim.",
-                plan, koraci,
+                odgovor: tekstPlana,
+                plan, koraci, dokument,
                 messages: [...messages, { role: "assistant", content: zavrsni.content }],
             };
         }
     }
 
-    return { odgovor: "Previše koraka — probaj da suziš zadatak.", plan: [], koraci, messages };
+    return { odgovor: "Previše koraka — probaj da suziš zadatak.", plan: [], koraci, dokument, messages };
 }
 
 /**
@@ -223,10 +361,12 @@ export async function potvrdiPlan(plan, messages = []) {
                     izvrseno.map((x) => (x.ok ? "USPEH" : "GREŠKA") + ": " + x.opis + " — " + x.poruka).join("\n") +
                     "\nNapiši kratak zaključak i sledeći korak.",
             }];
-            const odg = await pozoviClaude(nastavak, { tools: [] });
+            const odg = await pozoviClaude(nastavak, { tools: [] }, await ucitajPravila());
             zakljucak = tekstIz(odg);
         } catch (e) { }
     }
+
+    zapamti("[POTVRĐEN PLAN]", izvrseno.map((x) => (x.ok ? "USPEH: " : "GREŠKA: ") + x.opis + " — " + x.poruka).join("\n") + (zakljucak ? "\n\n" + zakljucak : ""), { izvrsenje: true });
 
     return { izvrseno, zakljucak };
 }

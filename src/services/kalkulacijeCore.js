@@ -133,7 +133,22 @@ export function kalkulacijaFolije(u = {}) {
         konacna_cena: R2(konacnaCena),
         cena_po_kg: R4(ukupnoKg > 0 ? cenaSaDodatkom / ukupnoKg : 0),
         cena_po_kg_sa_marzom: R4(ukupnoKg > 0 ? konacnaCena / ukupnoKg : 0),
-        za_ceo_nalog: { ponavljanja: nalog, ukupno_kg: R4(ukupnoKg * nalog), osnovna: R2(osnovnaCena * nalog), konacna: R2(konacnaCena * nalog) },
+        za_ceo_nalog: {
+            ponavljanja: nalog,
+            ukupna_duzina_m: metraza * nalog,
+            ukupno_kg: R4(ukupnoKg * nalog),
+            osnovna: R2(osnovnaCena * nalog),
+            konacna: R2(konacnaCena * nalog),
+        },
+        // Koliko materijala TREBA NABAVITI / REZERVISATI po sloju — sa uračunatim škartom.
+        potrebno_materijala: slojevi.filter((x) => x.tezina > 0).map((x) => ({
+            sloj: x.naziv || "sloj",
+            sirina_mm: sirina,
+            duzina_m: metraza * nalog,
+            duzina_sa_skartom_m: Math.ceil(metraza * nalog * (1 + skart / 100)),
+            kg: R2(x.kg * nalog),
+            kg_sa_skartom: R2(x.kg * nalog * (1 + skart / 100)),
+        })),
         kasiranje_prolazi: kasProlazi,
         koraci,
     };
@@ -204,6 +219,15 @@ export function kalkulacijaKese(u = {}) {
         konacna_cena: R2(konacna),
         cena_po_komadu: R4(konacna / 1000),
         za_ceo_nalog: { kolicina_kom: kolicina, ukupno_kg: R4(tezKg1000 * (1 + skart / 100) * valFak), vrednost: R2(konacna * valFak) },
+        // Materijal za ceo nalog: rolna širine (2×širina + klapna), dužina = kom × (dužina + falta)
+        potrebno_materijala: [{
+            sloj: "materijal kese",
+            sirina_mm: sirina * 2 + klapna,
+            duzina_m: Math.round((kolicina * (duzina + falta)) / 1000),
+            duzina_sa_skartom_m: Math.ceil((kolicina * (duzina + falta)) / 1000 * (1 + skart / 100)),
+            kg: R2(tezKg1000 * valFak),
+            kg_sa_skartom: R2(tezKg1000 * (1 + skart / 100) * valFak),
+        }],
         koraci,
     };
 }
@@ -256,6 +280,14 @@ export function kalkulacijaSpulne(u = {}) {
         konacna_cena: R2(saMarza),
         na_1000m: { osnovna: R2(cena1000), proizvodna: R2(proizvodna1000), konacna: R2(final1000) },
         za_ceo_nalog: { kolicina: kolicina, vrednost: R2(saMarza * kolicina) },
+        potrebno_materijala: [{
+            sloj: "materijal špulne",
+            sirina_mm: sirina,
+            duzina_m: duzina * kolicina,
+            duzina_sa_skartom_m: Math.ceil(duzina * kolicina * (1 + skart / 100)),
+            kg: R2(tezina * kolicina),
+            kg_sa_skartom: R2(tezina * kolicina * (1 + skart / 100)),
+        }],
         koraci,
     };
 }

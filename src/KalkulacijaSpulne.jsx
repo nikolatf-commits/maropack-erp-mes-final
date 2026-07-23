@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AIPomoc from "./modules/AIPomoc.jsx";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
 import { buildMaterijaliStruktura } from './data/materialMaster.js';
@@ -237,6 +238,7 @@ export default function KalkulacijaSpulne() {
 
     return (
         <div style={{ padding: '16px', background: '#f1f5f9', minHeight: '100vh' }}>
+            <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, rezultat: rez })} />
 {/* Header */}
             <div style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '24px', borderRadius: '12px', color: 'white', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                 <div>
