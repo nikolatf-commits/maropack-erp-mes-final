@@ -887,6 +887,7 @@ export const ALATI = {
                     poruka: `Nalog ${broj} napravljen za „${t.naziv}" (${racun || kolicina.toLocaleString("sr-RS") + " " + (t.tip === "folija" ? "m" : jed)}) — ` +
                         `${ops.length} operacija: ${lista.join(", ")}. Bez ponude.`,
                     broj, glavni_nalog_id: master.id, operacije: lista,
+                    ponistivo: { tabela: "radni_nalozi", ids: [master.id] },
                 };
             }
 
@@ -1007,13 +1008,16 @@ export const ALATI = {
                     plan_reza: n.plan_reza,
                 };
             });
-            const { error } = await supabase.from("operativni_nalozi").insert([{
+            const { data: upisanF, error } = await supabase.from("operativni_nalozi").insert([{
                 broj_naloga: broj, tip_naloga: "formatiranje", tip_proizvoda: matice[0]?.materijal || null,
                 parametri: JSON.stringify({ formatiranje: { objedinjeno: true, broj, preventivno: true, matice } }),
                 uradjeno: 0, skart: 0,
-            }]);
+            }]).select("id");
             if (error) return { ok: false, poruka: "Upis nije uspeo: " + error.message };
-            return { ok: true, poruka: `Formatiranje ${broj} kreirano (${matice.length} matičnih).`, broj };
+            return {
+                ok: true, poruka: `Formatiranje ${broj} kreirano (${matice.length} matičnih).`, broj,
+                ponistivo: upisanF && upisanF[0] ? { tabela: "operativni_nalozi", ids: [upisanF[0].id] } : null,
+            };
         },
     },
 
@@ -1145,6 +1149,7 @@ export const ALATI = {
                 ok: true,
                 poruka: `Ubačeno ${(upisane || []).length} rolni na stanje.`,
                 brojevi: (upisane || []).map((x) => x.br_rolne),
+                ponistivo: { tabela: "magacin", ids: (upisane || []).map((x) => x.id) },
             };
         },
     },
@@ -1193,9 +1198,10 @@ export const ALATI = {
                 };
             }
 
-            const { error } = await supabase.from(tabela).insert([red]);
+            const { data: upisana, error } = await supabase.from(tabela).insert([red]).select("id");
             if (error) return { ok: false, poruka: "Upis u " + tabela + " nije uspeo: " + error.message };
             return {
+                ponistivo: upisana && upisana[0] ? { tabela, ids: [upisana[0].id] } : null,
                 ok: true,
                 poruka: `Kalkulacija „${naziv}" (${tip}) sačuvana u ${tabela}. Konačna cena: ${rez.konacna_cena} ${rez.jedinica}.`,
                 konacna_cena: rez.konacna_cena, jedinica: rez.jedinica,
@@ -1246,25 +1252,70 @@ export const ALATI = {
                 type: "array", description: "Slojevi materijala",
                 items: { type: "object", properties: { vrsta: { type: "string" }, pod_vrsta: { type: "string" }, oznaka: { type: "string" }, debljina: { type: "number" } }, required: ["vrsta"] },
             },
+            stampa: {
+                type: "object", description: "Parametri štampe: masina, strana, brojBoja, boje (niz {naziv,tip}), obimValjka, precnikHilzne, smerOdmotavanja, stamparija, klise",
+            },
+            kasiranje: { type: "object", description: "Kaширanje: tipLepka, odnosLepka, nanosLepka, brojKasiranja, materijalABC" },
+            perforacija: { type: "object", description: "Perforacija/KPDF: tip, razmak, sirina, pozicija, smer, brojRupa" },
+            rezanje: { type: "object", description: "Rezanje: sirinaMaterijala, sirinaTrake, brojTraka" },
+            dimenzije_kese: {
+                type: "object",
+                description: "Za kesu. Polja: sirina, duzina, klapna, falta, ban, takt, tolerancija, pakovanje, kolicina, skart, " +
+                    "tipKese (TAČNO jedna od: ravna | doypack | side_gusset | stabilo | courier), i " +
+                    "options — objekat sa true/false po TAČNIM šiframa: duplofan, eurozumba, okrugla_zumba, kosa_klapna, " +
+                    "anleger, utor, stampa, poprecna_perf, bocni_var, kontinualni_var, poprecni_var, falta_dno, var_dno, " +
+                    "otvor_dno, pakovanje_trn, busene_rupe, adh_traka, ojacanje, toplotni_var. " +
+                    "Primer: { tipKese: \"doypack\", sirina: 200, duzina: 300, klapna: 30, options: { eurozumba: true, falta_dno: true } }",
+            },
+            dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
             napomena: { type: "string" },
         },
-        opisPlana: (a) => `Sačuvaj NOV templejt „${a.naziv}" (${a.tip || "folija"}${a.idealna_sirina ? ", " + a.idealna_sirina + " mm" : ""}, ${(a.slojevi || []).length} sloj/a)`,
+        opisPlana: (a) => {
+            const d = [];
+            if (a.idealna_sirina) d.push(a.idealna_sirina + " mm");
+            d.push((a.slojevi || []).length + " sloj/a");
+            if (a.stampa && a.stampa.brojBoja) d.push(a.stampa.brojBoja + " boja");
+            if (a.dimenzije_kese && a.dimenzije_kese.sirina) d.push(a.dimenzije_kese.sirina + "×" + (a.dimenzije_kese.duzina || "?") + " mm");
+            if (a.perforacija) d.push("perforacija");
+            return `Sačuvaj NOV templejt „${a.naziv}" (${a.tip || "folija"} · ${d.join(" · ")})`;
+        },
         async izvrsi(a) {
             const naziv = T(a.naziv);
             if (!naziv) return { ok: false, poruka: "Templejt mora imati naziv." };
             const tip = (T(a.tip) || "folija").toLowerCase();
-            const slojevi = (Array.isArray(a.slojevi) ? a.slojevi : []).map((l) => ({
-                vrsta: T(l.vrsta), pod_vrsta: T(l.pod_vrsta), oznaka: T(l.oznaka), debljina: N(l.debljina),
-            })).filter((l) => l.vrsta);
+            // Template Engine čita i "oznaka" i "oznaka_materijala" — upisujemo oba,
+            // plus gramažu, da se templejt ispravno otvori i računa kad ga korisnik otvori.
+            const slojevi = (Array.isArray(a.slojevi) ? a.slojevi : []).map((l) => {
+                const deb = N(l.debljina);
+                const oz = T(l.oznaka || l.oznaka_materijala);
+                const g = N(l.gm2) || (deb ? gm2Sloja({ vrsta: l.vrsta, debljina: deb }) : 0);
+                return {
+                    vrsta: T(l.vrsta), pod_vrsta: T(l.pod_vrsta),
+                    oznaka: oz, oznaka_materijala: oz,
+                    debljina: deb, deb: deb,
+                    gm2: Math.round(g * 100) / 100,
+                    koef: GUSTINE[UP(l.vrsta)] || 0.91,
+                };
+            }).filter((l) => l.vrsta);
             if (!slojevi.length) return { ok: false, poruka: "Templejt mora imati bar jedan sloj." };
 
+            // Složi templejt istim oblikom koji Template Engine koristi.
+            const grana = { layers: slojevi };
+            if (a.stampa && typeof a.stampa === "object") grana.stampa = a.stampa;
+            if (a.kasiranje && typeof a.kasiranje === "object") grana.kasiranje = a.kasiranje;
+            if (tip === "kesa" && a.dimenzije_kese && typeof a.dimenzije_kese === "object") Object.assign(grana, a.dimenzije_kese);
+            if (tip === "spulna" && a.dimenzije_spulne && typeof a.dimenzije_spulne === "object") Object.assign(grana, a.dimenzije_spulne);
+
             const data = {
-                sifra: null, idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
-                [tip]: { layers: slojevi },
+                sifra: null, naziv, type: tip,
+                idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
+                [tip]: grana,
                 napomena: T(a.napomena) || "Kreirano preko AI agenta",
             };
+            if (a.perforacija && typeof a.perforacija === "object") { data.perforacija = a.perforacija; data.kpdf = { enabled: true, ...a.perforacija }; }
+            if (a.rezanje && typeof a.rezanje === "object") data.rezanje = a.rezanje;
             const tplId = "TPL-" + Date.now();
-            const { error } = await supabase.from("proizvodi").insert([{
+            const { data: upisan, error } = await supabase.from("proizvodi").insert([{
                 tip, naziv, kupac: T(a.kupac) || null, status: "Aktivan",
                 sir: N(a.idealna_sirina) || null,
                 mats: slojevi, materijali_struktura: slojevi,
@@ -1272,9 +1323,12 @@ export const ALATI = {
                 template_id: tplId, template_version: "V1",
                 standardi: { tip, kupac: T(a.kupac) || null, template_version: "V1", izvor: "AI agent" },
                 datum: new Date().toLocaleDateString("sr-RS"),
-            }]);
+            }]).select("id");
             if (error) return { ok: false, poruka: "Templejt nije sačuvan: " + error.message };
-            return { ok: true, poruka: `Templejt „${naziv}" sačuvan (${slojevi.length} sloj/a).`, template_id: tplId };
+            return {
+                ok: true, poruka: `Templejt „${naziv}" sačuvan (${slojevi.length} sloj/a).`, template_id: tplId,
+                ponistivo: upisan && upisan[0] ? { tabela: "proizvodi", ids: [upisan[0].id] } : null,
+            };
         },
     },
 
@@ -1318,7 +1372,54 @@ export const ALATI = {
                 },
             }]).select("id, broj").maybeSingle();
             if (error) return { ok: false, poruka: "Ponuda nije kreirana: " + error.message };
-            return { ok: true, poruka: `Ponuda ${(pon && pon.broj) || broj} napravljena za ${kupac} — ${proizvod}.`, broj: (pon && pon.broj) || broj };
+            return {
+                ok: true, poruka: `Ponuda ${(pon && pon.broj) || broj} napravljena za ${kupac} — ${proizvod}.`,
+                broj: (pon && pon.broj) || broj,
+                ponistivo: pon && pon.id ? { tabela: "ponude", ids: [pon.id] } : null,
+            };
+        },
+    },
+
+    ponisti_radnju: {
+        cita: false,
+        opis: "Poništava prethodni upis — briše ono što je maločas napisano u bazu (rolne, nalog, ponudu, kalkulaciju, templejt). MENJA BAZU — traži potvrdu. Ne može da poništi brisanje naloga.",
+        ulaz: {
+            ponistivo: { type: "object", description: "Podatak koji je vratio prethodni alat u polju `ponistivo` — {tabela, ids}" },
+        },
+        opisPlana: (a) => {
+            const p = a.ponistivo || {};
+            const n = (p.ids || []).length;
+            return `PONIŠTI prethodnu radnju — obriši ${n} zapis(a) iz ${p.tabela || "?"}`;
+        },
+        async izvrsi(a) {
+            const p = a.ponistivo || {};
+            const tabela = T(p.tabela), ids = Array.isArray(p.ids) ? p.ids : [];
+            if (!tabela || !ids.length) return { ok: false, poruka: "Nema šta da se poništi (fali podatak o prethodnom upisu)." };
+
+            const dozvoljene = ["magacin", "radni_nalozi", "operativni_nalozi", "ponude", "proizvodi",
+                "kalkulacije_folije", "kalkulacije_kese", "kalkulacije_spulne", "magacin_istorija", "ai_pravila"];
+            if (dozvoljene.indexOf(tabela) === -1) return { ok: false, poruka: "Ne mogu da poništim upis u tabelu " + tabela + "." };
+
+            let obrisano = 0; const greske = [];
+            // brišemo u komadima, da veliki spiskovi ne padnu
+            for (let i = 0; i < ids.length; i += 100) {
+                const deo = ids.slice(i, i + 100);
+                const { data, error } = await supabase.from(tabela).delete().in("id", deo).select("id");
+                if (error) greske.push(error.message); else obrisano += (data || []).length;
+            }
+
+            // ako je poništen nalog, obriši i njegove operacije
+            if (tabela === "radni_nalozi" && obrisano) {
+                try { await supabase.from("operativni_nalozi").delete().in("glavni_nalog_id", ids); } catch (e) { }
+            }
+            // ako su poništene rolne, obriši i tragove u istoriji
+            if (tabela === "magacin" && obrisano) {
+                try { await supabase.from("magacin_istorija").delete().in("rolna_id", ids); } catch (e) { }
+            }
+
+            ocistiKes();
+            if (!obrisano) return { ok: false, poruka: "Ništa nije poništeno." + (greske.length ? " " + greske.join("; ") : "") };
+            return { ok: true, poruka: `Poništeno — obrisano ${obrisano} zapis(a) iz ${tabela}.` + (greske.length ? " Greške: " + greske.join("; ") : "") };
         },
     },
 

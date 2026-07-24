@@ -120,6 +120,23 @@ UČENJE (naučena pravila):
 - Cene materijala, naučena pravila, raniji razgovori
 Ako te pitaju za nešto što ne možeš da pročitaš nijednim alatom, reci to otvoreno — NE nagađaj.
 
+KESE — TIPOVI I OPCIJE (koristi TAČNE šifre, inače se opcija ne čekira):
+- tipKese: ravna | doypack | side_gusset | stabilo | courier
+  Kako korisnik govori → šifra: "ravna/plosnata"→ravna · "doypack/stojeća"→doypack ·
+  "bočna falta/side gusset"→side_gusset · "stabilo"→stabilo · "kurirska"→courier
+- options (true/false), tačne šifre i kako ih korisnik zove:
+  eurozumba (euro rupa, evrorupa, za vešalicu) · okrugla_zumba (okrugla rupa, Ø28) ·
+  duplofan (duplofan traka) · kosa_klapna (kosa klapna) · anleger · utor ·
+  poprecna_perf (poprečna perforacija, za kidanje) · bocni_var · kontinualni_var ·
+  poprecni_var · falta_dno (falta na dnu) · var_dno (var na dnu) · otvor_dno ·
+  pakovanje_trn (na trnu) · busene_rupe (bušene rupe) · adh_traka (ADH, lepljiva traka) ·
+  ojacanje · toplotni_var (termo var)
+- PRAVILA KOJA MORAŠ DA PROVERIŠ i upozoriš korisnika:
+  • eurozumba traži klapnu ≥ 15 mm
+  • anleger je rizičan na kesi užoj od 80 mm
+  • ako je falta_dno čekirana, mora biti zadata i dubina falte
+- Ako korisnik pomene opciju koju ne prepoznaješ sa spiska — NE izmišljaj šifru, nego pitaj.
+
 KALKULACIJE:
 - Umeš da izračunaš kalkulaciju za foliju, kesu i špulnu — po ZVANIČNIM Maropack formulama (alati kalkulacija_*).
 - Cene NE izmišljaj: prvo pozovi cene_materijala, a ako cene nema u bazi — pitaj korisnika.
@@ -371,11 +388,24 @@ export async function pokreniAgenta(pitanje, prethodnePoruke = [], prilozi = [],
 /**
  * Izvršava potvrđene izmene (posle klika Potvrdi).
  */
+export async function ponistiRadnje(zaPonistiti = []) {
+    const rez = [];
+    for (const x of zaPonistiti) {
+        const r = await izvrsiAlat("ponisti_radnju", { ponistivo: x.ponistivo });
+        rez.push({ opis: x.opis, ok: r && r.ok === true, poruka: (r && (r.poruka || r.greska)) || "" });
+    }
+    return rez;
+}
+
 export async function potvrdiPlan(plan, messages = []) {
     const izvrseno = [];
     for (const stavka of plan) {
         const r = await izvrsiAlat(stavka.alat, stavka.ulaz);
-        izvrseno.push({ opis: stavka.opis, ok: r?.ok !== false && !r?.greska, poruka: r?.poruka || r?.greska || "Urađeno." });
+        izvrseno.push({
+            opis: stavka.opis, ok: r?.ok !== false && !r?.greska,
+            poruka: r?.poruka || r?.greska || "Urađeno.",
+            ponistivo: r?.ponistivo || null,
+        });
     }
 
     // upiši u AI memoriju (ako tabela postoji)
@@ -402,5 +432,7 @@ export async function potvrdiPlan(plan, messages = []) {
 
     zapamti("[POTVRĐEN PLAN]", izvrseno.map((x) => (x.ok ? "USPEH: " : "GREŠKA: ") + x.opis + " — " + x.poruka).join("\n") + (zakljucak ? "\n\n" + zakljucak : ""), { izvrsenje: true });
 
-    return { izvrseno, zakljucak };
+    // šta se može vratiti unazad (za dugme „Poništi")
+    const zaPonistiti = izvrseno.filter((x) => x.ok && x.ponistivo).map((x) => ({ opis: x.opis, ponistivo: x.ponistivo }));
+    return { izvrseno, zakljucak, zaPonistiti };
 }

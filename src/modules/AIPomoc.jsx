@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { pokreniAgenta, potvrdiPlan } from "../services/aiAgentLLM.js";
+import { pokreniAgenta, potvrdiPlan, ponistiRadnje } from "../services/aiAgentLLM.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  AI POMOĆ — mali plutajući panel koji se ubacuje u bilo koji ekran.
@@ -199,6 +199,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
     const [busy, setBusy] = useState(false);
     const [korak, setKorak] = useState("");
     const [prilozi, setPrilozi] = useState([]);
+    const [ponisti, setPonisti] = useState([]);
     const [siri, setSiri] = useState(false);
     const [plan, setPlan] = useState([]);
     const [istorija, setIstorija] = useState([]);
@@ -280,6 +281,7 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
         setBusy(true); setGreska("");
         try {
             const r = await potvrdiPlan(plan, istorija);
+            setPonisti(r.zaPonistiti || []);
             setPoruke((p) => [...p, { od: "ai", tekst: r.izvrseno.map((x) => (x.ok ? "✓ " : "✗ ") + x.poruka).join("\n") + (r.zakljucak ? "\n\n" + r.zakljucak : "") }]);
             setPlan([]);
             try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { }
@@ -364,6 +366,24 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
                 <div ref={dno} />
             </div>
 
+            {ponisti.length > 0 && plan.length === 0 && (
+                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 11, padding: "10px 13px", margin: "0 0 11px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 12.5, color: "#7f1d1d" }}>Upisano u bazu. Ako nešto nije kako treba, možeš odmah da vratiš.</div>
+                    <button onClick={async () => {
+                        if (!window.confirm("Poništiti poslednju radnju? Upisani zapisi će biti obrisani.")) return;
+                        setBusy(true);
+                        try {
+                            const r = await ponistiRadnje(ponisti);
+                            setPoruke((p) => [...p, { od: "ai", tekst: r.map((x) => (x.ok ? "↩ " : "✗ ") + x.poruka).join("\n") }]);
+                            setPonisti([]);
+                            try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { }
+                        } catch (e) { setGreska(e.message || String(e)); }
+                        finally { setBusy(false); }
+                    }} disabled={busy} style={{ ...btn, background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", fontSize: 12.5, padding: "7px 13px" }}>
+                        Poništi poslednju radnju
+                    </button>
+                </div>
+            )}
             {plan.length > 0 && (
                 <div style={{ background: "#fffbeb", borderTop: "1px solid #fbbf24", padding: 14 }}>
                     <div style={{ fontWeight: 900, color: "#92400e", fontSize: 12, marginBottom: 8 }}>ČEKA POTVRDU — menja podatke</div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { pokreniAgenta, potvrdiPlan, ucitajMemoriju } from "../services/aiAgentLLM.js";
+import { pokreniAgenta, potvrdiPlan, ponistiRadnje, ucitajMemoriju } from "../services/aiAgentLLM.js";
 
 const INK = "#0f172a", MUT = "#64748b", LINE = "#e2e8f0", PLAVA = "#1d4ed8";
 const card = { background: "#fff", border: "1px solid " + LINE, borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,.05)" };
@@ -308,6 +308,7 @@ export default function AIAgentCommandCenter() {
     const [istorija, setIstorija] = useState([]);
     const [greska, setGreska] = useState("");
     const [prilozi, setPrilozi] = useState([]);
+    const [ponisti, setPonisti] = useState([]);
     const [memorija, setMemorija] = useState(0);
     const dno = useRef(null);
 
@@ -380,6 +381,7 @@ export default function AIAgentCommandCenter() {
         setBusy(true); setGreska("");
         try {
             const r = await potvrdiPlan(plan, istorija);
+            setPonisti(r.zaPonistiti || []);
             const rez = r.izvrseno.map((x) => (x.ok ? "✓ " : "✗ ") + x.poruka).join("\n");
             setPoruke((p) => [...p, { od: "ai", tekst: rez + (r.zakljucak ? "\n\n" + r.zakljucak : "") }]);
             setPlan([]);
@@ -436,6 +438,24 @@ export default function AIAgentCommandCenter() {
                     <div ref={dno} />
                 </div>
 
+                {ponisti.length > 0 && plan.length === 0 && (
+                    <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 11, padding: "10px 13px", margin: "0 0 11px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 12.5, color: "#7f1d1d" }}>Upisano u bazu. Ako nešto nije kako treba, možeš odmah da vratiš.</div>
+                        <button onClick={async () => {
+                            if (!window.confirm("Poništiti poslednju radnju? Upisani zapisi će biti obrisani.")) return;
+                            setBusy(true);
+                            try {
+                                const r = await ponistiRadnje(ponisti);
+                                setPoruke((p) => [...p, { od: "ai", tekst: r.map((x) => (x.ok ? "↩ " : "✗ ") + x.poruka).join("\n") }]);
+                                setPonisti([]);
+                                try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { }
+                            } catch (e) { setGreska(e.message || String(e)); }
+                            finally { setBusy(false); }
+                        }} disabled={busy} style={{ ...btn, background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", fontSize: 12.5, padding: "7px 13px" }}>
+                            Poništi poslednju radnju
+                        </button>
+                    </div>
+                )}
                 {plan.length > 0 && <PlanKartica plan={plan} busy={busy} onPotvrdi={izvrsi} onOtkazi={() => { setPlan([]); setPoruke((p) => [...p, { od: "ai", tekst: "Otkazano — ništa nije promenjeno." }]); }} />}
 
                 {greska && (
