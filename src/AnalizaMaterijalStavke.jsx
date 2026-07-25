@@ -54,8 +54,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
         const m = {};
         rows.forEach((r) => {
             const k = r.nalog_ref || "—";
-            if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
+            if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, stvarnoIzdato: 0, izdatih: 0, idealna: r.idealna_sirina || 0 };
             m[k].plan += num(r.alocirano_m); m[k].izdato += num(r._izdato); m[k].vraceno += num(r._vraceno);
+            m[k].stvarnoIzdato += num(r.izdato_m); if (String(r.status) === "izdato" || String(r.status) === "zatvoreno") m[k].izdatih += 1;
             m[k].otpad += num(r._otpad); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
         });
@@ -69,8 +70,8 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const poMaterijalu = useMemo(() => {
         const m = {};
         rows.forEach((r) => {
-            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
-            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
+            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.sirina, r.dobavljac].map((x) => x || "").join("|");
+            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: r.sirina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
             const utroseno = Math.max(0, num(r._izdato) - num(r._vraceno)) || num(r.alocirano_m);
             m[k].potroseno += utroseno; m[k].kg += num(r.kg_alocirano); m[k].otpad += num(r.otpad_m); m[k].rolni += 1;
         });
@@ -87,7 +88,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
     }), [rows]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
-    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
+    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.sirina, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
 
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));
@@ -141,7 +142,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                 <tbody>
                                     {filtNalog.map((x, i) => (
                                         <tr key={i}>
-                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni</div></td>
+                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni · {x.stvarnoIzdato > 0 ? (x.izdatih === x.rolni ? "izdato" : "delimično izdato") : "rezervisano"}</div></td>
                                             <td style={td}>{x.idealna ? fmt(x.idealna) + " mm" : "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.plan)} m</div>
@@ -164,7 +165,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Širina", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                                 <tbody>
                                     {filtMat.map((x, i) => (
                                         <tr key={i}>
@@ -172,6 +173,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                             <td style={td}>{x.pod_vrsta || "—"}</td>
                                             <td style={td}>{x.oznaka || "—"}</td>
                                             <td style={td}>{x.debljina ? x.debljina + "µ" : "—"}</td>
+                                            <td style={td}>{x.sirina ? fmt(x.sirina) + " mm" : "—"}</td>
                                             <td style={td}>{x.dobavljac || "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.potroseno)} m</div>
