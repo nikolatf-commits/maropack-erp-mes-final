@@ -10,6 +10,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const [tab, setTab] = useState("nalog"); // "nalog" | "materijal"
     const [period, setPeriod] = useState("sve"); // "sve" | "30" | "90"
     const [q, setQ] = useState("");
+    const [samoIzdato, setSamoIzdato] = useState(false);
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, [period]);
 
@@ -52,7 +53,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
 
     const poNalogu = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
+        (samoIzdato ? rows.filter((r) => num(r.izdato_m) > 0) : rows).forEach((r) => {
             const k = r.nalog_ref || "—";
             if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, stvarnoIzdato: 0, izdatih: 0, idealna: r.idealna_sirina || 0 };
             m[k].plan += num(r.alocirano_m); m[k].izdato += num(r._izdato); m[k].vraceno += num(r._vraceno);
@@ -65,7 +66,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
             utroseno: Math.max(0, x.izdato - x.vraceno),
             iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.vraceno) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.plan - a.plan);
-    }, [rows]);
+    }, [rows, samoIzdato]);
 
     const poMaterijalu = useMemo(() => {
         const m = {};
@@ -125,7 +126,8 @@ export default function AnalizaMaterijalStavke({ msg }) {
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={() => setTab("nalog")} style={tabBtn("nalog")}>📋 Po nalogu</button>
                 <button onClick={() => setTab("materijal")} style={tabBtn("materijal")}>🧱 Po materijalu / dobavljaču</button>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga..." style={{ marginLeft: "auto", border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, minWidth: 180 }} />
+                <button onClick={() => setSamoIzdato(!samoIzdato)} title="Prikaži samo naloge gde je materijal stvarno izdat" style={{ border: "1px solid " + (samoIzdato ? "#16a34a" : "#e2e8f0"), background: samoIzdato ? "#16a34a" : "#fff", color: samoIzdato ? "#fff" : "#475569", borderRadius: 9, padding: "8px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, marginLeft: "auto" }}>{samoIzdato ? "✓ samo izdato" : "samo izdato"}</button>
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga..." style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, minWidth: 180 }} />
             </div>
 
             {loading ? <div style={{ ...card, color: "#64748b", fontWeight: 700 }}>Učitavam…</div> : (
