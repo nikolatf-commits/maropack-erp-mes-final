@@ -23,7 +23,27 @@ export default function AnalizaMaterijalStavke({ msg }) {
             }
             const { data, error } = await query.limit(5000);
             if (error) throw error;
-            setRows(data || []);
+            let stavke = data || [];
+            try {
+                const { data: pov } = await supabase.from("povrati_magacin")
+                    .select("rolna_id, br_rolne, metri, nalog_ref").limit(5000);
+                const vrPoRolni = {};
+                (pov || []).forEach((v) => {
+                    const kljuc = String(v.rolna_id != null ? v.rolna_id : (v.br_rolne || ""));
+                    if (!kljuc) return;
+                    vrPoRolni[kljuc] = (vrPoRolni[kljuc] || 0) + num(v.metri);
+                });
+                stavke = stavke.map((r) => {
+                    const kljuc = String(r.rolna_id != null ? r.rolna_id : (r.br_rolne || ""));
+                    const vraceno = num(r.vraceno_m) || vrPoRolni[kljuc] || 0;
+                    const izdato = num(r.izdato_m) || num(r.alocirano_m);
+                    const otpad = num(r.otpad_m);
+                    return Object.assign({}, r, { _izdato: izdato, _vraceno: vraceno, _otpad: otpad });
+                });
+            } catch (e) {
+                stavke = stavke.map((r) => Object.assign({}, r, { _izdato: num(r.izdato_m) || num(r.alocirano_m), _vraceno: num(r.vraceno_m), _otpad: num(r.otpad_m) }));
+            }
+            setRows(stavke);
         } catch (e) {
             msg && msg("Greška pri učitavanju analize: " + (e.message || e), "err");
             setRows([]);
@@ -35,14 +55,14 @@ export default function AnalizaMaterijalStavke({ msg }) {
         rows.forEach((r) => {
             const k = r.nalog_ref || "—";
             if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
-            m[k].plan += num(r.alocirano_m); m[k].izdato += num(r.izdato_m); m[k].vraceno += num(r.vraceno_m);
-            m[k].otpad += num(r.otpad_m); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
+            m[k].plan += num(r.alocirano_m); m[k].izdato += num(r._izdato); m[k].vraceno += num(r._vraceno);
+            m[k].otpad += num(r._otpad); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
         });
         return Object.values(m).map((x) => ({
             ...x,
             utroseno: Math.max(0, x.izdato - x.vraceno),
-            iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.otpad) / x.izdato) * 100)) : 0,
+            iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.vraceno) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.plan - a.plan);
     }, [rows]);
 
@@ -51,7 +71,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
         rows.forEach((r) => {
             const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
             if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
-            const utroseno = Math.max(0, num(r.izdato_m) - num(r.vraceno_m)) || num(r.alocirano_m);
+            const utroseno = Math.max(0, num(r._izdato) - num(r._vraceno)) || num(r.alocirano_m);
             m[k].potroseno += utroseno; m[k].kg += num(r.kg_alocirano); m[k].otpad += num(r.otpad_m); m[k].rolni += 1;
         });
         return Object.values(m).sort((a, b) => b.potroseno - a.potroseno);
@@ -59,8 +79,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
 
     const kpi = useMemo(() => ({
         plan: rows.reduce((s, r) => s + num(r.alocirano_m), 0),
-        izdato: rows.reduce((s, r) => s + num(r.izdato_m), 0),
-        otpad: rows.reduce((s, r) => s + num(r.otpad_m), 0),
+        izdato: rows.reduce((s, r) => s + num(r._izdato), 0),
+        vraceno: rows.reduce((s, r) => s + num(r._vraceno), 0),
+        otpad: rows.reduce((s, r) => s + num(r._otpad), 0),
         kg: rows.reduce((s, r) => s + num(r.kg_alocirano), 0),
         nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
     }), [rows]);
@@ -88,13 +109,14 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <button onClick={load} style={{ ...perBtn(""), background: "#f1f5f9" }}>↻</button>
                 </div>
             </div>
-            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki materijala (rezervacije, izdavanja i povrati po nalogu i rolni).</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki (materijal_stavke) + povrati po prečniku (povrati_magacin). Izdato = stvarno izdato; vraćeno = vraćeno na stanje.</div>
 
             {/* KPI */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11, marginBottom: 16 }}>
                 <div style={{ ...card, padding: 14 }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#64748b" }}>Naloga</div><div style={{ fontSize: 24, fontWeight: 950 }}>{fmt(kpi.nalozi)}</div></div>
                 <div style={{ ...card, padding: 14, background: "#eff6ff" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#1d4ed8" }}>Planirano</div><div style={{ fontSize: 24, fontWeight: 950, color: "#1d4ed8" }}>{fmt(kpi.plan)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#f0fdf4" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#15803d" }}>Izdato</div><div style={{ fontSize: 24, fontWeight: 950, color: "#15803d" }}>{fmt(kpi.izdato)} m</div></div>
+                <div style={{ ...card, padding: 14, background: "#fefce8" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#a16207" }}>Vraćeno</div><div style={{ fontSize: 24, fontWeight: 950, color: "#a16207" }}>{fmt(kpi.vraceno)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#fef2f2" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#dc2626" }}>Otpad</div><div style={{ fontSize: 24, fontWeight: 950, color: "#dc2626" }}>{fmt(kpi.otpad)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#0f172a" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#94a3b8" }}>Ukupno kg</div><div style={{ fontSize: 24, fontWeight: 950, color: "#fff" }}>{fmt(kpi.kg, 1)}</div></div>
             </div>
@@ -165,7 +187,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     </div>
                 )
             )}
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Iskorišćenje = (izdato − otpad) / izdato. Otpad = planirano − (izdato − vraćeno po prečniku).</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Iskorišćenje = (izdato − vraćeno) / izdato. Vraćeno = povrat po prečniku (rolna ostaje na stanju). Otpad se popuni kad se pri povratu izmeri završni prečnik.</div>
         </div>
     );
 }

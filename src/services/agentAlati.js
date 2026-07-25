@@ -1191,10 +1191,11 @@ export const ALATI = {
                 red = {
                     naziv, kupac, sirina: N(u.sirina), metraza: N(u.metraza) || 1000,
                     nalog: N(u.nalog) || 1, skart: N(u.skart), marza: N(u.marza),
-                    materijali: u.materijali || [], lepak: u.lepak || [], lak: u.lak || {},
+                    materijali: u.materijali || [], materijali_struktura: u.materijali || [],
+                    lepak: u.lepak || [], lak: u.lak || {},
                     kasiranje: u.kasiranje || {}, stampa_cena: N(u.stampaCena), lakiranje_cena: N(u.lakiranjeCena),
                     transport: N(u.transport), pakovanje: N(u.pakovanje), dorada: N(u.dorada),
-                    rezultati: rez,
+                    rezultati: rez, izvor: "AI agent",
                 };
             }
 
@@ -1260,14 +1261,18 @@ export const ALATI = {
             rezanje: { type: "object", description: "Rezanje: sirinaMaterijala, sirinaTrake, brojTraka" },
             dimenzije_kese: {
                 type: "object",
-                description: "Za kesu. Polja: sirina, duzina, klapna, falta, ban, takt, tolerancija, pakovanje, kolicina, skart, " +
-                    "tipKese (TAČNO jedna od: ravna | doypack | side_gusset | stabilo | courier), i " +
-                    "options — objekat sa true/false po TAČNIM šiframa: duplofan, eurozumba, okrugla_zumba, kosa_klapna, " +
-                    "anleger, utor, stampa, poprecna_perf, bocni_var, kontinualni_var, poprecni_var, falta_dno, var_dno, " +
-                    "otvor_dno, pakovanje_trn, busene_rupe, adh_traka, ojacanje, toplotni_var. " +
-                    "Primer: { tipKese: \"doypack\", sirina: 200, duzina: 300, klapna: 30, options: { eurozumba: true, falta_dno: true } }",
-            },
-            dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
+                description: "Za kesu. Dimenzije: sirina, duzina, klapna, falta, ban, takt, tolerancija, grafika, kolicina, skart. " +
+                    "tipKese — TAČNO jedan ključ: flach (Flachbeutel/ravna) | klappen (Klappenbeutel/sa klapnom) | " +
+                    "bodenfalten (Bodenfaltenbeutel/falta na dnu) | bodennaht (Bodennahtbeutel/var na dnu) | " +
+                    "header (Headerbeutel/sa hederom-vešalicom) | banderole | rolle (na rolni) | brief (Briefhülle/koverta) | " +
+                    "doppel (Doppeltasche/dupla) | easy (Easy-Opening) | flaschen (Flaschenbeutel/za flaše) | " +
+                    "heiss (Heißgenadelte/vruće iglana) | kreuz (Kreuzboden/ukršteno dno) | mehr (Mehrkammer/više komora) | " +
+                    "zweifarbig (dvobojna) | zweikammer (dvokomorna). " +
+                    "options — objekat true/false po TAČNIM šiframa: duplofan, poz_duplofan, ukosena_klapna, perf_otkinuti, " +
+                    "otvor_dno, falta_dno, var_dno, tolerancija_kol, stampa, povrsina, pozicija, motiv, eurozumba, utor, " +
+                    "perf_igle, okrugla_zumba, velicina_pozicija, poprecna_perf, poprecni_var, hrana, anleger, pakovati. " +
+                    "NE koristi druge šifre. Primer: { tipKese: \"header\", sirina: 180, duzina: 260, klapna: 25, options: { eurozumba: true, poprecna_perf: true } }",
+            },            dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
             napomena: { type: "string" },
         },
         opisPlana: (a) => {
@@ -1307,7 +1312,8 @@ export const ALATI = {
             if (tip === "spulna" && a.dimenzije_spulne && typeof a.dimenzije_spulne === "object") Object.assign(grana, a.dimenzije_spulne);
 
             const data = {
-                sifra: null, naziv, type: tip,
+                sifra: null, naziv, kupac: T(a.kupac) || "", type: tip, tip,
+                product_master_id: "PROD-AI-" + Date.now(),
                 idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
                 [tip]: grana,
                 napomena: T(a.napomena) || "Kreirano preko AI agenta",
@@ -1321,7 +1327,10 @@ export const ALATI = {
                 mats: slojevi, materijali_struktura: slojevi,
                 res: { template: data, operacije: [] },
                 template_id: tplId, template_version: "V1",
-                standardi: { tip, kupac: T(a.kupac) || null, template_version: "V1", izvor: "AI agent" },
+                sku: null, product_master_id: data.product_master_id,
+                // Template Engine za IZMENU čita standardi.record.data — bez ovoga bi se
+                // AI-templejt otvorio prazan. Zato upisujemo ceo templejt i tu.
+                standardi: { tip, kupac: T(a.kupac) || null, template_version: "V1", izvor: "AI agent", record: { tip, naziv, data } },
                 datum: new Date().toLocaleDateString("sr-RS"),
             }]).select("id");
             if (error) return { ok: false, poruka: "Templejt nije sačuvan: " + error.message };
