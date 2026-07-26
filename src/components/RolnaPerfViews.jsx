@@ -70,9 +70,11 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
     // Perforacijske linije preko dizajna (uzduž rolne) — tako izgleda na finalnoj rolni
     if (Array.isArray(perfXmm) && perfXmm.length && num(perfSirinaMm) > 0) {
         const sxp = (WEBX1 - WEBX0) / num(perfSirinaMm);
-        perfXmm.forEach((mm) => {
+        const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+        perfXmm.forEach((mm, i) => {
             const x = WEBX0 + num(mm) * sxp;
-            if (x >= WEBX0 && x <= WEBX1) o += `<line x1="${x}" y1="${WEBY0}" x2="${x}" y2="${WEBY1}" stroke="#8b5cf6" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
+            const c = BOJE[i % BOJE.length];
+            if (x >= WEBX0 && x <= WEBX1) o += `<line x1="${x}" y1="${WEBY0}" x2="${x}" y2="${WEBY1}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
         });
     }
     return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
@@ -95,22 +97,27 @@ export function PerforacijaCrtez({ tip = "linija", kolone = 4, odVrha = 50, odDn
     // MOD 2 — tačne pozicije od leve i/ili desne ivice
     if (pL.length || pR.length) {
         let o2 = ``;
-        const crtajLiniju = (x, tekst, gore) => {
-            if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o2 += `<circle cx="${x}" cy="${y}" r="1.8" fill="#8b5cf6"/>`; }
-            else { o2 += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="7 4"/>`; }
-            o2 += `<text x="${x}" y="${(gore ? yTop - 5 : yBot + 14)}" text-anchor="middle" font-size="9" font-weight="800" fill="#8b5cf6">${tekst}</text>`;
+        const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+        const crtajLiniju = (x, tekst, gore, boja) => {
+            const c = boja || "#8b5cf6";
+            if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o2 += `<circle cx="${x}" cy="${y}" r="2" fill="${c}"/>`; }
+            else { o2 += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5"/>`; }
+            o2 += `<circle cx="${x}" cy="${gore ? yTop : yBot}" r="3" fill="${c}"/>`;
+            o2 += `<text x="${x}" y="${(gore ? yTop - 6 : yBot + 15)}" text-anchor="middle" font-size="10" font-weight="900" fill="${c}">${tekst}</text>`;
         };
         // od leve ivice: x = leva ivica + pos
         pL.forEach((pos, i) => {
             const x = WEBX0 + pos * sx;
-            crtajLiniju(x, 'L' + (i + 1), true);
-            o2 += dimH(WEBX0, x, WEBY0 + 18 + i * 16, pos + ' mm');
+            const boja = BOJE[i % BOJE.length];
+            crtajLiniju(x, 'L' + (i + 1) + ' · ' + pos, true, boja);
+            o2 += dimH(WEBX0, x, WEBY0 + 16 + i * 15, pos + ' mm');
         });
         // od desne ivice: x = desna ivica − pos
         pR.forEach((pos, i) => {
             const x = WEBX1 - pos * sx;
-            crtajLiniju(x, 'D' + (i + 1), false);
-            o2 += dimH(x, WEBX1, WEBY1 - 18 - i * 16, pos + ' mm');
+            const boja = BOJE[(pL.length + i) % BOJE.length];
+            crtajLiniju(x, 'D' + (i + 1) + ' · ' + pos, false, boja);
+            o2 += dimH(x, WEBX1, WEBY1 - 16 - i * 15, pos + ' mm');
         });
         o2 += dimV(WEBX0 + 18, WEBY0, yTop, odV + ' mm');
         o2 += dimV(WEBX0 + 18, yBot, WEBY1, odD + ' mm');
