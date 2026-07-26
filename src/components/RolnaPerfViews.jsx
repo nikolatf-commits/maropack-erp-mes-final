@@ -43,7 +43,7 @@ function dimV(x, y1, y2, txt) {
 const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',', '.')); return isNaN(n) ? (d ?? 0) : n; };
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfSirinaMm = 0, maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -66,6 +66,14 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
         o += `<g clip-path="url(#${uid})">${tiles}</g>`;
     } else {
         o += `<text x="${cx}" y="${(WEBY0 + WEBY1) / 2}" text-anchor="middle" fill="#94a3b8" font-size="14" font-weight="800">nema dizajna</text>`;
+    }
+    // Perforacijske linije preko dizajna (uzduž rolne) — tako izgleda na finalnoj rolni
+    if (Array.isArray(perfXmm) && perfXmm.length && num(perfSirinaMm) > 0) {
+        const sxp = (WEBX1 - WEBX0) / num(perfSirinaMm);
+        perfXmm.forEach((mm) => {
+            const x = WEBX0 + num(mm) * sxp;
+            if (x >= WEBX0 && x <= WEBX1) o += `<line x1="${x}" y1="${WEBY0}" x2="${x}" y2="${WEBY1}" stroke="#8b5cf6" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
+        });
     }
     return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
 }
