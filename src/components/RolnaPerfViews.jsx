@@ -71,7 +71,7 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
 }
 
 // Kotirani prikaz perforacije (kolone) na istoj rolni
-export function PerforacijaCrtez({ tip = "linija", kolone = 4, odVrha = 50, odDna = 50, odLeve = 20, odDesne = 20, sirina = 270, visina = 600, razmakRupa = 5, maxWidth = 430 }) {
+export function PerforacijaCrtez({ tip = "linija", kolone = 4, odVrha = 50, odDna = 50, odLeve = 20, odDesne = 20, sirina = 270, visina = 600, razmakRupa = 5, pozLeve = "", pozDesne = "", maxWidth = 430 }) {
     const N = Math.max(1, Math.round(num(kolone, 1)) || 1);
     const odV = num(odVrha), odD = num(odDna), odL = num(odLeve), odR = num(odDesne);
     const Wmm = num(sirina, 270) || 270, Hmm = num(visina, 600) || 600, gap = num(razmakRupa, 5) || 5;
@@ -79,6 +79,36 @@ export function PerforacijaCrtez({ tip = "linija", kolone = 4, odVrha = 50, odDn
     const xFirst = WEBX0 + odL * sx, xLast = WEBX1 - odR * sx;
     const yTop = WEBY0 + odV * sy, yBot = WEBY1 - odD * sy;
     const stepX = N > 1 ? (xLast - xFirst) / (N - 1) : 0;
+
+    // Parsiranje liste pozicija ("114.5, 200") u brojeve
+    const parsLista = (str) => String(str || "").split(/[,;\s]+/).map((x) => num(x, NaN)).filter((x) => !isNaN(x) && x >= 0);
+    const pL = parsLista(pozLeve), pR = parsLista(pozDesne);
+
+    // MOD 2 — tačne pozicije od leve i/ili desne ivice
+    if (pL.length || pR.length) {
+        let o2 = ``;
+        const crtajLiniju = (x, tekst, gore) => {
+            if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o2 += `<circle cx="${x}" cy="${y}" r="1.8" fill="#8b5cf6"/>`; }
+            else { o2 += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="7 4"/>`; }
+            o2 += `<text x="${x}" y="${(gore ? yTop - 5 : yBot + 14)}" text-anchor="middle" font-size="9" font-weight="800" fill="#8b5cf6">${tekst}</text>`;
+        };
+        // od leve ivice: x = leva ivica + pos
+        pL.forEach((pos, i) => {
+            const x = WEBX0 + pos * sx;
+            crtajLiniju(x, 'L' + (i + 1), true);
+            o2 += dimH(WEBX0, x, WEBY0 + 18 + i * 16, pos + ' mm');
+        });
+        // od desne ivice: x = desna ivica − pos
+        pR.forEach((pos, i) => {
+            const x = WEBX1 - pos * sx;
+            crtajLiniju(x, 'D' + (i + 1), false);
+            o2 += dimH(x, WEBX1, WEBY1 - 18 - i * 16, pos + ' mm');
+        });
+        o2 += dimV(WEBX0 + 18, WEBY0, yTop, odV + ' mm');
+        o2 += dimV(WEBX0 + 18, yBot, WEBY1, odD + ' mm');
+        return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o2, maxWidth) }} />;
+    }
+
     let o = ``;
     for (let i = 0; i < N; i++) {
         const x = xFirst + stepX * i;
@@ -178,15 +208,18 @@ export function RolnaDizajnEditor({ value = {}, onChange }) {
 
 // Editor za templejt: parametri perforacije + živi kotirani crtež
 export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
-    const v = { tip: "linija", kolone: 4, odVrha: 50, odDna: 50, odLeve: 20, odDesne: 20, sirina: 270, visina: 600, razmakRupa: 5, ...(value || {}) };
+    const v = { tip: "linija", kolone: 4, odVrha: 50, odDna: 50, odLeve: 20, odDesne: 20, sirina: 270, visina: 600, razmakRupa: 5, pozLeve: "", pozDesne: "", ...(value || {}) };
     const set = (k, val) => onChange && onChange({ ...v, [k]: val });
     const F = (label, key, type) => (
         <div><label style={_lab}>{label}</label>
             {type === "select"
                 ? <select style={_inp} value={v.tip} onChange={(e) => set("tip", e.target.value)}><option value="linija">Mikroperforacija (linija)</option><option value="rupe">Pojedinačne rupe</option></select>
-                : <input style={_inp} type="number" value={v[key]} onChange={(e) => set(key, e.target.value)} />}
+                : type === "text"
+                    ? <input style={_inp} type="text" value={v[key]} placeholder="npr. 114.5, 200" onChange={(e) => set(key, e.target.value)} />
+                    : <input style={_inp} type="number" value={v[key]} onChange={(e) => set(key, e.target.value)} />}
         </div>
     );
+    const imaPoz = String(v.pozLeve || "").trim() !== "" || String(v.pozDesne || "").trim() !== "";
     return (
         <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 10, marginBottom: 12 }}>
@@ -196,13 +229,15 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
                 {F("Od dna (mm)", "odDna")}
                 {F("Od leve ivice (mm)", "odLeve")}
                 {F("Od desne ivice (mm)", "odDesne")}
+                {F("Pozicije od leve (mm)", "pozLeve", "text")}
+                {F("Pozicije od desne (mm)", "pozDesne", "text")}
                 {F("Širina trake (mm)", "sirina")}
                 {F("Visina prikaza (mm)", "visina")}
                 {F("Razmak rupa (mm)", "razmakRupa")}
             </div>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>PERFORACIJA (kotirano)</div>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>PERFORACIJA (kotirano){imaPoz ? " — tačne pozicije" : " — " + (Math.max(1, Math.round(Number(v.kolone) || 1))) + " kolona"}</div>
                     <PerforacijaCrtez {...v} maxWidth={320} />
                 </div>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
@@ -213,7 +248,13 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
                     </div>
                     <RolnaDizajn dizajnUrl={dizajn && dizajn.url} w={dizajn && dizajn.w} h={dizajn && dizajn.h}
                         rotacija={v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0} zrcalo={(dizajn && dizajn.zrcalo) ?? 1}
-                        sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100} maxWidth={320} />
+                        sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100}
+                        perfSirinaMm={imaPoz ? Number(v.sirina) || 0 : 0}
+                        perfXmm={imaPoz ? [
+                            ...String(v.pozLeve || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)),
+                            ...String(v.pozDesne || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)).map((x) => (Number(v.sirina) || 0) - x),
+                        ] : []}
+                        maxWidth={320} />
                     {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
                 </div>
             </div>

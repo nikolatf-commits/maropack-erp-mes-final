@@ -3,9 +3,6 @@ import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoefic
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
-import { kreirajFormatiranjeIzNaloga } from "./modules/formatiranjeIzNaloga.js";
-import { nadjiSpojRolne } from "./modules/spojRolneMatch.js";
-import AIPomoc from "./modules/AIPomoc.jsx";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
@@ -1356,21 +1353,7 @@ function SpoolDrawing({ spulna, update }) {
         </Section>
         <Section title="Dimenzije špulne" color="#7c3aed">
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) minmax(340px, .8fr)", gap: 16, alignItems: "start" }}>
-                <Grid cols={4}>
-                    <Input label="Širina trake (W, mm)" value={spulna.W} onChange={v => update("spulna.W", v)} />
-                    <Input label="Širina hilzne / jezgra (T, mm)" value={spulna.T} onChange={v => update("spulna.T", v)} />
-                    <Input label="Max prečnik špulne (D, mm)" value={spulna.D} onChange={v => update("spulna.D", v)} />
-                    <Input label="Spoljašnji prečnik hilzne (Da, mm)" value={spulna.Da} onChange={v => update("spulna.Da", v)} />
-                    <Input label="Unutrašnji prečnik hilzne (Di, mm)" value={spulna.Di} onChange={v => update("spulna.Di", v)} />
-                    <Input label="Gap – razmak (G, mm)" value={spulna.G} onChange={v => update("spulna.G", v)} />
-                    <Input label="Zazor bočni (C, mm)" value={spulna.C} onChange={v => update("spulna.C", v)} />
-                    <Input label="Širina materijala (mm)" value={spulna.sirinaMaterijala} onChange={v => update("spulna.sirinaMaterijala", v)} />
-                    <Input label="Max metara (m)" value={spulna.maxMetara} onChange={v => update("spulna.maxMetara", v)} />
-                    <Input label="Širina hilzne (mm)" value={spulna.sirinaHilzne} onChange={v => update("spulna.sirinaHilzne", v)} />
-                    <Input label="Side A" value={spulna.sideA} onChange={v => update("spulna.sideA", v)} />
-                    <Input label="Side B" value={spulna.sideB} onChange={v => update("spulna.sideB", v)} />
-                    <Input label="Rolni po paleti" value={spulna.rolniPoPaleti} onChange={v => update("spulna.rolniPoPaleti", v)} />
-                </Grid>
+                <Grid cols={4}>{Object.keys(spulna).filter(k => !["naziv", "materijal"].includes(k)).map(k => <Input key={k} label={k} value={spulna[k]} onChange={v => update(`spulna.${k}`, v)} />)}</Grid>
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 950, color: "#334155", marginBottom: 10 }}>PREGLED PARAMETARA</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
@@ -1387,11 +1370,98 @@ function SpoolDrawing({ spulna, update }) {
                 <Select label="Tip namotavanja" value={spulna.smer || "Gap winding"} onChange={v => update("spulna.smer", v)} options={["Gap winding", "Overlapped winding"]} />
                 <Select label="Smer namotavanja" value={spulna.smerNamotavanja || "Levo"} onChange={v => update("spulna.smerNamotavanja", v)} options={["Levo", "Desno"]} />
                 <Input label="Težina bruto (kg)" value={spulna.tezinaBruto || "25.50"} onChange={v => update("spulna.tezinaBruto", v)} />
+                <Input label="Napomena" value={spulna.napomena || "Standardna špulna za OPP foliju."} onChange={v => update("spulna.napomena", v)} />
             </Grid>
         </Section>
     </>;
 }
 
+
+function SmartFolijaTemplateEngine({ form, update }) {
+    const rez = form.folija?.rezanje || {};
+    const ideal = form.idealnaSirinaMaterijala || rez.sirinaMaterijala || "";
+    const smart = izracunajRezanjeTemplate(rez, ideal);
+    const valjak = smart.predlogValjka;
+    const valjakDiff = valjak ? nnum(ideal) - valjak : 0;
+    const chip = (label, value, color = BLUE) => <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderLeft: `5px solid ${color}`, borderRadius: 12, padding: "10px 12px" }}>
+        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 950, textTransform: "uppercase", letterSpacing: .35 }}>{label}</div>
+        <div style={{ fontSize: 17, color, fontWeight: 950, marginTop: 3 }}>{value}</div>
+    </div>;
+    const segs = [];
+    if (smart.ukupniOtpad > 0 && !smart.prekoSirine) segs.push({ label: `OTPAD ${smart.otpadLevo.toFixed(1)}`, w: smart.otpadLevo, waste: true });
+    smart.trake.forEach((t, i) => segs.push({ label: `${t} mm`, w: t, idx: i }));
+    if (smart.ukupniOtpad > 0 && !smart.prekoSirine) segs.push({ label: `OTPAD ${smart.otpadDesno.toFixed(1)}`, w: smart.otpadDesno, waste: true });
+    const total = Math.max(smart.stvarnaSirina, smart.ukupnoTrake, 1);
+    return <Section title="SMART TEMPLATE ENGINE — auto rezanje / valjak / analiza" color={GREEN}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.25fr .75fr", gap: 14, alignItems: "start" }}>
+            <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+                    <div>
+                        <label style={labelStyle()}>Idealna širina mat. (mm)</label>
+                        <input readOnly style={{ ...fieldStyle(), background: "#eff6ff", color: "#2446b8", fontWeight: 900 }}
+                            value={form.idealnaSirinaMaterijala || ideal || ""} placeholder="unesi gore ↑" />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Širina materijala / rola</label>
+                        <input style={{ ...fieldStyle(), background: "#eff6ff", color: "#2446b8" }}
+                            value={rez.sirinaMaterijala || form.idealnaSirinaMaterijala || ""}
+                            onChange={e => update("folija.rezanje.sirinaMaterijala", e.target.value)} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Širina trake</label>
+                        <input style={{ ...fieldStyle(), background: (rez.sirinaTrake || form.dimenzijaSirina) ? "#eff6ff" : "#fff", color: "#2446b8" }}
+                            value={rez.sirinaTrake || form.dimenzijaSirina || ""}
+                            onChange={e => update("folija.rezanje.sirinaTrake", e.target.value)} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Broj traka</label>
+                        <input style={fieldStyle()} value={rez.brojTraka || ""}
+                            onChange={e => update("folija.rezanje.brojTraka", e.target.value)} placeholder="npr. 4" />
+                    </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10 }}>
+                    {chip("Ukupno trake", `${smart.ukupnoTrake.toFixed(1)} mm`, BLUE)}
+                    {chip("Otpad ukupno", smart.prekoSirine ? `PREKO ${(smart.ukupnoTrake - smart.stvarnaSirina).toFixed(1)} mm` : `${smart.ukupniOtpad.toFixed(1)} mm`, smart.prekoSirine ? RED : ORANGE)}
+                    {chip("Iskorišćenje", `${smart.iskoriscenje.toFixed(1)}%`, smart.prekoSirine ? RED : GREEN)}
+                    {chip("Predlog valjka", valjak ? `${valjak} mm` : "nema", valjak ? GREEN : RED)}
+                </div>
+                <div style={{ border: "1px solid #dbe3ef", borderRadius: 14, overflow: "hidden", background: "#fff" }}>
+                    <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", fontWeight: 950, color: "#334155", fontSize: 12 }}>
+                        <span>Auto grafički prikaz rezanja</span>
+                        <span>Materijal {smart.stvarnaSirina || "—"} mm</span>
+                    </div>
+                    <div style={{ display: "flex", minHeight: 76, alignItems: "stretch" }}>
+                        {segs.length ? segs.map((seg, i) => <div key={i} style={{ flex: `${Math.max(seg.w, 8)} 1 0`, minWidth: seg.w < 18 ? 34 : 54, display: "flex", alignItems: "center", justifyContent: "center", borderRight: i === segs.length - 1 ? "none" : "1px solid #cbd5e1", background: seg.waste ? "#fee2e2" : "#dbeafe", color: seg.waste ? RED : BLUE, fontSize: 11, fontWeight: 950, textAlign: "center", padding: 4 }}>{seg.label}</div>) : <div style={{ padding: 18, color: "#64748b", fontWeight: 800 }}>Unesi širinu materijala, širinu trake i broj traka.</div>}
+                    </div>
+                    <div style={{ padding: "8px 12px", background: smart.prekoSirine ? "#fef2f2" : "#f8fafc", color: smart.prekoSirine ? RED : "#475569", fontSize: 12, fontWeight: 850 }}>
+                        {smart.prekoSirine ? "UPOZORENJE: ukupna širina traka je veća od širine materijala." : `Otpad levo ${smart.otpadLevo.toFixed(1)} mm + trake ${smart.ukupnoTrake.toFixed(1)} mm + otpad desno ${smart.otpadDesno.toFixed(1)} mm`}
+                    </div>
+                </div>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ ...cardStyle(), borderLeft: `5px solid ${GREEN}` }}>
+                    <div style={{ fontWeight: 950, color: GREEN, marginBottom: 8 }}>Predlog valjka za kaširanje</div>
+                    <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.8 }}>
+                        <b>Pravilo:</b> najveći valjak ≤ idealnoj širini<br />
+                        <b>Dostupni valjci:</b> {KASIRANJE_VALJCI_MM.join(", ")} mm<br />
+                        <b>Idealna širina:</b> {ideal || "—"} mm<br />
+                        <b>Predlog:</b> {valjak ? `${valjak} mm` : "nema odgovarajućeg"}<br />
+                        <b>Razlika:</b> {valjak ? `${valjakDiff.toFixed(1)} mm` : "—"}
+                    </div>
+                </div>
+                <div style={{ ...cardStyle(), borderLeft: `5px solid ${BLUE}` }}>
+                    <div style={{ fontWeight: 950, color: BLUE, marginBottom: 8 }}>Auto popunjavanje</div>
+                    <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.8 }}>
+                        • Idealna širina se prenosi u nalog i potrebu materijala.<br />
+                        • Broj traka × širina trake popunjava rezanje.<br />
+                        • Otpad i iskorišćenje se računaju odmah.<br />
+                        • Ovi podaci ulaze u analizu idealnih širina za nabavku.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Section>;
+}
 
 function makeProductMasterIdFromTemplate(source = {}) {
     const seed = [source.kupac, source.naziv, source.sifra, source.type].filter(Boolean).join('-') || String(Date.now());
@@ -1412,18 +1482,11 @@ function inferTemplateOperations(tpl = {}) {
     return ops;
 }
 
-// Ljudski nazivi polja — bez ovoga se u maski prikazuju sirovi nazivi kolona.
-const NAZ_STAMPA = { masina: "Mašina", strana: "Strana štampe", obimValjka: "Obim valjka (mm)", brojBoja: "Broj boja", klise: "Kliše", precnikHilzne: "Prečnik hilzne (mm)", smerOdmotavanja: "Smer odmotavanja", stamparija: "Štamparija" };
-const NAZ_KASIRANJE = { tipLepka: "Tip lepka", odnosLepka: "Odnos lepka", nanosLepka: "Nanos lepka (g/m²)", materijalABC: "Materijal A / B / C", napomena: "Napomena (kaширanje)" };
-const NAZ_KPDF = { tip: "Tip perforacije", odnos: "Odnos", razmak: "Razmak (mm)", sirina: "Širina (mm)", pozicija: "Pozicija", smer: "Smer", napomena: "Napomena (perforacija)" };
-const NAZ_KESA = { sirina: "Širina kese (mm)", duzina: "Dužina kese (mm)", klapna: "Klapna (mm)", falta: "Falta (mm)", takt: "Takt (kom/min)", ban: "Ban (traka iz rolne)", tolerancija: "Tolerancija", grafika: "Grafika" };
-
 function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     const { t } = useLang();
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
     const [nalogModal, setNalogModal] = useState(false);
-    const [formatirajSire, setFormatirajSire] = useState(false);
     const [nalogRolne, setNalogRolne] = useState([]);
     const [nalogIzbor, setNalogIzbor] = useState({});
     const [nalogLoading, setNalogLoading] = useState(false);
@@ -1982,19 +2045,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
             }
             msg && msg("✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
-
-            // Formatiranje po potrebi: SAMO ako je operater čekirao (rolne šire od idealne)
-            if (formatirajSire) {
-                try {
-                    const _fmt = await kreirajFormatiranjeIzNaloga(supabase, {
-                        broj, glavni_nalog_id: mId, idealnaSir, izborData,
-                        proizvod, kupac: form.kupac || "", tip_proizvoda: form.type,
-                    });
-                    if (_fmt.brojevi && _fmt.brojevi.length) {
-                        msg && msg("Formatiranje → kreirano: " + _fmt.brojevi.join(", "));
-                    }
-                } catch (eFmt) { console.warn("Formatiranje iz naloga nije kreirano:", eFmt); }
-            }
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
@@ -2099,15 +2149,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             };
 
             const existingDbId = record.db_id || (typeof record.id === 'number' ? record.id : null);
-            let prepisi = true;
-            if (existingDbId) {
-                prepisi = window.confirm(
-                    "Menjaš postojeći sačuvani template: „" + record.naziv + "”" + (payload.sir ? " (" + payload.sir + " mm)" : "") + ".\n\n" +
-                    "OK = PREPIŠI postojeći template\n" +
-                    "Otkaži = sačuvaj kao NOVI (postojeći ostaje netaknut)"
-                );
-            }
-            const query = (existingDbId && prepisi)
+            const query = existingDbId
                 ? supabase.from("proizvodi").update(payload).eq("id", existingDbId).select()
                 : supabase.from("proizvodi").insert([payload]).select();
             const { data, error } = await query;
@@ -2466,7 +2508,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Section title={t("tmpl.stampa_param")} color={BLUE}>
                     <Grid cols={4}>
                         {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje").map(k => (
-                            <Input key={k} label={NAZ_STAMPA[k] || k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
+                            <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
                         ))}
                     </Grid>
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
@@ -2491,7 +2533,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 value={(form.folija.layers || []).map(l => [l.vrsta, (l.oznaka_materijala || l.oznaka), ((l.debljina ?? l.deb) ? (l.debljina ?? l.deb) + (String(l.vrsta).toUpperCase() === "PAPIR" ? " g/m²" : " µm") : "")].filter(Boolean).join(" ")).filter(Boolean).join("  +  ") || "—"} />
                         </div>
                         {Object.keys(form.folija.kasiranje).filter(k => k !== "brojKasiranja" && k !== "materijali").map(k => (
-                            <Input key={k} label={NAZ_KASIRANJE[k] || k} value={form.folija.kasiranje[k]} onChange={v => update(`folija.kasiranje.${k}`, v)} />
+                            <Input key={k} label={k} value={form.folija.kasiranje[k]} onChange={v => update(`folija.kasiranje.${k}`, v)} />
                         ))}
                         <Input label="Predlog valjka za kaširanje" value={form.folija.rezanje.predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("folija.rezanje.predlogValjkaKasiranja", v)} />
                     </Grid>
@@ -2554,20 +2596,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 </Section>
 
                 <Section title={t("tmpl.kpdf")} color={ORANGE}>
-                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900, marginBottom: 12 }}>
-                        <input
-                            type="checkbox"
-                            checked={!!form.folija.kpdf.enabled}
-                            onChange={() => update("folija.kpdf.enabled", !form.folija.kpdf.enabled)}
-                        />
-                        Ima KPDF / perforaciju
-                    </label>
-                    <Grid cols={4}>
-                        {Object.keys(form.folija.kpdf).filter(k => k !== "enabled").map(k => (
-                            <Input key={k} label={NAZ_KPDF[k] || k} value={form.folija.kpdf[k]} onChange={v => update(`folija.kpdf.${k}`, v)} />
-                        ))}
-                    </Grid>
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #fed7aa" }}>
+                    <div>
                         <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
                         <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} onChange={v => update("folija.perforacija", v)} />
                     </div>
@@ -2614,7 +2643,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             return n;
                         })} options={Object.entries(TIPOVI).map(([k, v]) => ({ value: k, label: v.n }))} />
                         {["sirina", "duzina", "klapna", "falta", "takt", "ban", "tolerancija", "grafika"].map(k => (
-                            <Input key={k} label={NAZ_KESA[k] || k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
+                            <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
                     </Grid>
                 </Section>
@@ -2712,6 +2741,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     <Grid cols={3}>
                         <Input label="Cena transporta €/kg" value={form.kesa.transportKg} onChange={v => update("kesa.transportKg", v)} />
                         <Input label="Pakovanje" value={form.kesa.pakovanje} onChange={v => update("kesa.pakovanje", v)} />
+                        <Input label="Napomena" value={form.napomena} onChange={v => update("napomena", v)} />
                     </Grid>
                 </Section>
             </>
@@ -2722,6 +2752,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Grid cols={4}>
                     <Input label="Naziv" value={form.spulna.naziv} onChange={v => update("spulna.naziv", v)} placeholder="npr. Trake 20mm - 20 000m" />
                     <Input label="Materijal / opis" value={form.spulna.materijal} onChange={v => update("spulna.materijal", v)} placeholder="npr. Papir silikonizirani 60 gr" />
+                    <Input label="Side A" value={form.spulna.sideA} onChange={v => update("spulna.sideA", v)} placeholder="Silikon" />
+                    <Input label="Side B" value={form.spulna.sideB} onChange={v => update("spulna.sideB", v)} placeholder="Papir" />
                 </Grid>
                 <Grid cols={4}>
                     <div>
@@ -2773,6 +2805,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             </div>}
                             {izabrana && !gr.length && <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
                                 ✓ Ø{form.spulna.D || "—"} i T={form.spulna.T || "—"} staju · hilzna Ø{izabrana.hilzna}
+                            </div>}
+                        </div>;
+                    })()}
+                    {(() => {
+                        const b = kutijaPoKljucu(form.spulna.kutija);
+                        const pred = b ? poPaletiZa(b) : 0;
+                        const rucno = pred && Number(form.spulna.rolniPoPaleti) !== pred;
+                        return <div>
+                            <Input label="Rolni po paleti" value={form.spulna.rolniPoPaleti} onChange={v => update("spulna.rolniPoPaleti", v)} placeholder="18" />
+                            {b && <div style={{ fontSize: 10, marginTop: 4, fontWeight: 800, color: rucno ? "#d97706" : "#64748b" }}>
+                                {rucno
+                                    ? <>✎ ručno izmenjeno (predlog za dubinu {b.d} mm je {pred})</>
+                                    : <>predlog: kutija dubine {b.d} mm → {pred} po paleti · može se menjati</>}
                             </div>}
                         </div>;
                     })()}
@@ -2946,8 +2991,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             }
 
             const sviIzabrani = layers.every((_, i) => rucniUnos[i] || izabraneZa(i).length > 0);
-            const imaSirih = sir > 0 && layers.some((_, i) => !rucniUnos[i] && izabraneZa(i).some(r => (Number(r.sirina) || 0) > sir + 3));
-            const spojNaStanju = nadjiSpojRolne(nalogRolne, layers, { minSirina: sir });
 
             return (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
@@ -2993,28 +3036,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                     {!kolPlus && (
                                         <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 700, color: "#92400e" }}>
                                             ⚠️ Poručena količina (m) nije uneta — ne mogu tačno da izračunam potrebu ni da kombinujem rolne. Zatvori, unesi „Poručena količina (m)" u osnovnim podacima, pa ponovo generiši.
-                                        </div>
-                                    )}
-                                    {spojNaStanju.length > 0 && (
-                                        <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 10, padding: "12px 14px" }}>
-                                            <div style={{ fontSize: 12.5, fontWeight: 900, color: "#7c3aed", marginBottom: 6 }}>
-                                                Spoj rolne na stanju — pokrivaju sve slojeve ({spojNaStanju.length})
-                                            </div>
-                                            <div style={{ fontSize: 11, color: "#6b21a8", marginBottom: 8 }}>
-                                                Postoji gotova kaširana rolna za ovu kombinaciju. Ako je koristiš umesto sastavljanja po slojevima, rezerviši je u magacinu (Magacin rolni → Rezerviši).
-                                            </div>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                                {spojNaStanju.map((r) => (
-                                                    <div key={r.id || r.br_rolne} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e9d5ff", borderRadius: 8, padding: "8px 11px", fontSize: 12, flexWrap: "wrap" }}>
-                                                        <div>
-                                                            <b style={{ color: "#0f172a" }}>{r.br_rolne}</b>
-                                                            <span style={{ color: "#7c3aed", fontWeight: 700, marginLeft: 8 }}>{r.vrsta}</span>
-                                                            <span style={{ color: "#64748b", marginLeft: 8 }}>{r.sirina} mm · {Number(r._slobodno).toLocaleString("sr-RS")} m slobodno</span>
-                                                        </div>
-                                                        <span style={{ fontSize: 10.5, color: "#94a3b8" }}>{r.oznaka_materijala}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
                                         </div>
                                     )}
                                     {layers.map((l, i) => {
@@ -3156,12 +3177,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                             ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
                                             : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne za sve slojeve</span>}
                                         &nbsp;·&nbsp; {layers.filter((_, i) => izabraneZa(i).length > 0 || rucniUnos[i]).length} / {layers.length} slojeva
-                                        {(
-                                            <label style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, fontSize: 12, fontWeight: 700, color: "#7c3aed", cursor: "pointer" }}>
-                                                <input type="checkbox" checked={formatirajSire} onChange={e => setFormatirajSire(e.target.checked)} />
-                                                Formatiraj rolne šire od idealne{sir ? " na " + sir + " mm" : ""} (napravi vezane formatiranje-naloge){imaSirih ? "" : " — trenutno nema širih rolni u izboru"}
-                                            </label>
-                                        )}
                                     </div>
                                     <div style={{ display: "flex", gap: 8 }}>
                                         <button onClick={() => setNalogModal(false)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
@@ -3213,7 +3228,6 @@ function BojeStampeEditor({ value, onChange }) {
     }
     return (
         <div>
-            <AIPomoc ekran="Template Engine (izrada proizvoda)" kontekst={() => ({ tip: form.type, naziv: form.naziv, sifra: form.sifra, kupac: form.kupac, idealnaSirina: form.idealnaSirinaMaterijala, slojevi: (form[form.type] && form[form.type].layers) || [], stampa: (form[form.type] && form[form.type].stampa) || null })} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <div style={{ fontWeight: 900, color: "#1d4ed8" }}>Boje po stanici (redosled štampe)</div>
                 <button onClick={add} style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12 }}>+ Dodaj boju</button>
