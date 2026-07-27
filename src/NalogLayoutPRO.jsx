@@ -771,6 +771,7 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     const opid = nalog.id || nalog.op_id || nalog.operativni_nalog_id || "";
     React.useEffect(() => {
         let on = true;
+        setQr("");  // resetuj odmah — da se ne vidi QR prethodne operacije dok novi stiže
         const origin = (typeof window !== "undefined" ? window.location.origin : "");
         const url = opid
             ? origin + "/?opid=" + encodeURIComponent(opid)
