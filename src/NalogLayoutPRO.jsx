@@ -147,12 +147,9 @@ function buildD(nalog) {
         },
         lak: {
             tip: pick(folija.lakiranje || {}, ["tip", "tipLaka", "vrsta"]),
-            masina: (folija.lakiranje || {}).masina,
-            strana: (folija.lakiranje || {}).strana,
-            nanos: (folija.lakiranje || {}).nanos,
-            pokrivenost: (folija.lakiranje || {}).pokrivenost,
-            susenje: (folija.lakiranje || {}).susenje,
-            napomena: (folija.lakiranje || {}).napomena,
+            masina: (folija.lakiranje || {}).masina, strana: (folija.lakiranje || {}).strana,
+            nanos: (folija.lakiranje || {}).nanos, pokrivenost: (folija.lakiranje || {}).pokrivenost,
+            susenje: (folija.lakiranje || {}).susenje, napomena: (folija.lakiranje || {}).napomena,
         },
         rez: {
             sirinaMat, lanes, otpad, brojTraka: lanes.length || num(rz.brojTraka),
@@ -258,33 +255,32 @@ function pKas(D) {
 
 function pLak(D) {
     const c = COLs; const L = D.LAY;
-    // Lak se nanosi SAMO na sloj(eve) sa čekiranim "lak". Bez toga — nema šta da se lakira.
+    // Lak SAMO na sloj(eve) sa čekiranim "lak". Bez toga — nema šta da se lakira.
     const lakSlojevi = L.filter(function (x) { return x.lak; });
     const idxOf = function (s) { return L.indexOf(s) + 1; };
-    // Statistike gore moraju da odgovaraju SAMO lakiranom materijalu — ne celom laminatu.
+    // Statistike gore = SAMO lakirani sloj, ne ceo laminat (npr. 20µm, ne 40µm).
     const debLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.u) || 0); }, 0);
     const kgLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.gm2) || 0) * D.kgF; }, 0);
-    const brSloj = lakSlojevi.length;
     const statLak = '<div class="stats">' +
         stat(T("nalog.kolicina"), fmtN(D.metriMat), 'm', COLm) +
-        stat('Debljina', debLak || '\u2014', '\u00b5m', '#0ea5e9') +
-        stat('Materijala', brSloj || '\u2014', brSloj === 1 ? 'sloj' : 'sloja', '#14b8a6') +
-        stat('Te\u017eina', kgLak ? kgLak.toFixed(1) : '\u2014', 'kg', COLp) + '</div>';
+        stat('Debljina', debLak || '—', 'µm', '#0ea5e9') +
+        stat('Materijala', lakSlojevi.length || '—', lakSlojevi.length === 1 ? 'sloj' : 'sloja', '#14b8a6') +
+        stat('Težina', kgLak ? kgLak.toFixed(1) : '—', 'kg', COLp) + '</div>';
     const telo = lakSlojevi.length
-        ? lakSlojevi.map(function (s) { return '<tr><td><span class="dot-c" style="background:' + s.c + '"></span>' + idxOf(s) + '</td><td>' + esc(s.n || '\u2014') + '</td><td>' + esc(s.pv || '\u2014') + '</td><td>' + esc(s.oz || '\u2014') + '</td><td>' + esc(s.pr || '\u2014') + '</td><td class="n">' + s.u + ' \u00b5m</td><td class="n">' + (s.gm2 ? s.gm2.toFixed(1) : '\u2014') + '</td><td class="n">' + (s.gm2 ? (s.gm2 * D.kgF).toFixed(1) : '\u2014') + '</td><td>' + (s.st ? '\u2713' : '\u2014') + '</td></tr>'; }).join('')
-        : '<tr><td colspan="9" style="color:#94a3b8;text-align:center;padding:12px">Nijedan sloj nije označen za lakiranje.</td></tr>';
+        ? lakSlojevi.map(function (s) { return '<tr><td><span class="dot-c" style="background:' + s.c + '"></span>' + idxOf(s) + '</td><td>' + esc(s.n || '—') + '</td><td>' + esc(s.pv || '—') + '</td><td>' + esc(s.oz || '—') + '</td><td>' + esc(s.pr || '—') + '</td><td class="n">' + s.u + ' µm</td><td class="n">' + (s.gm2 ? (s.gm2 * D.kgF).toFixed(1) : '—') + '</td><td>' + (s.st ? '✓' : '—') + '</td></tr>'; }).join('')
+        : '<tr><td colspan="8" style="color:#94a3b8;text-align:center;padding:12px">Nijedan sloj nije označen za lakiranje.</td></tr>';
     const ulaz = lakSlojevi.length
-        ? 'lak se nanosi na ' + lakSlojevi.map(function (s) { return esc(s.n || '') + (s.oz ? ' ' + esc(s.oz) : '') + ' (' + s.u + ' \u00b5m)'; }).join(', ') + '.'
+        ? 'lak se nanosi na ' + lakSlojevi.map(function (s) { return esc(s.n || '') + (s.oz ? ' ' + esc(s.oz) : '') + ' (' + s.u + ' µm)'; }).join(', ') + '.'
         : 'Nijedan sloj nije označen za lakiranje.';
-    return pageWrap(D, hd(D, '\u2728', 'NALOG ZA LAKIRANJE', c, 'lakiranje') + '<div class="body">' + statLak +
+    return pageWrap(D, hd(D, '✨', 'NALOG ZA LAKIRANJE', c, 'lakiranje') + '<div class="body">' + statLak +
         '<div class="ulaz"><b>Ulaz:</b> ' + ulaz + '</div>' +
         '<div class="sec">' + secH(1, c, 'Parametri lakiranja', 'iz templejta') + '<div class="info">' +
-        infoC('Tip laka', D.lak.tip || '\u2014') + infoC('Ma\u0161ina', D.lak.masina || '\u2014') + infoC('Strana', D.lak.strana || '\u2014') + infoC('Nanos (g/m\u00b2)', D.lak.nanos || '\u2014') +
-        infoC('Pokrivenost', D.lak.pokrivenost || '\u2014') + infoC('Su\u0161enje', D.lak.susenje || '\u2014') + infoC('\u0160irina materijala', D.sirinaMat + ' mm') + infoC('Metra\u017ea', fmtN(D.metriMat) + ' m') +
+        infoC('Tip laka', D.lak.tip) + infoC('Mašina', D.lak.masina) + infoC('Strana', D.lak.strana) + infoC('Nanos (g/m²)', D.lak.nanos) +
+        infoC('Pokrivenost', D.lak.pokrivenost) + infoC('Sušenje', D.lak.susenje) + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Metraža', fmtN(D.metriMat) + ' m') +
         '</div></div>' +
         (D.lak.napomena ? '<div class="ulaz" style="margin-top:12px"><b>Napomena:</b> ' + esc(D.lak.napomena) + '</div>' : '') +
-        '<div class="sec">' + secH(2, c, 'Materijal koji se lakira', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvo\u0111a\u010d', { t: 'Debljina (\u00b5m)', n: 1 }, { t: 'g/m\u00b2', n: 1 }, { t: 'Kg', n: 1 }, '\u0160tampan'], c) + '<tbody>' + telo + '</tbody></table></div>' +
-        foot('Operater lakiranja', 'Kontrola kvaliteta', 'Predao u ka\u0161iranje') + '</div>', 'Strana \u00b7 lakiranje');
+        '<div class="sec">' + secH(2, c, 'Materijal koji se lakira', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'Kg', n: 1 }, 'Štampan'], c) + '<tbody>' + telo + '</tbody></table></div>' +
+        foot('Operater lakiranja', 'Kontrola kvaliteta', 'Predao u kaширanje') + '</div>', 'Strana · lakiranje');
 }
 
 function pRez(D) {
@@ -642,8 +638,8 @@ function citajRolne(nalog) {
                 n: r.snap_vrsta || r.vrsta || r.materijal || r.tip || "",
                 pv: r.snap_pod_vrsta || r.pod_vrsta || r.podvrsta || r.podVrsta || "",
                 oz: r.snap_oznaka || r.oznaka || r.oznaka_materijala || r.komercijalnaOznaka || "",
-                u: r.snap_debljina || r.debljina || r.deb || "",
                 pr: r.snap_dobavljac || r.dobavljac || r.proizvodjac || "",
+                u: r.snap_debljina || r.debljina || r.deb || "",
                 lot: r.lot || r.LOT || "—",
                 lok: r.lokacija || r.palet || r.location || "—",
                 alok: alok,
@@ -718,8 +714,8 @@ const V6_CSS = `
 .nv6 .sec-h .rule{flex:1;height:1px;background:var(--line)}
 .nv6 .sec-h .src{font-size:9px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
 .nv6 table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:auto;max-width:100%}
-.nv6 th{text-align:left;padding:6px 6px;font-size:8.5px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
-.nv6 td{padding:6px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere}
+.nv6 th{text-align:left;padding:6px 7px;font-size:9px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
+.nv6 td{padding:6px 7px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere;line-height:1.35}
 .nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}

@@ -45,6 +45,18 @@ function skiniSufiks(b) { return String(b || "").trim().replace(OP_SUFIKS, ""); 
 export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose }) {
     const [nalozi, setNalozi] = useState(naloziProp);
     const [loading, setLoading] = useState(false);
+    const [statusBusy, setStatusBusy] = useState(false);
+
+    async function postaviStatus(noviStatus) {
+        if (!aktivni || !aktivni.id) return;
+        setStatusBusy(true);
+        try {
+            const { error } = await supabase.from("operativni_nalozi").update({ status: noviStatus }).eq("id", aktivni.id);
+            if (error) { alert("Status nije promenjen: " + error.message); }
+            else { try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { } }
+        } catch (e) { alert("Greška: " + (e.message || e)); }
+        setStatusBusy(false);
+    }
     // Pocetni tab = operacija koju je korisnik STVARNO kliknuo (ranije uvek "materijal").
     const [tab, setTab] = useState(() => nalogType(osnovniNalog) || "materijal");
     const [tplRow, setTplRow] = useState(null);
@@ -357,6 +369,28 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     </button>
                 ))}
             </div>
+
+            {aktivni && aktivni.id && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 14px", padding: "10px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 11 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#475569" }}>Ručno postavi status:</span>
+                    {[
+                        { k: "ceka", l: "Čeka", boja: "#f59e0b" },
+                        { k: "radi", l: "U toku", boja: "#3b82f6" },
+                        { k: "spremljeno", l: "Spremno", boja: "#10b981" },
+                        { k: "zavrseno", l: "Završeno", boja: "#16a34a" },
+                    ].map((st) => (
+                        <button key={st.k} disabled={statusBusy} onClick={() => postaviStatus(st.k)}
+                            style={{
+                                border: "1px solid " + st.boja, borderRadius: 8, padding: "6px 12px", fontWeight: 800, fontSize: 12, cursor: "pointer",
+                                background: String(aktivni.status).toLowerCase().indexOf(st.k) === 0 ? st.boja : "#fff",
+                                color: String(aktivni.status).toLowerCase().indexOf(st.k) === 0 ? "#fff" : st.boja,
+                            }}>
+                            {st.l}
+                        </button>
+                    ))}
+                    {statusBusy && <span style={{ fontSize: 12, color: "#64748b" }}>Menjam…</span>}
+                </div>
+            )}
 
             {loading
                 ? <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>
