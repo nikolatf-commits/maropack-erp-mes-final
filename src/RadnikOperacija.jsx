@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
-import { izvrsiFormatiranje } from "./modules/izvrsiFormatiranje.js";
 
 // =====================================================================
 // RadnikOperacija — telefonska radnička strana za JEDNU operaciju.
@@ -156,6 +155,25 @@ export default function RadnikOperacija({ opid }) {
         setBusy(false); reload();
     }
 
+    async function oznaciMaterijalPoslat() {
+        setBusy(true); setErr("");
+        const kad = new Date().toISOString();
+        const ko = (radnik || op?.radnik || "").trim();
+        const { error } = await supabase.from("operativni_nalozi")
+            .update({ materijal_poslat: true, materijal_poslat_ts: kad, materijal_poslat_ko: ko || null })
+            .eq("id", opid);
+        if (error) setErr("Nije upisano: " + error.message);
+        setBusy(false); reload();
+    }
+    async function ponistiMaterijalPoslat() {
+        setBusy(true); setErr("");
+        const { error } = await supabase.from("operativni_nalozi")
+            .update({ materijal_poslat: false, materijal_poslat_ts: null, materijal_poslat_ko: null })
+            .eq("id", opid);
+        if (error) setErr("Nije poništeno: " + error.message);
+        setBusy(false); reload();
+    }
+
     async function zavrsi() {
         setBusy(true);
         if (aktivanZastoj) {
@@ -168,33 +186,6 @@ export default function RadnikOperacija({ opid }) {
             uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), napomena: fin.napomena || "",
         }).eq("id", opid);
         if (error) setErr("Završetak nije uspeo: " + error.message);
-
-        // Formatiranje: stvarni rez kroz bazu na ZAVRŠENO (samo formatiranje-nalog, jednom)
-        if (!error) {
-            try {
-                const plan = op?.parametri?.formatiranje;
-                // Objedinjeni nalog ima plan.matice[]; stari nalog ima plan direktno (jedna matična)
-                const matice = (plan && Array.isArray(plan.matice) && plan.matice.length) ? plan.matice
-                    : (plan && plan.br_rolne) ? [plan] : [];
-                if (matice.length && !op?.parametri?.formatiranje_izvrseno) {
-                    let ukupnoNovih = 0; const greske = [];
-                    for (const mp of matice) {
-                        const { data: mrows } = await supabase.from("magacin").select("*").eq("br_rolne", mp.br_rolne).limit(1);
-                        const matica = mrows && mrows[0];
-                        if (!matica) { greske.push("matična " + mp.br_rolne + " nije nađena"); continue; }
-                        const rez = await izvrsiFormatiranje(supabase, matica, mp, {
-                            nalog: { broj: op.broj_naloga, id: op.id }, user_id: op.radnik || null,
-                        });
-                        if (rez && rez.ok) ukupnoNovih += (rez.nastale || []).length;
-                        else if (rez && rez.greske && rez.greske.length) greske.push(rez.greske.join(" · "));
-                    }
-                    await supabase.from("operativni_nalozi").update({
-                        parametri: { ...op.parametri, formatiranje_izvrseno: true, formatiranje_role: ukupnoNovih },
-                    }).eq("id", opid);
-                    if (greske.length) setErr("Formatiranje: " + greske.join(" · "));
-                }
-            } catch (eF) { console.warn("Formatiranje na ZAVRŠENO nije izvršeno:", eF); }
-        }
         setBusy(false); setShowFinish(false); reload();
     }
 
@@ -274,6 +265,28 @@ export default function RadnikOperacija({ opid }) {
                     />
                     <label style={lbl}>Mašina</label>
                     <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>{MASINE.map((m) => <option key={m}>{m}</option>)}</select>
+
+                    {(meta.key === "stampa" || meta.key === "lakiranje") && (
+                        <div style={{ marginTop: 14, background: op?.materijal_poslat ? "rgba(16,185,129,.12)" : "rgba(245,158,11,.12)", border: "1px solid " + (op?.materijal_poslat ? "rgba(16,185,129,.55)" : "rgba(245,158,11,.55)"), borderRadius: 12, padding: 12 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: op?.materijal_poslat ? "#34d399" : "#fbbf24", marginBottom: op?.materijal_poslat ? 4 : 8 }}>
+                                {op?.materijal_poslat
+                                    ? "✓ Materijal poslat u štampariju"
+                                    : (meta.key === "lakiranje" ? "Lakiranje se radi spolja" : "Štampa se radi spolja")}
+                            </div>
+                            {op?.materijal_poslat ? (
+                                <>
+                                    <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
+                                        {op.materijal_poslat_ko ? op.materijal_poslat_ko + " · " : ""}
+                                        {op.materijal_poslat_ts ? new Date(op.materijal_poslat_ts).toLocaleString("sr-RS") : ""}
+                                    </div>
+                                    <button disabled={busy} onClick={ponistiMaterijalPoslat} style={{ ...btn("transparent", "#94a3b8"), border: "1px solid #334155", marginTop: 8, fontSize: 12.5, padding: 9 }}>Poništi</button>
+                                </>
+                            ) : (
+                                <button disabled={busy} onClick={oznaciMaterijalPoslat} style={{ ...btn("#d97706"), marginTop: 0 }}>📦 Označi „materijal poslat u štampariju"</button>
+                            )}
+                        </div>
+                    )}
+
                     <button disabled={busy} onClick={pocni} style={btn("#16a34a")}>▶ POČNI OPERACIJU</button>
                 </div>
             )}
