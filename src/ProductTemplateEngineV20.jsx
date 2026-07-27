@@ -1666,8 +1666,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const imaBoje = Array.isArray(st.boje) && st.boje.some(b => b && b.tip !== "Lak");
         const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
 
-        // Lakiranje je zasebna operacija: cekboks "K"/lak na sloju ili boja tipa "Lak".
-        const imaLak = L.some(l => l.lak) || (Array.isArray(st.boje) && st.boje.some(b => b && b.tip === "Lak"));
+        // Lakiranje je zasebna operacija — nastaje SAMO kad je čekiran "lak" na sloju.
+        // (Boja tipa "Lak" u štampi se NE računa kao lakiranje.)
+        const imaLak = L.some(l => l.lak);
 
         const kas = (form.type === "folija" ? form.folija?.kasiranje
             : form.type === "kesa" ? form.kesa?.kasiranje : null) || {};
@@ -2518,6 +2519,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
                         <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
                     </div>
+                </Section>
+
+                <Section title="Parametri lakiranja" color="#2563eb">
+                    <Grid cols={3}>
+                        <Input label="Tip laka" value={form.folija.lakiranje?.tip || ""} onChange={v => update("folija.lakiranje.tip", v)} />
+                        <Input label="Mašina" value={form.folija.lakiranje?.masina || ""} onChange={v => update("folija.lakiranje.masina", v)} />
+                        <Input label="Strana (lice/naličje)" value={form.folija.lakiranje?.strana || ""} onChange={v => update("folija.lakiranje.strana", v)} />
+                        <Input label="Nanos (g/m²)" value={form.folija.lakiranje?.nanos || ""} onChange={v => update("folija.lakiranje.nanos", v)} />
+                        <Input label="Pokrivenost (puna/UV/mat...)" value={form.folija.lakiranje?.pokrivenost || ""} onChange={v => update("folija.lakiranje.pokrivenost", v)} />
+                        <Input label="Sušenje" value={form.folija.lakiranje?.susenje || ""} onChange={v => update("folija.lakiranje.susenje", v)} />
+                        <div style={{ gridColumn: "span 3" }}>
+                            <Input label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
+                        </div>
+                    </Grid>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" ili boja tipa „Lak". Ovi podaci idu na nalog za lakiranje.</div>
                 </Section>
 
                 <Section title={t("tmpl.kasiranje")} color={BLUE}>

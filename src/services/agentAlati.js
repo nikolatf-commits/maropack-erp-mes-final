@@ -115,7 +115,7 @@ function operacijeZaTemplejt(tpl, tip) {
     const brojBoja = Number(st.brojBoja) || 0;
     const imaBoje = Array.isArray(st.boje) && st.boje.some((b) => b && b.tip !== "Lak");
     const imaStampu = L.some((l) => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
-    const imaLak = L.some((l) => l.lak) || (Array.isArray(st.boje) && st.boje.some((b) => b && b.tip === "Lak"));
+    const imaLak = L.some((l) => l.lak);
     const kas = grana.kasiranje || {};
     const imaKasiranje = L.length > 1 || Number(kas.brojKasiranja) > 0;
 
@@ -1257,6 +1257,7 @@ export const ALATI = {
                 type: "object", description: "Parametri štampe: masina, strana, brojBoja, boje (niz {naziv,tip}), obimValjka, precnikHilzne, smerOdmotavanja, stamparija, klise",
             },
             kasiranje: { type: "object", description: "Kaширanje: tipLepka, odnosLepka, nanosLepka, brojKasiranja, materijalABC" },
+            lakiranje: { type: "object", description: "Lakiranje: tip, masina, strana, nanos, pokrivenost, susenje, napomena" },
             perforacija: { type: "object", description: "Perforacija/KPDF: tip, razmak, sirina, pozicija, smer, brojRupa" },
             rezanje: { type: "object", description: "Rezanje: sirinaMaterijala, sirinaTrake, brojTraka" },
             dimenzije_kese: {
@@ -1272,7 +1273,7 @@ export const ALATI = {
                     "otvor_dno, falta_dno, var_dno, tolerancija_kol, stampa, povrsina, pozicija, motiv, eurozumba, utor, " +
                     "perf_igle, okrugla_zumba, velicina_pozicija, poprecna_perf, poprecni_var, hrana, anleger, pakovati. " +
                     "NE koristi druge šifre. Primer: { tipKese: \"header\", sirina: 180, duzina: 260, klapna: 25, options: { eurozumba: true, poprecna_perf: true } }",
-            },            dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
+            }, dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
             napomena: { type: "string" },
         },
         opisPlana: (a) => {
@@ -1308,6 +1309,7 @@ export const ALATI = {
             const grana = { layers: slojevi };
             if (a.stampa && typeof a.stampa === "object") grana.stampa = a.stampa;
             if (a.kasiranje && typeof a.kasiranje === "object") grana.kasiranje = a.kasiranje;
+            if (a.lakiranje && typeof a.lakiranje === "object") grana.lakiranje = a.lakiranje;
             if (tip === "kesa" && a.dimenzije_kese && typeof a.dimenzije_kese === "object") Object.assign(grana, a.dimenzije_kese);
             if (tip === "spulna" && a.dimenzije_spulne && typeof a.dimenzije_spulne === "object") Object.assign(grana, a.dimenzije_spulne);
 

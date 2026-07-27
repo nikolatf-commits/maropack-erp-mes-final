@@ -29,6 +29,7 @@ function opMeta(n) {
     const x = String(n?.tip_naloga || n?.vrsta || n?.operacija || n?.naziv || n?.broj_naloga || "").toLowerCase();
     if (x.includes("mater")) return { key: "materijal", label: "MATERIJAL", ik: "📦", masina: "Štampa 1" };
     if (x.includes("štamp") || x.includes("stamp")) return { key: "stampa", label: "ŠTAMPA", ik: "🖨️", masina: "Štampa 1" };
+    if (x.includes("lak")) return { key: "lakiranje", label: "LAKIRANJE", ik: "✨", masina: "Lakiranje" };
     if (x.includes("kaš") || x.includes("kas")) return { key: "kasiranje", label: "KAŠIRANJE", ik: "🔗", masina: "Kaširanje" };
     if (x.includes("perf") || x.includes("rez")) return { key: "rezanje", label: "PERFORACIJA / REZANJE", ik: "✂️", masina: "Rezanje" };
     if (x.includes("kes")) return { key: "kesa", label: "KESA", ik: "🛍️", masina: "Kese" };

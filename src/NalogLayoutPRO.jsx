@@ -82,6 +82,7 @@ function buildLayers(nalog) {
         c: vrstaColor(m.vrsta),
         uloga: m.uloga || ((m.stampa || m.stamp || m["Š"]) ? "štampan" : ""),
         st: (m.stampa || m.stamp || m["Š"]) ? 1 : 0,
+        lak: (m.lak || m.lakiranje || m["K"]) ? 1 : 0,
         sirina: num(m.sirina || m.sirina_mm),
     }));
 }
@@ -143,6 +144,15 @@ function buildD(nalog) {
         kas: {
             tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]), odnos: (folija.kasiranje || {}).odnosLepka,
             nanos: (folija.kasiranje || {}).nanosLepka, broj: (folija.kasiranje || {}).brojKasiranja || Math.max(0, LAY.length - 1),
+        },
+        lak: {
+            tip: pick(folija.lakiranje || {}, ["tip", "tipLaka", "vrsta"]),
+            masina: (folija.lakiranje || {}).masina,
+            strana: (folija.lakiranje || {}).strana,
+            nanos: (folija.lakiranje || {}).nanos,
+            pokrivenost: (folija.lakiranje || {}).pokrivenost,
+            susenje: (folija.lakiranje || {}).susenje,
+            napomena: (folija.lakiranje || {}).napomena,
         },
         rez: {
             sirinaMat, lanes, otpad, brojTraka: lanes.length || num(rz.brojTraka),
@@ -218,7 +228,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> ' + fmtN(D.komUkupno) + ' kom × ' + D.korak + ' mm = ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = <b>' + fmtN(D.metriMat) + ' m matične rolne</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || D.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—')) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { var Lr = D.LAY[ri] || {}; var vN = r.n || Lr.n || ''; var vPV = r.pv || Lr.pv || ''; var vOZ = r.oz || Lr.oz || ''; var vPR = r.pr || Lr.pr || ''; var vU = r.u || Lr.u || ''; return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || D.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—')) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
 
@@ -244,6 +254,37 @@ function pKas(D) {
         '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', (Math.max(0, L.length - 1)) + ' kaširanja') + cards + '</div>' +
         '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' + infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', D.kas.broj) + infoC('Redosled', L.map(function (x) { return x.n; }).join('/')) + infoC('Ukupna debljina', D.TOTu + ' µm') + infoC('', '') + infoC('', '') + '</div></div>' +
         foot('Operater kaširanja', 'Kontrola kvaliteta', 'Predao u rezanje') + '</div>', 'Strana · kaširanje');
+}
+
+function pLak(D) {
+    const c = COLs; const L = D.LAY;
+    // Lak se nanosi SAMO na sloj(eve) sa čekiranim "lak". Bez toga — nema šta da se lakira.
+    const lakSlojevi = L.filter(function (x) { return x.lak; });
+    const idxOf = function (s) { return L.indexOf(s) + 1; };
+    // Statistike gore moraju da odgovaraju SAMO lakiranom materijalu — ne celom laminatu.
+    const debLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.u) || 0); }, 0);
+    const kgLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.gm2) || 0) * D.kgF; }, 0);
+    const brSloj = lakSlojevi.length;
+    const statLak = '<div class="stats">' +
+        stat(T("nalog.kolicina"), fmtN(D.metriMat), 'm', COLm) +
+        stat('Debljina', debLak || '\u2014', '\u00b5m', '#0ea5e9') +
+        stat('Materijala', brSloj || '\u2014', brSloj === 1 ? 'sloj' : 'sloja', '#14b8a6') +
+        stat('Te\u017eina', kgLak ? kgLak.toFixed(1) : '\u2014', 'kg', COLp) + '</div>';
+    const telo = lakSlojevi.length
+        ? lakSlojevi.map(function (s) { return '<tr><td><span class="dot-c" style="background:' + s.c + '"></span>' + idxOf(s) + '</td><td>' + esc(s.n || '\u2014') + '</td><td>' + esc(s.pv || '\u2014') + '</td><td>' + esc(s.oz || '\u2014') + '</td><td>' + esc(s.pr || '\u2014') + '</td><td class="n">' + s.u + ' \u00b5m</td><td class="n">' + (s.gm2 ? s.gm2.toFixed(1) : '\u2014') + '</td><td class="n">' + (s.gm2 ? (s.gm2 * D.kgF).toFixed(1) : '\u2014') + '</td><td>' + (s.st ? '\u2713' : '\u2014') + '</td></tr>'; }).join('')
+        : '<tr><td colspan="9" style="color:#94a3b8;text-align:center;padding:12px">Nijedan sloj nije označen za lakiranje.</td></tr>';
+    const ulaz = lakSlojevi.length
+        ? 'lak se nanosi na ' + lakSlojevi.map(function (s) { return esc(s.n || '') + (s.oz ? ' ' + esc(s.oz) : '') + ' (' + s.u + ' \u00b5m)'; }).join(', ') + '.'
+        : 'Nijedan sloj nije označen za lakiranje.';
+    return pageWrap(D, hd(D, '\u2728', 'NALOG ZA LAKIRANJE', c, 'lakiranje') + '<div class="body">' + statLak +
+        '<div class="ulaz"><b>Ulaz:</b> ' + ulaz + '</div>' +
+        '<div class="sec">' + secH(1, c, 'Parametri lakiranja', 'iz templejta') + '<div class="info">' +
+        infoC('Tip laka', D.lak.tip || '\u2014') + infoC('Ma\u0161ina', D.lak.masina || '\u2014') + infoC('Strana', D.lak.strana || '\u2014') + infoC('Nanos (g/m\u00b2)', D.lak.nanos || '\u2014') +
+        infoC('Pokrivenost', D.lak.pokrivenost || '\u2014') + infoC('Su\u0161enje', D.lak.susenje || '\u2014') + infoC('\u0160irina materijala', D.sirinaMat + ' mm') + infoC('Metra\u017ea', fmtN(D.metriMat) + ' m') +
+        '</div></div>' +
+        (D.lak.napomena ? '<div class="ulaz" style="margin-top:12px"><b>Napomena:</b> ' + esc(D.lak.napomena) + '</div>' : '') +
+        '<div class="sec">' + secH(2, c, 'Materijal koji se lakira', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvo\u0111a\u010d', { t: 'Debljina (\u00b5m)', n: 1 }, { t: 'g/m\u00b2', n: 1 }, { t: 'Kg', n: 1 }, '\u0160tampan'], c) + '<tbody>' + telo + '</tbody></table></div>' +
+        foot('Operater lakiranja', 'Kontrola kvaliteta', 'Predao u ka\u0161iranje') + '</div>', 'Strana \u00b7 lakiranje');
 }
 
 function pRez(D) {
@@ -599,8 +640,10 @@ function citajRolne(nalog) {
             return {
                 qr: r.br_rolne || r.qr || r.qr_kod || r.rolna_id || r.id,
                 n: r.snap_vrsta || r.vrsta || r.materijal || r.tip || "",
-                oz: r.snap_oznaka || r.oznaka || r.oznaka_materijala || "",
+                pv: r.snap_pod_vrsta || r.pod_vrsta || r.podvrsta || r.podVrsta || "",
+                oz: r.snap_oznaka || r.oznaka || r.oznaka_materijala || r.komercijalnaOznaka || "",
                 u: r.snap_debljina || r.debljina || r.deb || "",
+                pr: r.snap_dobavljac || r.dobavljac || r.proizvodjac || "",
                 lot: r.lot || r.LOT || "—",
                 lok: r.lokacija || r.palet || r.location || "—",
                 alok: alok,
@@ -610,182 +653,15 @@ function citajRolne(nalog) {
         });
 }
 
-function formatiranjeD(nalog) {
-    const par = (typeof safeJson === "function" ? safeJson(nalog.parametri, {}) : (nalog.parametri || {})) || {};
-    const res = (typeof safeJson === "function" ? safeJson(nalog.res, {}) : (nalog.res || {})) || {};
-    const f = nalog.formatiranje || par.formatiranje || res.formatiranje || {};
-    const listaM = (Array.isArray(f.matice) && f.matice.length) ? f.matice : [f];
-
-    function obradiMaticu(fm) {
-        const matSir = num(fm.sirina_mm) || num(fm.matSir) || 0;
-        const plan = (Array.isArray(fm.plan_reza) ? fm.plan_reza : []).map(function (s) {
-            return {
-                duzina: num(s.duzina_m),
-                otpad: num(s.otpad_mm),
-                trake: (Array.isArray(s.trake) ? s.trake : []).map(function (t) {
-                    return { sir: num(t.sirina_mm), odr: t.odrediste || "stanje", nap: t.napomena || "" };
-                }),
-            };
-        });
-        const lotBaza = fm.lot_baza || fm.lot || "LOT";
-        let seq = 0;
-        const role = [];
-        plan.forEach(function (sg) {
-            sg.trake.forEach(function (t) {
-                role.push({ lot: lotBaza + "-" + (++seq), sir: t.sir, duz: sg.duzina, odr: t.odr, nap: t.nap || (String(t.odr) === "stanje" ? "bočni ostatak" : "") });
-            });
-        });
-        let korisno = 0, cut = 0, otpadM2 = 0, utrosak = 0;
-        plan.forEach(function (sg) {
-            sg.trake.forEach(function (t) { korisno += t.sir * sg.duzina; });
-            cut += matSir * sg.duzina; otpadM2 += sg.otpad * sg.duzina; utrosak += sg.duzina;
-        });
-        const isk = cut ? Math.round((korisno / cut) * 1000) / 10 : 0;
-        return {
-            matBr: fm.br_rolne || fm.matBr || "—", matSir: matSir,
-            materijal: fm.materijal || "—", proizvodjac: fm.proizvodjac || fm.dobavljac || "—",
-            lotBaza: lotBaza, plan: plan, role: role,
-            novih: role.length, otpadM2: Math.round(otpadM2), isk: isk, utrosak: num(fm.utrosak_m) || utrosak,
-        };
-    }
-
-    const matice = listaM.map(obradiMaticu);
-    const novih = matice.reduce(function (a, m) { return a + m.novih; }, 0);
-    const utrosak = matice.reduce(function (a, m) { return a + m.utrosak; }, 0);
-    const otpadM2 = matice.reduce(function (a, m) { return a + m.otpadM2; }, 0);
-    const isk = matice.length ? Math.round(matice.reduce(function (a, m) { return a + m.isk; }, 0) / matice.length * 10) / 10 : 0;
-
-    const gr = [];
-    if (!matice.length || !matice.some(function (m) { return m.plan.length; })) gr.push("Nema plana reza — pokreni predlog (korak 1).");
-
-    return {
-        broj: f.broj || nalog.broj_naloga || nalog.broj || "—",
-        matice: matice, brMatica: matice.length,
-        izvor_ponbr: f.izvor_ponbr || null,
-        preventivno: !!f.preventivno || !f.izvor_ponbr,
-        novih: novih, utrosak: utrosak, otpadM2: otpadM2, isk: isk,
-        greske: gr,
-    };
-}
-
-/* Plan reza — SVG fig blok (isti vizuelni jezik kao rezSvg) */
-function fmtSvg(F) {
-    const X0 = 118, X1 = 706, barW = X1 - X0, rowH = 78, barH = 46, W = F.matSir || 1;
-    const scale = barW / W;
-    const BOJ = function (odr) {
-        if (String(odr) === "stanje" || !odr) return { f: "#e5e7eb", s: "#64748b", t: "#475569", lab: "stanje" };
-        if (String(odr).indexOf("nalog") === 0) return { f: "#dbeafe", s: "#1d4ed8", t: "#1d4ed8", lab: "nalog" };
-        return { f: "#dcfce7", s: "#059669", t: "#047857", lab: "nalog" };
-    };
-    const H = F.plan.length * rowH + 16;
-    let o = "";
-    o += '<defs><pattern id="fmtHatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#fef2f2"/><line x1="0" y1="0" x2="0" y2="7" stroke="#fca5a5" stroke-width="2"/></pattern></defs>';
-    F.plan.forEach(function (s, i) {
-        const y = i * rowH + 6, by = y + 14;
-        // labela segmenta u levom žlebu
-        o += '<text x="6" y="' + (by + 18) + '" font-size="10.5" font-weight="900" fill="#334155">SEGMENT ' + (i + 1) + '</text>';
-        o += '<text x="6" y="' + (by + 33) + '" font-size="10" font-weight="800" fill="#64748b">' + fmtN(s.duzina) + ' m</text>';
-        // matična kao okvir
-        o += '<rect x="' + X0 + '" y="' + by + '" width="' + barW + '" height="' + barH + '" fill="#eef4fc" stroke="#1e3a8a" stroke-width="1.2"/>';
-        let x = X0;
-        s.trake.forEach(function (t) {
-            const w = t.sir * scale, col = BOJ(t.odr), usko = w < 46;
-            o += '<rect x="' + x + '" y="' + by + '" width="' + w + '" height="' + barH + '" fill="' + col.f + '" stroke="' + col.s + '" stroke-width="1"/>';
-            o += '<text x="' + (x + w / 2) + '" y="' + (by + (usko ? barH / 2 + 3 : barH / 2 - 2)) + '" text-anchor="middle" font-size="11" font-weight="900" fill="' + col.t + '">' + t.sir + '</text>';
-            if (!usko) o += '<text x="' + (x + w / 2) + '" y="' + (by + barH / 2 + 12) + '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + col.t + '" opacity="0.85">' + col.lab + '</text>';
-            x += w;
-        });
-        // otpad
-        const ow = s.otpad * scale;
-        if (ow > 1) {
-            o += '<rect x="' + x + '" y="' + by + '" width="' + ow + '" height="' + barH + '" fill="url(#fmtHatch)" stroke="#fca5a5" stroke-width="1"/>';
-            if (ow > 34) o += '<text x="' + (x + ow / 2) + '" y="' + (by + barH / 2 + 3) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="#dc2626">' + s.otpad + '</text>';
-        }
-    });
-    return '<svg viewBox="0 0 720 ' + H + '" width="100%" style="max-width:660px;background:#fff">' + o + '</svg>';
-}
-
-function pFormatiranje(D, F, qrMap) {
-    const c = COLp; // #7c3aed — familija rezanja
-    const odrPill = function (odr) {
-        const st = String(odr) === "stanje" || !odr;
-        const col = st ? "#64748b" : (String(odr).indexOf("nalog") === 0 ? "#1d4ed8" : "#059669");
-        const txt = st ? "na stanje" : String(odr).replace("nalog:", "nalog ");
-        return '<span style="background:' + col + '14;color:' + col + ';border:1px solid ' + col + '33;border-radius:7px;padding:2px 8px;font-size:11px;font-weight:800">' + esc(txt) + '</span>';
-    };
-
-    const statRow =
-        '<div class="stats">' +
-        stat('Matičnih', F.brMatica, 'kom', COLm) +
-        stat('Novih rolni', F.novih, 'kom', '#14b8a6') +
-        stat('Iskorišćenje', fmtN(F.isk), '%', c) +
-        stat('Otpad', fmtN(F.otpadM2), 'mm·m', '#ef4444') +
-        '</div>';
-
-    const info =
-        '<div class="info">' +
-        infoC('Nalog', F.broj) +
-        infoC('Matičnih rolni', String(F.brMatica)) +
-        infoC('Poreklo', F.preventivno ? 'Preventivno' : ('iz naloga ' + (F.izvor_ponbr || '—'))) +
-        infoC('Ukupan utrošak', fmtN(F.utrosak) + ' m') +
-        infoC('Mašina', '— (skenira radnik)') +
-        infoC('Radnik', '— (skenira radnik)') +
-        '</div>';
-
-    const greske = F.greske && F.greske.length
-        ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + F.greske.map(esc).join('<br>⚠ ') + '</div>'
-        : '';
-
-    const legenda =
-        '<div style="display:flex;gap:16px;font-size:10.5px;font-weight:700;color:#64748b;margin-top:8px">' +
-        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#dbeafe;border:1.5px solid #1d4ed8;vertical-align:-1px"></span> za nalog</span>' +
-        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#e5e7eb;border:1.5px solid #64748b;vertical-align:-1px"></span> na stanje</span>' +
-        '<span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#fef2f2;border:1.5px solid #fca5a5;vertical-align:-1px"></span> otpad</span>' +
-        '</div>';
-
-    const planSek = F.matice.map(function (m, mi) {
-        return '<div class="sec">' + secH(mi + 1, c, 'Matična ' + (mi + 1) + ' — ' + esc(m.matBr), m.matSir + ' mm · ' + esc(m.materijal)) +
-            '<div class="ulaz"><b>Rez:</b> ' + m.matSir + ' mm → ' + m.plan.length + ' segment' + (m.plan.length === 1 ? '' : 'a') +
-            ' · utrošak <b>' + fmtN(m.utrosak) + ' m</b> · iskorišćenje <b>' + fmtN(m.isk) + '%</b> · otpad ' + fmtN(m.otpadM2) + ' mm·m</div>' +
-            '<div class="framed" style="padding:12px 10px">' + fmtSvg(m) + '</div>' + legenda + '</div>';
-    }).join('');
-
-    const allRole = [];
-    F.matice.forEach(function (m) { m.role.forEach(function (r) { allRole.push({ lot: r.lot, sir: r.sir, duz: r.duz, odr: r.odr, nap: r.nap, matBr: m.matBr }); }); });
-
-    const roleSek =
-        '<div class="sec">' + secH(F.matice.length + 1, c, 'Nove role (' + F.novih + ')', 'QR nalepnice — štampaju se uz nalog') +
-        '<table>' + th([{ t: 'QR', n: 1 }, 'LOT', { t: 'Širina', n: 1 }, { t: 'Dužina (m)', n: 1 }, 'Iz matične', 'Kome ide'], c) + '<tbody>' +
-        allRole.map(function (r) {
-            const qimg = (qrMap && qrMap[r.lot]) ? '<img src="' + qrMap[r.lot] + '" alt="QR" style="width:40px;height:40px;display:block;margin:auto"/>' : '<span style="color:#cbd5e1">—</span>';
-            return '<tr><td class="n">' + qimg + '</td>' +
-                '<td style="font-family:ui-monospace,monospace;font-weight:800">' + esc(r.lot) + '</td>' +
-                '<td class="n">' + r.sir + ' mm</td>' +
-                '<td class="n">' + fmtN(r.duz) + '</td>' +
-                '<td>' + esc(r.matBr) + '</td>' +
-                '<td>' + odrPill(r.odr) + '</td></tr>';
-        }).join('') +
-        '</tbody></table></div>';
-
-    return pageWrap(
-        D,
-        hd(D, '✂️', 'NALOG ZA FORMATIRANJE', c, 'formatiranje') +
-        '<div class="body">' + statRow + info + greske + planSek + roleSek +
-        foot('Operater (mašina)', 'Datum / vreme', 'U magacin / na nalog') + '</div>',
-        'Strana · formatiranje'
-    );
-}
-
-function buildPagesHTML(nalog, vrsta, qr, lang = 'sr', qrRole = null) {
+function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
-    if (vrsta === "formatiranje") return pFormatiranje(D, formatiranjeD(nalog), qrRole);
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
-        if (vrsta === "spulna") return pSpulna(D, S);
+        if (vrsta === "spulna" || vrsta === "formatiranje") return pSpulna(D, S);
         return pSpMat(D, S);
     }
     if (D.jeKesa) {
@@ -796,6 +672,7 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr', qrRole = null) {
     }
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);
+    if (vrsta === "lakiranje") return pLak(D);
     if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna") + pPerfBig(D);
     return pMat(D);
 }
@@ -834,15 +711,15 @@ const V6_CSS = `
 .nv6 .info .c{padding:8px 12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
 .nv6 .info .c .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px}
 .nv6 .info .c .v{font-size:12.5px;font-weight:800;margin-top:3px}
-.nv6 .sec{margin-top:18px}
+.nv6 .sec{margin-top:18px;max-width:100%;overflow:hidden}
 .nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}
 .nv6 .sec-h .tt{font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
 .nv6 .sec-h .rule{flex:1;height:1px;background:var(--line)}
 .nv6 .sec-h .src{font-size:9px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
-.nv6 table{width:100%;border-collapse:collapse;font-size:11px}
-.nv6 th{text-align:left;padding:7px 9px;font-size:9px;text-transform:uppercase;letter-spacing:.3px;font-weight:800}
-.nv6 td{padding:7px 9px;border-top:1px solid #eef1f5;font-weight:600}
+.nv6 table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:auto;max-width:100%}
+.nv6 th{text-align:left;padding:6px 6px;font-size:8.5px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
+.nv6 td{padding:6px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere}
 .nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}
@@ -888,7 +765,6 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else vrsta = "materijal";
     const broj = nalog.master_broj || nalog.broj_naloga || nalog.broj || (nalog.master_nalog && nalog.master_nalog.broj_naloga) || "";
     const [qr, setQr] = React.useState("");
-    const [qrRole, setQrRole] = React.useState(null);
     // QR na nalogu.
     //
     // RANIJE: ?nalog=MP-2026-0015 → otvarao samo PREGLED naloga (bez dugmadi).
@@ -906,31 +782,10 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         QRCode.toDataURL(url, { margin: 1, width: 320 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
     }, [broj, opid]);
-
-    // QR nalepnice za NOVE role (formatiranje) — jedna po LOT-u.
-    React.useEffect(() => {
-        if (vrsta !== "formatiranje") { setQrRole(null); return; }
-        let on = true;
-        try {
-            const F = formatiranjeD(nalog);
-            const lots = [];
-            (F.matice || []).forEach((m) => (m.role || []).forEach((r) => { if (r.lot) lots.push(r.lot); }));
-            if (!lots.length) { setQrRole(null); return; }
-            Promise.all(lots.map((lot) =>
-                QRCode.toDataURL(String(lot), { margin: 0, width: 120 }).then((d) => [lot, d]).catch(() => [lot, ""])
-            )).then((pairs) => {
-                if (!on) return;
-                const map = {};
-                pairs.forEach(([lot, d]) => { if (d) map[lot] = d; });
-                setQrRole(map);
-            });
-        } catch (e) { if (on) setQrRole(null); }
-        return () => { on = false; };
-    }, [nalog, vrsta]);
     // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
     const htmlStr = React.useMemo(
-        () => buildPagesHTML(nalog, vrsta, qr, lang, qrRole),
-        [nalog, vrsta, qr, lang, qrRole]
+        () => buildPagesHTML(nalog, vrsta, qr, lang),
+        [nalog, vrsta, qr, lang]
     );
 
     // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.
