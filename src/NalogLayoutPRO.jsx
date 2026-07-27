@@ -780,9 +780,25 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         return () => { on = false; };
     }, [broj, opid]);
     // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
+    // GARANCIJA protiv zaostajanja: gradi HTML tek kad prosleđeni `nalog` STVARNO odgovara
+    // izabranoj fazi (activeTab). Ako roditelj još nije ažurirao nalog (kasni 1 render),
+    // ne prikazujemo stare podatke pod novim naslovom — nego čekamo poravnanje.
+    const nalogVrsta = String(nalog.tip_naloga || nalog.vrsta_naloga || nalog.vrsta || "").toLowerCase();
+    let nalogVrstaNorm = "materijal";
+    if (nalogVrsta.includes("mater")) nalogVrstaNorm = "materijal";
+    else if (nalogVrsta.includes("štamp") || nalogVrsta.includes("stamp")) nalogVrstaNorm = "stampa";
+    else if (nalogVrsta.includes("lak")) nalogVrstaNorm = "lakiranje";
+    else if (nalogVrsta.includes("kes")) nalogVrstaNorm = "kesa";
+    else if (nalogVrsta.includes("format")) nalogVrstaNorm = "formatiranje";
+    else if (nalogVrsta.includes("spul") || nalogVrsta.includes("špul")) nalogVrstaNorm = "spulna";
+    else if (nalogVrsta.includes("kaš") || nalogVrsta.includes("kas")) nalogVrstaNorm = "kasiranje";
+    else if (nalogVrsta.includes("perf") || nalogVrsta.includes("rez")) nalogVrstaNorm = "perforacija_rezanje";
+    // Poravnato ako se traženi tab i tip prosleđenog naloga poklapaju, ili nalog nema tip (prazan/preview).
+    const poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
+
     const htmlStr = React.useMemo(
-        () => buildPagesHTML(nalog, vrsta, qr, lang),
-        [nalog, vrsta, qr, lang]
+        () => poravnato ? buildPagesHTML(nalog, vrsta, qr, lang) : "",
+        [nalog, vrsta, qr, lang, poravnato]
     );
 
     // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.
@@ -795,7 +811,9 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
             <style>{V6_CSS}</style>
-            <div dangerouslySetInnerHTML={{ __html: htmlStr }} />
+            {poravnato
+                ? <div dangerouslySetInnerHTML={{ __html: htmlStr }} />
+                : <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>}
             {kesaRaw && (
                 <div className="a4">
                     <div className="body" style={{ padding: "24px 28px" }}>
