@@ -798,8 +798,9 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     // Poravnato ako se traženi tab i tip prosleđenog naloga poklapaju, ili nalog nema tip (prazan/preview).
     let poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
     // Neke faze traže podatke iz templejta (mašina/boje/dizajn) koji stižu ASINHRONO.
-    // Sačekamo ih KRATKO (da izbegnemo "praznu štampu" pri prvom prelasku), ali ako ih
-    // ni posle par stotina ms nema (templejt ih stvarno nema), prikažemo šta ima.
+    // Dok ne stignu, prikazujemo "Učitavam" umesto praznog naloga. NE odustajemo brzo —
+    // podaci uvek dođu iz proizvodi tabele; bolje sačekati nego prikazati praznu štampu.
+    // Sigurnosni ventil (5s) samo da se ne zaglavi zauvek ako templejt STVARNO nema podatke.
     const [cekajTpl, setCekajTpl] = React.useState(false);
     React.useEffect(() => {
         const f = (nalog.folija) || (nalog.res && nalog.res.folija) || (nalog.template && nalog.template.folija) || (nalog.templateData && nalog.templateData.folija) || {};
@@ -812,10 +813,10 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         }
         if (fali) {
             setCekajTpl(true);
-            const id = setTimeout(() => setCekajTpl(false), 800);  // posle 800ms prikaži šta ima
+            const id = setTimeout(() => setCekajTpl(false), 5000);  // sigurnosni ventil: posle 5s prikaži šta ima
             return () => clearTimeout(id);
         }
-        setCekajTpl(false);
+        setCekajTpl(false);   // podaci stigli → prikaži odmah
     }, [nalog, vrsta, nalogVrsta, nalogVrstaNorm]);
     if (cekajTpl) poravnato = false;
 

@@ -246,15 +246,6 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         if (dostupni.length && !dostupni.some(t => t.tip === tab)) setTab(dostupni[0].tip);
     }, [dostupni, tab]);
 
-    // Kratki "prekid" pri promeni faze: NalogLayout se skloni na jedan render pa vrati,
-    // čime se garantovano briše zaostali prikaz prethodne operacije (materijal→štampa itd).
-    const [tabPrelaz, setTabPrelaz] = useState(false);
-    useEffect(() => {
-        setTabPrelaz(true);
-        const id = setTimeout(() => setTabPrelaz(false), 30);
-        return () => clearTimeout(id);
-    }, [tab]);
-
     // Fallback na osnovniNalog SAMO ako je to bas ta operacija. Ranije se slepo
     // uzimao bilo koji prosledjeni nalog, pa je papir dobijao naslov jedne operacije
     // i broj/QR druge (npr. "NALOG ZA MATERIJAL" sa brojem PERFORACIJA_REZANJE).
@@ -401,7 +392,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 </div>
             )}
 
-            {(loading || tabPrelaz)
+            {loading
                 ? <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>
                 : <NalogLayoutPRO key={skiniSufiks(brojNaloga) + "::" + tab} nalog={aktivni} activeTab={tab} />}
         </div>
