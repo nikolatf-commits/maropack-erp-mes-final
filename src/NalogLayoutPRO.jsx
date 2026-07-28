@@ -803,7 +803,11 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     // Sigurnosni ventil (5s) samo da se ne zaglavi zauvek ako templejt STVARNO nema podatke.
     const [cekajTpl, setCekajTpl] = React.useState(false);
     React.useEffect(() => {
-        const f = (nalog.folija) || (nalog.res && nalog.res.folija) || (nalog.template && nalog.template.folija) || (nalog.templateData && nalog.templateData.folija) || {};
+        // Podaci mogu biti na više mesta — parametri.template je upisan pri KREIRANJU naloga,
+        // pa je odmah dostupan (ne treba čekati dohvat iz proizvodi tabele).
+        var parT = null;
+        try { var pp = typeof nalog.parametri === "string" ? JSON.parse(nalog.parametri) : nalog.parametri; parT = (pp && pp.template) || null; } catch (e) { parT = null; }
+        const f = (nalog.folija) || (nalog.res && nalog.res.folija) || (nalog.template && nalog.template.folija) || (nalog.templateData && nalog.templateData.folija) || (parT && parT.folija) || {};
         const st = f.stampa || {};
         let fali = false;
         if (nalogVrstaNorm === vrsta || !nalogVrsta) {

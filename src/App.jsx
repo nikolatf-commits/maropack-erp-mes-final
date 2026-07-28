@@ -2034,7 +2034,7 @@ function MainAppContent() {
 
 
                 {page === "plan_proizvodnje" && (
-                    <MachineSchedulerPRO msg={msg} />
+                    <MachineSchedulerPRO db={db} msg={msg} />
                 )}
 
                 {page === "live_production" && (
@@ -2072,7 +2072,7 @@ function MainAppContent() {
                     <div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
                             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
-                            <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { return n.status !== "Završeno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
+                            <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
                         </div>
                         {pregNalog ? (
                             <PregledNalogaPRO
@@ -2114,17 +2114,17 @@ function MainAppContent() {
                                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
                                                     {gr.map(function (n) {
                                                         return (
-                                                            <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "5px solid " + statusStil(n.status).traka, borderRadius: 10, padding: "11px 13px", cursor: "pointer" }}>
-                                                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                                                    <span style={{ fontSize: 16 }}>{ICONS[n.ik]}</span>
-                                                                    <span style={{ fontWeight: 700, fontSize: 12 }}>{n.naziv}</span>
+                                                            <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>
+                                                                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
+                                                                    <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
+                                                                    <span style={{ fontWeight: 800, fontSize: 15 }}>{n.naziv}</span>
                                                                 </div>
                                                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                                                     <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
                                                                         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,.9)" }} />
                                                                         {statusStil(n.status).tekst}
                                                                     </span>
-                                                                    {n.radnik && <span style={{ fontSize: 10, color: "#64748b" }}>{n.radnik}</span>}
+                                                                    {n.radnik && <span style={{ fontSize: 13, color: "#334155", fontWeight: 700 }}>👤 {n.radnik}</span>}
                                                                 </div>
                                                                 <div style={{ marginTop: 8, fontSize: 10, color: "#64748b", fontWeight: 700 }}>Klikni za PRO pregled / štampu</div>
                                                             </div>
