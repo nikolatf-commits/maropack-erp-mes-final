@@ -796,33 +796,9 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else if (nalogVrsta.includes("kaš") || nalogVrsta.includes("kas")) nalogVrstaNorm = "kasiranje";
     else if (nalogVrsta.includes("perf") || nalogVrsta.includes("rez")) nalogVrstaNorm = "perforacija_rezanje";
     // Poravnato ako se traženi tab i tip prosleđenog naloga poklapaju, ili nalog nema tip (prazan/preview).
+    // Poravnato = tip prosleđenog naloga odgovara izabranoj fazi (tab). Sprečava da se
+    // prikažu podaci jedne faze pod naslovom druge dok se nalog ne ustali.
     let poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
-    // Neke faze traže podatke iz templejta (mašina/boje/dizajn) koji stižu ASINHRONO.
-    // Dok ne stignu, prikazujemo "Učitavam" umesto praznog naloga. NE odustajemo brzo —
-    // podaci uvek dođu iz proizvodi tabele; bolje sačekati nego prikazati praznu štampu.
-    // Sigurnosni ventil (5s) samo da se ne zaglavi zauvek ako templejt STVARNO nema podatke.
-    const [cekajTpl, setCekajTpl] = React.useState(false);
-    React.useEffect(() => {
-        // Podaci mogu biti na više mesta — parametri.template je upisan pri KREIRANJU naloga,
-        // pa je odmah dostupan (ne treba čekati dohvat iz proizvodi tabele).
-        var parT = null;
-        try { var pp = typeof nalog.parametri === "string" ? JSON.parse(nalog.parametri) : nalog.parametri; parT = (pp && pp.template) || null; } catch (e) { parT = null; }
-        const f = (nalog.folija) || (nalog.res && nalog.res.folija) || (nalog.template && nalog.template.folija) || (nalog.templateData && nalog.templateData.folija) || (parT && parT.folija) || {};
-        const st = f.stampa || {};
-        let fali = false;
-        if (nalogVrstaNorm === vrsta || !nalogVrsta) {
-            if (vrsta === "stampa") fali = !(st.masina || st.brojBoja || (Array.isArray(st.boje) && st.boje.length) || (st.dizajn && (st.dizajn.url || st.dizajn.slika)));
-            else if (vrsta === "kasiranje") { const k = f.kasiranje || {}; fali = !(k.tipLepka || k.brojKasiranja || k.nanosLepka); }
-            else if (vrsta === "lakiranje") { const lk = f.lakiranje || {}; fali = !(lk.tip || lk.masina || lk.nanos); }
-        }
-        if (fali) {
-            setCekajTpl(true);
-            const id = setTimeout(() => setCekajTpl(false), 5000);  // sigurnosni ventil: posle 5s prikaži šta ima
-            return () => clearTimeout(id);
-        }
-        setCekajTpl(false);   // podaci stigli → prikaži odmah
-    }, [nalog, vrsta, nalogVrsta, nalogVrstaNorm]);
-    if (cekajTpl) poravnato = false;
 
     const htmlStr = React.useMemo(
         () => poravnato ? buildPagesHTML(nalog, vrsta, qr, lang) : "",

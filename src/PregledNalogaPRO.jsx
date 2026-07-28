@@ -274,6 +274,32 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     // Bez ovoga bi QR na papiru nosio opid pogresne operacije.
     if (!nadjen) { aktivni.id = null; aktivni.broj_naloga = ""; }
 
+    // ODMAH dopuni folija/kesa/spulna iz parametri.template (upisano pri KREIRANJU naloga).
+    // Time štampa/kaширanje/rezanje imaju SVE podatke bez čekanja na async tplRow —
+    // pa se pri prelasku kroz kartice odmah vide pravi podaci, ne prazno/staro.
+    if (nadjen) {
+        try {
+            var _pp = typeof nadjen.parametri === "string" ? JSON.parse(nadjen.parametri) : nadjen.parametri;
+            var _tpl = (_pp && _pp.template) || nadjen.template || (nadjen.res && nadjen.res.template) || null;
+            var _tf = _tpl && (_tpl.folija || (_tpl.data && _tpl.data.folija));
+            if (_tf && (!aktivni.folija || !aktivni.folija.stampa || !aktivni.folija.stampa.masina)) {
+                var _nf = aktivni.folija || {};
+                aktivni.folija = {
+                    ..._tf, ..._nf,
+                    stampa: { ...(_tf.stampa || {}), ...(_nf.stampa || {}) },
+                    kasiranje: { ...(_tf.kasiranje || {}), ...(_nf.kasiranje || {}) },
+                    lakiranje: { ...(_tf.lakiranje || {}), ...(_nf.lakiranje || {}) },
+                    perforacija: (_nf.perforacija && Object.keys(_nf.perforacija).length) ? _nf.perforacija : (_tf.perforacija || null),
+                    rezanje: { ...(_tf.rezanje || {}), ...(_nf.rezanje || {}) },
+                };
+            }
+            var _tk = _tpl && (_tpl.kesa || (_tpl.data && _tpl.data.kesa));
+            if (_tk && !aktivni.kesa) aktivni.kesa = _tk;
+            var _ts = _tpl && (_tpl.spulna || (_tpl.data && _tpl.data.spulna));
+            if (_ts && !aktivni.spulna) aktivni.spulna = _ts;
+        } catch (e) { /* ignore */ }
+    }
+
     // Dopuni nalog podacima iz originalnog template-a (dizajn na rolni, perforacija, broj traka),
     // ali vrednosti samog naloga imaju prednost.
     if (rezRolne && rezRolne.length && !(aktivni.rezervisane_rolne && aktivni.rezervisane_rolne.length)) {
