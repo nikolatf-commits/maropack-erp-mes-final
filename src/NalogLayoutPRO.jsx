@@ -1,3 +1,5 @@
+// MAROPACK NalogLayoutPRO — verzija sa: cekajTpl (bez prazne štampe na prelasku),
+// nalog za lakiranje, rolne pod-vrsta/proizvođač, A4 fontovi. [build v51]
 import React from "react";
 import QRCode from "qrcode";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
@@ -794,7 +796,28 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     else if (nalogVrsta.includes("kaš") || nalogVrsta.includes("kas")) nalogVrstaNorm = "kasiranje";
     else if (nalogVrsta.includes("perf") || nalogVrsta.includes("rez")) nalogVrstaNorm = "perforacija_rezanje";
     // Poravnato ako se traženi tab i tip prosleđenog naloga poklapaju, ili nalog nema tip (prazan/preview).
-    const poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
+    let poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
+    // Neke faze traže podatke iz templejta (mašina/boje/dizajn) koji stižu ASINHRONO.
+    // Sačekamo ih KRATKO (da izbegnemo "praznu štampu" pri prvom prelasku), ali ako ih
+    // ni posle par stotina ms nema (templejt ih stvarno nema), prikažemo šta ima.
+    const [cekajTpl, setCekajTpl] = React.useState(false);
+    React.useEffect(() => {
+        const f = (nalog.folija) || (nalog.res && nalog.res.folija) || (nalog.template && nalog.template.folija) || (nalog.templateData && nalog.templateData.folija) || {};
+        const st = f.stampa || {};
+        let fali = false;
+        if (nalogVrstaNorm === vrsta || !nalogVrsta) {
+            if (vrsta === "stampa") fali = !(st.masina || st.brojBoja || (Array.isArray(st.boje) && st.boje.length) || (st.dizajn && (st.dizajn.url || st.dizajn.slika)));
+            else if (vrsta === "kasiranje") { const k = f.kasiranje || {}; fali = !(k.tipLepka || k.brojKasiranja || k.nanosLepka); }
+            else if (vrsta === "lakiranje") { const lk = f.lakiranje || {}; fali = !(lk.tip || lk.masina || lk.nanos); }
+        }
+        if (fali) {
+            setCekajTpl(true);
+            const id = setTimeout(() => setCekajTpl(false), 800);  // posle 800ms prikaži šta ima
+            return () => clearTimeout(id);
+        }
+        setCekajTpl(false);
+    }, [nalog, vrsta, nalogVrsta, nalogVrstaNorm]);
+    if (cekajTpl) poravnato = false;
 
     const htmlStr = React.useMemo(
         () => poravnato ? buildPagesHTML(nalog, vrsta, qr, lang) : "",

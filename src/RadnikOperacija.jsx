@@ -1,3 +1,4 @@
+// [build v51] btn boje, završetak smene, jače dugmad
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 
@@ -29,7 +30,6 @@ function opMeta(n) {
     const x = String(n?.tip_naloga || n?.vrsta || n?.operacija || n?.naziv || n?.broj_naloga || "").toLowerCase();
     if (x.includes("mater")) return { key: "materijal", label: "MATERIJAL", ik: "📦", masina: "Štampa 1" };
     if (x.includes("štamp") || x.includes("stamp")) return { key: "stampa", label: "ŠTAMPA", ik: "🖨️", masina: "Štampa 1" };
-    if (x.includes("lak")) return { key: "lakiranje", label: "LAKIRANJE", ik: "✨", masina: "Lakiranje" };
     if (x.includes("kaš") || x.includes("kas")) return { key: "kasiranje", label: "KAŠIRANJE", ik: "🔗", masina: "Kaširanje" };
     if (x.includes("perf") || x.includes("rez")) return { key: "rezanje", label: "PERFORACIJA / REZANJE", ik: "✂️", masina: "Rezanje" };
     if (x.includes("kes")) return { key: "kesa", label: "KESA", ik: "🛍️", masina: "Kese" };
@@ -59,6 +59,10 @@ function fmtMin(min) {
 
 export default function RadnikOperacija({ opid }) {
     const [op, setOp] = useState(null);
+    // Skeniranje rolni pre START-a — da radnik ne uzme pogrešnu rolnu.
+    const [skenirane, setSkenirane] = useState([]);   // br_rolne koje je radnik skenirao
+    const [skenInput, setSkenInput] = useState("");
+    const [skenGreska, setSkenGreska] = useState("");
     const [zastoji, setZastoji] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
@@ -114,12 +118,56 @@ export default function RadnikOperacija({ opid }) {
     const radMin = Math.max(0, Math.round(proteklo / 60) - zastojiMin);
 
     // ---- AKCIJE -------------------------------------------------------
+    // Rezervisane rolne za ovu operaciju (iz naloga). Radnik mora sve da skenira pre START-a.
+    const ocekivaneRolne = React.useMemo(() => {
+        const p = op?.parametri || op?.parametri_operacije || {};
+        const src = p.rezervisane_rolne || p.izabrane_rolne || op?.rezervisane_rolne || op?.izabrane_rolne || [];
+        const lista = (Array.isArray(src) ? src : []).map(r => ({
+            br: String(r.br_rolne || r.qr || r.qr_code || r.rolna_id || "").trim(),
+            oznaka: r.snap_oznaka || r.oznaka || r.oznaka_materijala || "",
+            vrsta: r.snap_vrsta || r.vrsta || "",
+        })).filter(r => r.br);
+        // ukloni duplikate po broju
+        const vidjeno = {};
+        return lista.filter(r => (vidjeno[r.br] ? false : (vidjeno[r.br] = true)));
+    }, [op]);
+
+    const trebaSkenirati = ocekivaneRolne.length > 0;
+    const sveSkenirane = !trebaSkenirati || ocekivaneRolne.every(r => skenirane.includes(r.br));
+
+    function skenirajRolnu(vrednost) {
+        const v = String(vrednost || skenInput || "").trim();
+        if (!v) return;
+        setSkenGreska("");
+        // izvuci broj rolne ako je skeniran URL/kod (npr. ...ROLNA-2026-123 ili ?rolna=)
+        let br = v;
+        const m = v.match(/ROLNA[-\w]*|R-?\d[\d-]*/i);
+        if (m) br = m[0];
+        const uParams = v.match(/[?&]rolna=([^&]+)/);
+        if (uParams) br = decodeURIComponent(uParams[1]);
+        // da li je među očekivanima?
+        const nadjena = ocekivaneRolne.find(r => r.br === br || r.br === v || br.includes(r.br) || r.br.includes(br));
+        if (!nadjena) {
+            setSkenGreska("⚠ Rolna " + br + " ne pripada ovom nalogu! Ne koristi je.");
+            setSkenInput("");
+            return;
+        }
+        if (skenirane.includes(nadjena.br)) {
+            setSkenGreska("Rolna " + nadjena.br + " je već skenirana.");
+            setSkenInput("");
+            return;
+        }
+        setSkenirane(prev => [...prev, nadjena.br]);
+        setSkenInput("");
+    }
+
     async function pocni() {
         const ime = String(radnik || "").trim().replace(/\s+/g, " ");
         // Trazimo IME I PREZIME — inace bi u evidenciji zavrsavalo "Marko", "M.", ""
         // i ne bi se znalo ko je radio.
         if (ime.split(" ").filter(Boolean).length < 2) { setErr("Upiši ime i prezime."); return; }
         if (!masina) { setErr("Izaberi mašinu."); return; }
+        if (trebaSkenirati && !sveSkenirane) { setErr("Skeniraj sve rezervisane rolne pre početka (da ne dođe do zamene)."); return; }
         zapamtiRadnika(ime);
         setRadnik(ime);
         setBusy(true); setErr("");
@@ -156,22 +204,19 @@ export default function RadnikOperacija({ opid }) {
         setBusy(false); reload();
     }
 
-    async function oznaciMaterijalPoslat() {
+    // Završetak smene: nalog se radi više smena. Tajmer STANE (kao pauza), ali operacija
+    // NIJE gotova — sledeća smena "Nastavi rad" i vreme se nastavlja realno, bez brojanja
+    // sati dok niko ne radi.
+    async function zavrsiSmenu() {
         setBusy(true); setErr("");
-        const kad = new Date().toISOString();
-        const ko = (radnik || op?.radnik || "").trim();
+        const sada = new Date().toISOString();
+        // upiši zastoj tipa "Kraj smene" (isti mehanizam kao pauza) da se vreme ne broji dalje
+        await supabase.from("nalog_zastoji").insert([{
+            operativni_nalog_id: opid, razlog: "Kraj smene", start_ts: sada, radnik: radnik || op?.radnik || null,
+        }]);
         const { error } = await supabase.from("operativni_nalozi")
-            .update({ materijal_poslat: true, materijal_poslat_ts: kad, materijal_poslat_ko: ko || null })
-            .eq("id", opid);
-        if (error) setErr("Nije upisano: " + error.message);
-        setBusy(false); reload();
-    }
-    async function ponistiMaterijalPoslat() {
-        setBusy(true); setErr("");
-        const { error } = await supabase.from("operativni_nalozi")
-            .update({ materijal_poslat: false, materijal_poslat_ts: null, materijal_poslat_ko: null })
-            .eq("id", opid);
-        if (error) setErr("Nije poništeno: " + error.message);
+            .update({ status: "pauza", pauza_ts: sada, stop_ts: sada }).eq("id", opid);
+        if (error) setErr("Završetak smene nije uspeo: " + error.message);
         setBusy(false); reload();
     }
 
@@ -195,7 +240,7 @@ export default function RadnikOperacija({ opid }) {
     const head = { background: "linear-gradient(180deg,#2f6bed,#2350cf)", borderRadius: 16, padding: "13px 15px", color: "#fff", marginBottom: 14 };
     const lbl = { display: "block", fontSize: 11, color: "#94a3b8", margin: "12px 2px 6px", fontWeight: 700 };
     const inp = { width: "100%", background: "#0f1622", border: "1px solid #243246", color: "#e2e8f0", borderRadius: 10, padding: "12px", fontSize: 14, boxSizing: "border-box", fontFamily: "inherit" };
-    const btn = (bg, fg = "#fff") => ({ width: "100%", border: "none", borderRadius: 12, color: fg, fontWeight: 800, fontSize: 15, padding: 15, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, marginTop: 12 });
+    const btn = (bg, fg = "#fff") => ({ width: "100%", border: "none", borderRadius: 12, background: bg, color: fg, fontWeight: 900, fontSize: 16, padding: 16, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, marginTop: 12, boxShadow: "0 4px 12px rgba(0,0,0,.15)" });
 
     if (loading) return <div style={wrap}><div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>Učitavam operaciju…</div></div>;
     if (err && !op) return <div style={wrap}><div style={{ ...head, background: "#7f1d1d" }}>⚠️ {err}</div></div>;
@@ -267,28 +312,38 @@ export default function RadnikOperacija({ opid }) {
                     <label style={lbl}>Mašina</label>
                     <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>{MASINE.map((m) => <option key={m}>{m}</option>)}</select>
 
-                    {(meta.key === "stampa" || meta.key === "lakiranje") && (
-                        <div style={{ marginTop: 14, background: op?.materijal_poslat ? "rgba(16,185,129,.12)" : "rgba(245,158,11,.12)", border: "1px solid " + (op?.materijal_poslat ? "rgba(16,185,129,.55)" : "rgba(245,158,11,.55)"), borderRadius: 12, padding: 12 }}>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: op?.materijal_poslat ? "#34d399" : "#fbbf24", marginBottom: op?.materijal_poslat ? 4 : 8 }}>
-                                {op?.materijal_poslat
-                                    ? "✓ Materijal poslat u štampariju"
-                                    : (meta.key === "lakiranje" ? "Lakiranje se radi spolja" : "Štampa se radi spolja")}
-                            </div>
-                            {op?.materijal_poslat ? (
-                                <>
-                                    <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
-                                        {op.materijal_poslat_ko ? op.materijal_poslat_ko + " · " : ""}
-                                        {op.materijal_poslat_ts ? new Date(op.materijal_poslat_ts).toLocaleString("sr-RS") : ""}
+                    {trebaSkenirati && (
+                        <div style={{ marginTop: 16, background: "#0f1622", border: "1px solid #243246", borderRadius: 12, padding: 14 }}>
+                            <div style={{ fontSize: 13, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>📷 Skeniraj rezervisane rolne</div>
+                            <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 10 }}>Skeniraj (ili upiši broj) svake rolne pre početka — da ne dođe do zamene. Skenirano: {skenirane.length}/{ocekivaneRolne.length}</div>
+                            {ocekivaneRolne.map((r) => {
+                                const ok = skenirane.includes(r.br);
+                                return (
+                                    <div key={r.br} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: "1px solid #1a2536" }}>
+                                        <span style={{ fontSize: 15 }}>{ok ? "✅" : "⬜"}</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12.5, fontWeight: 800, color: ok ? "#34d399" : "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.br}</div>
+                                            <div style={{ fontSize: 10.5, color: "#64748b" }}>{r.vrsta} {r.oznaka}</div>
+                                        </div>
                                     </div>
-                                    <button disabled={busy} onClick={ponistiMaterijalPoslat} style={{ ...btn("transparent", "#94a3b8"), border: "1px solid #334155", marginTop: 8, fontSize: 12.5, padding: 9 }}>Poništi</button>
-                                </>
-                            ) : (
-                                <button disabled={busy} onClick={oznaciMaterijalPoslat} style={{ ...btn("#d97706"), marginTop: 0 }}>📦 Označi „materijal poslat u štampariju"</button>
-                            )}
+                                );
+                            })}
+                            <input
+                                style={{ ...inp, marginTop: 10 }}
+                                value={skenInput}
+                                onChange={(e) => setSkenInput(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") skenirajRolnu(); }}
+                                placeholder="Skeniraj ili upiši broj rolne + Enter"
+                                inputMode="text"
+                                autoComplete="off"
+                            />
+                            <button disabled={busy} onClick={() => skenirajRolnu()} style={{ ...btn("#0ea5e9"), marginTop: 8, fontSize: 14, padding: 12 }}>➕ Dodaj skeniranu rolnu</button>
+                            {skenGreska && <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: "#fca5a5" }}>{skenGreska}</div>}
+                            {sveSkenirane && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: "#34d399" }}>✓ Sve rolne skenirane — možeš početi.</div>}
                         </div>
                     )}
 
-                    <button disabled={busy} onClick={pocni} style={btn("#16a34a")}>▶ POČNI OPERACIJU</button>
+                    <button disabled={busy || (trebaSkenirati && !sveSkenirane)} onClick={pocni} style={{ ...btn("#16a34a"), opacity: (busy || (trebaSkenirati && !sveSkenirane)) ? 0.5 : 1 }}>▶ POČNI OPERACIJU</button>
                 </div>
             )}
 
@@ -312,6 +367,9 @@ export default function RadnikOperacija({ opid }) {
                         <button disabled={busy} onClick={() => setShowRazlog(true)} style={btn("#f59e0b", "#3b2a00")}>⏸ PAUZA / ZASTOJ</button>
                     )}
                     <button disabled={busy} onClick={() => setShowFinish(true)} style={btn("#2563eb")}>✓ ZAVRŠI OPERACIJU</button>
+                    {!aktivanZastoj && (
+                        <button disabled={busy} onClick={zavrsiSmenu} style={btn("#7c3aed")}>🌙 ZAVRŠI SMENU (nastavlja se sledeća)</button>
+                    )}
                 </div>
             )}
 

@@ -9,6 +9,7 @@ import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
 import RadnikOperacija from "./RadnikOperacija.jsx";
 import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
+import UvozSpulnaExcel from "./UvozSpulnaExcel.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
 import ListaProizvodaKupci from './ListaProizvodaKupci.jsx';
 import AnalizaMaterijalStavke from './AnalizaMaterijalStavke.jsx';
@@ -1703,6 +1704,15 @@ function MainAppContent() {
     var card = { background: "#fff", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", border: "1px solid #e8edf3" };
     var lbl = { fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4, display: "block" };
     var SBJ = { "Ceka": "#f59e0b", "U toku": "#3b82f6", "Završeno": "#10b981", "Ceka_bg": "#fffbeb", "U toku_bg": "#eff6ff", "Završeno_bg": "#f0fdf4" };
+    // [build v51] Jake boje statusa — pun gradijent, bela slova, čitljivo iz aviona.
+    function statusStil(st) {
+        var s = String(st || "").toLowerCase();
+        if (s.indexOf("zavr") === 0 || s === "zavrseno") return { grad: "linear-gradient(135deg,#16a34a,#15803d)", traka: "#16a34a", bg: "#f4fdf6", tekst: "ZAVRŠENO ✓" };
+        if (s.indexOf("radi") === 0 || s.indexOf("u toku") === 0 || s.indexOf("u_toku") === 0 || s.indexOf("u proizvodnji") === 0) return { grad: "linear-gradient(135deg,#3b82f6,#2563eb)", traka: "#3b82f6", bg: "#f8fbff", tekst: "U TOKU" };
+        if (s.indexOf("sprem") === 0) return { grad: "linear-gradient(135deg,#10b981,#059669)", traka: "#10b981", bg: "#f6fefb", tekst: "SPREMNO" };
+        if (s.indexOf("zastoj") === 0 || s.indexOf("pauz") === 0) return { grad: "linear-gradient(135deg,#dc2626,#b91c1c)", traka: "#dc2626", bg: "#fef2f2", tekst: "ZASTOJ" };
+        return { grad: "linear-gradient(135deg,#f59e0b,#d97706)", traka: "#f59e0b", bg: "#fffdf7", tekst: "ČEKA" };
+    }
     var ICONS = { "box": "📦", "print": "🖨️", "link": "🔗", "cut": "✂️", "circle": "🔵", "star": "✨", "bag": "🛍️", "image": "📐", "roll": "🎞️" };
     var TIP_BOJA = { "folija": "#1d4ed8", "kesa": "#059669", "spulna": "#7c3aed" };
     var TIP_LAB = { "folija": "Folija", "kesa": "Kesa", "spulna": "Špulna" };
@@ -2104,13 +2114,16 @@ function MainAppContent() {
                                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
                                                     {gr.map(function (n) {
                                                         return (
-                                                            <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: SBJ[n.status + "_bg"] || "#f8fafc", border: "1.5px solid " + (SBJ[n.status] || "#e2e8f0") + "40", borderRadius: 10, padding: "11px 13px", cursor: "pointer" }}>
-                                                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                                            <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "5px solid " + statusStil(n.status).traka, borderRadius: 10, padding: "11px 13px", cursor: "pointer" }}>
+                                                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                                                                     <span style={{ fontSize: 16 }}>{ICONS[n.ik]}</span>
                                                                     <span style={{ fontWeight: 700, fontSize: 12 }}>{n.naziv}</span>
                                                                 </div>
-                                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                                                    <span style={{ background: (SBJ[n.status] || "#64748b") + "20", color: SBJ[n.status] || "#64748b", borderRadius: 6, padding: "2px 7px", fontWeight: 700, fontSize: 10 }}>{n.status}</span>
+                                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                                                    <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
+                                                                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,.9)" }} />
+                                                                        {statusStil(n.status).tekst}
+                                                                    </span>
                                                                     {n.radnik && <span style={{ fontSize: 10, color: "#64748b" }}>{n.radnik}</span>}
                                                                 </div>
                                                                 <div style={{ marginTop: 8, fontSize: 10, color: "#64748b", fontWeight: 700 }}>Klikni za PRO pregled / štampu</div>
@@ -2135,6 +2148,7 @@ function MainAppContent() {
                 {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
                 {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                 {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
+                {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 
                 {/* ✅ NOVO: AUDIT LOG */}
                 {page === "audit_log" && isAdmin && <AuditLog />}

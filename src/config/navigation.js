@@ -38,7 +38,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
                 { k: 'kalk_kesa', l: 'Kese', i: '🛍️' },
                 { k: 'kalk_spulna', l: 'Špulne', i: '🧵' },
                 { k: 'kalkulacije_lista', l: 'Sve kalkulacije', i: '📋' },
-                { k: 'ai_kalk', l: 'Auto kalkulacije', i: '⚙️' }
+                { k: 'ai_kalk', l: 'AI Kalkulacije', i: '🤖' }
             ]
         },
         {
@@ -48,7 +48,8 @@ function getNavGroupsRaw(isAdmin, userRole) {
             items: [
                 { k: 'lista_proizvoda_kupci', l: 'Lista proizvoda po kupcima', i: '🗂️' },
                 { k: 'baza_proizvoda_pro', l: 'Baza proizvoda PRO', i: '📦' },
-                { k: 'template_engine', l: 'Template Engine', i: '🧩' }
+                { k: 'template_engine', l: 'Template Engine', i: '🧩' },
+                { k: 'uvoz_spulna_excel', l: 'Uvoz špulni iz Excela', i: '📥' }
             ]
         },
         {
@@ -70,24 +71,25 @@ function getNavGroupsRaw(isAdmin, userRole) {
             icon: '🏪',
             items: [
                 { k: 'rolne_engine', l: 'Magacin rolni i materijala', i: '🏪' },
+                { k: 'analiza_potrosnje_materijala', l: 'Analiza potrošnje materijala', i: '📊' },
                 { k: 'kalkulator_maticnih', l: 'Kalkulator matičnih rolni', i: '📊' },
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
-                { k: 'formatiranje_po_potrebi', l: 'Formatiranje po potrebi', i: '✂️' },
+                { k: 'formatiranje_rolni', l: 'Formatiranje rolni', i: '✂️' },
                 { k: 'analiza_materijal_stavke', l: 'Analiza materijala', i: '📊' }
             ]
         },
         {
             key: 'ai',
-            label: 'AI i alati',
+            label: 'AI asistent',
             icon: '🤖',
             items: [
-                { k: 'ai_agent_command', l: 'AI Agent  ⭐', i: '🧠' },
-                { k: 'ai_chat', l: 'Chat (stari asistent)', i: '💬' },
-                { k: 'ai_workflow', l: 'Tok rada', i: '⚡' },
-                { k: 'ai_documents', l: 'Dokumenti / OCR', i: '📄' },
-                { k: 'ai_planner', l: 'Planiranje proizvodnje', i: '🏭' },
-                { k: 'ai_waste', l: 'Optimizacija otpada', i: '♻️' },
-                { k: 'ai_quality', l: 'Kontrola kvaliteta', i: '✅' }
+                { k: 'ai_agent_command', l: 'AI Agent Command Center', i: '🧠' },
+                { k: 'ai_chat', l: 'AI chat', i: '💬' },
+                { k: 'ai_workflow', l: 'AI tok rada', i: '⚡' },
+                { k: 'ai_documents', l: 'AI Dokumenti / OCR', i: '📄' },
+                { k: 'ai_planner', l: 'AI planiranje', i: '🏭' },
+                { k: 'ai_waste', l: 'AI optimizacija otpada', i: '♻️' },
+                { k: 'ai_quality', l: 'AI kontrola kvaliteta', i: '✅' }
             ]
         },
         {
