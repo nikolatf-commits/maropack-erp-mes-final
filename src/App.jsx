@@ -2078,6 +2078,8 @@ function MainAppContent() {
                             <PregledNalogaPRO
                                 brojNaloga={pregNalog.ponBr || pregNalog.broj_naloga || pregNalog.broj}
                                 osnovniNalog={pregNalog}
+                                naloziProp={db.nalozi}
+                                nalozi={db.nalozi}
                                 onBack={function () { setPregNalog(null); }}
                             />
                         ) : db.nalozi.length === 0 ? (
