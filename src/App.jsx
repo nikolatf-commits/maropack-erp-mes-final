@@ -2100,7 +2100,7 @@ function MainAppContent() {
                                         var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
                                         var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
                                         return (
-                                            <div key={key} style={Object.assign({}, card, { marginBottom: 14 })}>
+                                            <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 })}>
                                                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
                                                     <span style={{ fontWeight: 800, fontSize: 14, color: "#1d4ed8" }}>{br || 'N/A'}</span>
                                                     <span style={{ background: (TIP_BOJA[tipNaloga] || "#64748b") + "20", color: TIP_BOJA[tipNaloga] || "#64748b", borderRadius: 6, padding: "2px 8px", fontWeight: 700, fontSize: 10 }}>{TIP_LAB[tipNaloga] || "—"}</span>
@@ -2111,7 +2111,7 @@ function MainAppContent() {
                                                         <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
                                                     </div>
                                                 </div>
-                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
                                                     {gr.map(function (n) {
                                                         return (
                                                             <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>

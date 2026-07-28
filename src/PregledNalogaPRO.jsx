@@ -117,10 +117,22 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     useEffect(() => {
         async function load() {
             if (!brojNaloga) return;
+            const safeBroj = skiniSufiks(String(brojNaloga).replace(/[,()]/g, "").trim());
+
+            // Ako su nalozi za ovaj broj VEĆ prosleđeni kroz props (db) — koristi ih ODMAH.
+            // Podaci (uklj. parametri.template) su tu od kreiranja; nema potrebe za mrežnim
+            // dovlačenjem koje pravi "Učitavam" i sporost pri prelasku kroz kartice.
+            const vecImam = (naloziProp || []).filter(function (n) {
+                const b = skiniSufiks(String(n.broj_naloga || n.broj || "").replace(/[,()]/g, "").trim());
+                return b === safeBroj || b.indexOf(safeBroj) === 0 || safeBroj.indexOf(b) === 0;
+            });
+            if (vecImam.length) {
+                setNalozi(vecImam.map(enrichNalogForPrint));
+                return;   // imamo sve — bez dovlačenja, bez "Učitavam"
+            }
+
             setLoading(true);
             try {
-                const safeBroj = skiniSufiks(String(brojNaloga).replace(/[,()]/g, "").trim());
-
                 // Novi izvor istine: radni_nalozi + operativni_nalozi.
                 // 1) Prvo tražimo glavni nalog po broju.
                 const masterResp = await supabase
