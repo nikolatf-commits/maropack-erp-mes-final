@@ -19,6 +19,7 @@ function nalogType(n) {
     const x = String(n.tip_naloga || n.vrsta || n.tipOperacije || n.operacija || n.naziv || "").toLowerCase();
     if (x.includes("mater")) return "materijal";
     if (x.includes("štamp") || x.includes("stamp")) return "stampa";
+    if (x.includes("lak")) return "lakiranje";
     if (x.includes("kaš") || x.includes("kas")) return "kasiranje";
     if (x.includes("rez") || x.includes("perf")) return "perforacija_rezanje";
     if (x.includes("kes")) return "kesa";

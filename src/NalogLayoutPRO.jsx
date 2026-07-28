@@ -800,9 +800,18 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     // prikažu podaci jedne faze pod naslovom druge dok se nalog ne ustali.
     let poravnato = !nalogVrsta || nalogVrstaNorm === vrsta;
 
+    // Otisak sadržaja ključnih podataka — da se HTML preгради kad folija/kesa/spulna
+    // dobiju vrednosti (npr. štampa dobije mašinu/boje), a ne samo kad se referenca promeni.
+    const dataOtisak = React.useMemo(() => {
+        try {
+            const g = getData(nalog);
+            return JSON.stringify({ f: g.folija, k: g.kesa, s: g.spulna, st: nalog.status, id: nalog.id });
+        } catch (e) { return String(nalog && nalog.id); }
+    }, [nalog]);
+
     const htmlStr = React.useMemo(
         () => poravnato ? buildPagesHTML(nalog, vrsta, qr, lang) : "",
-        [nalog, vrsta, qr, lang, poravnato]
+        [dataOtisak, vrsta, qr, lang, poravnato]
     );
 
     // Crtež kese je REACT komponenta — isti KesaCrtez koji koristi i templejt.

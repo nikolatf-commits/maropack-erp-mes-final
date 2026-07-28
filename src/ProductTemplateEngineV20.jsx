@@ -2117,14 +2117,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    async function saveTemplate() {
+    async function saveTemplate(mode) {
         const record = makeTemplateRecord();
         if (!record.naziv) { msg && msg("Unesi naziv proizvoda", "err"); return; }
+        // mode: "update" = upiši preko postojećeg; "new" = uvek napravi novi; undefined = auto
         try {
             const aktivni = record.data?.[record.tip] || {};
             const layers = aktivni.layers || [];
             const productMasterId = record.product_master_id || makeProductMasterIdFromTemplate(record.data);
-            const templateId = record.template_id || record.id || ('TPL-' + Date.now());
+            const templateId = (mode === "new") ? ('TPL-' + Date.now()) : (record.template_id || record.id || ('TPL-' + Date.now()));
             const payload = {
                 tip: record.tip,
                 naziv: record.naziv,
@@ -2149,12 +2150,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 datum: new Date().toLocaleDateString("sr-RS"),
             };
 
-            const existingDbId = record.db_id || (typeof record.id === 'number' ? record.id : null);
+            // "new" → uvek insert (nov templejt, original ostaje).
+            // "update" ili auto → update ako imamo db_id postojećeg, inače insert.
+            const existingDbId = (mode === "new") ? null : (record.db_id || (typeof record.id === 'number' ? record.id : null));
+            const payloadZaUpis = (mode === "new")
+                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
+                : payload;
             const query = existingDbId
-                ? supabase.from("proizvodi").update(payload).eq("id", existingDbId).select()
-                : supabase.from("proizvodi").insert([payload]).select();
+                ? supabase.from("proizvodi").update(payloadZaUpis).eq("id", existingDbId).select()
+                : supabase.from("proizvodi").insert([payloadZaUpis]).select();
             const { data, error } = await query;
             if (error) throw error;
+            // Osveži form sa novim/ažuriranim db_id da naredni "Sačuvaj izmene" ide na pravi red.
+            const noviRed = Array.isArray(data) ? data[0] : data;
+            if (noviRed && noviRed.id) {
+                setForm(f => ({ ...f, db_id: noviRed.id, template_id: templateId, template_locked: true }));
+            }
+            msg && msg(mode === "new" ? "✓ Sačuvan NOVI templejt" : (existingDbId ? "✓ Izmene sačuvane" : "✓ Templejt sačuvan"));
             await loadTemplates();
             // Nove kombinacije materijala iz templejta -> trajno u material_master (deljeno)
             try {
@@ -2319,7 +2331,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={generisiNalogeMaterijal} title="Kreira master + operativne naloge, dobija broj, pa otvara izbor rolni"
                     style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ Kreiraj naloge</button>
-                <button onClick={saveTemplate} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {t("tmpl.sacuvaj_template")}</button>
+                <button onClick={() => saveTemplate(form.db_id ? "update" : "new")} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {form.db_id ? "Sačuvaj izmene" : "Sačuvaj templejt"}</button>
+                {form.db_id ? <button onClick={() => saveTemplate("new")} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>➕ Sačuvaj kao novi</button> : null}
                 <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 {t("tmpl.ponuda_iz_template")}</button>
                 <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 {t("tmpl.ai_workflow")}</button>
             </div>
@@ -2926,7 +2939,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
                         <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
-                        <button onClick={async () => { const next = saved.filter(x => x.id !== t.id); setSaved(next); try { await supabase.from("proizvodi").delete().eq("id", t.id); } catch (e) { msg && msg("Brisanje u bazi nije uspelo: " + (e?.message || e), "err"); } msg && msg("Template obrisan"); }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
+                        <button onClick={async () => {
+                            const next = saved.filter(x => x.id !== t.id);
+                            setSaved(next);   // trenutno ukloni iz prikaza
+                            const brisid = t.db_id || (typeof t.id === "number" ? t.id : null);
+                            try {
+                                if (brisid) await supabase.from("proizvodi").delete().eq("id", brisid);
+                                else await supabase.from("proizvodi").delete().eq("template_id", t.template_id || t.id);
+                                msg && msg("Template obrisan");
+                            } catch (e) {
+                                setSaved(saved);   // vrati ako brisanje u bazi ne uspe
+                                msg && msg("Brisanje u bazi nije uspelo: " + (e?.message || e), "err");
+                            }
+                        }} style={{ border: "none", background: RED, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🗑️</button>
                     </div>
                 </div>)}
             </div>}
