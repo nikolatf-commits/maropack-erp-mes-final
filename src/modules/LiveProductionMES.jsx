@@ -1,7 +1,14 @@
-// [build v51] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
-// Mašine, statistike i operacije čita iz db (operativni_nalozi) — isti izvor kao Glavni nalozi.
-// Radnik i dalje radi preko QR-a (START/PAUZA/ZAVRŠI na telefonu); ovde je samo živi pregled.
-import React, { useMemo, useState } from "react";
+// [build v52] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
+// v52: NE koristi više hardkodovanih 9 generičkih mašina ("Stampa 1", "Rezanje"...).
+//      Mašine i raspored čita iz ISTOG izvora kao Plan proizvodnje (MachineSchedulerPRO):
+//      loadMachines() + loadProductionPlan() iz erpMesCore — pa kad planer prevuče
+//      MP-2026-0001-PERFORACIJA_REZANJE na "Rezač 1", ovde se to ODMAH vidi na Rezaču 1.
+// Statusi operacija i dalje dolaze iz db.nalozi (operativni_nalozi) — radnik radi preko
+// QR-a (START/PAUZA/ZAVRŠI na telefonu); ovo je samo živi pregled.
+import React, { useEffect, useMemo, useState } from "react";
+// NAPOMENA: ista putanja kao u MachineSchedulerPRO.jsx. Ako LiveProductionMES stoji u
+// drugom folderu, prilagodi na "./services/erpMesCore.js".
+import { loadMachines, loadProductionPlan } from "../services/erpMesCore.js";
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function minutesFrom(iso) {
@@ -19,44 +26,59 @@ function normStatus(s) {
     return "ceka";
 }
 function statusBoja(s) {
-    const n = normStatus(s);
-    if (n === "radi") return "#059669";
-    if (n === "zastoj") return "#dc2626";
-    if (n === "spremno") return "#10b981";
-    if (n === "zavrseno") return "#2563eb";
+    if (s === "radi") return "#059669";
+    if (s === "zastoj") return "#dc2626";
+    if (s === "spremno") return "#10b981";
+    if (s === "zavrseno") return "#2563eb";
+    if (s === "servis") return "#f59e0b";
     return "#64748b";
 }
 function statusTekst(s) {
-    const n = normStatus(s);
-    return { radi: "U TOKU", zastoj: "ZASTOJ", spremno: "SPREMNO", zavrseno: "ZAVRSENO", ceka: "CEKA" }[n];
+    return { radi: "U TOKU", zastoj: "ZASTOJ", spremno: "SPREMNO", zavrseno: "ZAVRSENO", servis: "SERVIS", ceka: "CEKA" }[s] || "CEKA";
 }
-function masinaZa(op) {
-    const raw = String(op.masina || "").toLowerCase();
-    const t = String(op.tip_naloga || op.vrsta || op.naziv || "").toLowerCase();
-    // Ako operacija ima ime mašine, normalizuj ga na jednu od baznih (Stampa 1/2, itd.)
-    if (raw) {
-        if (raw.includes("stamp") || raw.includes("\u0161tamp")) return raw.includes("2") ? "Stampa 2" : "Stampa 1";
-        if (raw.includes("lak")) return "Lakiranje";
-        if (raw.includes("kas") || raw.includes("ka\u0161")) return "Kasiranje";
-        if (raw.includes("rez")) return "Rezanje";
-        if (raw.includes("format")) return "Formatiranje";
-        if (raw.includes("kes")) return "Kese";
-        if (raw.includes("spul") || raw.includes("\u0161pul")) return "Spulne";
-    }
-    if (t.includes("stamp") || t.includes("\u0161tamp")) return "Stampa 1";
-    if (t.includes("lak")) return "Lakiranje";
-    if (t.includes("kas") || t.includes("ka\u0161")) return "Kasiranje";
-    if (t.includes("perf") || t.includes("rez")) return "Rezanje";
-    if (t.includes("format")) return "Formatiranje";
-    if (t.includes("kes")) return "Kese";
-    if (t.includes("spul") || t.includes("\u0161pul")) return "Spulne";
-    if (t.includes("mater")) return "Materijal";
-    return "Ostalo";
+// Isti ključ naloga kao u MachineSchedulerPRO (plan čuva ID-jeve u ovom obliku).
+function nalogKey(n) { return String(n.broj_naloga || n.broj || n.id || ""); }
+function opLabel(n) {
+    const t = String(n.tip_naloga || n.vrsta || n.naziv || "").toLowerCase();
+    if (t.includes("\u0161tamp") || t.includes("stamp")) return "\u0160TAMPA";
+    if (t.includes("lak")) return "LAKIRANJE";
+    if (t.includes("ka\u0161") || t.includes("kas")) return "KA\u0160IRANJE";
+    if (t.includes("perf") || t.includes("rez")) return "REZANJE";
+    if (t.includes("format")) return "FORMATIRANJE";
+    if (t.includes("kes")) return "KESE";
+    if (t.includes("\u0161pul") || t.includes("spul")) return "\u0160PULNE";
+    if (t.includes("mater")) return "MATERIJAL";
+    return "OPERACIJA";
 }
 
 export default function LiveProductionMES({ db = {}, msg }) {
     const [tab, setTab] = useState("dashboard");
+    const [filter, setFilter] = useState("sve");
+    const [machines, setMachines] = useState([]);
+    const [plan, setPlan] = useState({});
+    const [, setTick] = useState(0); // osvežava "X min" brojače
     const nalozi = Array.isArray(db.nalozi) ? db.nalozi : [];
+
+    // Mašine + plan iz istog izvora kao Plan proizvodnje. Osvežavanje:
+    // - na mount
+    // - na "maropack:nalozi-changed" (radnik startovao/završio preko QR-a)
+    // - lagani interval od 20s (planer u drugom tabu prevuče nalog → ovde se pojavi)
+    useEffect(() => {
+        let ziv = true;
+        async function ucitaj() {
+            try {
+                const [m, p] = await Promise.all([loadMachines(), loadProductionPlan()]);
+                if (!ziv) return;
+                setMachines(Array.isArray(m) ? m : []);
+                setPlan(p && typeof p === "object" ? p : {});
+            } catch (e) { /* bez rušenja live pregleda */ }
+        }
+        ucitaj();
+        const onChange = () => ucitaj();
+        window.addEventListener("maropack:nalozi-changed", onChange);
+        const t = setInterval(() => { ucitaj(); setTick(x => x + 1); }, 20000);
+        return () => { ziv = false; window.removeEventListener("maropack:nalozi-changed", onChange); clearInterval(t); };
+    }, []);
 
     const stats = useMemo(() => {
         let aktivne = 0, zavrsene = 0, kolicina = 0, skart = 0, zastoj = 0;
@@ -70,31 +92,73 @@ export default function LiveProductionMES({ db = {}, msg }) {
         return { aktivne, zavrsene, kolicina, skart, zastoj };
     }, [nalozi]);
 
-    const masine = useMemo(() => {
-        const base = ["Materijal", "Stampa 1", "Stampa 2", "Lakiranje", "Kasiranje", "Rezanje", "Kese", "Spulne", "Formatiranje"];
-        const map = {};
-        base.forEach((m) => { map[m] = { masina: m, op: null, status: "ceka" }; });
-        nalozi.forEach((n) => {
-            const s = normStatus(n.status);
-            if (s === "ceka" || s === "zavrseno") return;
-            const m = masinaZa(n);
-            const rang = { radi: 3, zastoj: 2, spremno: 1 };
-            if (!map[m] || !map[m].op || (rang[s] || 0) > (rang[normStatus(map[m].op.status)] || 0)) {
-                map[m] = { masina: m, op: n, status: s };
-            }
-        });
-        return Object.values(map);
+    const nalogMap = useMemo(() => {
+        const m = {};
+        nalozi.forEach((n) => { const k = nalogKey(n); if (k) m[k] = n; });
+        return m;
     }, [nalozi]);
 
+    // Kartica po PRAVOJ mašini (Rezač 1..10, Mašina za kese 1..15, Špulna 1-2, Kaširka 1):
+    // operacije sa te mašine = plan[machine.id], status mašine = najjači status njenih operacija.
+    const kartice = useMemo(() => {
+        const rang = { radi: 5, zastoj: 4, spremno: 3, ceka: 2 };
+        return machines.map((m) => {
+            const ops = (plan[m.id] || [])
+                .map((id) => nalogMap[id])
+                .filter((n) => n && normStatus(n.status) !== "zavrseno");
+            let st = m.status === "aktivna" ? "ceka" : "servis";
+            if (m.status === "aktivna") {
+                ops.forEach((n) => {
+                    let s = normStatus(n.status);
+                    if (s === "ceka") s = "spremno"; // dodeljen mašini, čeka start = SPREMNO
+                    if ((rang[s] || 0) > (rang[st] || 0)) st = s;
+                });
+            }
+            return { m, ops, st };
+        });
+    }, [machines, plan, nalogMap]);
+
+    // Aktivne operacije koje NISU ni na jednoj mašini u planu — da ništa ne bude nevidljivo.
+    const vanPlana = useMemo(() => {
+        const uPlanu = new Set(Object.values(plan).flat());
+        return nalozi.filter((n) => {
+            const s = normStatus(n.status);
+            return (s === "radi" || s === "zastoj") && !uPlanu.has(nalogKey(n));
+        });
+    }, [nalozi, plan]);
+
+    const shown = kartice.filter((k) => filter === "sve" || k.m.type === filter);
     const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 18, padding: 18, boxShadow: "0 10px 30px rgba(15,23,42,0.06)" };
     const tabs = [["dashboard", "Live dashboard"], ["operacije", "Sve operacije"], ["zavrsene", "Zavrsene"]];
+    const filteri = [["sve", "Sve"], ["rezanje", "Reza\u010di"], ["kese", "Kese"], ["spulne", "\u0160pulne"], ["kasiranje", "Ka\u0161iranje"], ["stampa", "\u0160tamparije"]];
+    const radiUkupno = kartice.filter((k) => k.st === "radi").length;
+
+    function OpRed({ n }) {
+        const s = normStatus(n.status);
+        return (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "#f8fafc", borderLeft: "4px solid " + statusBoja(s === "ceka" ? "spremno" : s) }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                    <b style={{ fontSize: 12.5 }}>{opLabel(n)}</b>
+                    <span style={{ color: statusBoja(s === "ceka" ? "spremno" : s), fontWeight: 950, fontSize: 11 }}>{statusTekst(s === "ceka" ? "spremno" : s)}</span>
+                </div>
+                <div style={{ color: "#475569", fontSize: 12.5, marginTop: 2 }}>{nalogKey(n)}</div>
+                <div style={{ color: "#64748b", fontSize: 12 }}>{n.proizvod || n.naziv || ""}{n.kupac ? " \u00b7 " + n.kupac : ""}</div>
+                <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 12, color: "#475569" }}>
+                    {n.radnik && <span>&#128100; {n.radnik}</span>}
+                    {s === "radi" && n.start_ts && <span style={{ fontWeight: 800 }}>{minutesFrom(n.start_ts)} min</span>}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div style={{ display: "grid", gap: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div>
                     <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950, color: "#0f172a" }}>&#128308; Live Production MES</h2>
-                    <div style={{ color: "#64748b", fontSize: 13 }}>Zivi pregled proizvodnje iz naloga. Radnik startuje operacije skeniranjem QR-a.</div>
+                    <div style={{ color: "#64748b", fontSize: 13 }}>
+                        Zivi pregled proizvodnje: {machines.length} masina iz plana proizvodnje &middot; {radiUkupno} radi. Radnik startuje operacije skeniranjem QR-a.
+                    </div>
                 </div>
             </div>
 
@@ -109,24 +173,41 @@ export default function LiveProductionMES({ db = {}, msg }) {
             </div>
 
             {tab === "dashboard" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 12 }}>
-                    {masine.map((m) => (
-                        <div key={m.masina} style={{ ...card, borderTop: "5px solid " + statusBoja(m.status) }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <b style={{ fontSize: 15 }}>{m.masina}</b>
-                                <span style={{ color: statusBoja(m.status), fontWeight: 950, fontSize: 12 }}>{statusTekst(m.status)}</span>
-                            </div>
-                            {m.op ? (
-                                <div style={{ marginTop: 10, color: "#475569", fontSize: 13 }}>
-                                    <div>Nalog: <b>{m.op.broj_naloga || m.op.broj || "\u2014"}</b></div>
-                                    <div>{m.op.proizvod || m.op.naziv || ""}</div>
-                                    {m.op.radnik && <div>&#128100; {m.op.radnik}</div>}
-                                    {m.op.start_ts && <div style={{ marginTop: 4, fontWeight: 800 }}>{minutesFrom(m.op.start_ts)} min</div>}
-                                </div>
-                            ) : <div style={{ marginTop: 10, color: "#94a3b8" }}>Ceka nalog</div>}
+                <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {filteri.map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ border: "1px solid #cbd5e1", background: filter === k ? "#0f172a" : "#fff", color: filter === k ? "#fff" : "#334155", borderRadius: 10, padding: "7px 12px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>{l}</button>)}
+                    </div>
+
+                    {vanPlana.length > 0 && (
+                        <div style={{ ...card, borderLeft: "5px solid #f59e0b", padding: 14 }}>
+                            <b style={{ fontSize: 13 }}>&#9888;&#65039; Aktivne operacije van plana masina ({vanPlana.length})</b>
+                            <div style={{ color: "#64748b", fontSize: 12, marginTop: 2 }}>Rade, a nisu prevucene ni na jednu masinu u Planu proizvodnje.</div>
+                            {vanPlana.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} />)}
                         </div>
-                    ))}
-                </div>
+                    )}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 12 }}>
+                        {shown.length === 0 && (
+                            <div style={{ ...card, color: "#94a3b8", textAlign: "center", gridColumn: "1/-1" }}>
+                                {machines.length === 0 ? "Masine se ucitavaju iz plana proizvodnje..." : "Nema masina za izabrani filter."}
+                            </div>
+                        )}
+                        {shown.map(({ m, ops, st }) => (
+                            <div key={m.id} style={{ ...card, borderTop: "5px solid " + statusBoja(st), padding: 14 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                    <div>
+                                        <div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 900 }}>{m.code}{m.group ? " \u00b7 " + m.group : ""}</div>
+                                        <b style={{ fontSize: 15 }}>{m.name}</b>
+                                    </div>
+                                    <span style={{ color: statusBoja(st), fontWeight: 950, fontSize: 12, whiteSpace: "nowrap" }}>{statusTekst(st)}</span>
+                                </div>
+                                {ops.length === 0
+                                    ? <div style={{ marginTop: 10, color: "#94a3b8" }}>{st === "servis" ? "Na servisu" : "Ceka nalog"}</div>
+                                    : ops.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} />)}
+                            </div>
+                        ))}
+                    </div>
+                </>
             )}
 
             {tab === "operacije" && (
@@ -135,13 +216,13 @@ export default function LiveProductionMES({ db = {}, msg }) {
                         <div style={{ ...card, color: "#94a3b8", textAlign: "center" }}>Nema aktivnih operacija.</div>
                     )}
                     {nalozi.filter((n) => normStatus(n.status) !== "zavrseno").map((n, i) => (
-                        <div key={n.id || i} style={{ ...card, borderLeft: "5px solid " + statusBoja(n.status), padding: 14 }}>
+                        <div key={n.id || i} style={{ ...card, borderLeft: "5px solid " + statusBoja(normStatus(n.status)), padding: 14 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                 <div>
                                     <b>{n.tip_naloga || n.naziv}</b> &middot; {n.proizvod || ""}
                                     <div style={{ color: "#64748b", fontSize: 13 }}>{n.broj_naloga || n.broj} &middot; {n.kupac || ""} {n.radnik ? "\u00b7 \uD83D\uDC64 " + n.radnik : ""}</div>
                                 </div>
-                                <span style={{ color: statusBoja(n.status), fontWeight: 950, fontSize: 12 }}>{statusTekst(n.status)}</span>
+                                <span style={{ color: statusBoja(normStatus(n.status)), fontWeight: 950, fontSize: 12 }}>{statusTekst(normStatus(n.status))}</span>
                             </div>
                         </div>
                     ))}
