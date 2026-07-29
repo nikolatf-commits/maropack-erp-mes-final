@@ -682,7 +682,7 @@ const V6_CSS = `
 .nv6 .subsec table{border:0;border-radius:0}
 .nv6{--ink:#0f172a;--mut:#6b7280;--line:#e8ebf1;font-family:Inter,Arial,sans-serif;color:var(--ink)}
 .nv6 *{box-sizing:border-box}
-.nv6 .a4{width:794px;min-height:1123px;background:#fff;margin:0 auto 26px;box-shadow:0 14px 40px rgba(0,0,0,.18);position:relative;display:flex;flex-direction:column;overflow:hidden}
+.nv6 .a4{width:794px;min-height:1123px;background:#fff;margin:0 auto 26px;box-shadow:0 14px 40px rgba(0,0,0,.18);position:relative;overflow:hidden;display:flex;flex-direction:column;overflow:hidden}
 .nv6 .pp{position:absolute;bottom:12px;right:20px;font-size:10px;color:#94a3b8;font-weight:700}
 .nv6 .pp2{position:absolute;bottom:12px;left:20px;font-size:10px;color:#94a3b8;font-weight:700}
 .nv6 .hd{position:relative;padding:20px 26px;color:#fff;overflow:hidden}
@@ -696,28 +696,28 @@ const V6_CSS = `
 .nv6 .docmeta .k{opacity:.6;margin-right:5px}
 .nv6 .title{margin-top:14px;display:flex;align-items:center;gap:11px}
 .nv6 .title .ic{font-size:24px}
-.nv6 .title .big{font-size:21px;font-weight:950}
+.nv6 .title .big{font-size:23px;font-weight:950}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
 .nv6 .body{padding:20px 26px;flex:1;display:flex;flex-direction:column}
 .nv6 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:16px}
-.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:11px 13px;position:relative;overflow:hidden}
+.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:13px 15px;position:relative;overflow:hidden;text-align:center}
 .nv6 .stat .bar{position:absolute;left:0;top:0;bottom:0;width:4px}
-.nv6 .stat .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px}
-.nv6 .stat .v{font-size:19px;font-weight:950;margin-top:3px}
+.nv6 .stat .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
+.nv6 .stat .v{font-size:22px;font-weight:950;margin-top:3px;word-break:break-word;overflow-wrap:anywhere;line-height:1.15;text-align:center}
 .nv6 .stat .u{font-size:10px;color:var(--mut)}
 .nv6 .info{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:9px;overflow:hidden}
-.nv6 .info .c{padding:8px 12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
-.nv6 .info .c .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px}
-.nv6 .info .c .v{font-size:12.5px;font-weight:800;margin-top:3px}
-.nv6 .sec{margin-top:18px;max-width:100%;overflow:hidden}
+.nv6 .info .c{padding:10px 13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;text-align:center}
+.nv6 .info .c .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
+.nv6 .info .c .v{font-size:13.5px;font-weight:800;margin-top:3px;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;text-align:center}
+.nv6 .sec{margin-top:20px;max-width:100%;overflow:hidden}
 .nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}
-.nv6 .sec-h .tt{font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
+.nv6 .sec-h .tt{font-size:13.5px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
 .nv6 .sec-h .rule{flex:1;height:1px;background:var(--line)}
 .nv6 .sec-h .src{font-size:9px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
-.nv6 table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:auto;max-width:100%}
-.nv6 th{text-align:left;padding:6px 7px;font-size:9px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
-.nv6 td{padding:6px 7px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere;line-height:1.35}
+.nv6 table{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:auto;max-width:100%}
+.nv6 th{text-align:left;padding:7px 8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
+.nv6 td{padding:7px 8px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere;line-height:1.4}
 .nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}
@@ -725,9 +725,9 @@ const V6_CSS = `
 .nv6 .fig{border:1px solid var(--line);border-radius:10px;padding:14px;background:linear-gradient(180deg,#fcfdff,#f5f8fc);text-align:center}
 .nv6 .fig .cap{font-size:10px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .nv6 .chips{display:flex;gap:9px;flex-wrap:wrap}
-.nv6 .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:11.5px;font-weight:800}
+.nv6 .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;word-break:break-word;font-size:11.5px;font-weight:800}
 .nv6 .chip .sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.1)}
-.nv6 .ulaz{font-size:11.5px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px}
+.nv6 .ulaz{font-size:12.5px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px;word-break:break-word;overflow-wrap:anywhere;line-height:1.5}
 .nv6 .foot{display:flex;gap:16px;margin-top:auto;padding-top:14px}
 .nv6 .sign{flex:1;font-size:10px;color:var(--mut);text-align:center}
 .nv6 .sign .line{border-top:1px solid #94a3b8;padding-top:5px;margin-top:26px;font-weight:700;color:#475569}
@@ -743,10 +743,18 @@ const V6_CSS = `
 .nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
 .nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
 @media print{
-  .nv6 .a4{box-shadow:none;margin:0;width:210mm;min-height:297mm;page-break-after:always}
-  body *{visibility:hidden!important}
-  .nv6,.nv6 *{visibility:visible!important}
-  .nv6{position:absolute;left:0;top:0}
+  @page{ size:A4; margin:8mm; }
+  html,body{ background:#fff!important; margin:0!important; padding:0!important; }
+  /* Boje MORAJU da izađu na štampi (bez ovoga štampač izbeli pozadine/trake) */
+  .nv6, .nv6 *{ -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; color-adjust:exact!important; }
+  .nv6 .a4{ box-shadow:none!important; margin:0 auto!important; width:auto!important; min-height:auto!important; border-radius:0!important; page-break-after:always; break-after:page; }
+  .nv6 .a4:last-child{ page-break-after:auto; break-after:auto; }
+  body *{ visibility:hidden!important; }
+  .nv6, .nv6 *{ visibility:visible!important; }
+  .nv6{ position:absolute; left:0; top:0; width:100%; }
+  /* Ne prelamaj sekcije, tabele-redove i kartice preko dve strane */
+  .nv6 .sec, .nv6 .stat, .nv6 .c, .nv6 tr, .nv6 table{ page-break-inside:avoid; break-inside:avoid; }
+  .nv6 thead{ display:table-header-group; }
 }
 `;
 

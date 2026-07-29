@@ -3241,8 +3241,27 @@ function Grid({ children, cols = 3 }) {
     return <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: 12 }}>{children}</div>;
 }
 
+// Pretvara sirovi ključ (smerNamotavanja, brojBoja...) u čitljivu labelu sa razmacima.
+const LABELE_MAP = {
+    smerNamotavanja: "Smer namotavanja", brojBoja: "Broj boja", brojKasiranja: "Broj kaширanja",
+    tipLepka: "Tip lepka", odnosLepka: "Odnos lepka", nanosLepka: "Nanos lepka",
+    maxMetara: "Max metara", rolniPoPaleti: "Rolni po paleti", sideA: "Side A", sideB: "Side B",
+    tezinaBruto: "Težina bruto", tipKese: "Tip kese", jedinicaUnosa: "Jedinica unosa",
+    transportKg: "Transport €/kg", obimValjka: "Obim valjka", precnikHilzne: "Prečnik hilzne",
+    smerOdmotavanja: "Smer odmotavanja", tipNamotavanja: "Tip namotavanja",
+    sirinaMaterijala: "Širina materijala", idealnaSirina: "Idealna širina", debljina: "Debljina",
+    masina: "Mašina", strana: "Strana", nanos: "Nanos", pokrivenost: "Pokrivenost", susenje: "Sušenje",
+    napomena: "Napomena", stamparija: "Štamparija", klise: "Kliše", hilzna: "Hilzna",
+};
+function lepaLabela(k) {
+    if (LABELE_MAP[k]) return LABELE_MAP[k];
+    // camelCase → "Camel case", prvo slovo veliko
+    const razmaknuto = String(k).replace(/([a-z\u0161\u0111\u010d\u0107\u017e])([A-Z\u0160\u0110\u010c\u0106\u017d])/g, "$1 $2").replace(/[_-]+/g, " ");
+    return razmaknuto.charAt(0).toUpperCase() + razmaknuto.slice(1);
+}
+
 function Input({ label, value, onChange, type = "text", placeholder = "" }) {
-    return <div><label style={labelStyle()}>{label}</label><input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={fieldStyle()} /></div>;
+    return <div><label style={labelStyle()}>{lepaLabela(label)}</label><input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={fieldStyle()} /></div>;
 }
 
 function BojeStampeEditor({ value, onChange }) {

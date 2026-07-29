@@ -1,3 +1,4 @@
+// [build v51] MachineSchedulerPRO — čita naloge iz db, grupiše po master broju
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 
@@ -67,26 +68,30 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [machines, setMachines] = useState(DEFAULT_MACHINES);
     // Pravi nalozi iz baze (db.master_nalozi / db.nalozi) → format koji scheduler koristi.
     const orders = useMemo(() => {
+        // Grupiši po MASTER broju (bez sufiksa operacije: -MATERIJAL, -STAMPA...) —
+        // jedan proizvod = jedna kartica za raspoređivanje, ne po svakoj operaciji.
+        const skiniSufiks = (b) => String(b || "").replace(/-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|KA\u0160IRANJE|PERFORACIJA|REZANJE|PERFORACIJA_REZANJE|KESA|SPULNA|\u0160PULNA|FORMATIRANJE)$/i, "").trim();
         const izvor = (Array.isArray(db.master_nalozi) && db.master_nalozi.length ? db.master_nalozi : (db.nalozi || []));
-        const vidjeno = {};
-        const out = [];
+        const grupe = {};
         (izvor || []).forEach((n) => {
-            const id = String(n.broj_naloga || n.broj || n.master_broj || n.id || "");
-            if (!id || vidjeno[id]) return;
-            vidjeno[id] = true;
-            const st = String(n.status || "ceka").toLowerCase();
-            const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
-            out.push({
-                id,
-                title: n.proizvod || n.naziv || n.prod || "Nalog",
-                customer: n.kupac || "",
-                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || (n.folija && n.folija.rezanje && n.folija.rezanje.sirinaTrake) || 0) || "—",
-                durationMin: Number(n.trajanje_min || n.durationMin || 60),
-                priority: n.prioritet || n.priority || "normalno",
-                status,
-            });
+            const puni = String(n.broj_naloga || n.broj || n.master_broj || n.id || "");
+            if (!puni) return;
+            const master = skiniSufiks(puni) || puni;
+            if (!grupe[master]) {
+                const st = String(n.status || "ceka").toLowerCase();
+                const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
+                grupe[master] = {
+                    id: master,
+                    title: n.proizvod || n.naziv || n.prod || "Nalog",
+                    customer: n.kupac || "",
+                    width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || (n.folija && n.folija.rezanje && n.folija.rezanje.sirinaTrake) || 0) || "\u2014",
+                    durationMin: Number(n.trajanje_min || n.durationMin || 60),
+                    priority: n.prioritet || n.priority || "normalno",
+                    status,
+                };
+            }
         });
-        return out;
+        return Object.values(grupe);
     }, [db.master_nalozi, db.nalozi]);
     const [plan, setPlan] = useState({});
     const [filter, setFilter] = useState('sve');
