@@ -262,69 +262,74 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     // Fallback na osnovniNalog SAMO ako je to bas ta operacija. Ranije se slepo
     // uzimao bilo koji prosledjeni nalog, pa je papir dobijao naslov jedne operacije
     // i broj/QR druge (npr. "NALOG ZA MATERIJAL" sa brojem PERFORACIJA_REZANJE).
-    const nadjen = nalozi.find(n => nalogType(n) === tab)
-        || (nalogType(osnovniNalog) === tab ? osnovniNalog : null);
+    function gradiAktivni(zaTab) {
+        const nadjen = nalozi.find(n => nalogType(n) === zaTab)
+            || (nalogType(osnovniNalog) === zaTab ? osnovniNalog : null);
 
-    const aktivni = {
-        ...enrichNalogForPrint(nadjen || {}),
-        ponBr: skiniSufiks(brojNaloga) || osnovniNalog.ponBr,
-        tip_proizvoda: tipProizvoda,
-        tip_naloga: tab,
-        naziv: TABOVI.find(t => t.tip === tab)?.naziv || "Radni nalog",
-    };
-    // Bez ovoga bi QR na papiru nosio opid pogresne operacije.
-    if (!nadjen) { aktivni.id = null; aktivni.broj_naloga = ""; }
+        const aktivni = {
+            ...enrichNalogForPrint(nadjen || {}),
+            ponBr: skiniSufiks(brojNaloga) || osnovniNalog.ponBr,
+            tip_proizvoda: tipProizvoda,
+            tip_naloga: zaTab,
+            naziv: TABOVI.find(t => t.tip === zaTab)?.naziv || "Radni nalog",
+        };
+        // Bez ovoga bi QR na papiru nosio opid pogresne operacije.
+        if (!nadjen) { aktivni.id = null; aktivni.broj_naloga = ""; }
 
-    // ODMAH dopuni folija/kesa/spulna iz parametri.template (upisano pri KREIRANJU naloga).
-    // Time štampa/kaширanje/rezanje imaju SVE podatke bez čekanja na async tplRow —
-    // pa se pri prelasku kroz kartice odmah vide pravi podaci, ne prazno/staro.
-    if (nadjen) {
-        try {
-            var _pp = typeof nadjen.parametri === "string" ? JSON.parse(nadjen.parametri) : nadjen.parametri;
-            var _tpl = (_pp && _pp.template) || nadjen.template || (nadjen.res && nadjen.res.template) || null;
-            var _tf = _tpl && (_tpl.folija || (_tpl.data && _tpl.data.folija));
-            if (_tf && (!aktivni.folija || !aktivni.folija.stampa || !aktivni.folija.stampa.masina)) {
-                var _nf = aktivni.folija || {};
+        // ODMAH dopuni folija/kesa/spulna iz parametri.template (upisano pri KREIRANJU naloga).
+        // Time štampa/kaширanje/rezanje imaju SVE podatke bez čekanja na async tplRow —
+        // pa se pri prelasku kroz kartice odmah vide pravi podaci, ne prazno/staro.
+        if (nadjen) {
+            try {
+                var _pp = typeof nadjen.parametri === "string" ? JSON.parse(nadjen.parametri) : nadjen.parametri;
+                var _tpl = (_pp && _pp.template) || nadjen.template || (nadjen.res && nadjen.res.template) || null;
+                var _tf = _tpl && (_tpl.folija || (_tpl.data && _tpl.data.folija));
+                if (_tf && (!aktivni.folija || !aktivni.folija.stampa || !aktivni.folija.stampa.masina)) {
+                    var _nf = aktivni.folija || {};
+                    aktivni.folija = {
+                        ..._tf, ..._nf,
+                        stampa: { ...(_tf.stampa || {}), ...(_nf.stampa || {}) },
+                        kasiranje: { ...(_tf.kasiranje || {}), ...(_nf.kasiranje || {}) },
+                        lakiranje: { ...(_tf.lakiranje || {}), ...(_nf.lakiranje || {}) },
+                        perforacija: (_nf.perforacija && Object.keys(_nf.perforacija).length) ? _nf.perforacija : (_tf.perforacija || null),
+                        rezanje: { ...(_tf.rezanje || {}), ...(_nf.rezanje || {}) },
+                    };
+                }
+                var _tk = _tpl && (_tpl.kesa || (_tpl.data && _tpl.data.kesa));
+                if (_tk && !aktivni.kesa) aktivni.kesa = _tk;
+                var _ts = _tpl && (_tpl.spulna || (_tpl.data && _tpl.data.spulna));
+                if (_ts && !aktivni.spulna) aktivni.spulna = _ts;
+            } catch (e) { /* ignore */ }
+        }
+
+        // Dopuni nalog podacima iz originalnog template-a (dizajn na rolni, perforacija, broj traka),
+        // ali vrednosti samog naloga imaju prednost.
+        if (rezRolne && rezRolne.length && !(aktivni.rezervisane_rolne && aktivni.rezervisane_rolne.length)) {
+            aktivni.rezervisane_rolne = rezRolne;
+        }
+        if (tplRow) {
+            const tdata = tplRow.data || tplRow;
+            const tf = (tdata && tdata.folija) || tplRow.folija || null;
+            if (!aktivni.product_template && !aktivni.template) {
+                aktivni.product_template = { ...tplRow, data: tdata };
+            }
+            if (tf) {
+                const nf = aktivni.folija || {};
                 aktivni.folija = {
-                    ..._tf, ..._nf,
-                    stampa: { ...(_tf.stampa || {}), ...(_nf.stampa || {}) },
-                    kasiranje: { ...(_tf.kasiranje || {}), ...(_nf.kasiranje || {}) },
-                    lakiranje: { ...(_tf.lakiranje || {}), ...(_nf.lakiranje || {}) },
-                    perforacija: (_nf.perforacija && Object.keys(_nf.perforacija).length) ? _nf.perforacija : (_tf.perforacija || null),
-                    rezanje: { ...(_tf.rezanje || {}), ...(_nf.rezanje || {}) },
+                    ...tf,
+                    ...nf,
+                    stampa: { ...(tf.stampa || {}), ...(nf.stampa || {}), dizajn: (nf.stampa && nf.stampa.dizajn) || tf.stampa?.dizajn || null },
+                    perforacija: (nf.perforacija && Object.keys(nf.perforacija).length) ? nf.perforacija : (tf.perforacija || null),
+                    rezanje: { ...(tf.rezanje || {}), ...(nf.rezanje || {}) },
+                    kpdf: { ...(tf.kpdf || {}), ...(nf.kpdf || {}) },
                 };
             }
-            var _tk = _tpl && (_tpl.kesa || (_tpl.data && _tpl.data.kesa));
-            if (_tk && !aktivni.kesa) aktivni.kesa = _tk;
-            var _ts = _tpl && (_tpl.spulna || (_tpl.data && _tpl.data.spulna));
-            if (_ts && !aktivni.spulna) aktivni.spulna = _ts;
-        } catch (e) { /* ignore */ }
+        }
+
+        return aktivni;
     }
 
-    // Dopuni nalog podacima iz originalnog template-a (dizajn na rolni, perforacija, broj traka),
-    // ali vrednosti samog naloga imaju prednost.
-    if (rezRolne && rezRolne.length && !(aktivni.rezervisane_rolne && aktivni.rezervisane_rolne.length)) {
-        aktivni.rezervisane_rolne = rezRolne;
-    }
-    if (tplRow) {
-        const tdata = tplRow.data || tplRow;
-        const tf = (tdata && tdata.folija) || tplRow.folija || null;
-        if (!aktivni.product_template && !aktivni.template) {
-            aktivni.product_template = { ...tplRow, data: tdata };
-        }
-        if (tf) {
-            const nf = aktivni.folija || {};
-            aktivni.folija = {
-                ...tf,
-                ...nf,
-                stampa: { ...(tf.stampa || {}), ...(nf.stampa || {}), dizajn: (nf.stampa && nf.stampa.dizajn) || tf.stampa?.dizajn || null },
-                perforacija: (nf.perforacija && Object.keys(nf.perforacija).length) ? nf.perforacija : (tf.perforacija || null),
-                rezanje: { ...(tf.rezanje || {}), ...(nf.rezanje || {}) },
-                kpdf: { ...(tf.kpdf || {}), ...(nf.kpdf || {}) },
-            };
-        }
-    }
-
+    const aktivni = gradiAktivni(tab);
     const naslovBroj = brojNaloga || aktivni.ponBr || osnovniNalog.ponBr || "—";
     const closeFn = onBack || onClose;
     const [showQr, setShowQr] = useState(false);
@@ -366,7 +371,12 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             if (closeFn) closeFn();
         } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }
     }
-    function stampaj() { if (typeof window !== "undefined") window.print(); }
+    const [stampajSve, setStampajSve] = useState(false);
+    function stampaj() { setStampajSve(false); if (typeof window !== "undefined") setTimeout(() => window.print(), 30); }
+    function stampajSveNaloge() {
+        setStampajSve(true);
+        if (typeof window !== "undefined") setTimeout(() => { window.print(); setStampajSve(false); }, 120);
+    }
 
     return (
         <div style={{ padding: 18 }}>
@@ -378,7 +388,8 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     </div>
                 </div>
                 <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button onClick={stampaj} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #0f766e", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj</button>
+                    <button onClick={stampaj} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #0f766e", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj ovaj</button>
+                    <button onClick={stampajSveNaloge} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #1d4ed8", background: "#1d4ed8", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj sve ({dostupni.length})</button>
                     <button onClick={obrisiNalog} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #dc2626", background: "#fff", color: "#dc2626", fontWeight: 900, cursor: "pointer" }}>🗑️ Obriši</button>
                     {closeFn && (
                         <button onClick={closeFn} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "#fff", color: "#1d4ed8", fontWeight: 900, cursor: "pointer" }}>← Nazad</button>
@@ -433,7 +444,9 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
 
             {loading
                 ? <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>
-                : <NalogLayoutPRO key={skiniSufiks(brojNaloga) + "::" + tab} nalog={aktivni} activeTab={tab} />}
+                : stampajSve
+                    ? dostupni.map(t => <NalogLayoutPRO key={"print::" + t.tip} nalog={gradiAktivni(t.tip)} activeTab={t.tip} />)
+                    : <NalogLayoutPRO key={skiniSufiks(brojNaloga) + "::" + tab} nalog={aktivni} activeTab={tab} />}
         </div>
     );
 }

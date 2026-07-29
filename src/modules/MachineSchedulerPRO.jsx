@@ -24,20 +24,25 @@ function Badge({ children, color = '#0f172a' }) {
 
 function OrderCard({ order, onDragStart, compact = false }) {
     const s = statusByKey(order.status);
-    return <div draggable onDragStart={e => onDragStart(e, order.id)} style={{ background: '#fff', border: '1px solid #dbeafe', borderLeft: `5px solid ${s.color}`, borderRadius: 14, padding: compact ? 10 : 12, marginBottom: 10, cursor: 'grab', boxShadow: '0 6px 14px rgba(15,23,42,.05)' }}>
+    const opBoja = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' }[order.opTip] || '#64748b';
+    return <div draggable onDragStart={e => onDragStart(e, order.id)} style={{ background: '#fff', border: '1px solid #dbeafe', borderLeft: `5px solid ${opBoja}`, borderRadius: 14, padding: compact ? 10 : 12, marginBottom: 10, cursor: 'grab', boxShadow: '0 6px 14px rgba(15,23,42,.05)' }}>
+        {/* Tip operacije — istaknuto, da znaš na koju mašinu ide */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: opBoja, color: '#fff', borderRadius: 999, padding: '4px 11px', fontSize: 12, fontWeight: 950 }}>{order.opIkona} {order.opLabel}</span>
+            <Badge color={s.color}>{s.label}</Badge>
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'start' }}>
             <div>
-                <div style={{ fontWeight: 950, color: '#0f172a' }}>{order.id}</div>
+                <div style={{ fontWeight: 950, color: '#0f172a', fontSize: 13 }}>{order.id}</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#334155', marginTop: 2 }}>{order.title}</div>
             </div>
-            <Badge color={order.priority === 'hitno' ? '#dc2626' : order.priority === 'visok' ? '#ea580c' : '#2563eb'}>{order.priority}</Badge>
+            {order.priority !== 'normalno' && <Badge color={order.priority === 'hitno' ? '#dc2626' : '#ea580c'}>{order.priority}</Badge>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
-            <div><b>{order.customer}</b><br /><span style={{ color: '#64748b' }}>kupac</span></div>
+            <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>količina</span></div>
             <div><b>{order.width} mm</b><br /><span style={{ color: '#64748b' }}>širina</span></div>
-            <div><b>{order.durationMin} min</b><br /><span style={{ color: '#64748b' }}>trajanje</span></div>
+            <div><b>{order.customer || '\u2014'}</b><br /><span style={{ color: '#64748b' }}>kupac</span></div>
         </div>
-        <div style={{ marginTop: 10 }}><Badge color={s.color}>{s.label}</Badge></div>
     </div>;
 }
 
@@ -68,30 +73,41 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [machines, setMachines] = useState(DEFAULT_MACHINES);
     // Pravi nalozi iz baze (db.master_nalozi / db.nalozi) → format koji scheduler koristi.
     const orders = useMemo(() => {
-        // Grupiši po MASTER broju (bez sufiksa operacije: -MATERIJAL, -STAMPA...) —
-        // jedan proizvod = jedna kartica za raspoređivanje, ne po svakoj operaciji.
-        const skiniSufiks = (b) => String(b || "").replace(/-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|KA\u0160IRANJE|PERFORACIJA|REZANJE|PERFORACIJA_REZANJE|KESA|SPULNA|\u0160PULNA|FORMATIRANJE)$/i, "").trim();
-        const izvor = (Array.isArray(db.master_nalozi) && db.master_nalozi.length ? db.master_nalozi : (db.nalozi || []));
-        const grupe = {};
+        // Jedna kartica PO OPERACIJI (štampa, rezanje, kaширanje...) — svaka ide na svoju mašinu.
+        // Materijal se preskače (ne raspoređuje se na mašinu za štampu/rez).
+        const izvor = (Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || []));
+        const tipOperacije = (n) => {
+            const t = String(n.tip_naloga || n.vrsta || n.naziv || "").toLowerCase();
+            if (t.includes("\u0161tamp") || t.includes("stamp")) return { k: "stampa", l: "\u0160TAMPA", ikona: "\uD83D\uDDA8\uFE0F" };
+            if (t.includes("lak")) return { k: "lakiranje", l: "LAKIRANJE", ikona: "\u2728" };
+            if (t.includes("ka\u0161") || t.includes("kas")) return { k: "kasiranje", l: "KA\u0160IRANJE", ikona: "\uD83D\uDCDA" };
+            if (t.includes("perf") || t.includes("rez")) return { k: "rezanje", l: "REZANJE", ikona: "\u2702\uFE0F" };
+            if (t.includes("format")) return { k: "formatiranje", l: "FORMATIRANJE", ikona: "\uD83D\uDCD0" };
+            if (t.includes("kes")) return { k: "kese", l: "KESE", ikona: "\uD83D\uDECD\uFE0F" };
+            if (t.includes("\u0161pul") || t.includes("spul")) return { k: "spulne", l: "\u0160PULNE", ikona: "\uD83E\uDDF5" };
+            if (t.includes("mater")) return { k: "materijal", l: "MATERIJAL", ikona: "\uD83D\uDCE6" };
+            return { k: "ostalo", l: "OPERACIJA", ikona: "\u2699\uFE0F" };
+        };
+        const out = [];
         (izvor || []).forEach((n) => {
-            const puni = String(n.broj_naloga || n.broj || n.master_broj || n.id || "");
-            if (!puni) return;
-            const master = skiniSufiks(puni) || puni;
-            if (!grupe[master]) {
-                const st = String(n.status || "ceka").toLowerCase();
-                const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
-                grupe[master] = {
-                    id: master,
-                    title: n.proizvod || n.naziv || n.prod || "Nalog",
-                    customer: n.kupac || "",
-                    width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || (n.folija && n.folija.rezanje && n.folija.rezanje.sirinaTrake) || 0) || "\u2014",
-                    durationMin: Number(n.trajanje_min || n.durationMin || 60),
-                    priority: n.prioritet || n.priority || "normalno",
-                    status,
-                };
-            }
+            const op = tipOperacije(n);
+            if (op.k === "materijal") return;   // materijal se ne raspoređuje na mašinu
+            const st = String(n.status || "ceka").toLowerCase();
+            const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
+            const metri = Number(n.kolicina || n.kol || n.duzina_m || n.metri || 0) || 0;
+            out.push({
+                id: String(n.broj_naloga || n.broj || n.id || ""),
+                opTip: op.k, opLabel: op.l, opIkona: op.ikona, type: op.k,
+                title: n.proizvod || n.naziv || n.prod || "Nalog",
+                customer: n.kupac || "",
+                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || "\u2014",
+                metri,
+                durationMin: Number(n.trajanje_min || n.durationMin || Math.max(30, Math.round(metri / 100)) || 60),
+                priority: n.prioritet || n.priority || "normalno",
+                status,
+            });
         });
-        return Object.values(grupe);
+        return out;
     }, [db.master_nalozi, db.nalozi]);
     const [plan, setPlan] = useState({});
     const [filter, setFilter] = useState('sve');
@@ -99,7 +115,12 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [trace, setTrace] = useState([]);
     const [dragOrder, setDragOrder] = useState(null);
 
-    useEffect(() => { (async () => { setMachines(await loadMachines()); setPlan(await loadProductionPlan()); setTrace(getTraceLog()); })(); }, []);
+    useEffect(() => {
+        (async () => {
+            setMachines(await loadMachines());
+            setPlan(await loadProductionPlan()); setTrace(getTraceLog());
+        })();
+    }, []);
 
     const orderMap = useMemo(() => Object.fromEntries(orders.map(o => [o.id, o])), [orders]);
     const plannedIds = useMemo(() => new Set(Object.values(plan).flat()), [plan]);
@@ -133,7 +154,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const next = machines.map(x => x.id === m.id ? { ...m, maxWidth: Number(m.maxWidth), minWidth: Number(m.minWidth), maxDiameter: Number(m.maxDiameter), speed: Number(m.speed), setupMin: Number(m.setupMin) } : x);
         setMachines(next); await saveMachines(next); await logTrace('machine_updated', { machineId: m.id, machine: m.name }); setEditing(null); setTrace(getTraceLog()); msg?.('✅ Mašina sačuvana');
     };
-    const resetMachines = async () => { setMachines(DEFAULT_MACHINES); await saveMachines(DEFAULT_MACHINES); msg?.('✅ Vraćeno 28 standardnih mašina'); };
+    const resetMachines = async () => { setMachines(DEFAULT_MACHINES); await saveMachines(DEFAULT_MACHINES); msg?.('✅ Vraćeno 30 standardnih mašina'); };
 
     return <div style={styles.page}>
         <div style={styles.hero}>
@@ -170,7 +191,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
             <div>
                 <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', gap: 8 }}>{[['sve', 'Sve'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaširanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaširanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
                     <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>Klikni karticu mašine za unos karakteristika.</div>
                 </div>
 
@@ -180,8 +201,11 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                         const load = assigned.reduce((s, o) => s + (o.durationMin || 0), 0);
                         return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
-                                <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer' }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
-                                <Badge color={machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}>{machine.status}</Badge>
+                                <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <Badge color={machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}>{machine.status}</Badge>
+                                    <button onClick={() => setEditing(machine)} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '5px 9px', fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>✏️ Uredi</button>
+                                </div>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginTop: 12, fontSize: 12 }}>
                                 <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.minWidth}-{machine.maxWidth}</b><br /><span style={{ color: '#64748b' }}>mm</span></div>
