@@ -1,5 +1,6 @@
 // MAROPACK NalogLayoutPRO — verzija sa: cekajTpl (bez prazne štampe na prelasku),
-// nalog za lakiranje, rolne pod-vrsta/proizvođač, A4 fontovi. [build v51]
+// nalog za lakiranje, rolne pod-vrsta/proizvođač, A4 fontovi. [build v52]
+// v52: štampa preko cele A4 strane (reset predaka kroz :has), bez "…" sečenja u karticama.
 import React from "react";
 import QRCode from "qrcode";
 import { enrichNalogForPrint, normalizeLayers, safeJson } from "./utils/nalogDataLink";
@@ -703,7 +704,7 @@ const V6_CSS = `
 .nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:11px 10px;position:relative;overflow:hidden;text-align:center;min-width:0}
 .nv6 .stat .bar{position:absolute;left:0;top:0;bottom:0;width:4px}
 .nv6 .stat .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.25}
-.nv6 .stat .v{font-size:18px;font-weight:900;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.2;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nv6 .stat .v{font-size:17px;font-weight:900;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.2;text-align:center;white-space:normal}
 .nv6 .stat .u{font-size:10px;color:var(--mut)}
 .nv6 .info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .nv6 .info .c{padding:10px 13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;text-align:center}
@@ -744,18 +745,32 @@ const V6_CSS = `
 .nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
 @media print{
   @page{ size:A4; margin:8mm; }
-  html,body{ background:#fff!important; margin:0!important; padding:0!important; }
+  html,body{ background:#fff!important; margin:0!important; padding:0!important; width:auto!important; height:auto!important; overflow:visible!important; }
   /* Boje MORAJU da izađu na štampi (bez ovoga štampač izbeli pozadine/trake) */
   .nv6, .nv6 *{ -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; color-adjust:exact!important; }
   /* Sakrij sve van naloga; .nv6 blokovi ostaju u normalnom toku (NE absolute) da se
      više naloga NE preklapa — svaki .a4 dobija svoju stranu preko page-break-after. */
   body *{ visibility:hidden!important; }
   .nv6, .nv6 *{ visibility:visible!important; }
-  .nv6{ position:static!important; background:#fff!important; padding:0!important; margin:0!important; }
-  .nv6 .a4{ box-shadow:none!important; margin:0 auto!important; width:auto!important; min-height:auto!important; border-radius:0!important; page-break-after:always; break-after:page; }
+  /* FIX v52: visibility:hidden krije sadržaj ali element I DALJE zauzima prostor —
+     sidebar/modal/flex kolone su gurale nalog udesno i sabijale ga na pola A4
+     (sečen QR, prelomljen naslov, "20…" u karticama). Zato:
+     1) sve što NIJE nalog niti njegov predak — potpuno van toka (display:none);
+     2) svim PRECIMA naloga resetuj layout (flex/grid/width/transform/padding)
+        da .a4 dobije punu širinu strane. Chrome/Edge/Safari podržavaju :has(). */
+  body *:not(.nv6):not(.nv6 *):not(:has(.nv6)){ display:none!important; }
+  body :has(.nv6){ display:block!important; position:static!important; float:none!important;
+    width:auto!important; max-width:none!important; min-width:0!important;
+    height:auto!important; max-height:none!important; min-height:0!important;
+    margin:0!important; padding:0!important; border:0!important; inset:auto!important;
+    transform:none!important; overflow:visible!important; box-shadow:none!important;
+    background:#fff!important; }
+  .nv6{ position:static!important; background:#fff!important; padding:0!important; margin:0!important; width:100%!important; }
+  /* Puna širina A4 (unutar 8mm margina), bez isecanja sadržaja po ivicama */
+  .nv6 .a4{ box-shadow:none!important; margin:0!important; width:100%!important; max-width:100%!important; min-height:auto!important; border-radius:0!important; overflow:visible!important; page-break-after:always; break-after:page; }
   .nv6:last-child .a4:last-child{ page-break-after:auto; break-after:auto; }
   /* Ne prelamaj sekcije, tabele-redove i kartice preko dve strane */
-  .nv6 .sec, .nv6 .stat, .nv6 .c, .nv6 tr, .nv6 table{ page-break-inside:avoid; break-inside:avoid; }
+  .nv6 .sec, .nv6 .stat, .nv6 .c, .nv6 tr{ page-break-inside:avoid; break-inside:avoid; }
   .nv6 thead{ display:table-header-group; }
 }
 `;
