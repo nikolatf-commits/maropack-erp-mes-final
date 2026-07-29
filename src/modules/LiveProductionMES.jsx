@@ -1,8 +1,9 @@
-// [build v52] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
+// [build v53] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
 // v52: NE koristi više hardkodovanih 9 generičkih mašina ("Stampa 1", "Rezanje"...).
 //      Mašine i raspored čita iz ISTOG izvora kao Plan proizvodnje (MachineSchedulerPRO):
 //      loadMachines() + loadProductionPlan() iz erpMesCore — pa kad planer prevuče
 //      MP-2026-0001-PERFORACIJA_REZANJE na "Rezač 1", ovde se to ODMAH vidi na Rezaču 1.
+// v53: numerisan red po mašini (1., 2., 3...) + procena trajanja = setup + metri/brzina mašine.
 // Statusi operacija i dalje dolaze iz db.nalozi (operativni_nalozi) — radnik radi preko
 // QR-a (START/PAUZA/ZAVRŠI na telefonu); ovo je samo živi pregled.
 import React, { useEffect, useMemo, useState } from "react";
@@ -38,6 +39,17 @@ function statusTekst(s) {
 }
 // Isti ključ naloga kao u MachineSchedulerPRO (plan čuva ID-jeve u ovom obliku).
 function nalogKey(n) { return String(n.broj_naloga || n.broj || n.id || ""); }
+// Procena trajanja NA MAŠINI: setup + metri / brzina (m/min). Ručno trajanje_min ima prednost.
+function procenaMin(masina, n) {
+    if (!n) return 0;
+    const rucno = num(n.trajanje_min || n.durationMin);
+    if (rucno > 0) return rucno;
+    const metri = num(n.kolicina || n.kol || n.duzina_m || n.metri);
+    const speed = num(masina && masina.speed);
+    const setup = num(masina && masina.setupMin);
+    if (metri > 0 && speed > 0) return Math.max(10, Math.round(setup + metri / speed));
+    return 0;
+}
 function opLabel(n) {
     const t = String(n.tip_naloga || n.vrsta || n.naziv || "").toLowerCase();
     if (t.includes("\u0161tamp") || t.includes("stamp")) return "\u0160TAMPA";
@@ -133,19 +145,24 @@ export default function LiveProductionMES({ db = {}, msg }) {
     const filteri = [["sve", "Sve"], ["rezanje", "Reza\u010di"], ["kese", "Kese"], ["spulne", "\u0160pulne"], ["kasiranje", "Ka\u0161iranje"], ["stampa", "\u0160tamparije"]];
     const radiUkupno = kartice.filter((k) => k.st === "radi").length;
 
-    function OpRed({ n }) {
-        const s = normStatus(n.status);
+    function OpRed({ n, poz, masina }) {
+        const s0 = normStatus(n.status);
+        const s = s0 === "ceka" ? "spremno" : s0;
+        const est = procenaMin(masina, n);
         return (
-            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "#f8fafc", borderLeft: "4px solid " + statusBoja(s === "ceka" ? "spremno" : s) }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                    <b style={{ fontSize: 12.5 }}>{opLabel(n)}</b>
-                    <span style={{ color: statusBoja(s === "ceka" ? "spremno" : s), fontWeight: 950, fontSize: 11 }}>{statusTekst(s === "ceka" ? "spremno" : s)}</span>
-                </div>
-                <div style={{ color: "#475569", fontSize: 12.5, marginTop: 2 }}>{nalogKey(n)}</div>
-                <div style={{ color: "#64748b", fontSize: 12 }}>{n.proizvod || n.naziv || ""}{n.kupac ? " \u00b7 " + n.kupac : ""}</div>
-                <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 12, color: "#475569" }}>
-                    {n.radnik && <span>&#128100; {n.radnik}</span>}
-                    {s === "radi" && n.start_ts && <span style={{ fontWeight: 800 }}>{minutesFrom(n.start_ts)} min</span>}
+            <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 10, background: "#f8fafc", borderLeft: "4px solid " + statusBoja(s), display: "flex", gap: 8, alignItems: "flex-start" }}>
+                {poz > 0 && <span style={{ minWidth: 21, height: 21, borderRadius: 7, background: statusBoja(s), color: "#fff", fontSize: 11, fontWeight: 950, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>{poz}</span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <b style={{ fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{opLabel(n)} &middot; {nalogKey(n)}</b>
+                        <span style={{ color: statusBoja(s), fontWeight: 950, fontSize: 11, whiteSpace: "nowrap" }}>{statusTekst(s)}</span>
+                    </div>
+                    <div style={{ color: "#64748b", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{n.proizvod || n.naziv || ""}{n.kupac ? " \u00b7 " + n.kupac : ""}</div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 12, color: "#475569", flexWrap: "wrap" }}>
+                        {n.radnik && <span>&#128100; {n.radnik}</span>}
+                        {s === "radi" && n.start_ts && <span style={{ fontWeight: 800, color: "#059669" }}>&#9201;&#65039; {minutesFrom(n.start_ts)} min radi</span>}
+                        {est > 0 && <span style={{ fontWeight: 800 }} title={"setup + metri \u00f7 brzina ma\u0161ine"}>&#8776;{est} min</span>}
+                    </div>
                 </div>
             </div>
         );
@@ -182,7 +199,7 @@ export default function LiveProductionMES({ db = {}, msg }) {
                         <div style={{ ...card, borderLeft: "5px solid #f59e0b", padding: 14 }}>
                             <b style={{ fontSize: 13 }}>&#9888;&#65039; Aktivne operacije van plana masina ({vanPlana.length})</b>
                             <div style={{ color: "#64748b", fontSize: 12, marginTop: 2 }}>Rade, a nisu prevucene ni na jednu masinu u Planu proizvodnje.</div>
-                            {vanPlana.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} />)}
+                            {vanPlana.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} poz={0} masina={null} />)}
                         </div>
                     )}
 
@@ -203,7 +220,10 @@ export default function LiveProductionMES({ db = {}, msg }) {
                                 </div>
                                 {ops.length === 0
                                     ? <div style={{ marginTop: 10, color: "#94a3b8" }}>{st === "servis" ? "Na servisu" : "Ceka nalog"}</div>
-                                    : ops.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} />)}
+                                    : <>
+                                        {ops.map((n, i) => <OpRed key={nalogKey(n) || i} n={n} poz={i + 1} masina={m} />)}
+                                        {ops.length > 1 && <div style={{ marginTop: 8, fontSize: 11.5, color: "#64748b", fontWeight: 800, textAlign: "right" }}>{ops.length} naloga u redu &middot; &#8776;{ops.reduce((sum, n) => sum + procenaMin(m, n), 0)} min ukupno</div>}
+                                    </>}
                             </div>
                         ))}
                     </div>

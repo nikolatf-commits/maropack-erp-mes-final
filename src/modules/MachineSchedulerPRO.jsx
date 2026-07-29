@@ -1,6 +1,39 @@
-// [build v51] MachineSchedulerPRO — čita naloge iz db, grupiše po master broju
+// [build v52] MachineSchedulerPRO — čita naloge iz db, grupiše po master broju
+// v52: + štamparije Milinković i Topolastika (uvek u parku, i posle reseta)
+//      + trajanje naloga se računa PO MAŠINI: setup + metri/brzina (promeni brzinu → sve se preračuna)
+//      + numerisan red čekanja po mašini (1., 2., 3...) sa ▲▼ za redosled
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
+
+// v52: boje operacija na jednom mestu (koristi ih i OrderCard i red čekanja na mašini)
+const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' };
+
+// v52: dve štamparije — dodaju se ako ih nema u sačuvanom parku (i posle "Reset mašina").
+// Karakteristike (širina, brzina, setup...) menjaš klikom na karticu → "Uredi".
+const STAMPA_MASINE = [
+    { id: 'stampa-milinkovic', code: 'ST-01', name: 'Milinković', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 150, setupMin: 45, capabilities: ['flekso štampa', 'do 8 boja'], note: '' },
+    { id: 'stampa-topolastika', code: 'ST-02', name: 'Topolastika', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 120, setupMin: 45, capabilities: ['flekso štampa'], note: '' },
+];
+function ensureStampa(list) {
+    const arr = Array.isArray(list) ? list : [];
+    const fali = STAMPA_MASINE.filter(sm => !arr.some(m => m.id === sm.id || String(m.name || '').trim().toLowerCase() === sm.name.toLowerCase()));
+    return fali.length ? [...fali, ...arr] : list;
+}
+
+// v52: TRAJANJE NALOGA NA KONKRETNOJ MAŠINI.
+// Formula: setup mašine (min) + metri / brzina mašine (m/min).
+// Ako nalog ima ručno uneto trajanje (trajanje_min u bazi), ono ima prednost.
+// Promeniš li brzinu/setup na kartici mašine — sva vremena i zauzeće smene se preračunaju.
+function calcDurationMin(machine, order) {
+    if (!order) return 0;
+    const rucno = Number(order.trajanjeRucno || 0);
+    if (rucno > 0) return rucno;
+    const metri = Number(order.metri || 0);
+    const speed = Number((machine && machine.speed) || 0);
+    const setup = Number((machine && machine.setupMin) || 0);
+    if (metri > 0 && speed > 0) return Math.max(10, Math.round(setup + metri / speed));
+    return Number(order.durationMin || 60);
+}
 
 const styles = {
     page: { padding: 24, background: '#f1f5f9', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' },
@@ -24,7 +57,7 @@ function Badge({ children, color = '#0f172a' }) {
 
 function OrderCard({ order, onDragStart, compact = false }) {
     const s = statusByKey(order.status);
-    const opBoja = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' }[order.opTip] || '#64748b';
+    const opBoja = OP_BOJA[order.opTip] || '#64748b';
     return <div draggable onDragStart={e => onDragStart(e, order.id)} style={{ background: '#fff', border: '1px solid #dbeafe', borderLeft: `5px solid ${opBoja}`, borderRadius: 14, padding: compact ? 10 : 12, marginBottom: 10, cursor: 'grab', boxShadow: '0 6px 14px rgba(15,23,42,.05)' }}>
         {/* Tip operacije — istaknuto, da znaš na koju mašinu ide */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -109,7 +142,8 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || "\u2014",
                 metri,
                 rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || "",
-                durationMin: Number(n.trajanje_min || n.durationMin || Math.max(30, Math.round(metri / 100)) || 60),
+                trajanjeRucno: Number(n.trajanje_min || n.durationMin || 0),   // ručno uneto ima prednost
+                durationMin: Math.max(30, Math.round(metri / 100)) || 60,        // fallback kad mašina nema brzinu
                 priority: n.prioritet || n.priority || "normalno",
                 status,
             });
@@ -124,7 +158,10 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
     useEffect(() => {
         (async () => {
-            setMachines(await loadMachines());
+            const ucitane = await loadMachines();
+            const sve = ensureStampa(ucitane);
+            if (sve !== ucitane) await saveMachines(sve);   // štamparije upisane trajno
+            setMachines(sve);
             setPlan(await loadProductionPlan()); setTrace(getTraceLog());
         })();
     }, []);
@@ -133,7 +170,12 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const plannedIds = useMemo(() => new Set(Object.values(plan).flat()), [plan]);
     const unplanned = orders.filter(o => !plannedIds.has(o.id));
     const shownMachines = machines.filter(m => filter === 'sve' || m.type === filter);
-    const totals = useMemo(() => ({ machines: machines.length, active: machines.filter(m => m.status === 'aktivna').length, planned: plannedIds.size, minutes: Object.values(plan).flat().reduce((s, id) => s + (orderMap[id]?.durationMin || 0), 0) }), [machines, plannedIds, plan, orderMap]);
+    const totals = useMemo(() => {
+        const poId = Object.fromEntries(machines.map(m => [m.id, m]));
+        let minutes = 0;
+        Object.entries(plan).forEach(([mid, ids]) => (ids || []).forEach(id => { minutes += calcDurationMin(poId[mid], orderMap[id]); }));
+        return { machines: machines.length, active: machines.filter(m => m.status === 'aktivna').length, planned: plannedIds.size, minutes };
+    }, [machines, plannedIds, plan, orderMap]);
 
     const dragStart = (e, orderId) => { setDragOrder(orderId); e.dataTransfer.setData('text/plain', orderId); };
     const dropToMachine = async (machineId, e) => {
@@ -152,6 +194,17 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         setTrace(getTraceLog());
         msg?.(`✅ ${orderId} prebačen na ${machine.name}`);
     };
+    // v52: pomeri nalog gore/dole u redu čekanja iste mašine
+    const moveInQueue = async (machineId, index, dir) => {
+        const lista = [...(plan[machineId] || [])];
+        const j = index + dir;
+        if (j < 0 || j >= lista.length) return;
+        [lista[index], lista[j]] = [lista[j], lista[index]];
+        const next = { ...plan, [machineId]: lista };
+        setPlan(next); await saveProductionPlan(next);
+        await logTrace('queue_reordered', { machineId, orderId: lista[j], from: index + 1, to: j + 1 });
+        setTrace(getTraceLog());
+    };
     const removeFromMachine = async (orderId) => {
         const next = { ...plan };
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== orderId);
@@ -161,18 +214,18 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const next = machines.map(x => x.id === m.id ? { ...m, maxWidth: Number(m.maxWidth), minWidth: Number(m.minWidth), maxDiameter: Number(m.maxDiameter), speed: Number(m.speed), setupMin: Number(m.setupMin) } : x);
         setMachines(next); await saveMachines(next); await logTrace('machine_updated', { machineId: m.id, machine: m.name }); setEditing(null); setTrace(getTraceLog()); msg?.('✅ Mašina sačuvana');
     };
-    const resetMachines = async () => { setMachines(DEFAULT_MACHINES); await saveMachines(DEFAULT_MACHINES); msg?.('✅ Vraćeno 30 standardnih mašina'); };
+    const resetMachines = async () => { const next = ensureStampa(DEFAULT_MACHINES); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 2 štamparije'); };
 
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
-                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>10 rezača · 15 mašina za kese · 2 špulne · 1 kaširka · kartice mašina · drag/drop plan.</p></div>
-                <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset 28 mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
+                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>2 štamparije (Milinković, Topolastika) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaširka · drag/drop plan.</p></div>
+                <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
             </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginTop: 16 }}>
-            <KPI label="Mašina ukupno" value={totals.machines} sub="10 rezača + 15 kese + 2 špulne + 1 kaširka" />
+            <KPI label="Mašina ukupno" value={totals.machines} sub="2 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaširka" />
             <KPI label="Aktivno" value={totals.active} sub="spremno za planiranje" />
             <KPI label="Planirano naloga" value={totals.planned} sub="drag/drop raspored" />
             <KPI label="Planirano vreme" value={`${Math.round(totals.minutes / 60)} h`} sub={`${totals.minutes} minuta ukupno`} />
@@ -205,7 +258,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
                     {shownMachines.map(machine => {
                         const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(Boolean);
-                        const load = assigned.reduce((s, o) => s + (o.durationMin || 0), 0);
+                        const load = assigned.reduce((s, o) => s + calcDurationMin(machine, o), 0);
                         return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
                                 <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
@@ -221,12 +274,30 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                 <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.setupMin}</b><br /><span style={{ color: '#64748b' }}>setup</span></div>
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}</div>
-                            <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
+                            <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
                                 {assigned.length === 0 && <div style={{ color: '#94a3b8', fontWeight: 900, textAlign: 'center', padding: 22 }}>Prevuci nalog ovde</div>}
-                                {assigned.map(o => <div key={o.id} style={{ position: 'relative' }}><OrderCard order={o} onDragStart={dragStart} compact /><button onClick={() => removeFromMachine(o.id)} style={{ position: 'absolute', right: 6, top: 6, border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer' }}>×</button></div>)}
+                                {/* v52: numerisan RED ČEKANJA — vidi se ko je 1., 5., 10. na mašini; ▲▼ menja redosled */}
+                                {assigned.map((o, i) => {
+                                    const dur = calcDurationMin(machine, o);
+                                    const b = OP_BOJA[o.opTip] || '#64748b';
+                                    const qb = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, width: 20, height: 15, fontSize: 9, fontWeight: 900, cursor: 'pointer', lineHeight: '11px', padding: 0, color: '#334155' };
+                                    return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid ' + b, borderRadius: 10, padding: '7px 8px', marginBottom: 6, cursor: 'grab' }}>
+                                        <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
+                                            <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
+                                        </div>
+                                        <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                            <button onClick={() => moveInQueue(machine.id, i, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
+                                            <button onClick={() => moveInQueue(machine.id, i, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
+                                        </div>
+                                        <button onClick={() => removeFromMachine(o.id)} style={{ border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', padding: '3px 7px' }}>×</button>
+                                    </div>;
+                                })}
                             </div>
                             <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / 480 * 100)}%`, height: '100%', background: load > 420 ? '#dc2626' : '#2563eb' }} /></div>
-                            <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / smena 480 min</div>
+                            <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / smena 480 min · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
                         </div>;
                     })}
                 </div>
