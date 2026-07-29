@@ -47,7 +47,8 @@ function OrderCard({ order, onDragStart, compact = false }) {
 }
 
 function MachineEditModal({ machine, onClose, onSave }) {
-    const [m, setM] = useState(machine);
+    const [m, setM] = useState(machine || {});
+    React.useEffect(() => { setM(machine || {}); }, [machine]);
     if (!machine) return null;
     const set = (k, v) => setM(prev => ({ ...prev, [k]: v }));
     return <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
