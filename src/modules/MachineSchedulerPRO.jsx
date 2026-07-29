@@ -36,12 +36,17 @@ function OrderCard({ order, onDragStart, compact = false }) {
                 <div style={{ fontWeight: 950, color: '#0f172a', fontSize: 13 }}>{order.id}</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#334155', marginTop: 2 }}>{order.title}</div>
             </div>
-            {order.priority !== 'normalno' && <Badge color={order.priority === 'hitno' ? '#dc2626' : '#ea580c'}>{order.priority}</Badge>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
             <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>količina</span></div>
             <div><b>{order.width} mm</b><br /><span style={{ color: '#64748b' }}>širina</span></div>
-            <div><b>{order.customer || '\u2014'}</b><br /><span style={{ color: '#64748b' }}>kupac</span></div>
+            <div><b>{order.rok ? new Date(order.rok).toLocaleDateString('sr-RS') : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>rok</span></div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 11.5, color: '#64748b' }}>
+            <span>👤 {order.customer || '\u2014'}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 900, color: order.priority === 'hitno' ? '#dc2626' : order.priority === 'visok' ? '#ea580c' : '#16a34a' }}>
+                {order.priority === 'hitno' ? '🔴' : order.priority === 'visok' ? '🟠' : '🟢'} {order.priority}
+            </span>
         </div>
     </div>;
 }
@@ -103,6 +108,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 customer: n.kupac || "",
                 width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || "\u2014",
                 metri,
+                rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || "",
                 durationMin: Number(n.trajanje_min || n.durationMin || Math.max(30, Math.round(metri / 100)) || 60),
                 priority: n.prioritet || n.priority || "normalno",
                 status,

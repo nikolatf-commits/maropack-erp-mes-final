@@ -699,16 +699,16 @@ const V6_CSS = `
 .nv6 .title .big{font-size:23px;font-weight:950}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
 .nv6 .body{padding:20px 26px;flex:1;display:flex;flex-direction:column}
-.nv6 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:16px}
-.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:13px 15px;position:relative;overflow:hidden;text-align:center}
+.nv6 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:16px}
+.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:11px 10px;position:relative;overflow:hidden;text-align:center;min-width:0}
 .nv6 .stat .bar{position:absolute;left:0;top:0;bottom:0;width:4px}
-.nv6 .stat .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
-.nv6 .stat .v{font-size:22px;font-weight:950;margin-top:3px;word-break:break-word;overflow-wrap:anywhere;line-height:1.15;text-align:center}
+.nv6 .stat .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.25}
+.nv6 .stat .v{font-size:18px;font-weight:900;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.2;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nv6 .stat .u{font-size:10px;color:var(--mut)}
-.nv6 .info{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.nv6 .info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .nv6 .info .c{padding:10px 13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;text-align:center}
 .nv6 .info .c .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
-.nv6 .info .c .v{font-size:13.5px;font-weight:800;margin-top:3px;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;text-align:center}
+.nv6 .info .c .v{font-size:12.5px;font-weight:800;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.3;text-align:center;min-width:0}
 .nv6 .sec{margin-top:20px;max-width:100%;overflow:hidden}
 .nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}
@@ -747,11 +747,13 @@ const V6_CSS = `
   html,body{ background:#fff!important; margin:0!important; padding:0!important; }
   /* Boje MORAJU da izađu na štampi (bez ovoga štampač izbeli pozadine/trake) */
   .nv6, .nv6 *{ -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; color-adjust:exact!important; }
-  .nv6 .a4{ box-shadow:none!important; margin:0 auto!important; width:auto!important; min-height:auto!important; border-radius:0!important; page-break-after:always; break-after:page; }
-  .nv6 .a4:last-child{ page-break-after:auto; break-after:auto; }
+  /* Sakrij sve van naloga; .nv6 blokovi ostaju u normalnom toku (NE absolute) da se
+     više naloga NE preklapa — svaki .a4 dobija svoju stranu preko page-break-after. */
   body *{ visibility:hidden!important; }
   .nv6, .nv6 *{ visibility:visible!important; }
-  .nv6{ position:absolute; left:0; top:0; width:100%; }
+  .nv6{ position:static!important; background:#fff!important; padding:0!important; margin:0!important; }
+  .nv6 .a4{ box-shadow:none!important; margin:0 auto!important; width:auto!important; min-height:auto!important; border-radius:0!important; page-break-after:always; break-after:page; }
+  .nv6:last-child .a4:last-child{ page-break-after:auto; break-after:auto; }
   /* Ne prelamaj sekcije, tabele-redove i kartice preko dve strane */
   .nv6 .sec, .nv6 .stat, .nv6 .c, .nv6 tr, .nv6 table{ page-break-inside:avoid; break-inside:avoid; }
   .nv6 thead{ display:table-header-group; }

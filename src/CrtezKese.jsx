@@ -177,7 +177,13 @@ function buildSvgPro(c, u, lang = "sr") {
             case "duplofan": return [kx0 + 12, ky + 4];
             case "falznut": case "utor": return [x1 - 3.5, y0 + bh * .38];
             case "luft": case "okrugla_zumba": return [cx, y0 + 16];
-            case "kosa_klapna": case "klapna": return [kx1 - 12, ky + 4];
+            case "kosa_klapna": case "ukosena_klapna": case "klapna": return [kx1 - 12, ky + 4];
+            case "perf_otkinuti": case "perf_igle": case "poprecna_perf": case "mikroperforacija": return [cx, ky + kl + 6];
+            case "otvor_dno": return [cx, y1 - 4];
+            case "var_dno": case "toplotni_var": case "kontinualni_var": return [cx + 20, y1 - 6];
+            case "ojacanje": return [x0 + 6, y0 + bh * .5];
+            case "busene_rupe": return [cx, y0 + 20];
+            case "utor": case "falznut": return [x1 - 3.5, y0 + bh * .38];
             default: return [x1 - 4, y0 + bh * .5];
         }
     };

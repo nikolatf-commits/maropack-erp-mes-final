@@ -10,7 +10,6 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const [tab, setTab] = useState("nalog"); // "nalog" | "materijal"
     const [period, setPeriod] = useState("sve"); // "sve" | "30" | "90"
     const [q, setQ] = useState("");
-    const [samoIzdato, setSamoIzdato] = useState(false);
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, [period]);
 
@@ -18,33 +17,18 @@ export default function AnalizaMaterijalStavke({ msg }) {
         setLoading(true);
         try {
             let query = supabase.from("materijal_stavke").select("*").order("created_at", { ascending: false });
+            // SAMO materijali rezervisani/izdati kroz naloge — ne prikazuj početno stanje magacina,
+            // ručne unose ni stavke bez veze sa nalogom.
+            query = query.in("status", ["rezervisano", "izdato", "U proizvodnji", "Iskorišćeno", "Delimično rezervisano"]);
             if (period !== "sve") {
                 const d = new Date(); d.setDate(d.getDate() - Number(period));
                 query = query.gte("created_at", d.toISOString());
             }
             const { data, error } = await query.limit(5000);
             if (error) throw error;
-            let stavke = data || [];
-            try {
-                const { data: pov } = await supabase.from("povrati_magacin")
-                    .select("rolna_id, br_rolne, metri, nalog_ref").limit(5000);
-                const vrPoRolni = {};
-                (pov || []).forEach((v) => {
-                    const kljuc = String(v.rolna_id != null ? v.rolna_id : (v.br_rolne || ""));
-                    if (!kljuc) return;
-                    vrPoRolni[kljuc] = (vrPoRolni[kljuc] || 0) + num(v.metri);
-                });
-                stavke = stavke.map((r) => {
-                    const kljuc = String(r.rolna_id != null ? r.rolna_id : (r.br_rolne || ""));
-                    const vraceno = num(r.vraceno_m) || vrPoRolni[kljuc] || 0;
-                    const izdato = num(r.izdato_m) || num(r.alocirano_m);
-                    const otpad = num(r.otpad_m);
-                    return Object.assign({}, r, { _izdato: izdato, _vraceno: vraceno, _otpad: otpad });
-                });
-            } catch (e) {
-                stavke = stavke.map((r) => Object.assign({}, r, { _izdato: num(r.izdato_m) || num(r.alocirano_m), _vraceno: num(r.vraceno_m), _otpad: num(r.otpad_m) }));
-            }
-            setRows(stavke);
+            // Zadrži samo stavke stварno vezane za nalog (imaju nalog_ref).
+            const samoNalozi = (data || []).filter(function (r) { return r.nalog_ref && String(r.nalog_ref).trim() && String(r.nalog_ref).trim() !== "—"; });
+            setRows(samoNalozi);
         } catch (e) {
             msg && msg("Greška pri učitavanju analize: " + (e.message || e), "err");
             setRows([]);
@@ -53,27 +37,26 @@ export default function AnalizaMaterijalStavke({ msg }) {
 
     const poNalogu = useMemo(() => {
         const m = {};
-        (samoIzdato ? rows.filter((r) => num(r.izdato_m) > 0) : rows).forEach((r) => {
+        rows.forEach((r) => {
             const k = r.nalog_ref || "—";
-            if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, stvarnoIzdato: 0, izdatih: 0, idealna: r.idealna_sirina || 0 };
-            m[k].plan += num(r.alocirano_m); m[k].izdato += num(r._izdato); m[k].vraceno += num(r._vraceno);
-            m[k].stvarnoIzdato += num(r.izdato_m); if (String(r.status) === "izdato" || String(r.status) === "zatvoreno") m[k].izdatih += 1;
-            m[k].otpad += num(r._otpad); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
+            if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
+            m[k].plan += num(r.alocirano_m); m[k].izdato += num(r.izdato_m); m[k].vraceno += num(r.vraceno_m);
+            m[k].otpad += num(r.otpad_m); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
         });
         return Object.values(m).map((x) => ({
             ...x,
             utroseno: Math.max(0, x.izdato - x.vraceno),
-            iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.vraceno) / x.izdato) * 100)) : 0,
+            iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.otpad) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.plan - a.plan);
-    }, [rows, samoIzdato]);
+    }, [rows]);
 
     const poMaterijalu = useMemo(() => {
         const m = {};
         rows.forEach((r) => {
-            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.sirina, r.dobavljac].map((x) => x || "").join("|");
-            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: r.sirina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
-            const utroseno = Math.max(0, num(r._izdato) - num(r._vraceno)) || num(r.alocirano_m);
+            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
+            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
+            const utroseno = Math.max(0, num(r.izdato_m) - num(r.vraceno_m)) || num(r.alocirano_m);
             m[k].potroseno += utroseno; m[k].kg += num(r.kg_alocirano); m[k].otpad += num(r.otpad_m); m[k].rolni += 1;
         });
         return Object.values(m).sort((a, b) => b.potroseno - a.potroseno);
@@ -81,15 +64,14 @@ export default function AnalizaMaterijalStavke({ msg }) {
 
     const kpi = useMemo(() => ({
         plan: rows.reduce((s, r) => s + num(r.alocirano_m), 0),
-        izdato: rows.reduce((s, r) => s + num(r._izdato), 0),
-        vraceno: rows.reduce((s, r) => s + num(r._vraceno), 0),
-        otpad: rows.reduce((s, r) => s + num(r._otpad), 0),
+        izdato: rows.reduce((s, r) => s + num(r.izdato_m), 0),
+        otpad: rows.reduce((s, r) => s + num(r.otpad_m), 0),
         kg: rows.reduce((s, r) => s + num(r.kg_alocirano), 0),
         nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
     }), [rows]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
-    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.sirina, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
+    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
 
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));
@@ -111,14 +93,13 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <button onClick={load} style={{ ...perBtn(""), background: "#f1f5f9" }}>↻</button>
                 </div>
             </div>
-            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki (materijal_stavke) + povrati po prečniku (povrati_magacin). Izdato = stvarno izdato; vraćeno = vraćeno na stanje.</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki materijala (rezervacije, izdavanja i povrati po nalogu i rolni).</div>
 
             {/* KPI */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11, marginBottom: 16 }}>
                 <div style={{ ...card, padding: 14 }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#64748b" }}>Naloga</div><div style={{ fontSize: 24, fontWeight: 950 }}>{fmt(kpi.nalozi)}</div></div>
                 <div style={{ ...card, padding: 14, background: "#eff6ff" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#1d4ed8" }}>Planirano</div><div style={{ fontSize: 24, fontWeight: 950, color: "#1d4ed8" }}>{fmt(kpi.plan)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#f0fdf4" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#15803d" }}>Izdato</div><div style={{ fontSize: 24, fontWeight: 950, color: "#15803d" }}>{fmt(kpi.izdato)} m</div></div>
-                <div style={{ ...card, padding: 14, background: "#fefce8" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#a16207" }}>Vraćeno</div><div style={{ fontSize: 24, fontWeight: 950, color: "#a16207" }}>{fmt(kpi.vraceno)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#fef2f2" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#dc2626" }}>Otpad</div><div style={{ fontSize: 24, fontWeight: 950, color: "#dc2626" }}>{fmt(kpi.otpad)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#0f172a" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#94a3b8" }}>Ukupno kg</div><div style={{ fontSize: 24, fontWeight: 950, color: "#fff" }}>{fmt(kpi.kg, 1)}</div></div>
             </div>
@@ -126,8 +107,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={() => setTab("nalog")} style={tabBtn("nalog")}>📋 Po nalogu</button>
                 <button onClick={() => setTab("materijal")} style={tabBtn("materijal")}>🧱 Po materijalu / dobavljaču</button>
-                <button onClick={() => setSamoIzdato(!samoIzdato)} title="Prikaži samo naloge gde je materijal stvarno izdat" style={{ border: "1px solid " + (samoIzdato ? "#16a34a" : "#e2e8f0"), background: samoIzdato ? "#16a34a" : "#fff", color: samoIzdato ? "#fff" : "#475569", borderRadius: 9, padding: "8px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, marginLeft: "auto" }}>{samoIzdato ? "✓ samo izdato" : "samo izdato"}</button>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga..." style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, minWidth: 180 }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga..." style={{ marginLeft: "auto", border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, minWidth: 180 }} />
             </div>
 
             {loading ? <div style={{ ...card, color: "#64748b", fontWeight: 700 }}>Učitavam…</div> : (
@@ -144,7 +124,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                 <tbody>
                                     {filtNalog.map((x, i) => (
                                         <tr key={i}>
-                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni · {x.stvarnoIzdato > 0 ? (x.izdatih === x.rolni ? "izdato" : "delimično izdato") : "rezervisano"}</div></td>
+                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni</div></td>
                                             <td style={td}>{x.idealna ? fmt(x.idealna) + " mm" : "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.plan)} m</div>
@@ -167,7 +147,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Širina", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                                 <tbody>
                                     {filtMat.map((x, i) => (
                                         <tr key={i}>
@@ -175,7 +155,6 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                             <td style={td}>{x.pod_vrsta || "—"}</td>
                                             <td style={td}>{x.oznaka || "—"}</td>
                                             <td style={td}>{x.debljina ? x.debljina + "µ" : "—"}</td>
-                                            <td style={td}>{x.sirina ? fmt(x.sirina) + " mm" : "—"}</td>
                                             <td style={td}>{x.dobavljac || "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.potroseno)} m</div>
@@ -191,7 +170,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     </div>
                 )
             )}
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Iskorišćenje = (izdato − vraćeno) / izdato. Vraćeno = povrat po prečniku (rolna ostaje na stanju). Otpad se popuni kad se pri povratu izmeri završni prečnik.</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Iskorišćenje = (izdato − otpad) / izdato. Otpad = planirano − (izdato − vraćeno po prečniku).</div>
         </div>
     );
 }
