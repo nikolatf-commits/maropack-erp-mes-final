@@ -5,6 +5,41 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 
+// v52.1: FIX "uvek 30 min" — operativni nalog NEMA kolicinu u direktnoj koloni,
+// ona živi u JSON poljima (order_data → template.data → folija.rezanje...), isto
+// odakle je čita i štampani nalog (NalogLayoutPRO.buildD). Bez ovoga je metri=0
+// pa formula padne na minimalnih 30 min i kartice pišu "— količina / — mm / — rok".
+function num2(v) { return Number(String(v ?? 0).replace(/\s/g, '').replace(',', '.')) || 0; }
+function safeJson(v, f) { if (v == null) return f; if (typeof v === 'object') return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
+function extraktNalog(n) {
+    const od = safeJson(n.order_data, {});
+    const res = safeJson(n.res, {});
+    const rez = safeJson(n.rezultati, {});
+    const par = safeJson(n.parametri, {});
+    const parRes = safeJson(par.res, {});
+    const embTpl = res.template || rez.template || parRes.template || par.template || null;
+    const tpl = safeJson(n.product_template || n.template || od.template || embTpl, {});
+    const tData = safeJson(n.templateData || tpl.data || od.templateData, {});
+    const t = Object.keys(tData).length ? tData : tpl;
+    const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const rzn = folija.rezanje || {};
+    const st = folija.stampa || {};
+    // ista prioritetna lista kao na štampanom nalogu
+    const kolicina = num2(n.metraza || n.kol || n.kolicina || t.porucenaKolicina || od.kolicina);
+    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length : num2(rzn.brojTraka);
+    // Mašina (štampa/kaširanje/rezanje) provlači MATIČNU rolnu: kolicina je ukupno metara
+    // gotove trake, pa je matična rolna kolicina / broj traka (rezanje množi, ne skraćuje).
+    const metriMasine = kolicina > 0 ? Math.round(kolicina / Math.max(1, brojTraka)) : 0;
+    return {
+        kolicina, brojTraka, metriMasine,
+        sirina: num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0,
+        rok: n.rok || n.rok_isporuke || n.datum_isporuke || od.rok || t.rok || '',
+        kom: num2(od.kom || t.porucenaKolicinaKom || n.kom),
+        brojBoja: num2(st.brojBoja),
+        tipProizvoda: String(n.tip_proizvoda || n.tip || ''),
+    };
+}
+
 // v52: boje operacija na jednom mestu (koristi ih i OrderCard i red čekanja na mašini)
 const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' };
 
@@ -71,9 +106,16 @@ function OrderCard({ order, onDragStart, compact = false }) {
             </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
-            <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>količina</span></div>
+            <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>{order.brojTraka > 1 ? 'matična rolna' : 'količina'}</span></div>
             <div><b>{order.width} mm</b><br /><span style={{ color: '#64748b' }}>širina</span></div>
             <div><b>{order.rok ? new Date(order.rok).toLocaleDateString('sr-RS') : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>rok</span></div>
+        </div>
+        {/* v52.1: dodatni podaci — da planer vidi sve bitno bez otvaranja naloga */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {order.brojTraka > 1 && <Badge color="#dc2626">{order.brojTraka} traka · uk. {Number(order.kolicinaUkupno || 0).toLocaleString('sr-RS')} m</Badge>}
+            {order.kom > 0 && <Badge color="#0891b2">{Number(order.kom).toLocaleString('sr-RS')} kom</Badge>}
+            {order.brojBoja > 0 && <Badge color="#7c3aed">{order.brojBoja} boja</Badge>}
+            {order.tipProizvoda && <Badge color="#334155">{order.tipProizvoda}</Badge>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 11.5, color: '#64748b' }}>
             <span>👤 {order.customer || '\u2014'}</span>
@@ -133,15 +175,18 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             if (op.k === "materijal") return;   // materijal se ne raspoređuje na mašinu
             const st = String(n.status || "ceka").toLowerCase();
             const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
-            const metri = Number(n.kolicina || n.kol || n.duzina_m || n.metri || 0) || 0;
+            const ex = extraktNalog(n);
+            // direktne kolone (ako ih ima) i dalje imaju prednost, JSON je dopuna
+            const metri = Number(n.duzina_m || n.metri || 0) || ex.metriMasine || ex.kolicina || 0;
             out.push({
                 id: String(n.broj_naloga || n.broj || n.id || ""),
                 opTip: op.k, opLabel: op.l, opIkona: op.ikona, type: op.k,
                 title: n.proizvod || n.naziv || n.prod || "Nalog",
                 customer: n.kupac || "",
-                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || "\u2014",
+                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || ex.sirina || "\u2014",
                 metri,
-                rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || "",
+                kolicinaUkupno: ex.kolicina, brojTraka: ex.brojTraka, kom: ex.kom, brojBoja: ex.brojBoja, tipProizvoda: ex.tipProizvoda,
+                rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || ex.rok || "",
                 trajanjeRucno: Number(n.trajanje_min || n.durationMin || 0),   // ručno uneto ima prednost
                 durationMin: Math.max(30, Math.round(metri / 100)) || 60,        // fallback kad mašina nema brzinu
                 priority: n.prioritet || n.priority || "normalno",
@@ -285,7 +330,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                         <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
-                                            <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
+                                            <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '\u2014' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
                                         </div>
                                         <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

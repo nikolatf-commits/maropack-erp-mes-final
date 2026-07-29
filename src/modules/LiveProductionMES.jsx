@@ -1,4 +1,4 @@
-// [build v53] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
+// [build v53.1] MAROPACK — Live Production MES kao PREGLED iz baze (jedan izvor istine).
 // v52: NE koristi više hardkodovanih 9 generičkih mašina ("Stampa 1", "Rezanje"...).
 //      Mašine i raspored čita iz ISTOG izvora kao Plan proizvodnje (MachineSchedulerPRO):
 //      loadMachines() + loadProductionPlan() iz erpMesCore — pa kad planer prevuče
@@ -39,12 +39,33 @@ function statusTekst(s) {
 }
 // Isti ključ naloga kao u MachineSchedulerPRO (plan čuva ID-jeve u ovom obliku).
 function nalogKey(n) { return String(n.broj_naloga || n.broj || n.id || ""); }
+// v53.1: količina naloga NIJE u direktnoj koloni nego u JSON poljima
+// (order_data → template.data → folija.rezanje) — isto odakle čita štampani nalog.
+function num2(v) { return Number(String(v ?? 0).replace(/\s/g, "").replace(",", ".")) || 0; }
+function safeJson(v, f) { if (v == null) return f; if (typeof v === "object") return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
+function metriNaloga(n) {
+    const direkt = num2(n.duzina_m || n.metri || n.metraza || n.kol || n.kolicina);
+    const od = safeJson(n.order_data, {});
+    const res = safeJson(n.res, {});
+    const rez = safeJson(n.rezultati, {});
+    const par = safeJson(n.parametri, {});
+    const parRes = safeJson(par.res, {});
+    const tpl = safeJson(n.product_template || n.template || od.template || res.template || rez.template || parRes.template, {});
+    const tData = safeJson(n.templateData || tpl.data || od.templateData, {});
+    const t = Object.keys(tData).length ? tData : tpl;
+    const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const rzn = folija.rezanje || {};
+    const kolicina = direkt || num2(t.porucenaKolicina || od.kolicina);
+    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length : num2(rzn.brojTraka);
+    // mašina provlači matičnu rolnu = ukupni metri gotove trake / broj traka
+    return kolicina > 0 ? Math.round(kolicina / Math.max(1, brojTraka)) : 0;
+}
 // Procena trajanja NA MAŠINI: setup + metri / brzina (m/min). Ručno trajanje_min ima prednost.
 function procenaMin(masina, n) {
     if (!n) return 0;
     const rucno = num(n.trajanje_min || n.durationMin);
     if (rucno > 0) return rucno;
-    const metri = num(n.kolicina || n.kol || n.duzina_m || n.metri);
+    const metri = metriNaloga(n);
     const speed = num(masina && masina.speed);
     const setup = num(masina && masina.setupMin);
     if (metri > 0 && speed > 0) return Math.max(10, Math.round(setup + metri / speed));
@@ -161,7 +182,7 @@ export default function LiveProductionMES({ db = {}, msg }) {
                     <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 12, color: "#475569", flexWrap: "wrap" }}>
                         {n.radnik && <span>&#128100; {n.radnik}</span>}
                         {s === "radi" && n.start_ts && <span style={{ fontWeight: 800, color: "#059669" }}>&#9201;&#65039; {minutesFrom(n.start_ts)} min radi</span>}
-                        {est > 0 && <span style={{ fontWeight: 800 }} title={"setup + metri \u00f7 brzina ma\u0161ine"}>&#8776;{est} min</span>}
+                        {est > 0 && <span style={{ fontWeight: 800 }} title={"setup + metri \u00f7 brzina ma\u0161ine"}>{metriNaloga(n).toLocaleString("sr-RS")} m &middot; &#8776;{est} min</span>}
                     </div>
                 </div>
             </div>
