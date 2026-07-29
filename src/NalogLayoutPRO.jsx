@@ -716,19 +716,19 @@ const V6_CSS = `
 .nv6 .sec-h .tt{font-size:13.5px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
 .nv6 .sec-h .rule{flex:1;height:1px;background:var(--line)}
 .nv6 .sec-h .src{font-size:9px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
-.nv6 table{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:auto;max-width:100%}
-.nv6 th{text-align:left;padding:7px 8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.2px;font-weight:800;word-break:break-word}
-.nv6 td{padding:7px 8px;border-top:1px solid #eef1f5;font-weight:600;word-break:break-word;overflow-wrap:anywhere;line-height:1.4}
-.nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums}
+.nv6 table{width:100%;border-collapse:collapse;font-size:11px;table-layout:auto;max-width:100%}
+.nv6 th{text-align:left;padding:6px 6px;font-size:9px;text-transform:uppercase;letter-spacing:0;font-weight:800;word-break:normal;overflow-wrap:normal;hyphens:none}
+.nv6 td{padding:6px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:normal;overflow-wrap:break-word;hyphens:none;line-height:1.35}
+.nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}
 .nv6 .dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .nv6 .fig{border:1px solid var(--line);border-radius:10px;padding:14px;background:linear-gradient(180deg,#fcfdff,#f5f8fc);text-align:center}
 .nv6 .fig .cap{font-size:10px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .nv6 .chips{display:flex;gap:9px;flex-wrap:wrap}
-.nv6 .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;word-break:break-word;font-size:11.5px;font-weight:800}
+.nv6 .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;word-break:normal;overflow-wrap:break-word;font-size:11.5px;font-weight:800}
 .nv6 .chip .sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.1)}
-.nv6 .ulaz{font-size:12.5px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px;word-break:break-word;overflow-wrap:anywhere;line-height:1.5}
+.nv6 .ulaz{font-size:12.5px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px;word-break:normal;overflow-wrap:break-word;line-height:1.5}
 .nv6 .foot{display:flex;gap:16px;margin-top:auto;padding-top:14px}
 .nv6 .sign{flex:1;font-size:10px;color:var(--mut);text-align:center}
 .nv6 .sign .line{border-top:1px solid #94a3b8;padding-top:5px;margin-top:26px;font-weight:700;color:#475569}
