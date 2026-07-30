@@ -1841,10 +1841,10 @@ function MainAppContent() {
                                     onClick={function () { toggleGroup(group.key); }}
                                     style={{
                                         padding: "10px 12px",
-                                        background: "#1e293b",
+                                        background: gBoja,
                                         borderRadius: 10,
-                                        borderLeft: (hasActivePage ? "6px" : "4px") + " solid " + gBoja,
-                                        boxShadow: hasActivePage ? "inset 0 0 0 1px " + gBoja + "55" : "none",
+                                        borderLeft: (hasActivePage ? "6px" : "4px") + " solid rgba(255,255,255,.55)",
+                                        boxShadow: hasActivePage ? "0 4px 14px " + gBoja + "66" : "none",
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
@@ -1853,21 +1853,21 @@ function MainAppContent() {
                                         marginBottom: isOpen ? 4 : 0
                                     }}
                                     onMouseEnter={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = "#334155";
+                                        e.currentTarget.style.filter = "brightness(1.12)";
                                     }}
                                     onMouseLeave={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = "#1e293b";
+                                        e.currentTarget.style.filter = "none";
                                     }}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span style={{ fontSize: 16 }}>{group.icon}</span>
-                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: hasActivePage ? gBoja : "#ffffff", letterSpacing: 0.2 }}>
+                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: "#ffffff", letterSpacing: 0.2, textShadow: "0 1px 2px rgba(0,0,0,.25)" }}>
                                             {group.label}
                                         </span>
                                     </div>
                                     <span style={{
                                         fontSize: 12,
-                                        color: hasActivePage ? gBoja : "white",
+                                        color: "#ffffff",
                                         transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
                                         transition: "transform 0.2s"
                                     }}>
