@@ -1745,11 +1745,7 @@ function MainAppContent() {
         [/izvest|izvešt|report|analit/i, "#0891b2"],
         [/ponud|offer|prodaj/i, "#e11d48"],
     ];
-    function bojaGrupe(g) {
-        const t = (String(g.key || "") + " " + String(g.label || "")).toLowerCase();
-        for (const [re, c] of GRUPA_BOJE) if (re.test(t)) return c;
-        return "#3b82f6";
-    }
+    function bojaGrupe(g) { return "#3b82f6"; } // jedinstven akcenat — bez šarenila
 
     // Magacioneri sa ulogom "radnik" (magacin2, magacin3) vide SAMO Magacin modul.
     const samoMagacinRola = userProfile?.uloga === "radnik";
@@ -1792,6 +1788,10 @@ function MainAppContent() {
             {!mobileMagacionerMode && <style>{`
                 /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
                 .mp-sidebar{ background:#0b1120 !important; }
+                .mp-sidebar nav, .mp-sidebar nav *{ background-color: transparent; }
+                .mp-sidebar .mp-grp{ background:#1e293b !important; }
+                .mp-sidebar .mp-grp-active{ background:#0f2350 !important; }
+                .mp-sidebar .mp-item-active{ background:#2563eb !important; }
                 .mp-sidebar *{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 @media (max-width: 767px){
                     /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
@@ -1839,12 +1839,12 @@ function MainAppContent() {
                                 {/* GROUP HEADER */}
                                 <div
                                     onClick={function () { toggleGroup(group.key); }}
+                                    className={hasActivePage ? "mp-grp mp-grp-active" : "mp-grp"}
                                     style={{
                                         padding: "10px 12px",
-                                        background: gBoja,
+                                        background: hasActivePage ? "#0f2350" : "#1e293b",
                                         borderRadius: 10,
-                                        borderLeft: (hasActivePage ? "6px" : "4px") + " solid rgba(255,255,255,.55)",
-                                        boxShadow: hasActivePage ? "0 4px 14px " + gBoja + "66" : "none",
+                                        borderLeft: (hasActivePage ? "4px" : "0px") + " solid #3b82f6",
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
@@ -1853,21 +1853,21 @@ function MainAppContent() {
                                         marginBottom: isOpen ? 4 : 0
                                     }}
                                     onMouseEnter={function (e) {
-                                        e.currentTarget.style.filter = "brightness(1.12)";
+                                        if (!hasActivePage) e.currentTarget.style.background = "#334155";
                                     }}
                                     onMouseLeave={function (e) {
-                                        e.currentTarget.style.filter = "none";
+                                        if (!hasActivePage) e.currentTarget.style.background = "#1e293b";
                                     }}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span style={{ fontSize: 16 }}>{group.icon}</span>
-                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: "#ffffff", letterSpacing: 0.2, textShadow: "0 1px 2px rgba(0,0,0,.25)" }}>
+                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: "#ffffff", letterSpacing: 0.2 }}>
                                             {group.label}
                                         </span>
                                     </div>
                                     <span style={{
                                         fontSize: 12,
-                                        color: "#ffffff",
+                                        color: "#cbd5e1",
                                         transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
                                         transition: "transform 0.2s"
                                     }}>
@@ -1887,6 +1887,7 @@ function MainAppContent() {
                                         return (
                                             <div
                                                 key={item.k}
+                                                className={isActive ? "mp-item-active" : ""}
                                                 onClick={function () { setPage(item.k); setNavOtvoren(false); }}
                                                 style={{
                                                     padding: "9px 12px",
@@ -1895,8 +1896,8 @@ function MainAppContent() {
                                                     margin: "2px 0",
                                                     cursor: "pointer",
                                                     color: isActive ? "#fff" : "#f1f5f9",
-                                                    background: isActive ? gBoja : "transparent",
-                                                    borderLeft: "3px solid " + (isActive ? "#ffffffaa" : "transparent"),
+                                                    background: isActive ? "#2563eb" : "transparent",
+                                                    borderLeft: "3px solid " + (isActive ? "#93c5fd" : "transparent"),
                                                     fontWeight: isActive ? 800 : 700,
                                                     display: "flex",
                                                     alignItems: "center",
