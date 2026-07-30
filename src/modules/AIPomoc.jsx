@@ -192,7 +192,33 @@ function Formatirano({ tekst }) {
     return <div>{delovi}</div>;
 }
 
+// ── SAMO JEDNO "Pitaj AI" DUGME NA EKRANU ────────────────────────────────────
+// AIPomoc je sada montiran i GLOBALNO (App.jsx, na svim ekranima) i lokalno u
+// pojedinim modulima (npr. Magacin, sa bogatijim kontekstom ekrana). Da se ne
+// pojave dva dugmeta jedno preko drugog: registar živih instanci — prikazuje se
+// samo PRVA montirana (lokalna se montira dublje u stablu pa ima prednost na
+// svom ekranu); kad se ona demontira, globalna se automatski pojavi.
+const _registar = { lista: [], subs: new Set() };
+function useJedinaInstanca() {
+    const id = useRef(null);
+    if (id.current === null) id.current = Symbol("aipomoc");
+    const [, osvezi] = useState(0);
+    useEffect(() => {
+        _registar.lista.push(id.current);
+        const f = () => osvezi((x) => x + 1);
+        _registar.subs.add(f);
+        _registar.subs.forEach((fn) => fn());
+        return () => {
+            _registar.lista = _registar.lista.filter((x) => x !== id.current);
+            _registar.subs.delete(f);
+            _registar.subs.forEach((fn) => fn());
+        };
+    }, []);
+    return _registar.lista.length === 0 || _registar.lista[0] === id.current;
+}
+
 export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov = "Pitaj AI" }) {
+    const prikazi = useJedinaInstanca();
     const [otvoren, setOtvoren] = useState(false);
     const [poruke, setPoruke] = useState([]);
     const [unos, setUnos] = useState("");
@@ -288,6 +314,8 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
         } catch (e) { setGreska(e.message || String(e)); }
         finally { setBusy(false); }
     }
+
+    if (!prikazi) return null; // već postoji lokalno "Pitaj AI" na ovom ekranu
 
     if (!otvoren) {
         return (

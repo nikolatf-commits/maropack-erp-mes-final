@@ -109,6 +109,7 @@ import SystemStatusPRO from './modules/SystemStatusPRO.jsx';
 import BackupSecurityCenter from './modules/BackupSecurityCenter.jsx';
 import MachineSchedulerPRO from './modules/MachineSchedulerPRO.jsx';
 import AIAgentCommandCenter from './modules/AIAgentCommandCenter.jsx';
+import AIPomoc from './modules/AIPomoc.jsx';
 import SystemStabilizationCenter from './modules/SystemStabilizationCenter.jsx';
 import ProductionHardeningCenter from './modules/ProductionHardeningCenter.jsx';
 import FinalQADeploymentCenter from './modules/FinalQADepoymentCenter.jsx';
@@ -2218,6 +2219,29 @@ function MainAppContent() {
                 )}
 
             </div>
+
+            {/* 🤖 GLOBALNO "Pitaj AI" — na SVAKOM ekranu (magacin, kalkulacije, templejti,
+                nalozi, izveštaji...). Agent kroz svoje alate čita bazu, a kontekst mu kaže
+                na kom je ekranu korisnik. Ekrani koji imaju svoj lokalni AIPomoc (bogatiji
+                kontekst) automatski preuzimaju — dugme se nikad ne duplira. */}
+            <AIPomoc
+                ekran={(function () {
+                    for (var gi = 0; gi < navGroupsAll.length; gi++) {
+                        var its = navGroupsAll[gi].items || [];
+                        for (var ii = 0; ii < its.length; ii++) if (its[ii].k === page) return its[ii].l;
+                    }
+                    return page;
+                })()}
+                kontekst={function () {
+                    return {
+                        naziv: "Ekran: " + page,
+                        stranica: page,
+                        naloga_u_bazi: (db.nalozi || []).length,
+                        ponuda: (db.ponude || []).length,
+                        proizvoda: (db.proizvodi || []).length,
+                    };
+                }}
+            />
         </div>
     );
 }
