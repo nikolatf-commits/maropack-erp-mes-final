@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase.js";
 
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
-const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// canonRef/jeMP dolaze iz zajedničkog modula — ista pravila kao planer i AI agent.
+import { canonRef, jeMP } from "./utils/nalogMetrika.js";
 
 export default function AnalizaMaterijalStavke({ msg }) {
     const [rows, setRows] = useState([]);
@@ -35,11 +37,29 @@ export default function AnalizaMaterijalStavke({ msg }) {
         } finally { setLoading(false); }
     }
 
+    // DEDUP: ista rolna sa istim alociranim metrima upisana pod DVA imena naloga
+    // (MP broj + naziv kupca/proizvoda) = ista rezervacija dva puta → računa se JEDNOM,
+    // prednost ima stavka sa MP brojem. Bez ovoga KPI "Planirano" duplira metre.
+    const cisti = useMemo(() => {
+        const rolnaKljuc = (r) => String(r.qr || r.qr_rolne || r.rolna || r.rolna_id || r.roll_qr || r.rolna_qr || "").trim();
+        const potpis = (r) => (rolnaKljuc(r) || [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina].map((x) => x || "").join("|")) + "::" + num(r.alocirano_m);
+        const grupe = {};
+        rows.forEach((r) => { const k = potpis(r); (grupe[k] = grupe[k] || []).push(r); });
+        const out = []; let spojeno = 0;
+        Object.values(grupe).forEach((list) => {
+            const mp = list.filter((r) => jeMP(r.nalog_ref));
+            if (mp.length && mp.length < list.length) { out.push(...mp); spojeno += list.length - mp.length; }
+            else out.push(...list);
+        });
+        return { rows: out, spojeno };
+    }, [rows]);
+    const cRows = cisti.rows;
+
     const poNalogu = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
-            const k = r.nalog_ref || "—";
-            if (!m[k]) m[k] = { nalog: k, plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
+        cRows.forEach((r) => {
+            const k = canonRef(r.nalog_ref) || "—";
+            if (!m[k]) m[k] = { nalog: k, mp: jeMP(r.nalog_ref), plan: 0, izdato: 0, vraceno: 0, otpad: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
             m[k].plan += num(r.alocirano_m); m[k].izdato += num(r.izdato_m); m[k].vraceno += num(r.vraceno_m);
             m[k].otpad += num(r.otpad_m); m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
@@ -49,26 +69,26 @@ export default function AnalizaMaterijalStavke({ msg }) {
             utroseno: Math.max(0, x.izdato - x.vraceno),
             iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.otpad) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.plan - a.plan);
-    }, [rows]);
+    }, [cRows]);
 
     const poMaterijalu = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
+        cRows.forEach((r) => {
             const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
             if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
             const utroseno = Math.max(0, num(r.izdato_m) - num(r.vraceno_m)) || num(r.alocirano_m);
             m[k].potroseno += utroseno; m[k].kg += num(r.kg_alocirano); m[k].otpad += num(r.otpad_m); m[k].rolni += 1;
         });
         return Object.values(m).sort((a, b) => b.potroseno - a.potroseno);
-    }, [rows]);
+    }, [cRows]);
 
     const kpi = useMemo(() => ({
-        plan: rows.reduce((s, r) => s + num(r.alocirano_m), 0),
-        izdato: rows.reduce((s, r) => s + num(r.izdato_m), 0),
-        otpad: rows.reduce((s, r) => s + num(r.otpad_m), 0),
-        kg: rows.reduce((s, r) => s + num(r.kg_alocirano), 0),
-        nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
-    }), [rows]);
+        plan: cRows.reduce((s, r) => s + num(r.alocirano_m), 0),
+        izdato: cRows.reduce((s, r) => s + num(r.izdato_m), 0),
+        otpad: cRows.reduce((s, r) => s + num(r.otpad_m), 0),
+        kg: cRows.reduce((s, r) => s + num(r.kg_alocirano), 0),
+        nalozi: new Set(cRows.map((r) => canonRef(r.nalog_ref) || "—")).size,
+    }), [cRows]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
     const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
@@ -94,6 +114,12 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 </div>
             </div>
             <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki materijala (rezervacije, izdavanja i povrati po nalogu i rolni).</div>
+
+            {cisti.spojeno > 0 && (
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, fontWeight: 700, marginBottom: 14 }}>
+                    ⚠️ {cisti.spojeno} {cisti.spojeno === 1 ? "duplirana stavka je spojena" : "dupliranih stavki je spojeno"}: ista rolna i količina bila je upisana pod dva imena naloga (MP broj + naziv). Računa se jednom, prednost ima MP broj.
+                </div>
+            )}
 
             {/* KPI */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11, marginBottom: 16 }}>
@@ -124,7 +150,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                 <tbody>
                                     {filtNalog.map((x, i) => (
                                         <tr key={i}>
-                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni</div></td>
+                                            <td style={{ ...td, fontWeight: 900 }}>{x.nalog}{!x.mp && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 900, color: "#b45309", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6, padding: "2px 6px", verticalAlign: "middle" }}>bez MP broja</span>}<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni</div></td>
                                             <td style={td}>{x.idealna ? fmt(x.idealna) + " mm" : "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.plan)} m</div>

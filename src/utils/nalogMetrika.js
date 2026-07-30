@@ -1,0 +1,127 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  MAROPACK — nalogMetrika.js  [v1]
+//
+//  JEDAN izvor istine za čitanje i računanje nad nalozima. Koriste ga:
+//   - MachineSchedulerPRO (plan proizvodnje)   → import '../utils/nalogMetrika.js'
+//   - LiveProductionMES (praćenje)             → import '../utils/nalogMetrika.js'
+//   - agentAlati (AI agent)                    → import '../utils/nalogMetrika.js'
+//   - AnalizaMaterijalStavke                   → import './utils/nalogMetrika.js'
+//  Ista logika kao štampani nalog (NalogLayoutPRO.buildD). Izmena šeme = izmena OVDE.
+//  Modul je čist (bez supabase importa) — može svuda.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function num2(v) { return Number(String(v ?? 0).replace(/\s/g, "").replace(",", ".")) || 0; }
+export function safeJson(v, f) { if (v == null) return f; if (typeof v === "object") return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
+
+// Operativni nalozi nose sufiks operacije; glavni broj je bez njega.
+export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
+export const canonRef = (r) => String(r || "").trim().replace(OP_SUFIKS, "");
+export const jeMP = (r) => /^MP-\d{4}-\d+/i.test(canonRef(r));
+
+// Tip operacije iz slobodnog teksta (tip_naloga / vrsta / naziv).
+export function opKljuc(n) {
+    const t = String((n && (n.tip_naloga || n.vrsta || n.tipOperacije || n.operacija || n.naziv)) || n || "").toLowerCase();
+    if (t.includes("mater")) return "materijal";
+    if (t.includes("\u0161tamp") || t.includes("stamp")) return "stampa";
+    if (t.includes("lak")) return "lakiranje";
+    if (t.includes("ka\u0161") || t.includes("kas")) return "kasiranje";
+    if (t.includes("perf") || t.includes("rez")) return "perforacija_rezanje";
+    if (t.includes("format")) return "formatiranje";
+    if (t.includes("kes")) return "kesa";
+    if (t.includes("\u0161pul") || t.includes("spul")) return "spulna";
+    return "ostalo";
+}
+
+// ── ČITANJE NALOGA ───────────────────────────────────────────────────────────
+// Količina/širina/rok žive u JSON poljima: order_data → template(.data) → folija.rezanje.
+// Ista prioritetna lista kao na štampanom nalogu.
+export function extraktNalog(n) {
+    if (!n) return { kolicina: 0, brojTraka: 0, metriMasine: 0, sirina: 0, rok: "", kom: 0, brojBoja: 0, tipProizvoda: "" };
+    const od = safeJson(n.order_data, {});
+    const res = safeJson(n.res, {});
+    const rez = safeJson(n.rezultati, {});
+    const par = safeJson(n.parametri, {});
+    const parRes = safeJson(par.res, {});
+    const embTpl = res.template || rez.template || parRes.template || par.template || null;
+    const tpl = safeJson(n.product_template || n.template || od.template || embTpl, {});
+    const tData = safeJson(n.templateData || tpl.data || od.templateData, {});
+    const t = Object.keys(tData).length ? tData : tpl;
+    const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const rzn = folija.rezanje || {};
+    const st = folija.stampa || {};
+    const kolicina = num2(n.metraza || n.kol || n.kolicina || t.porucenaKolicina || od.kolicina);
+    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length : num2(rzn.brojTraka);
+    return {
+        kolicina, brojTraka,
+        // Mašina provlači MATIČNU rolnu: rezanje množi trake, ne skraćuje rolnu.
+        metriMasine: kolicina > 0 ? Math.round(kolicina / Math.max(1, brojTraka)) : 0,
+        sirina: num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0,
+        rok: n.rok || n.rok_isporuke || n.datum_isporuke || od.rok || t.rok || "",
+        kom: num2(od.kom || t.porucenaKolicinaKom || n.kom),
+        brojBoja: num2(st.brojBoja),
+        tipProizvoda: String(n.tip_proizvoda || n.tip || ""),
+    };
+}
+export function metriMasineNaloga(n) { return extraktNalog(n).metriMasine; }
+
+// ── VREME ────────────────────────────────────────────────────────────────────
+// Procena na mašini: setup (min) + metri ÷ brzina (m/min). 0 = nema podataka.
+export function procenaMinNaMasini(masina, metri) {
+    const speed = num2(masina && masina.speed), setup = num2(masina && masina.setupMin);
+    const m = num2(metri);
+    if (m > 0 && speed > 0) return Math.max(10, Math.round(setup + m / speed));
+    return 0;
+}
+
+// Stvarno trajanje iz vremenskih pečata (radnik START/ZAVRŠI preko QR-a). 0 = nepoznato.
+export function stvarnoMin(n) {
+    if (!n) return 0;
+    const s = n.start_ts || n.pocetak_ts || n.started_at || n.start;
+    const e = n.end_ts || n.kraj_ts || n.zavrseno_ts || n.finished_at || n.completed_at || n.end;
+    if (!s || !e) return 0;
+    const ds = new Date(s), de = new Date(e);
+    if (Number.isNaN(ds.getTime()) || Number.isNaN(de.getTime())) return 0;
+    const pauza = num2(n.pauza_min || n.zastoj_min);
+    return Math.max(0, Math.round((de - ds) / 60000) - pauza);
+}
+
+// ── REDOSLED OPERACIJA ───────────────────────────────────────────────────────
+// Jedinstven redosled pokriva sve tipove proizvoda (operacije koje proizvod nema
+// jednostavno ne postoje u mapi pa se preskaču):
+//   folija:  materijal → štampa → lakiranje → kaširanje → perforacija/rezanje
+//   kesa:    materijal → kaширanje → kesa
+//   špulna:  materijal → formatiranje → špulna
+export const REDOSLED_OPERACIJA = ["materijal", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "formatiranje", "kesa", "spulna"];
+export const jeGotov = (status) => /^zavr/i.test(String(status || ""));
+
+// Mapa statusa po glavnom nalogu: { "MP-2026-0001": { materijal:"...", stampa:"..." } }
+export function mapaOperacija(sviNalozi) {
+    const m = {};
+    (Array.isArray(sviNalozi) ? sviNalozi : []).forEach((n) => {
+        const broj = String(n.broj_naloga || n.broj || "").trim();
+        if (!broj) return;
+        const master = canonRef(broj);
+        const k = opKljuc(n);
+        if (k === "ostalo") return;
+        (m[master] = m[master] || {})[k] = String(n.status || "ceka");
+    });
+    return m;
+}
+
+// Vraća ključ NAJBLIŽE prethodne operacije istog naloga koja NIJE gotova, ili null.
+// (npr. rezanje ne sme da krene dok štampa istog master naloga nije završena)
+export function nadjiBlokadu(masterBroj, mojKljuc, mapa) {
+    const i = REDOSLED_OPERACIJA.indexOf(mojKljuc);
+    if (i <= 0) return null;
+    const ops = (mapa && mapa[canonRef(masterBroj)]) || {};
+    for (let j = i - 1; j >= 0; j--) {
+        const k = REDOSLED_OPERACIJA[j];
+        if (ops[k] !== undefined && !jeGotov(ops[k])) return k;
+    }
+    return null;
+}
+
+export const OP_LABELE = {
+    materijal: "MATERIJAL", stampa: "\u0160TAMPA", lakiranje: "LAKIRANJE", kasiranje: "KA\u0160IRANJE",
+    perforacija_rezanje: "REZANJE", formatiranje: "FORMATIRANJE", kesa: "KESA", spulna: "\u0160PULNA",
+};

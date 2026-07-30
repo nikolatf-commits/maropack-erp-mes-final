@@ -14,6 +14,7 @@ const TABLES = [
     { key: 'magacin', label: 'Magacin rolni', table: 'magacin', limit: 5000, order: 'created_at', fallback: 'rolne' },
     { key: 'magacin_gotovi', label: 'Magacin gotovih proizvoda', table: 'magacin_gotovi_proizvodi', limit: 200, order: 'created_at' },
     { key: 'istorija_lokacija', label: 'Istorija lokacija rolni', table: 'istorija_lokacija_rolni', limit: 150, order: 'created_at' },
+    { key: 'materijal_stavke', label: 'Knjiga stavki materijala (rezervacije/izdavanja po nalogu)', table: 'materijal_stavke', limit: 400, order: 'created_at' },
     // --- Kalkulacije i ponude ---
     { key: 'kalkulacije', label: 'Kalkulacije', table: 'kalkulacije', limit: 120, order: 'created_at' },
     { key: 'kalkulacije_folije', label: 'Kalkulacije folije', table: 'kalkulacije_folije', limit: 80, order: 'created_at' },
@@ -87,6 +88,7 @@ export async function fetchAIContext() {
     context.templatei = [];                           // proizvodi je glavni; prazno da se ne broji dvaput
     context.master_nalozi = context.radni_nalozi || [];
     context.nalozi = safeArray(context.nalozi_stari); // operativni se ne broje kao posebni nalozi
+    context.potrosnja_materijala = context.materijal_stavke || []; // summary broji zapise potrošnje odavde
 
     const summary = buildBusinessSummary(context, tableStatus);
     return { context, tableStatus, summary, generatedAt: new Date().toISOString() };
@@ -150,6 +152,8 @@ Odgovaraj na srpskom jeziku, jasno, poslovno i konkretno.
 Ne izmišljaj podatke. Ako tabela nema podatke ili je veza nepotpuna, jasno reci šta nedostaje.
 Kada daješ predlog za proizvodnju, rezanje ili nabavku, objasni logiku: materijal, širina, metraža, otpad, rizik i sledeći korak.
 Ne menjaj bazu samostalno. Za akcije reci šta treba kliknuti ili šta sistem treba da uradi.
+Vreme naloga na mašini = setup + metri ÷ brzina mašine; mašina provlači matičnu rolnu (metri ÷ broj traka).
+U materijal_stavke isti nalog ume da postoji pod MP brojem i pod nazivom kupca — računaj jednom (prednost MP broju).
 
 PITANJE KORISNIKA:
 ${userQuestion}

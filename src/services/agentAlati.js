@@ -13,6 +13,10 @@ import { nadjiSpojRolne } from "../modules/spojRolneMatch.js";
 import { predloziFormatiranje } from "../modules/formatiranjeEngine.js";
 import { dodeliBrojeveNaloga } from "../modules/dodeliBrojeve.js";
 import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne } from "./kalkulacijeCore.js";
+// v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
+// (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
+import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace } from "../services/erpMesCore.js";
+import { metriMasineNaloga, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP } from "../utils/nalogMetrika.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
 const T = (v) => String(v ?? "").trim();
@@ -174,6 +178,14 @@ function rolnaOdgovara(r, sloj) {
 }
 
 // ═══════════════════════════ ALATI ═══════════════════════════════════════════
+
+// ── v53: zajednička logika naloga je u ../utils/nalogMetrika.js ─────────────
+function _nadjiMasinu(masine, ime) {
+    const u = BEZKV(ime);
+    if (!u) return null;
+    return masine.find((m) => BEZKV(m.name) === u || BEZKV(m.code) === u)
+        || masine.find((m) => BEZKV(m.name).includes(u) || u.includes(BEZKV(m.name)));
+}
 
 export const ALATI = {
 
@@ -1388,6 +1400,172 @@ export const ALATI = {
                 broj: (pon && pon.broj) || broj,
                 ponistivo: pon && pon.id ? { tabela: "ponude", ids: [pon.id] } : null,
             };
+        },
+    },
+
+    // ── v52: PLAN PROIZVODNJE / MAŠINE ───────────────────────────────────────
+    masine_i_plan: {
+        cita: true,
+        opis: "Mašinski park (štamparije Milinković i Topolastika, rezači, mašine za kese, špulne, kaširka) sa redom čekanja po mašini: ko je 1., 2., 3. na kojoj mašini, procena minuta po nalogu (setup + metri ÷ brzina) i zauzeće smene. Koristi za pitanja o rasporedu, zauzetosti mašina i 'kad će nalog na red'.",
+        ulaz: { masina: { type: "string", description: "Opciono: samo jedna mašina, npr. 'Rezač 3' ili 'Milinković'" } },
+        async izvrsi(a) {
+            const [masine, plan] = await Promise.all([loadMachines(), loadProductionPlan()]);
+            const ops = await sve("operativni_nalozi");
+            const poBroju = {}; ops.forEach((o) => { const k = T(o.broj_naloga || o.broj || o.id); if (k) poBroju[k] = o; });
+            const zavrsen = (o) => /^zavr/i.test(T(o && o.status));
+            const statusiOp = mapaOperacija(ops);
+            let lista = Array.isArray(masine) ? masine : [];
+            if (a && a.masina) { const m = _nadjiMasinu(lista, a.masina); lista = m ? [m] : []; if (!lista.length) return { ok: false, poruka: "Ne nalazim mašinu '" + a.masina + "'." }; }
+            const rezultat = lista.map((m) => {
+                const red = ((plan && plan[m.id]) || []).map((id) => poBroju[id]).filter((o) => o && !zavrsen(o));
+                let uk = 0;
+                const stavke = red.map((o, i) => {
+                    const metri = metriMasineNaloga(o);
+                    const min = procenaMinNaMasini(m, metri);
+                    uk += min;
+                    const blok = nadjiBlokadu(canonRef(T(o.broj_naloga || o.broj)), opKljuc(o), statusiOp);
+                    return { pozicija: i + 1, broj: T(o.broj_naloga || o.broj), proizvod: T(o.proizvod || o.naziv), status: T(o.status), metri_masine: metri, procena_min: min, ceka_prethodnu: blok ? (OP_LABELE[blok] || blok) : null };
+                });
+                return { masina: m.name, code: m.code, grupa: m.group || m.type, status: m.status, brzina_m_min: N(m.speed), setup_min: N(m.setupMin), naloga_u_redu: stavke.length, ukupno_min: uk, red: stavke };
+            });
+            const uPlanu = new Set(Object.values(plan || {}).flat());
+            const vanPlana = ops.filter((o) => !zavrsen(o) && /radi|toku|zastoj|pauz/i.test(T(o.status)) && !uPlanu.has(T(o.broj_naloga || o.broj || o.id)))
+                .map((o) => ({ broj: T(o.broj_naloga || o.broj), status: T(o.status) }));
+            return { masina_ukupno: (Array.isArray(masine) ? masine : []).length, masine: rezultat, aktivno_van_plana: vanPlana };
+        },
+    },
+
+    proceni_vreme_naloga: {
+        cita: true,
+        opis: "Proceni koliko traje jedan nalog na mašini/mašinama: matična rolna (metri ÷ broj traka) pa setup + metri ÷ brzina. Koristi kad korisnik pita 'koliko traje', 'stigne li do roka', 'na kojoj mašini je najbrže'.",
+        ulaz: {
+            broj_naloga: { type: "string", description: "Broj operativnog naloga, npr. MP-2026-0001-STAMPA" },
+            masina: { type: "string", description: "Opciono: konkretna mašina; bez toga računa na svim mašinama odgovarajuće grupe" },
+        },
+        async izvrsi(a) {
+            const broj = T(a.broj_naloga);
+            const ops = await sve("operativni_nalozi");
+            const o = ops.find((x) => T(x.broj_naloga || x.broj) === broj) || ops.find((x) => T(x.broj_naloga || x.broj).indexOf(broj) === 0);
+            if (!o) return { ok: false, poruka: "Ne nalazim operativni nalog " + broj + "." };
+            const metri = metriMasineNaloga(o);
+            if (!metri) return { ok: false, poruka: "Nalog " + broj + " nema količinu (metre) — proveri templejt/order_data.", metri_masine: 0 };
+            const masine = await loadMachines();
+            const tip = T(o.tip_naloga || o.vrsta).toLowerCase();
+            const grupa = /stamp|štamp/.test(tip) ? "stampa" : /rez|perf/.test(tip) ? "rezanje" : /kaš|kas/.test(tip) ? "kasiranje" : /kes/.test(tip) ? "kese" : /špul|spul/.test(tip) ? "spulne" : "";
+            let kandidati = Array.isArray(masine) ? masine : [];
+            if (a.masina) { const m = _nadjiMasinu(kandidati, a.masina); kandidati = m ? [m] : []; }
+            else if (grupa) kandidati = kandidati.filter((m) => T(m.type) === grupa);
+            const procene = kandidati.map((m) => ({ masina: m.name, status: m.status, brzina_m_min: N(m.speed), setup_min: N(m.setupMin), procena_min: procenaMinNaMasini(m, metri) }))
+                .filter((x) => x.procena_min > 0).sort((x, y) => x.procena_min - y.procena_min);
+            return { broj, metri_masine: metri, formula: "setup + metri ÷ brzina (m/min)", procene };
+        },
+    },
+
+    rasporedi_nalog: {
+        cita: false,
+        opis: "Stavlja nalog u red čekanja mašine u Planu proizvodnje (isto kao drag/drop u planeru). MENJA PLAN — traži potvrdu. Opciona pozicija u redu (1 = prvi).",
+        ulaz: {
+            broj_naloga: { type: "string", description: "Broj operativnog naloga, npr. MP-2026-0001-PERFORACIJA_REZANJE" },
+            masina: { type: "string", description: "Ime ili šifra mašine, npr. 'Rezač 3', 'Milinković', 'ST-01'" },
+            pozicija: { type: "number", description: "Opciono: mesto u redu (1 = prvi); bez toga ide na kraj" },
+        },
+        opisPlana: (a) => "RASPOREDI " + (a.broj_naloga || "?") + " na mašinu " + (a.masina || "?") + (a.pozicija ? " (pozicija " + a.pozicija + ")" : " (na kraj reda)"),
+        async izvrsi(a) {
+            const broj = T(a.broj_naloga);
+            const masine = await loadMachines();
+            const m = _nadjiMasinu(Array.isArray(masine) ? masine : [], a.masina);
+            if (!m) return { ok: false, poruka: "Ne nalazim mašinu '" + T(a.masina) + "'." };
+            if (T(m.status) !== "aktivna") return { ok: false, poruka: "Mašina " + m.name + " nije aktivna (status: " + T(m.status) + ")." };
+            const ops = await sve("operativni_nalozi");
+            const o = ops.find((x) => T(x.broj_naloga || x.broj) === broj);
+            if (!o) return { ok: false, poruka: "Ne nalazim operativni nalog " + broj + "." };
+            const plan = (await loadProductionPlan()) || {};
+            const next = { ...plan };
+            for (const k of Object.keys(next)) next[k] = (next[k] || []).filter((id) => id !== broj);
+            const red = [...(next[m.id] || [])];
+            const poz = N(a.pozicija);
+            if (poz >= 1 && poz <= red.length) red.splice(poz - 1, 0, broj); else red.push(broj);
+            next[m.id] = red;
+            await saveProductionPlan(next);
+            try { await logTrace("order_moved_to_machine", { orderId: broj, machineId: m.id, machine: m.name, izvor: "AI agent" }); } catch (e) { }
+            const metri = metriMasineNaloga(o);
+            const min = procenaMinNaMasini(m, metri);
+            const blok = nadjiBlokadu(canonRef(broj), opKljuc(o), mapaOperacija(ops));
+            return { ok: true, poruka: "Nalog " + broj + " raspoređen na " + m.name + " — pozicija " + (red.indexOf(broj) + 1) + " od " + red.length + (min ? ", procena ≈" + min + " min (" + metri + " m)" : "") + "." + (blok ? " UPOZORENJE: prethodna operacija (" + (OP_LABELE[blok] || blok) + ") još nije završena — ne startovati pre nje." : "") };
+        },
+    },
+
+    skini_nalog_sa_plana: {
+        cita: false,
+        opis: "Skida nalog sa svih mašina u Planu proizvodnje. MENJA PLAN — traži potvrdu.",
+        ulaz: { broj_naloga: { type: "string", description: "Broj operativnog naloga" } },
+        opisPlana: (a) => "SKINI " + (a.broj_naloga || "?") + " sa plana mašina",
+        async izvrsi(a) {
+            const broj = T(a.broj_naloga);
+            const plan = (await loadProductionPlan()) || {};
+            let bio = false;
+            const next = { ...plan };
+            for (const k of Object.keys(next)) { const pre = (next[k] || []).length; next[k] = (next[k] || []).filter((id) => id !== broj); if (next[k].length !== pre) bio = true; }
+            if (!bio) return { ok: false, poruka: "Nalog " + broj + " nije ni bio na planu." };
+            await saveProductionPlan(next);
+            try { await logTrace("order_removed_from_plan", { orderId: broj, izvor: "AI agent" }); } catch (e) { }
+            return { ok: true, poruka: "Nalog " + broj + " skinut sa plana mašina." };
+        },
+    },
+
+    analiza_vremena_masina: {
+        cita: true,
+        opis: "Poredi PLANIRANO (setup + metri ÷ brzina) i STVARNO vreme završenih operacija (iz START/ZAVRŠI pečata radnika) po mašini, i predlaže korigovanu brzinu mašine. Koristi kad korisnik pita koliko su procene tačne ili zašto mašina kasni.",
+        ulaz: { masina: { type: "string", description: "Opciono: samo jedna mašina" } },
+        async izvrsi(a) {
+            const [masine, plan] = await Promise.all([loadMachines(), loadProductionPlan()]);
+            const ops = await sve("operativni_nalozi");
+            const masinaZaBroj = {};
+            Object.entries(plan || {}).forEach(([mid, ids]) => (ids || []).forEach((id) => { masinaZaBroj[id] = mid; }));
+            const poId = {}; (Array.isArray(masine) ? masine : []).forEach((m) => { poId[m.id] = m; });
+            const rez = {};
+            ops.filter((o) => /^zavr/i.test(T(o.status)) && stvarnoMin(o) > 0).forEach((o) => {
+                const broj = T(o.broj_naloga || o.broj);
+                const m = poId[masinaZaBroj[broj]] || (o.masina ? (Array.isArray(masine) ? masine : []).find((x) => BEZKV(x.name) === BEZKV(o.masina)) : null);
+                if (!m) return;
+                if (a && a.masina && !_nadjiMasinu([m], a.masina)) return;
+                const metri = metriMasineNaloga(o);
+                const stv = stvarnoMin(o);
+                const proc = procenaMinNaMasini(m, metri);
+                const g = (rez[m.id] = rez[m.id] || { masina: m.name, brzina_trenutna: N(m.speed), setup_min: N(m.setupMin), naloga: 0, ukupno_metri: 0, ukupno_stvarno_min: 0, ukupno_procena_min: 0, primeri: [] });
+                g.naloga++; g.ukupno_metri += metri; g.ukupno_stvarno_min += stv; g.ukupno_procena_min += proc;
+                if (g.primeri.length < 5) g.primeri.push({ broj, metri, procena_min: proc, stvarno_min: stv });
+            });
+            const lista = Object.values(rez).map((g) => {
+                const cistoRadno = g.ukupno_stvarno_min - g.naloga * g.setup_min;
+                const efektivna = cistoRadno > 0 ? Math.round(g.ukupno_metri / cistoRadno) : 0;
+                return { ...g, odstupanje_pct: g.ukupno_procena_min > 0 ? Math.round((g.ukupno_stvarno_min / g.ukupno_procena_min - 1) * 100) : null, predlog_brzine_m_min: efektivna || null };
+            });
+            if (!lista.length) return { ok: true, poruka: "Još nema završenih operacija sa START/ZAVRŠI pečatima — čim radnici završe par naloga preko QR-a, analiza se puni sama.", masine: [] };
+            return { ok: true, masine: lista, napomena: "predlog_brzine = metri ÷ (stvarno − setup). Brzinu menjaš na kartici mašine (Uredi) u Planu proizvodnje." };
+        },
+    },
+
+    sredi_nalog_ref: {
+        cita: false,
+        opis: "Sanira materijal_stavke: stavke upisane sa nazivom kupca/proizvoda umesto MP broja (duplikat iste rezervacije) dobijaju ispravan MP broj — analiza potrošnje prestaje da duplira metre. MENJA BAZU — traži potvrdu.",
+        ulaz: {},
+        opisPlana: () => "SREDI nalog_ref u materijal_stavke: stavke pod nazivom → MP broj (upar po rolni i količini)",
+        async izvrsi() {
+            const stavke = await sve("materijal_stavke");
+            const rolnaK = (r) => T(r.qr || r.qr_rolne || r.rolna || r.rolna_id || r.roll_qr || r.rolna_qr);
+            const potpis = (r) => (rolnaK(r) || [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina].map((x) => x || "").join("|")) + "::" + N(r.alocirano_m);
+            const mpPoPotpisu = {};
+            stavke.filter((r) => jeMP(r.nalog_ref)).forEach((r) => { mpPoPotpisu[potpis(r)] = canonRef(r.nalog_ref); });
+            const zaIspravku = stavke.filter((r) => r.nalog_ref && !jeMP(r.nalog_ref) && mpPoPotpisu[potpis(r)]);
+            if (!zaIspravku.length) return { ok: true, poruka: "Nema stavki za sanaciju — sve sa nazivom umesto MP broja ili nemaju MP para, ili ih nema." };
+            let ispravljeno = 0; const greske = [];
+            for (const r of zaIspravku) {
+                const { error } = await supabase.from("materijal_stavke").update({ nalog_ref: mpPoPotpisu[potpis(r)] }).eq("id", r.id);
+                if (error) greske.push(error.message); else ispravljeno++;
+            }
+            ocistiKes();
+            return { ok: ispravljeno > 0, poruka: "Ispravljeno " + ispravljeno + " od " + zaIspravku.length + " stavki (naziv → MP broj)." + (greske.length ? " Greške: " + greske.slice(0, 3).join("; ") : "") };
         },
     },
 

@@ -1,6 +1,9 @@
 // [build v51] btn boje, završetak smene, jače dugmad
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
+// v2: tvrdi blok redosleda operacija — rezanje ne sme da krene pre štampe istog naloga.
+// Ista logika kao planer / Live MES / AI agent (zajednički modul).
+import { canonRef, opKljuc, mapaOperacija, nadjiBlokadu, OP_LABELE } from "./utils/nalogMetrika.js";
 
 // =====================================================================
 // RadnikOperacija — telefonska radnička strana za JEDNU operaciju.
@@ -68,6 +71,8 @@ export default function RadnikOperacija({ opid }) {
     const [err, setErr] = useState("");
     const [busy, setBusy] = useState(false);
     const [tick, setTick] = useState(0); // pokreće re-render svake sekunde
+    // Blokada redosleda: ključ prethodne NEZAVRŠENE operacije istog naloga (npr. "stampa"), ili null.
+    const [blokada, setBlokada] = useState(null);
 
     // start-ekran izbori + završetak
     const [radnik, setRadnik] = useState(() => ucitajRadnika());
@@ -85,7 +90,12 @@ export default function RadnikOperacija({ opid }) {
                 .from("operativni_nalozi").select("*").eq("id", opid).maybeSingle();
             if (error) throw error;
             if (!row) { setErr("Operacija nije pronađena: " + opid); setOp(null); }
-            else { setOp(row); setErr(""); }
+            else {
+                setOp(row); setErr("");
+                // Sestrinske operacije istog glavnog naloga → da li je prethodna u lancu gotova?
+                // (materijal → štampa → lakiranje → kaширanje → rezanje; kesa/špulna svoj lanac)
+                setBlokada(await proveriRedosled(row));
+            }
 
             const { data: z } = await supabase
                 .from("nalog_zastoji").select("*").eq("opid", opid).order("start_ts", { ascending: true });
@@ -161,6 +171,31 @@ export default function RadnikOperacija({ opid }) {
         setSkenInput("");
     }
 
+    // Vraća ključ prethodne nezavršene operacije istog naloga, ili null ako sme START.
+    // Ne blokira ako ne može da pročita sestre (mreža) — bolje pustiti nego zaključati pogon.
+    async function proveriRedosled(row) {
+        try {
+            const broj = String(row?.broj_naloga || row?.broj || "").trim();
+            const master = canonRef(broj);
+            if (!master || master === broj && !/-/.test(broj)) { /* nema sufiksa — svejedno proveri po masteru */ }
+            let sestre = [];
+            if (master) {
+                const r1 = await supabase.from("operativni_nalozi")
+                    .select("broj_naloga, tip_naloga, vrsta, naziv, status")
+                    .ilike("broj_naloga", master + "-%");
+                sestre = r1.data || [];
+            }
+            if (!sestre.length && row?.glavni_nalog_id) {
+                const r2 = await supabase.from("operativni_nalozi")
+                    .select("broj_naloga, tip_naloga, vrsta, naziv, status")
+                    .eq("glavni_nalog_id", row.glavni_nalog_id);
+                sestre = r2.data || [];
+            }
+            if (!sestre.length) return null;
+            return nadjiBlokadu(master, opKljuc(row), mapaOperacija(sestre));
+        } catch (e) { return null; }
+    }
+
     async function pocni() {
         const ime = String(radnik || "").trim().replace(/\s+/g, " ");
         // Trazimo IME I PREZIME — inace bi u evidenciji zavrsavalo "Marko", "M.", ""
@@ -168,6 +203,16 @@ export default function RadnikOperacija({ opid }) {
         if (ime.split(" ").filter(Boolean).length < 2) { setErr("Upiši ime i prezime."); return; }
         if (!masina) { setErr("Izaberi mašinu."); return; }
         if (trebaSkenirati && !sveSkenirane) { setErr("Skeniraj sve rezervisane rolne pre početka (da ne dođe do zamene)."); return; }
+        // TVRDI BLOK: sveža provera redosleda BAŠ pre starta (status prethodne se mogao promeniti)
+        setBusy(true);
+        const blok = await proveriRedosled(op);
+        setBlokada(blok);
+        if (blok) {
+            setBusy(false);
+            setErr("STOP: operacija " + (OP_LABELE[blok] || blok) + " istog naloga još nije završena. Ova operacija ne sme da počne pre nje.");
+            return;
+        }
+        setBusy(false);
         zapamtiRadnika(ime);
         setRadnik(ime);
         setBusy(true); setErr("");
@@ -343,7 +388,15 @@ export default function RadnikOperacija({ opid }) {
                         </div>
                     )}
 
-                    <button disabled={busy || (trebaSkenirati && !sveSkenirane)} onClick={pocni} style={{ ...btn("#16a34a"), opacity: (busy || (trebaSkenirati && !sveSkenirane)) ? 0.5 : 1 }}>▶ POČNI OPERACIJU</button>
+                    {blokada && (
+                        <div style={{ marginTop: 14, background: "#2a1e05", border: "1px solid #a16207", borderRadius: 12, padding: 14 }}>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: "#fbbf24" }}>⏳ Čeka se: {OP_LABELE[blokada] || blokada}</div>
+                            <div style={{ fontSize: 12, color: "#fde68a", marginTop: 4 }}>
+                                Prethodna operacija ovog naloga još nije završena. START je zaključan dok se ona ne završi — osveži stranicu kad kolega završi.
+                            </div>
+                        </div>
+                    )}
+                    <button disabled={busy || blokada || (trebaSkenirati && !sveSkenirane)} onClick={pocni} style={{ ...btn(blokada ? "#64748b" : "#16a34a"), opacity: (busy || blokada || (trebaSkenirati && !sveSkenirane)) ? 0.5 : 1 }}>{blokada ? "🔒 ČEKA " + (OP_LABELE[blokada] || blokada) : "▶ POČNI OPERACIJU"}</button>
                 </div>
             )}
 
