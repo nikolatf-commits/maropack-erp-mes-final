@@ -1730,6 +1730,27 @@ function MainAppContent() {
     // Navigacija je izdvojena u src/config/navigation.js da App.jsx ne drži meni u sebi.
     const { lang } = useLang();
     const navGroupsAll = getNavGroups(isAdmin, userProfile?.uloga, lang);
+    // ── BOJA PO GRUPI (v: meni "3") ─────────────────────────────────────────────
+    // Svaka grupa ima svoju boju: leva traka na headeru + akcenat aktivne stavke.
+    // Pogodak po ključu ILI po tekstu labele (case-insensitive) — otporno na to
+    // kako su grupe nazvane u navigation.js. Bez pogotka → neutralna plava.
+    const GRUPA_BOJE = [
+        [/dash|pocetna|početna|home/i, "#6366f1"],
+        [/kalk|calcul/i, "#f59e0b"],
+        [/baza|proizvod|templ|product/i, "#10b981"],
+        [/proizvodn|production|mes|pogon/i, "#ef4444"],
+        [/magac|zalih|warehouse|stock/i, "#0ea5e9"],
+        [/ai|asisten|agent/i, "#a855f7"],
+        [/sistem|system|podeš|settings|admin/i, "#64748b"],
+        [/izvest|izvešt|report|analit/i, "#0891b2"],
+        [/ponud|offer|prodaj/i, "#e11d48"],
+    ];
+    function bojaGrupe(g) {
+        const t = (String(g.key || "") + " " + String(g.label || "")).toLowerCase();
+        for (const [re, c] of GRUPA_BOJE) if (re.test(t)) return c;
+        return "#3b82f6";
+    }
+
     // Magacioneri sa ulogom "radnik" (magacin2, magacin3) vide SAMO Magacin modul.
     const samoMagacinRola = userProfile?.uloga === "radnik";
     const navGroups = samoMagacinRola
@@ -1811,6 +1832,7 @@ function MainAppContent() {
                     {navGroups.map(function (group) {
                         const isOpen = openGroups.includes(group.key);
                         const hasActivePage = group.items.some(item => item.k === page);
+                        const gBoja = bojaGrupe(group);
 
                         return (
                             <div key={group.key} style={{ marginBottom: 8 }}>
@@ -1819,9 +1841,9 @@ function MainAppContent() {
                                     onClick={function () { toggleGroup(group.key); }}
                                     style={{
                                         padding: "10px 12px",
-                                        background: hasActivePage ? "#1e3a8a" : "#1e293b",
+                                        background: hasActivePage ? gBoja + "26" : "#1e293b",
                                         borderRadius: 10,
-                                        borderLeft: "3px solid " + (hasActivePage ? "#60a5fa" : "transparent"),
+                                        borderLeft: "4px solid " + gBoja,
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
@@ -1872,8 +1894,8 @@ function MainAppContent() {
                                                     margin: "2px 0",
                                                     cursor: "pointer",
                                                     color: isActive ? "#fff" : "#cbd5e1",
-                                                    background: isActive ? "#2563eb" : "transparent",
-                                                    borderLeft: "3px solid " + (isActive ? "#93c5fd" : "transparent"),
+                                                    background: isActive ? gBoja : "transparent",
+                                                    borderLeft: "3px solid " + (isActive ? "#ffffffaa" : "transparent"),
                                                     fontWeight: isActive ? 800 : 600,
                                                     display: "flex",
                                                     alignItems: "center",
