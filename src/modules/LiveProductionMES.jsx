@@ -23,6 +23,7 @@ function minutesFrom(iso) {
 function normStatus(s) {
     const x = String(s || "").toLowerCase();
     if (x.indexOf("zavr") === 0 || x === "zavrseno") return "zavrseno";
+    if (x.indexOf("poslato") === 0) return "poslato"; // poslato_stampariji — radi se eksterno
     if (x.indexOf("zastoj") === 0 || x.indexOf("pauz") === 0) return "zastoj";
     if (x.indexOf("radi") === 0 || x.indexOf("toku") >= 0 || x.indexOf("proizvodnji") >= 0) return "radi";
     if (x.indexOf("sprem") === 0) return "spremno";
@@ -34,10 +35,11 @@ function statusBoja(s) {
     if (s === "spremno") return "#10b981";
     if (s === "zavrseno") return "#2563eb";
     if (s === "servis") return "#f59e0b";
+    if (s === "poslato") return "#7c3aed";
     return "#64748b";
 }
 function statusTekst(s) {
-    return { radi: "U TOKU", zastoj: "ZASTOJ", spremno: "SPREMNO", zavrseno: "ZAVRSENO", servis: "SERVIS", ceka: "CEKA" }[s] || "CEKA";
+    return { radi: "U TOKU", zastoj: "ZASTOJ", spremno: "SPREMNO", zavrseno: "ZAVRSENO", servis: "SERVIS", poslato: "U STAMPARIJI", ceka: "CEKA" }[s] || "CEKA";
 }
 // Isti ključ naloga kao u MachineSchedulerPRO (plan čuva ID-jeve u ovom obliku).
 function nalogKey(n) { return String(n.broj_naloga || n.broj || n.id || ""); }
@@ -114,7 +116,7 @@ export default function LiveProductionMES({ db = {}, msg }) {
     // Kartica po PRAVOJ mašini (Rezač 1..10, Mašina za kese 1..15, Špulna 1-2, Kaširka 1):
     // operacije sa te mašine = plan[machine.id], status mašine = najjači status njenih operacija.
     const kartice = useMemo(() => {
-        const rang = { radi: 5, zastoj: 4, spremno: 3, ceka: 2 };
+        const rang = { radi: 6, zastoj: 5, poslato: 4, spremno: 3, ceka: 2 };
         return machines.map((m) => {
             const ops = (plan[m.id] || [])
                 .map((id) => nalogMap[id])

@@ -425,6 +425,9 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     <span style={{ fontSize: 12, fontWeight: 800, color: "#475569" }}>Ručno postavi status:</span>
                     {[
                         { k: "ceka", l: "Čeka", boja: "#f59e0b" },
+                        // "Poslato u štampariju" ima smisla samo za štampu (eksterne štamparije
+                        // Milinković / Topolastika) — na ostalim operacijama se ne prikazuje.
+                        ...(tab === "stampa" ? [{ k: "poslato_stampariji", l: "Poslato u štampariju", boja: "#7c3aed" }] : []),
                         { k: "radi", l: "U toku", boja: "#3b82f6" },
                         { k: "spremljeno", l: "Spremno", boja: "#10b981" },
                         { k: "zavrseno", l: "Završeno", boja: "#16a34a" },
