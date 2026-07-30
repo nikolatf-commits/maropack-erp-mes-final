@@ -1841,9 +1841,10 @@ function MainAppContent() {
                                     onClick={function () { toggleGroup(group.key); }}
                                     style={{
                                         padding: "10px 12px",
-                                        background: hasActivePage ? gBoja + "26" : "#1e293b",
+                                        background: "#1e293b",
                                         borderRadius: 10,
-                                        borderLeft: "4px solid " + gBoja,
+                                        borderLeft: (hasActivePage ? "6px" : "4px") + " solid " + gBoja,
+                                        boxShadow: hasActivePage ? "inset 0 0 0 1px " + gBoja + "55" : "none",
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
@@ -1860,13 +1861,13 @@ function MainAppContent() {
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span style={{ fontSize: 16 }}>{group.icon}</span>
-                                        <span style={{ fontSize: 13, fontWeight: 600, color: "white" }}>
+                                        <span style={{ fontSize: 13, fontWeight: hasActivePage ? 800 : 600, color: hasActivePage ? gBoja : "white" }}>
                                             {group.label}
                                         </span>
                                     </div>
                                     <span style={{
                                         fontSize: 12,
-                                        color: "white",
+                                        color: hasActivePage ? gBoja : "white",
                                         transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
                                         transition: "transform 0.2s"
                                     }}>
@@ -1893,7 +1894,7 @@ function MainAppContent() {
                                                     borderRadius: 6,
                                                     margin: "2px 0",
                                                     cursor: "pointer",
-                                                    color: isActive ? "#fff" : "#cbd5e1",
+                                                    color: isActive ? "#fff" : "#e2e8f0",
                                                     background: isActive ? gBoja : "transparent",
                                                     borderLeft: "3px solid " + (isActive ? "#ffffffaa" : "transparent"),
                                                     fontWeight: isActive ? 800 : 600,
