@@ -1789,7 +1789,7 @@ function MainAppContent() {
                 /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
                 .mp-sidebar{ background:#0b1120 !important; }
                 .mp-sidebar nav, .mp-sidebar nav *{ background-color: transparent; }
-                .mp-sidebar .mp-grp{ background:#1e293b !important; }
+                .mp-sidebar .mp-grp{ background:#111c30 !important; }
                 .mp-sidebar .mp-grp-active{ background:#0f2350 !important; }
                 .mp-sidebar .mp-item-active{ background:#2563eb !important; }
                 .mp-sidebar *{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1816,7 +1816,7 @@ function MainAppContent() {
             {/* ACCORDION SIDEBAR */}
             <div className="mp-sidebar" style={{
                 width: 240, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
-                flexDirection: "column", flexShrink: 0, minHeight: "100vh",
+                flexDirection: "column", flexShrink: 0, minHeight: "100vh", borderRight: "1px solid #1e293b",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
                 <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
@@ -1828,7 +1828,7 @@ function MainAppContent() {
                     <LanguageSwitcher />
                 </div>
 
-                <nav style={{ padding: "10px 8px", flex: 1, overflowY: "auto" }}>
+                <nav style={{ padding: "8px 6px", flex: 1, overflowY: "auto" }}>
                     {navGroups.map(function (group) {
                         const isOpen = openGroups.includes(group.key);
                         const hasActivePage = group.items.some(item => item.k === page);
@@ -1842,7 +1842,7 @@ function MainAppContent() {
                                     className={hasActivePage ? "mp-grp mp-grp-active" : "mp-grp"}
                                     style={{
                                         padding: "10px 12px",
-                                        background: hasActivePage ? "#0f2350" : "#1e293b",
+                                        background: hasActivePage ? "#0f2350" : "#111c30",
                                         borderRadius: 10,
                                         borderLeft: (hasActivePage ? "4px" : "0px") + " solid #3b82f6",
                                         cursor: "pointer",
@@ -1867,7 +1867,7 @@ function MainAppContent() {
                                     </div>
                                     <span style={{
                                         fontSize: 12,
-                                        color: "#cbd5e1",
+                                        color: "#e2e8f0",
                                         transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
                                         transition: "transform 0.2s"
                                     }}>
@@ -1895,7 +1895,7 @@ function MainAppContent() {
                                                     borderRadius: 6,
                                                     margin: "2px 0",
                                                     cursor: "pointer",
-                                                    color: isActive ? "#fff" : "#f1f5f9",
+                                                    color: "#ffffff",
                                                     background: isActive ? "#2563eb" : "transparent",
                                                     borderLeft: "3px solid " + (isActive ? "#93c5fd" : "transparent"),
                                                     fontWeight: isActive ? 800 : 700,
