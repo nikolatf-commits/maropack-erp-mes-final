@@ -1794,7 +1794,8 @@ function MainAppContent() {
                 .mp-sidebar .mp-grp{ background:#111c30 !important; }
                 .mp-sidebar .mp-grp-active{ background:#0f2350 !important; }
                 .mp-sidebar .mp-item-active{ background:#2563eb !important; }
-                .mp-sidebar *{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                /* NE seći nazive — dozvoli prelom u dva reda umesto "…" */
+                .mp-sidebar .mp-label{ white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; }
                 @media (max-width: 767px){
                     /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
                     .mp-sadrzaj [style*="grid-template-columns"]{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
@@ -1817,13 +1818,13 @@ function MainAppContent() {
 
             {/* ACCORDION SIDEBAR */}
             <div className="mp-sidebar" style={{
-                width: 240, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
+                width: 256, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
                 flexDirection: "column", flexShrink: 0, minHeight: "100vh", alignSelf: "stretch", borderRight: "1px solid #1e293b",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
-                <div style={{ padding: "18px 16px 12px", textAlign: "center" }}>
-                    <div style={{ background: "#ffffff", borderRadius: 10, padding: "6px 12px", display: "inline-block", boxShadow: "0 2px 10px rgba(0,0,0,.3)" }}>
-                        <img src={LOGO_B64} alt="Maropack" style={{ height: 30, objectFit: "contain", display: "block" }} />
+                <div style={{ padding: "16px 16px 10px", textAlign: "center", background: "#0b1120" }}>
+                    <div style={{ background: "#ffffff", borderRadius: 9, padding: "5px 12px", display: "inline-block", boxShadow: "0 2px 10px rgba(0,0,0,.35)" }}>
+                        <img src={LOGO_B64} alt="Maropack" style={{ height: 26, objectFit: "contain", display: "block" }} />
                     </div>
                 </div>
 
@@ -1865,7 +1866,7 @@ function MainAppContent() {
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span style={{ fontSize: 16 }}>{group.icon}</span>
-                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: "#ffffff", letterSpacing: 0.2 }}>
+                                        <span className="mp-label" style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: "#ffffff", letterSpacing: 0.2 }}>
                                             {group.label}
                                         </span>
                                     </div>
@@ -1921,8 +1922,8 @@ function MainAppContent() {
                                                     }
                                                 }}
                                             >
-                                                <span style={{ fontSize: 14 }}>{item.i}</span>
-                                                <span>{item.l}</span>
+                                                <span style={{ fontSize: 14, flexShrink: 0 }}>{item.i}</span>
+                                                <span className="mp-label">{item.l}</span>
                                             </div>
                                         );
                                     })}
