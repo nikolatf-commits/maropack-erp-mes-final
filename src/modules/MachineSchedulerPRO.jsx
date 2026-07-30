@@ -122,6 +122,29 @@ function MachineEditModal({ machine, onClose, onSave }) {
 export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [machines, setMachines] = useState(DEFAULT_MACHINES);
     // Pravi nalozi iz baze (db.master_nalozi / db.nalozi) → format koji scheduler koristi.
+    // ⚠ REDOSLED BITAN: naloziZivi MORA biti deklarisan PRE orders memo-a koji ga čita —
+    // obrnuto u produkcijskom (minifikovanom) buildu baca "Cannot access before initialization".
+    // v54.1: sveži operativni nalozi nezavisno od parenta — radnikov START/ZAVRŠI sa
+    // telefona menja bazu, a ovaj kanal povuče promenu i kalendar se ODMAH preračuna.
+    const [naloziZivi, setNaloziZivi] = useState(null);
+    useEffect(() => {
+        let ziv = true;
+        async function sveziNalozi() {
+            try {
+                const { data } = await supabase.from('operativni_nalozi').select('*').limit(2000);
+                if (ziv && Array.isArray(data)) setNaloziZivi(data);
+            } catch (e) { /* zadrži poslednje poznato */ }
+        }
+        const ch = supabase.channel('plan-nalozi-' + Math.random().toString(36).slice(2))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, () => sveziNalozi())
+            .subscribe();
+        const onEvt = () => sveziNalozi();
+        window.addEventListener('maropack:nalozi-changed', onEvt);
+        // i plan od kolega u drugom tabu/računaru (prevučen nalog) — na 20s
+        const t = setInterval(async () => { try { setPlan(await loadProductionPlan()); } catch (e) { } }, 20000);
+        return () => { ziv = false; try { supabase.removeChannel(ch); } catch (e) { } window.removeEventListener('maropack:nalozi-changed', onEvt); clearInterval(t); };
+    }, []);
+
     const orders = useMemo(() => {
         // Jedna kartica PO OPERACIJI (štampa, rezanje, kaширanje...) — svaka ide na svoju mašinu.
         // Materijal se preskače (ne raspoređuje se na mašinu za štampu/rez).
@@ -172,26 +195,6 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [plan, setPlan] = useState({});
     const [filter, setFilter] = useState('sve');
     const [prikaz, setPrikaz] = useState('masine'); // 'masine' | 'kalendar'
-    // v54.1: sveži operativni nalozi nezavisno od parenta — radnikov START/ZAVRŠI sa
-    // telefona menja bazu, a ovaj kanal povuče promenu i kalendar se ODMAH preračuna.
-    const [naloziZivi, setNaloziZivi] = useState(null);
-    useEffect(() => {
-        let ziv = true;
-        async function sveziNalozi() {
-            try {
-                const { data } = await supabase.from('operativni_nalozi').select('*').limit(2000);
-                if (ziv && Array.isArray(data)) setNaloziZivi(data);
-            } catch (e) { /* zadrži poslednje poznato */ }
-        }
-        const ch = supabase.channel('plan-nalozi-' + Math.random().toString(36).slice(2))
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, () => sveziNalozi())
-            .subscribe();
-        const onEvt = () => sveziNalozi();
-        window.addEventListener('maropack:nalozi-changed', onEvt);
-        // i plan od kolega u drugom tabu/računaru (prevučen nalog) — na 20s
-        const t = setInterval(async () => { try { setPlan(await loadProductionPlan()); } catch (e) { } }, 20000);
-        return () => { ziv = false; try { supabase.removeChannel(ch); } catch (e) { } window.removeEventListener('maropack:nalozi-changed', onEvt); clearInterval(t); };
-    }, []);
     const [editing, setEditing] = useState(null);
     const [trace, setTrace] = useState([]);
     const [dragOrder, setDragOrder] = useState(null);
