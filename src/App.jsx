@@ -1708,6 +1708,8 @@ function MainAppContent() {
     function statusStil(st) {
         var s = String(st || "").toLowerCase();
         if (s.indexOf("zavr") === 0 || s === "zavrseno") return { grad: "linear-gradient(135deg,#16a34a,#15803d)", traka: "#16a34a", bg: "#f4fdf6", tekst: "ZAVRŠENO ✓" };
+        // poslato_stampariji — nalog radi eksterna štamparija (Milinković / Topolastika)
+        if (s.indexOf("poslato") === 0) return { grad: "linear-gradient(135deg,#7c3aed,#6d28d9)", traka: "#7c3aed", bg: "#faf7ff", tekst: "U ŠTAMPARIJI" };
         if (s.indexOf("radi") === 0 || s.indexOf("u toku") === 0 || s.indexOf("u_toku") === 0 || s.indexOf("u proizvodnji") === 0) return { grad: "linear-gradient(135deg,#3b82f6,#2563eb)", traka: "#3b82f6", bg: "#f8fbff", tekst: "U TOKU" };
         if (s.indexOf("sprem") === 0) return { grad: "linear-gradient(135deg,#10b981,#059669)", traka: "#10b981", bg: "#f6fefb", tekst: "SPREMNO" };
         if (s.indexOf("zastoj") === 0 || s.indexOf("pauz") === 0) return { grad: "linear-gradient(135deg,#dc2626,#b91c1c)", traka: "#dc2626", bg: "#fef2f2", tekst: "ZASTOJ" };
