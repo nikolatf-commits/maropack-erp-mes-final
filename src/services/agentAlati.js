@@ -1581,6 +1581,30 @@ export const ALATI = {
         },
     },
 
+    upisi_izdato_zavrsenih: {
+        cita: false,
+        opis: "Naknadno upisuje izdavanje materijala za VEĆ ZAVRŠENE operacije MATERIJAL: stavkama tih naloga postavlja izdato_m = alocirano_m (samo gde je 0) i status 'izdato'. Koristi kad Analiza potrošnje pokazuje Izdato 0 m iako je materijal odavno izdat (operacije završene pre uvođenja automatskog upisa). MENJA BAZU — traži potvrdu.",
+        ulaz: {},
+        opisPlana: () => "UPIŠI izdavanje (izdato_m = alocirano_m) za stavke već završenih MATERIJAL operacija",
+        async izvrsi() {
+            const ops = await sve("operativni_nalozi");
+            const gotoviMat = ops.filter((o) => opKljuc(o) === "materijal" && /^zavr/i.test(T(o.status)));
+            if (!gotoviMat.length) return { ok: true, poruka: "Nema završenih MATERIJAL operacija." };
+            const refovi = new Set();
+            gotoviMat.forEach((o) => { const b = T(o.broj_naloga || o.broj); if (b) { refovi.add(b); refovi.add(canonRef(b)); } });
+            const stavke = await sve("materijal_stavke");
+            const zaUpis = stavke.filter((r) => refovi.has(T(r.nalog_ref)) && !(N(r.izdato_m) > 0));
+            if (!zaUpis.length) return { ok: true, poruka: "Sve stavke završenih MATERIJAL operacija već imaju upisano izdavanje." };
+            let ok = 0; const greske = [];
+            for (const r of zaUpis) {
+                const { error } = await supabase.from("materijal_stavke").update({ izdato_m: N(r.alocirano_m), status: "izdato" }).eq("id", r.id);
+                if (error) greske.push(error.message); else ok++;
+            }
+            ocistiKes();
+            return { ok: ok > 0, poruka: "Upisano izdavanje za " + ok + " od " + zaUpis.length + " stavki." + (greske.length ? " Greške: " + greske.slice(0, 3).join("; ") : "") };
+        },
+    },
+
     ponisti_radnju: {
         cita: false,
         opis: "Poništava prethodni upis — briše ono što je maločas napisano u bazu (rolne, nalog, ponudu, kalkulaciju, templejt). MENJA BAZU — traži potvrdu. Ne može da poništi brisanje naloga.",

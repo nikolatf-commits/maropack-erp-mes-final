@@ -51,6 +51,7 @@ const OPIS_ALATA = {
     skini_nalog_sa_plana: "Skidam sa plana…",
     analiza_vremena_masina: "Poredim plan i stvarno vreme…",
     sredi_nalog_ref: "Spremam sanaciju stavki…",
+    upisi_izdato_zavrsenih: "Upisujem izdavanja unazad…",
 };
 
 const SISTEM = `Ti si AI agent za MAROPACK — fabriku fleksibilne ambalaže (folije, kese, špulne).

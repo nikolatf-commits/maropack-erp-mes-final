@@ -277,23 +277,38 @@ export default function RadnikOperacija({ opid }) {
             uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), napomena: fin.napomena || "",
         }).eq("id", opid);
         if (error) setErr("Završetak nije uspeo: " + error.message);
-        // v2: kad se završi operacija MATERIJAL, materijal je fizički IZDAT u proizvodnju —
-        // upiši izdavanje u knjigu stavki (izdato_m = alocirano_m gde još nije upisano),
-        // da "Analiza potrošnje" ne stoji večno na "Izdato 0 m". Best-effort: ne blokira završetak.
-        if (!error && opKljuc(op) === "materijal") {
+        // v2: upis u knjigu stavki materijala pri završetku operacije. Best-effort: ne blokira završetak.
+        //  - MATERIJAL završen  → materijal je fizički IZDAT: izdato_m = alocirano_m (gde nije upisano)
+        //  - skart sa BILO KOJE operacije → OTPAD materijala: raspoređuje se po stavkama
+        //    srazmerno alociranim metrima (otpad se sabira kroz operacije)
+        if (!error) {
             try {
                 const broj = String(op.broj_naloga || "").trim();
                 const master = canonRef(broj);
+                const refovi = [broj, master].filter(Boolean);
                 const { data: stavke } = await supabase.from("materijal_stavke")
-                    .select("id, izdato_m, alocirano_m, status, nalog_ref")
-                    .in("nalog_ref", [broj, master].filter(Boolean));
-                for (const r of (stavke || [])) {
-                    if (Number(r.izdato_m) > 0) continue; // već izdato — ne diraj
-                    await supabase.from("materijal_stavke")
-                        .update({ izdato_m: Number(r.alocirano_m) || 0, status: "izdato" })
-                        .eq("id", r.id);
+                    .select("id, izdato_m, alocirano_m, otpad_m, status, nalog_ref")
+                    .in("nalog_ref", refovi);
+                const lista = stavke || [];
+                if (opKljuc(op) === "materijal") {
+                    for (const r of lista) {
+                        if (Number(r.izdato_m) > 0) continue; // već izdato — ne diraj
+                        await supabase.from("materijal_stavke")
+                            .update({ izdato_m: Number(r.alocirano_m) || 0, status: "izdato" })
+                            .eq("id", r.id);
+                    }
                 }
-            } catch (e) { /* tiho — izdavanje se može upisati i naknadno */ }
+                const skartM = Number(fin.skart || 0);
+                if (skartM > 0 && lista.length) {
+                    const uk = lista.reduce((s, r) => s + (Number(r.alocirano_m) || 0), 0);
+                    for (const r of lista) {
+                        const deo = uk > 0 ? Math.round(skartM * ((Number(r.alocirano_m) || 0) / uk) * 10) / 10 : Math.round(skartM / lista.length * 10) / 10;
+                        if (deo > 0) await supabase.from("materijal_stavke")
+                            .update({ otpad_m: (Number(r.otpad_m) || 0) + deo })
+                            .eq("id", r.id);
+                    }
+                }
+            } catch (e) { /* tiho — može se upisati i naknadno */ }
         }
         setBusy(false); setShowFinish(false); reload();
     }

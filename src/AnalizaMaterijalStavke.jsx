@@ -95,8 +95,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const poMaterijalu = useMemo(() => {
         const m = {};
         cRows.forEach((r) => {
-            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
-            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
+            const sirina = num(r.sirina || r.sirina_mm || r.sirina_rolne || r.rolna_sirina || r.width);
+            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, sirina, r.dobavljac].map((x) => x || "").join("|");
+            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina, dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
             const utroseno = Math.max(0, num(r.izdato_m) - num(r.vraceno_m)) || num(r.alocirano_m);
             m[k].potroseno += utroseno; m[k].kg += num(r.kg_alocirano); m[k].otpad += num(r.otpad_m); m[k].rolni += 1;
         });
@@ -194,7 +195,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Širina", "Dobavljač", "Potrošeno", "kg", "Otpad m"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                                 <tbody>
                                     {filtMat.map((x, i) => (
                                         <tr key={i}>
@@ -202,6 +203,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                             <td style={td}>{x.pod_vrsta || "—"}</td>
                                             <td style={td}>{x.oznaka || "—"}</td>
                                             <td style={td}>{x.debljina ? x.debljina + "µ" : "—"}</td>
+                                            <td style={td}>{x.sirina ? fmt(x.sirina) + " mm" : "—"}</td>
                                             <td style={td}>{x.dobavljac || "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.potroseno)} m</div>
