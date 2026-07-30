@@ -51,7 +51,7 @@ export default function Login() {
             }}>
                 <div style={{ textAlign: 'center', marginBottom: 32 }}>
                     <div style={{ background: '#fff', borderRadius: 14, padding: '10px 14px', display: 'inline-block', boxShadow: '0 3px 12px rgba(15,23,42,0.12)', border: '1px solid #eef2f7', marginBottom: 14 }}>
-                        <img src={LOGO_B64} alt='Maropack' style={{ height: 54, objectFit: 'contain', display: 'block' }} />
+                        <img src={LOGO_B64} alt='Maropack' style={{ height: 54, objectFit: 'contain', display: 'inline-block' }} />
                     </div>
                     <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>Dobrodošli</div>
                     <div style={{ fontSize: 13, color: '#64748b' }}>Prijavite se na MAROPACK sistem</div>

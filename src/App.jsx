@@ -1819,9 +1819,9 @@ function MainAppContent() {
                 flexDirection: "column", flexShrink: 0, minHeight: "100vh", alignSelf: "stretch", borderRight: "1px solid #1e293b",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
-                <div style={{ padding: "16px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
-                    <div style={{ background: "#ffffff", borderRadius: 12, padding: "8px 10px", display: "inline-block", boxShadow: "0 2px 8px rgba(0,0,0,.25)" }}>
-                        <img src={LOGO_B64} alt="Maropack" style={{ maxWidth: 150, height: 38, objectFit: "contain", display: "block" }} />
+                <div style={{ padding: "18px 16px 12px", textAlign: "center" }}>
+                    <div style={{ background: "#ffffff", borderRadius: 10, padding: "6px 12px", display: "inline-block", boxShadow: "0 2px 10px rgba(0,0,0,.3)" }}>
+                        <img src={LOGO_B64} alt="Maropack" style={{ height: 30, objectFit: "contain", display: "block" }} />
                     </div>
                 </div>
 
