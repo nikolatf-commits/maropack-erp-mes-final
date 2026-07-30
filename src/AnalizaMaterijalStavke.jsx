@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase.js";
 
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
+const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
 
 // canonRef/jeMP dolaze iz zajedničkog modula — ista pravila kao planer i AI agent.
 import { canonRef, jeMP } from "./utils/nalogMetrika.js";
