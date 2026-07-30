@@ -18,8 +18,13 @@ export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZ
 export const canonRef = (r) => String(r || "").trim().replace(OP_SUFIKS, "");
 export const jeMP = (r) => /^MP-\d{4}-\d+/i.test(canonRef(r));
 
-// Tip operacije iz slobodnog teksta (tip_naloga / vrsta / naziv).
+// Tip operacije: NAJJAČI signal je sufiks u broju naloga (MP-2026-0001-MATERIJAL) —
+// mnoge operacije u polju "naziv" nose ime PROIZVODA, a tip žive samo u broju.
+// Tek ako sufiksa nema, gleda se slobodan tekst (tip_naloga / vrsta / naziv).
 export function opKljuc(n) {
+    const broj = String((n && (n.broj_naloga || n.broj)) || "");
+    const suf = broj.match(OP_SUFIKS);
+    if (suf) return suf[1].toLowerCase(); // materijal | stampa | ... | perforacija_rezanje | kesa | spulna
     const t = String((n && (n.tip_naloga || n.vrsta || n.tipOperacije || n.operacija || n.naziv)) || n || "").toLowerCase();
     if (t.includes("mater")) return "materijal";
     if (t.includes("\u0161tamp") || t.includes("stamp")) return "stampa";

@@ -37,8 +37,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
             // upisuje, pa "Izdato" večno stoji na 0. Ovde se to popuni (idempotentno: dira SAMO
             // stavke gde je izdato_m prazno/0, upisuje izdato_m = alocirano_m i status "izdato").
             try {
-                const { data: ops } = await supabase.from("operativni_nalozi")
+                const { data: ops, error: opsErr } = await supabase.from("operativni_nalozi")
                     .select("broj_naloga, broj, status, tip_naloga, vrsta, naziv").limit(2000);
+                if (opsErr) { msg && msg("Auto-dopuna izdavanja: ne mogu da pročitam operativne naloge — " + opsErr.message, "err"); }
                 const refovi = new Set();
                 (ops || []).forEach((o) => {
                     if (opKljuc(o) !== "materijal" || !/^zavr/i.test(String(o.status || ""))) return;
@@ -56,6 +57,11 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 }
                 if (upisano > 0) msg && msg("Naknadno upisano izdavanje za " + upisano + " stavki (operacija MATERIJAL završena).", "ok");
                 if (greska) msg && msg("Izdavanje ne može da se upiše u bazu: " + greska, "err");
+                // dijagnostika u konzoli (F12) kad se ništa ne desi — da odmah vidimo gde puca lanac
+                if (!upisano && !greska) {
+                    console.info("[analiza/auto-izdavanje] zavrsene MATERIJAL ref:", Array.from(refovi),
+                        "| stavke bez izdato:", samoNalozi.filter((r) => !(num(r.izdato_m) > 0)).map((r) => r.nalog_ref));
+                }
             } catch (e) { /* auto-dopuna ne sme da sruši analizu */ }
 
             setRows(samoNalozi);
