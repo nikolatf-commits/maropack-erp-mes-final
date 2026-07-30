@@ -1791,7 +1791,7 @@ function MainAppContent() {
                 - inputi 16px da iOS ne zumira pri fokusu                       */}
             {!mobileMagacionerMode && <style>{`
                 /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
-                .mp-sidebar{ background:#0f172a !important; }
+                .mp-sidebar{ background:#0b1120 !important; }
                 .mp-sidebar *{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 @media (max-width: 767px){
                     /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
@@ -1815,7 +1815,7 @@ function MainAppContent() {
 
             {/* ACCORDION SIDEBAR */}
             <div className="mp-sidebar" style={{
-                width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex",
+                width: 240, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
                 flexDirection: "column", flexShrink: 0, minHeight: "100vh",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
@@ -1861,7 +1861,7 @@ function MainAppContent() {
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span style={{ fontSize: 16 }}>{group.icon}</span>
-                                        <span style={{ fontSize: 13, fontWeight: hasActivePage ? 800 : 600, color: hasActivePage ? gBoja : "white" }}>
+                                        <span style={{ fontSize: 13.5, fontWeight: hasActivePage ? 900 : 800, color: hasActivePage ? gBoja : "#ffffff", letterSpacing: 0.2 }}>
                                             {group.label}
                                         </span>
                                     </div>
@@ -1889,15 +1889,15 @@ function MainAppContent() {
                                                 key={item.k}
                                                 onClick={function () { setPage(item.k); setNavOtvoren(false); }}
                                                 style={{
-                                                    padding: "8px 12px",
-                                                    fontSize: 13,
+                                                    padding: "9px 12px",
+                                                    fontSize: 13.5,
                                                     borderRadius: 6,
                                                     margin: "2px 0",
                                                     cursor: "pointer",
-                                                    color: isActive ? "#fff" : "#e2e8f0",
+                                                    color: isActive ? "#fff" : "#f1f5f9",
                                                     background: isActive ? gBoja : "transparent",
                                                     borderLeft: "3px solid " + (isActive ? "#ffffffaa" : "transparent"),
-                                                    fontWeight: isActive ? 800 : 600,
+                                                    fontWeight: isActive ? 800 : 700,
                                                     display: "flex",
                                                     alignItems: "center",
                                                     gap: 8,
