@@ -8,6 +8,9 @@ import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
 import { KUTIJE, KUTIJA_LBL, proveriKutiju, predloziKutiju, kutijaPoKljucu, poPaletiZa } from "./kutije.js";
 import { useLang } from "./LanguageProvider.jsx";
+// Lokalni "Pitaj AI" sa BOGATIM kontekstom templejta (globalni iz App.jsx se
+// automatski skloni dok je ovaj montiran — registar instanci u AIPomoc-u).
+import AIPomoc from "./modules/AIPomoc.jsx";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -3234,6 +3237,32 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             );
         })()}
 
+        {/* 🤖 Pitaj AI — vidi TRENUTNI templejt: tip, kupca, slojeve, širinu, boje...
+            pa može da odgovori na "koji materijal fali", "koliko traka staje u 655 mm",
+            "predloži rolne za ovaj nalog" bez prepričavanja ekrana. */}
+        <AIPomoc
+            ekran={"Templejt proizvoda (" + String(form.type || "folija").toUpperCase() + ")"}
+            kontekst={() => {
+                const sekcija = form[form.type] || {};
+                const slojevi = (sekcija.layers || [])
+                    .map((l, i) => (i + 1) + ". " + [l.vrsta, l.pod_vrsta, l.oznaka_materijala, l.debljina ? l.debljina + "\u00b5" : "", l.proizvodjac].filter(Boolean).join(" "))
+                    .filter((x) => x.length > 3);
+                const stampa = sekcija.stampa || {};
+                return {
+                    naziv: form.naziv || "novi templejt (nije sa\u010duvan)",
+                    kupac: form.kupac,
+                    tip: form.type,
+                    sifra: form.sifra,
+                    sirina: form.idealnaSirinaMaterijala,
+                    porucenaKolicina: form.porucenaKolicina,
+                    dimenzije: [form.dimenzijaSirina, form.dimenzijaDuzina].filter(Boolean).join(" \u00d7 "),
+                    slojevi,
+                    brojBoja: (Array.isArray(stampa.boje) ? stampa.boje.length : 0) || stampa.brojBoja || undefined,
+                    broj_naloga: nalogBroj || undefined,
+                    napomena: form.napomena || undefined,
+                };
+            }}
+        />
     </div>;
 }
 
