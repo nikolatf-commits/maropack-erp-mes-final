@@ -1785,6 +1785,8 @@ function MainAppContent() {
                   pobedjuje inline stil — jedino tako bez diranja 50+ modula)
                 - tabele klize prstom umesto da se gnječe
                 - inputi 16px da iOS ne zumira pri fokusu                       */}
+            {/* zabrana Chrome auto-dark inverzije za CELU aplikaciju (i magacionere) */}
+            <style>{`:root{ color-scheme: only light; }`}</style>
             {!mobileMagacionerMode && <style>{`
                 /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
                 .mp-sidebar{ background:#0b1120 !important; }
