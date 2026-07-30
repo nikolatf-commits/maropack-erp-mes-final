@@ -46,12 +46,32 @@ export default function AnalizaMaterijalStavke({ msg }) {
         const potpis = (r) => (rolnaKljuc(r) || [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina].map((x) => x || "").join("|")) + "::" + num(r.alocirano_m);
         const grupe = {};
         rows.forEach((r) => { const k = potpis(r); (grupe[k] = grupe[k] || []).push(r); });
-        const out = []; let spojeno = 0;
+        let out = []; let spojeno = 0;
         Object.values(grupe).forEach((list) => {
             const mp = list.filter((r) => jeMP(r.nalog_ref));
             if (mp.length && mp.length < list.length) { out.push(...mp); spojeno += list.length - mp.length; }
             else out.push(...list);
         });
+        // PROLAZ 2 (grupni): duplikat upisan BEZ rolne i BEZ podataka o materijalu ne može
+        // da se upari po potpisu — ali ako ne-MP grupa ima ISTE ukupne metre i ISTI broj
+        // stavki kao neka MP grupa, to je ista rezervacija pod drugim imenom → izbaci je celu.
+        const tot = {};
+        out.forEach((r) => {
+            const k = canonRef(r.nalog_ref) || "—";
+            const t = (tot[k] = tot[k] || { mp: jeMP(r.nalog_ref), plan: 0, cnt: 0 });
+            t.plan += num(r.alocirano_m); t.cnt += 1;
+        });
+        const dupGrupe = new Set();
+        Object.entries(tot).forEach(([k, t]) => {
+            if (t.mp) return;
+            const par = Object.entries(tot).find(([k2, t2]) => t2.mp && t2.cnt === t.cnt && Math.abs(t2.plan - t.plan) <= 1);
+            if (par) dupGrupe.add(k);
+        });
+        if (dupGrupe.size) {
+            const pre = out.length;
+            out = out.filter((r) => !dupGrupe.has(canonRef(r.nalog_ref) || "—"));
+            spojeno += pre - out.length;
+        }
         return { rows: out, spojeno };
     }, [rows]);
     const cRows = cisti.rows;

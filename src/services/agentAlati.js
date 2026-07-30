@@ -1557,11 +1557,23 @@ export const ALATI = {
             const potpis = (r) => (rolnaK(r) || [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina].map((x) => x || "").join("|")) + "::" + N(r.alocirano_m);
             const mpPoPotpisu = {};
             stavke.filter((r) => jeMP(r.nalog_ref)).forEach((r) => { mpPoPotpisu[potpis(r)] = canonRef(r.nalog_ref); });
-            const zaIspravku = stavke.filter((r) => r.nalog_ref && !jeMP(r.nalog_ref) && mpPoPotpisu[potpis(r)]);
+            let zaIspravku = stavke.filter((r) => r.nalog_ref && !jeMP(r.nalog_ref) && mpPoPotpisu[potpis(r)])
+                .map((r) => ({ id: r.id, novi: mpPoPotpisu[potpis(r)] }));
+            // Grupni prolaz: duplikat bez rolne/materijala — upar po UKUPNIM metrima i broju stavki grupe.
+            const tot = {};
+            stavke.forEach((r) => { const k = canonRef(r.nalog_ref) || "—"; const t = (tot[k] = tot[k] || { mp: jeMP(r.nalog_ref), plan: 0, cnt: 0 }); t.plan += N(r.alocirano_m); t.cnt++; });
+            const vecIde = new Set(zaIspravku.map((x) => x.id));
+            Object.entries(tot).forEach(([k, t]) => {
+                if (t.mp) return;
+                const par = Object.entries(tot).find(([k2, t2]) => t2.mp && t2.cnt === t.cnt && Math.abs(t2.plan - t.plan) <= 1);
+                if (!par) return;
+                stavke.filter((r) => (canonRef(r.nalog_ref) || "—") === k && !vecIde.has(r.id))
+                    .forEach((r) => { zaIspravku.push({ id: r.id, novi: par[0] }); vecIde.add(r.id); });
+            });
             if (!zaIspravku.length) return { ok: true, poruka: "Nema stavki za sanaciju — sve sa nazivom umesto MP broja ili nemaju MP para, ili ih nema." };
             let ispravljeno = 0; const greske = [];
-            for (const r of zaIspravku) {
-                const { error } = await supabase.from("materijal_stavke").update({ nalog_ref: mpPoPotpisu[potpis(r)] }).eq("id", r.id);
+            for (const x of zaIspravku) {
+                const { error } = await supabase.from("materijal_stavke").update({ nalog_ref: x.novi }).eq("id", x.id);
                 if (error) greske.push(error.message); else ispravljeno++;
             }
             ocistiKes();

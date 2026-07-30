@@ -277,6 +277,24 @@ export default function RadnikOperacija({ opid }) {
             uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), napomena: fin.napomena || "",
         }).eq("id", opid);
         if (error) setErr("Završetak nije uspeo: " + error.message);
+        // v2: kad se završi operacija MATERIJAL, materijal je fizički IZDAT u proizvodnju —
+        // upiši izdavanje u knjigu stavki (izdato_m = alocirano_m gde još nije upisano),
+        // da "Analiza potrošnje" ne stoji večno na "Izdato 0 m". Best-effort: ne blokira završetak.
+        if (!error && opKljuc(op) === "materijal") {
+            try {
+                const broj = String(op.broj_naloga || "").trim();
+                const master = canonRef(broj);
+                const { data: stavke } = await supabase.from("materijal_stavke")
+                    .select("id, izdato_m, alocirano_m, status, nalog_ref")
+                    .in("nalog_ref", [broj, master].filter(Boolean));
+                for (const r of (stavke || [])) {
+                    if (Number(r.izdato_m) > 0) continue; // već izdato — ne diraj
+                    await supabase.from("materijal_stavke")
+                        .update({ izdato_m: Number(r.alocirano_m) || 0, status: "izdato" })
+                        .eq("id", r.id);
+                }
+            } catch (e) { /* tiho — izdavanje se može upisati i naknadno */ }
+        }
         setBusy(false); setShowFinish(false); reload();
     }
 
