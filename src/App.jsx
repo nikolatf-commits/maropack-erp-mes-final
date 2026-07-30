@@ -1796,6 +1796,9 @@ function MainAppContent() {
                 .mp-sidebar .mp-item-active{ background:#2563eb !important; }
                 /* NE seći nazive — dozvoli prelom u dva reda umesto "…" */
                 .mp-sidebar .mp-label{ white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; }
+                /* Ugasi belu pozadinu/okvir oko prekidača jezika — sve tamno kao panel */
+                .mp-lang, .mp-lang > *{ background: transparent !important; border: none !important; box-shadow: none !important; }
+                .mp-lang label, .mp-lang > div > div:first-child{ color: #64748b !important; }
                 @media (max-width: 767px){
                     /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
                     .mp-sadrzaj [style*="grid-template-columns"]{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
@@ -1829,7 +1832,7 @@ function MainAppContent() {
                 </div>
 
                 {/* PREKIDAČ JEZIKA (SR / EN / DE) */}
-                <div style={{ padding: "10px 10px 0" }}>
+                <div className="mp-lang" style={{ padding: "10px 10px 4px" }}>
                     <LanguageSwitcher />
                 </div>
 
