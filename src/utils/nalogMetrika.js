@@ -54,13 +54,39 @@ export function extraktNalog(n) {
     const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
     const rzn = folija.rezanje || {};
     const st = folija.stampa || {};
+    const sirina = num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0;
+    // Broj traka: lista širina → override iz templejta → izračun iz širine trake i matične
+    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length
+        : (num2(rzn.brojTraka) || num2(rzn.brojTrakaOverride)
+            || (num2(rzn.sirinaTrake) > 0 && sirina > 0 ? Math.max(1, Math.floor(sirina / num2(rzn.sirinaTrake))) : 0));
     const kolicina = num2(n.metraza || n.kol || n.kolicina || t.porucenaKolicina || od.kolicina);
-    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length : num2(rzn.brojTraka);
+    // 1) NAJTAČNIJE: templejt-engine od v53 upisuje gotove metre matične rolne u parametre
+    //    naloga (metraza_maticne) — jedinica unosa (kom/kg/m) tu više ne igra ulogu.
+    const direktnaMaticna = num2(par.metraza_maticne || od.metraza_maticne || res.metraza_maticne || rez.metraza_maticne);
+    let metriMasine;
+    if (direktnaMaticna > 0) {
+        metriMasine = Math.round(direktnaMaticna);
+    } else {
+        // 2) Stariji nalozi: poštuj JEDINICU UNOSA — porucenaKolicina u KOM nisu metri!
+        const jed = String(t.jedinicaUnosa || "m").toLowerCase();
+        const trake = Math.max(1, brojTraka);
+        if (jed === "kom" && kolicina > 0) {
+            const korakM = num2(t.dimenzijaDuzina) / 1000;               // dužina komada duž trake
+            metriMasine = korakM > 0 ? Math.round((kolicina * korakM) / trake) : 0;
+        } else if (jed === "kg" && kolicina > 0) {
+            const slojevi = (folija.layers || []);
+            const gm2 = slojevi.reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
+            const m2 = gm2 > 0 ? (kolicina * 1000) / gm2 : 0;
+            metriMasine = (m2 > 0 && sirina > 0) ? Math.round(m2 / (sirina / 1000) / trake) : 0;
+        } else {
+            metriMasine = kolicina > 0 ? Math.round(kolicina / trake) : 0; // "m" — kao i do sada
+        }
+    }
     return {
         kolicina, brojTraka,
         // Mašina provlači MATIČNU rolnu: rezanje množi trake, ne skraćuje rolnu.
-        metriMasine: kolicina > 0 ? Math.round(kolicina / Math.max(1, brojTraka)) : 0,
-        sirina: num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0,
+        metriMasine,
+        sirina,
         rok: n.rok || n.rok_isporuke || n.datum_isporuke || od.rok || t.rok || "",
         kom: num2(od.kom || t.porucenaKolicinaKom || n.kom),
         brojBoja: num2(st.brojBoja),

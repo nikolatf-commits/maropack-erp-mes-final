@@ -387,7 +387,7 @@ const defaultForm = {
         // narudžbina
         kolicina: "",
         jedinicaUnosa: "m2",        // m2 | kom (špulni) | kg | m (trake)
-        skart: "0",
+        skart: "10",
         // materijal / strane
         sideA: "Silikon",
         sideB: "Papir",
@@ -418,6 +418,10 @@ function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 //   156 špulni × 20.000 m = 3.120.000 m  →  × 0,020 m (W) = 62.400 m²
 //   62.400 m² × 60 g/m² = 3.744 kg   ·   480 ÷ 20 = 24 trake  →  matična 130.000 m
 // ─────────────────────────────────────────────────────────────────────────────
+// PRAVILO FIRME: poručena količina se za rad UVEK uvećava 10% (folija, kesa i špulna).
+// Ako operater u polje unese drugi procenat (>0), on ima prednost; prazno/0 = 10%.
+const UVECANJE_KOLICINE_PCT = 10;
+
 function spulnaObracun(form) {
     const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const p = form.spulna || {};
@@ -425,7 +429,7 @@ function spulnaObracun(form) {
     const sirMat = N_(p.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
     const maxM = N_(p.maxMetara);
     const gm2 = (p.layers || []).reduce((a, l) => a + (N_(l.gm2) || N_(l.debljina) * N_(l.koeficijent)), 0);
-    const skart = N_(p.skart);
+    const skart = N_(p.skart) || UVECANJE_KOLICINE_PCT;
     const jed = p.jedinicaUnosa || "m2";
     const v = N_(p.kolicina);
     const greske = [];
@@ -471,13 +475,13 @@ function spulnaObracun(form) {
         greske,
     };
 }
-// Metraža materijala za nalog: kesa = kom × (dužina+klapna+falta) × (1+škart%); folija/špulna = poručena (m) × 1.05
+// Metraža materijala za nalog: uvek poručena količina + 10% (UVECANJE_KOLICINE_PCT); uneti % ima prednost.
 function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
         const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;   // korak, m
-        const kom = n(k.kolicina), skart = n(k.skart);
+        const kom = n(k.kolicina), skart = n(k.skart) || UVECANJE_KOLICINE_PCT;
         // BAN = broj traka po sirini. Rezanje NE skracuje duzinu - multiplicira je po traci,
         // pa je maticna rolna BAN puta KRACA. Ranije se nije delilo -> trazilo se BAN x vise materijala.
         const ban = Math.max(1, n(k.ban) || 1);
@@ -513,7 +517,7 @@ function orderMetraze(f) {
         };
     }
     const kol = n(f.porucenaKolicina);
-    return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
+    return { kol, kolPlus: Math.ceil(kol * (1 + UVECANJE_KOLICINE_PCT / 100)), kom: 0, duzM: 0 };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -524,7 +528,7 @@ function orderMetraze(f) {
 //   m²                  = metri matične × ulazna širina
 //   kg                  = m² × g/m²
 // ─────────────────────────────────────────────────────────────────────────────
-function folijaObracun(form, skartPct = 5) {
+function folijaObracun(form, skartPct = UVECANJE_KOLICINE_PCT) {
     const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const layers = (form.folija?.layers || []).filter(l => N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) > 0 || (N_(l.debljina) && N_(l.koeficijent)));
     const rez = form.folija?.rezanje || {};
@@ -1794,7 +1798,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
     async function potvrdiNalogMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-        const { kol, kolPlus } = orderMetraze(form);
+        const { kol, kolPlus, ban, mTrake } = orderMetraze(form);
 
         // ── TVRDA PROVERA — nalog se NE pravi ako rolne nisu izabrane i potrebe pokrivene.
         //    Ranije je ovde stajao window.confirm koji je dozvoljavao da se nepokriven
@@ -1865,7 +1869,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 tip_naloga: op,
                 status: op === "materijal" ? "ceka_magacin" : "ceka",
                 redosled: i + 1,
-                parametri: { sifra: form.sifra || "", template: form },
+                // metraza_maticne: METRI MATIČNE ROLNE (sa škartom) — izračunato kroz obračun,
+                // pa je tačno i kad je porudžbina uneta u KOM ili KG (planer/MES/AI čitaju
+                // prvo ovo polje umesto da pogađaju iz sirove porucenaKolicina).
+                parametri: { sifra: form.sifra || "", template: form, metraza_maticne: kolPlus || 0, metraza_bez_skarta: kol || 0, broj_traka: ban || 1, metri_trake: mTrake || 0 },
             }));
             const { data: opIns, error: oErr } = await supabase
                 .from("operativni_nalozi").insert(ops).select("id, tip_naloga");
@@ -2193,7 +2200,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 }
                 if (dodato) msg && msg(`Dodato u listu materijala: ${dodato} nov(ih)`, "ok");
             } catch (e) { /* nije kritično za čuvanje templejta */ }
-            if (setDb) setDb(prev => ({ ...prev, proizvodi: data?.[0] ? [data[0], ...(prev?.proizvodi || [])] : (prev?.proizvodi || []) }));
+            if (setDb) setDb(prev => {
+                const red = data?.[0];
+                if (!red) return prev;
+                // update postojećeg je ranije PREPEND-ovao red → isti templejt dvaput u listi
+                const bezStarog = (prev?.proizvodi || []).filter(pz => pz.id !== red.id);
+                return { ...prev, proizvodi: [red, ...bezStarog] };
+            });
             msg && msg("Template sačuvan u Product Master bazu (proizvodi)");
         } catch (e) {
             msg && msg("Template nije sačuvan u Product Master bazu: " + (e?.message || e), "err");
@@ -2602,6 +2615,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 onChange={e => update("folija.rezanje.precnikRolne", e.target.value)} placeholder="npr. 400" />
                         </div>
                         <div>
+                            <label style={labelStyle()}>Hilzna finalne rolne Ø (mm)</label>
+                            {/* Ide u finalRoll.hilzna → štampani nalog REZANJE je prikazuje u "Plan rezanja"
+                                i na prilogu finalne rolne. Prazno = preuzima hilznu štampe (pa 152). */}
+                            <input style={{ ...fieldStyle(), background: form.folija.finalRoll?.hilzna ? "#fff" : "#eff6ff", color: "#2446b8", fontWeight: 900 }}
+                                value={form.folija.finalRoll?.hilzna || ""}
+                                onChange={e => update("folija.finalRoll.hilzna", e.target.value)}
+                                placeholder={"auto: " + (form.folija.stampa?.precnikHilzne || 152)} />
+                        </div>
+                        <div>
                             <label style={labelStyle()}>{t("tmpl.dorada")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.dorada || ""}
                                 onChange={e => update("folija.rezanje.dorada", e.target.value)} />
@@ -2963,7 +2985,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         {/* ════ MODAL ZA NALOG MATERIJALA ════ */}
         {nalogModal && (() => {
             const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-            const { kol, kolPlus } = orderMetraze(form);
+            const { kol, kolPlus, ban, mTrake } = orderMetraze(form);
             const sir = Number(form.idealnaSirinaMaterijala) || 0;
             const sirinaM = sir / 1000;
             const COLORS_M = ["#2446b8", "#059669", "#d97706", "#7c3aed", "#dc2626"];

@@ -7,6 +7,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
 import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef } from '../utils/nalogMetrika.js';
+// v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
+import GanttPlanPRO from './GanttPlanPRO.jsx';
+// v54.1: živo osvežavanje naloga — kad radnik preko QR-a startuje/završi operaciju
+// na SVOM telefonu, planerov ekran to vidi za par sekundi (Supabase realtime).
+import { supabase } from '../supabase.js';
 
 // v52: boje operacija na jednom mestu (koristi ih i OrderCard i red čekanja na mašini)
 const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' };
@@ -120,7 +125,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const orders = useMemo(() => {
         // Jedna kartica PO OPERACIJI (štampa, rezanje, kaширanje...) — svaka ide na svoju mašinu.
         // Materijal se preskače (ne raspoređuje se na mašinu za štampu/rez).
-        const izvor = (Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || []));
+        const izvor = (Array.isArray(naloziZivi) && naloziZivi.length) ? naloziZivi : (Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || []));
         const tipOperacije = (n) => {
             const t = String(n.tip_naloga || n.vrsta || n.naziv || "").toLowerCase();
             if (t.includes("\u0161tamp") || t.includes("stamp")) return { k: "stampa", l: "\u0160TAMPA", ikona: "\uD83D\uDDA8\uFE0F" };
@@ -155,15 +160,38 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 durationMin: Math.max(30, Math.round(metri / 100)) || 60,        // fallback kad mašina nema brzinu
                 priority: n.prioritet || n.priority || "normalno",
                 status,
+                statusRaw: st,                                    // sirovi status (poslato_stampariji...)
+                start_ts: n.start_ts || n.pocetak_ts || null,     // za preostalo vreme naloga u radu
             });
         });
         return out;
     }, [db.master_nalozi, db.nalozi]);
     // v53: status svake operacije po glavnom nalogu — da red čekanja pokaže
     // "⏳ čeka ŠTAMPU" kad prethodna operacija istog naloga nije završena.
-    const opStatusi = useMemo(() => mapaOperacija(Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || [])), [db.nalozi, db.master_nalozi]);
+    const opStatusi = useMemo(() => mapaOperacija((Array.isArray(naloziZivi) && naloziZivi.length) ? naloziZivi : (Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || []))), [db.nalozi, db.master_nalozi, naloziZivi]);
     const [plan, setPlan] = useState({});
     const [filter, setFilter] = useState('sve');
+    const [prikaz, setPrikaz] = useState('masine'); // 'masine' | 'kalendar'
+    // v54.1: sveži operativni nalozi nezavisno od parenta — radnikov START/ZAVRŠI sa
+    // telefona menja bazu, a ovaj kanal povuče promenu i kalendar se ODMAH preračuna.
+    const [naloziZivi, setNaloziZivi] = useState(null);
+    useEffect(() => {
+        let ziv = true;
+        async function sveziNalozi() {
+            try {
+                const { data } = await supabase.from('operativni_nalozi').select('*').limit(2000);
+                if (ziv && Array.isArray(data)) setNaloziZivi(data);
+            } catch (e) { /* zadrži poslednje poznato */ }
+        }
+        const ch = supabase.channel('plan-nalozi-' + Math.random().toString(36).slice(2))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'operativni_nalozi' }, () => sveziNalozi())
+            .subscribe();
+        const onEvt = () => sveziNalozi();
+        window.addEventListener('maropack:nalozi-changed', onEvt);
+        // i plan od kolega u drugom tabu/računaru (prevučen nalog) — na 20s
+        const t = setInterval(async () => { try { setPlan(await loadProductionPlan()); } catch (e) { } }, 20000);
+        return () => { ziv = false; try { supabase.removeChannel(ch); } catch (e) { } window.removeEventListener('maropack:nalozi-changed', onEvt); clearInterval(t); };
+    }, []);
     const [editing, setEditing] = useState(null);
     const [trace, setTrace] = useState([]);
     const [dragOrder, setDragOrder] = useState(null);
@@ -243,93 +271,105 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             <KPI label="Planirano vreme" value={`${Math.round(totals.minutes / 60)} h`} sub={`${totals.minutes} minuta ukupno`} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '330px 1fr', gap: 16, marginTop: 16 }}>
-            <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
-                <div style={{ ...styles.card, padding: 16 }}>
-                    <h3 style={{ margin: 0 }}>Nalozi za raspored</h3>
-                    <p style={{ margin: '6px 0 12px', color: '#64748b', fontSize: 13 }}>Prevuci nalog na kompatibilnu mašinu.</p>
-                    {unplanned.length === 0 && <div style={{ padding: 14, borderRadius: 12, background: '#ecfdf5', color: '#047857', fontWeight: 900 }}>Svi nalozi su raspoređeni.</div>}
-                    {unplanned.map(o => <OrderCard key={o.id} order={o} onDragStart={dragStart} />)}
-                </div>
-                <div style={{ ...styles.card, padding: 16 }}>
-                    <h3 style={{ margin: 0 }}>Workflow statusi naloga</h3>
-                    <div style={{ display: 'grid', gap: 7, marginTop: 12 }}>{ORDER_STATUSES.map(s => <Badge key={s.key} color={s.color}>{s.label}</Badge>)}</div>
-                </div>
-                <div style={{ ...styles.card, padding: 16 }}>
-                    <h3 style={{ margin: 0 }}>Traceability</h3>
-                    <div style={{ marginTop: 12, maxHeight: 220, overflow: 'auto' }}>{trace.slice(0, 8).map((t, i) => <div key={i} style={{ borderBottom: '1px solid #e2e8f0', padding: '8px 0', fontSize: 12 }}><b>{t.event_type}</b><br /><span style={{ color: '#64748b' }}>{new Date(t.created_at).toLocaleString('sr-RS')}</span></div>)}</div>
-                </div>
-            </div>
-
-            <div>
-                <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaširanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
-                    <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>Klikni karticu mašine za unos karakteristika.</div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
-                    {shownMachines.map(machine => {
-                        const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(Boolean);
-                        const load = assigned.reduce((s, o) => s + calcDurationMin(machine, o), 0);
-                        return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
-                                <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
-                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                    <Badge color={machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}>{machine.status}</Badge>
-                                    <button onClick={() => setEditing(machine)} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '5px 9px', fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>✏️ Uredi</button>
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginTop: 12, fontSize: 12 }}>
-                                <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.minWidth}-{machine.maxWidth}</b><br /><span style={{ color: '#64748b' }}>mm</span></div>
-                                <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>Ø {machine.maxDiameter}</b><br /><span style={{ color: '#64748b' }}>max</span></div>
-                                <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.speed}</b><br /><span style={{ color: '#64748b' }}>brzina</span></div>
-                                <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.setupMin}</b><br /><span style={{ color: '#64748b' }}>setup</span></div>
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}</div>
-                            <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
-                                {assigned.length === 0 && <div style={{ color: '#94a3b8', fontWeight: 900, textAlign: 'center', padding: 22 }}>Prevuci nalog ovde</div>}
-                                {/* v52: numerisan RED ČEKANJA — vidi se ko je 1., 5., 10. na mašini; ▲▼ menja redosled */}
-                                {(() => {
-                                    let cum = 0; return assigned.map((o, i) => {
-                                        const dur = calcDurationMin(machine, o);
-                                        cum += dur;
-                                        // v53: rok vs kapacitet — koliko SMENA treba da nalog dođe na red i završi se
-                                        // (zbir minuta do njega uključivo ÷ 480) prema danima do roka.
-                                        const rokD = o.rok ? new Date(o.rok) : null;
-                                        const smenaTreba = Math.ceil(cum / 480);
-                                        const danaDoRoka = rokD && !Number.isNaN(rokD.getTime()) ? Math.floor((rokD.getTime() - Date.now()) / 86400000) + 1 : null;
-                                        const probijaRok = danaDoRoka !== null && smenaTreba > Math.max(0, danaDoRoka);
-                                        // v53: blokada redosleda — prethodna operacija istog naloga nije gotova
-                                        const blokada = nadjiBlokadu(canonRef(o.id), o.opTip === 'rezanje' ? 'perforacija_rezanje' : (o.opTip === 'kese' ? 'kesa' : (o.opTip === 'spulne' ? 'spulna' : o.opTip)), opStatusi);
-                                        const b = OP_BOJA[o.opTip] || '#64748b';
-                                        const qb = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, width: 20, height: 15, fontSize: 9, fontWeight: 900, cursor: 'pointer', lineHeight: '11px', padding: 0, color: '#334155' };
-                                        return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid ' + b, borderRadius: 10, padding: '7px 8px', marginBottom: 10, cursor: 'grab' }}>
-                                            <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
-                                                <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '\u2014' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
-                                            </div>
-                                            <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                <button onClick={() => moveInQueue(machine.id, i, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
-                                                <button onClick={() => moveInQueue(machine.id, i, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
-                                            </div>
-                                            <button onClick={() => removeFromMachine(o.id)} style={{ border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', padding: '3px 7px' }}>×</button>
-                                            {(probijaRok || blokada) && <div style={{ position: 'absolute', right: 8, bottom: -7, display: 'flex', gap: 4 }}>
-                                                {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok ({smenaTreba} smena / {Math.max(0, danaDoRoka)} d)</span>}
-                                                {blokada && <span style={{ fontSize: 9, fontWeight: 900, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>⏳ čeka {OP_LABELE[blokada] || blokada}</span>}
-                                            </div>}
-                                        </div>;
-                                    });
-                                })()}
-                            </div>
-                            <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / 480 * 100)}%`, height: '100%', background: load > 420 ? '#dc2626' : '#2563eb' }} /></div>
-                            <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / smena 480 min · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
-                        </div>;
-                    })}
-                </div>
-            </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            {[['masine', '🏭 Mašine'], ['kalendar', '📅 Kalendar']].map(([k, l]) =>
+                <button key={k} onClick={() => setPrikaz(k)} style={{ ...styles.btn, padding: '10px 18px', background: prikaz === k ? '#0f172a' : '#fff', color: prikaz === k ? '#fff' : '#334155', border: prikaz === k ? 'none' : '1px solid #cbd5e1' }}>{l}</button>)}
         </div>
+
+        {prikaz === 'kalendar' && <div style={{ marginTop: 14 }}>
+            <GanttPlanPRO machines={machines} plan={plan} orderMap={orderMap} opStatusi={opStatusi} dragStart={dragStart} dropToMachine={dropToMachine} />
+        </div>}
+
+        {prikaz === 'masine' && <>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '330px 1fr', gap: 16, marginTop: 16 }}>
+                <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+                    <div style={{ ...styles.card, padding: 16 }}>
+                        <h3 style={{ margin: 0 }}>Nalozi za raspored</h3>
+                        <p style={{ margin: '6px 0 12px', color: '#64748b', fontSize: 13 }}>Prevuci nalog na kompatibilnu mašinu.</p>
+                        {unplanned.length === 0 && <div style={{ padding: 14, borderRadius: 12, background: '#ecfdf5', color: '#047857', fontWeight: 900 }}>Svi nalozi su raspoređeni.</div>}
+                        {unplanned.map(o => <OrderCard key={o.id} order={o} onDragStart={dragStart} />)}
+                    </div>
+                    <div style={{ ...styles.card, padding: 16 }}>
+                        <h3 style={{ margin: 0 }}>Workflow statusi naloga</h3>
+                        <div style={{ display: 'grid', gap: 7, marginTop: 12 }}>{ORDER_STATUSES.map(s => <Badge key={s.key} color={s.color}>{s.label}</Badge>)}</div>
+                    </div>
+                    <div style={{ ...styles.card, padding: 16 }}>
+                        <h3 style={{ margin: 0 }}>Traceability</h3>
+                        <div style={{ marginTop: 12, maxHeight: 220, overflow: 'auto' }}>{trace.slice(0, 8).map((t, i) => <div key={i} style={{ borderBottom: '1px solid #e2e8f0', padding: '8px 0', fontSize: 12 }}><b>{t.event_type}</b><br /><span style={{ color: '#64748b' }}>{new Date(t.created_at).toLocaleString('sr-RS')}</span></div>)}</div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaširanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
+                        <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>Klikni karticu mašine za unos karakteristika.</div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
+                        {shownMachines.map(machine => {
+                            const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(Boolean);
+                            const load = assigned.reduce((s, o) => s + calcDurationMin(machine, o), 0);
+                            return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
+                                    <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
+                                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                        <Badge color={machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}>{machine.status}</Badge>
+                                        <button onClick={() => setEditing(machine)} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '5px 9px', fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>✏️ Uredi</button>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginTop: 12, fontSize: 12 }}>
+                                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.minWidth}-{machine.maxWidth}</b><br /><span style={{ color: '#64748b' }}>mm</span></div>
+                                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>Ø {machine.maxDiameter}</b><br /><span style={{ color: '#64748b' }}>max</span></div>
+                                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.speed}</b><br /><span style={{ color: '#64748b' }}>brzina</span></div>
+                                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.setupMin}</b><br /><span style={{ color: '#64748b' }}>setup</span></div>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}</div>
+                                <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
+                                    {assigned.length === 0 && <div style={{ color: '#94a3b8', fontWeight: 900, textAlign: 'center', padding: 22 }}>Prevuci nalog ovde</div>}
+                                    {/* v52: numerisan RED ČEKANJA — vidi se ko je 1., 5., 10. na mašini; ▲▼ menja redosled */}
+                                    {(() => {
+                                        let cum = 0; return assigned.map((o, i) => {
+                                            const dur = calcDurationMin(machine, o);
+                                            cum += dur;
+                                            // v53: rok vs kapacitet — koliko SMENA treba da nalog dođe na red i završi se
+                                            // (zbir minuta do njega uključivo ÷ 480) prema danima do roka.
+                                            const rokD = o.rok ? new Date(o.rok) : null;
+                                            const smenaTreba = Math.ceil(cum / 480);
+                                            const danaDoRoka = rokD && !Number.isNaN(rokD.getTime()) ? Math.floor((rokD.getTime() - Date.now()) / 86400000) + 1 : null;
+                                            const probijaRok = danaDoRoka !== null && smenaTreba > Math.max(0, danaDoRoka);
+                                            // v53: blokada redosleda — prethodna operacija istog naloga nije gotova
+                                            const blokada = nadjiBlokadu(canonRef(o.id), o.opTip === 'rezanje' ? 'perforacija_rezanje' : (o.opTip === 'kese' ? 'kesa' : (o.opTip === 'spulne' ? 'spulna' : o.opTip)), opStatusi);
+                                            const b = OP_BOJA[o.opTip] || '#64748b';
+                                            const qb = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, width: 20, height: 15, fontSize: 9, fontWeight: 900, cursor: 'pointer', lineHeight: '11px', padding: 0, color: '#334155' };
+                                            return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid ' + b, borderRadius: 10, padding: '7px 8px', marginBottom: 10, cursor: 'grab' }}>
+                                                <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
+                                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '\u2014' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
+                                                </div>
+                                                <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                    <button onClick={() => moveInQueue(machine.id, i, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
+                                                    <button onClick={() => moveInQueue(machine.id, i, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
+                                                </div>
+                                                <button onClick={() => removeFromMachine(o.id)} style={{ border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', padding: '3px 7px' }}>×</button>
+                                                {(probijaRok || blokada) && <div style={{ position: 'absolute', right: 8, bottom: -7, display: 'flex', gap: 4 }}>
+                                                    {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok ({smenaTreba} smena / {Math.max(0, danaDoRoka)} d)</span>}
+                                                    {blokada && <span style={{ fontSize: 9, fontWeight: 900, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>⏳ čeka {OP_LABELE[blokada] || blokada}</span>}
+                                                </div>}
+                                            </div>;
+                                        });
+                                    })()}
+                                </div>
+                                <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / 480 * 100)}%`, height: '100%', background: load > 420 ? '#dc2626' : '#2563eb' }} /></div>
+                                <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / smena 480 min · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
+                            </div>;
+                        })}
+                    </div>
+                </div>
+            </div>
+        </>}
 
         <MachineEditModal machine={editing} onClose={() => setEditing(null)} onSave={saveMachine} />
     </div>;

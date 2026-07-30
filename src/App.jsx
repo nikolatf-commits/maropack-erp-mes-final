@@ -1270,6 +1270,7 @@ function MainAppContent() {
 
     const [page, setPage] = useState("dashboard_pro");
     const [openGroups, setOpenGroups] = useState(['dashboard']);
+    const [navOtvoren, setNavOtvoren] = useState(false);   // mobilni meni (hamburger)
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
         if (typeof window === "undefined") return false;
         return window.innerWidth < 768;
@@ -1737,6 +1738,10 @@ function MainAppContent() {
             .filter(function (g) { return (g.items || []).length > 0; })
         : navGroupsAll;
     const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
+    // Puna aplikacija NA TELEFONU je privilegija: admin i manager uvek, ostalima je
+    // admin uključuje kolonom telefon_pun_pristup (boolean) u profilu korisnika.
+    // Magacioneri ovim NISU dirnuti — oni i dalje imaju svoj mobilni magacinski ekran.
+    const punaAppNaTelefonu = isAdmin || userProfile?.uloga === "manager" || userProfile?.telefon_pun_pristup === true;
 
     function toggleGroup(groupKey) {
         if (openGroups.includes(groupKey)) {
@@ -1756,8 +1761,39 @@ function MainAppContent() {
             {notif && <Notif msg={notif.msg} tip={notif.tip} />}
             {stampa && <PrintA4 data={stampa} onClose={function () { setStampa(null); }} />}
 
+            {/* ── MOBILNI REŽIM ─────────────────────────────────────────────────
+                Jedan globalni sloj koji celu aplikaciju čini upotrebljivom na telefonu:
+                - sidebar postaje fioka sa hamburger dugmetom (☰)
+                - sve inline grid mreže se preslažu u uske kolone (auto-fit, !important
+                  pobedjuje inline stil — jedino tako bez diranja 50+ modula)
+                - tabele klize prstom umesto da se gnječe
+                - inputi 16px da iOS ne zumira pri fokusu                       */}
+            {!mobileMagacionerMode && <style>{`
+                @media (max-width: 820px){
+                    [style*="grid-template-columns"]{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
+                    div:has(> table){ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+                    table{ min-width: 560px; }
+                    input, select, textarea{ font-size: 16px !important; }
+                    body{ -webkit-text-size-adjust: 100%; }
+                }
+            `}</style>}
+            {isMobileViewport && !mobileMagacionerMode && punaAppNaTelefonu && (
+                <button onClick={function () { setNavOtvoren(!navOtvoren); }}
+                    style={{ position: "fixed", top: 12, left: 12, zIndex: 1300, width: 44, height: 44, borderRadius: 12, border: "none", background: "#0f172a", color: "#fff", fontSize: 20, fontWeight: 900, cursor: "pointer", boxShadow: "0 6px 18px rgba(15,23,42,.35)" }}>
+                    {navOtvoren ? "✕" : "☰"}
+                </button>
+            )}
+            {isMobileViewport && navOtvoren && (
+                <div onClick={function () { setNavOtvoren(false); }}
+                    style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 1100 }} />
+            )}
+
             {/* ACCORDION SIDEBAR */}
-            <div style={{ width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
+            <div style={{
+                width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex",
+                flexDirection: "column", flexShrink: 0, minHeight: "100vh",
+                ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
+            }}>
                 <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
                     <img src={LOGO_B64} alt="Maropack" style={{ maxWidth: 160, height: 42, objectFit: "contain" }} />
                 </div>
@@ -1823,7 +1859,7 @@ function MainAppContent() {
                                         return (
                                             <div
                                                 key={item.k}
-                                                onClick={function () { setPage(item.k); }}
+                                                onClick={function () { setPage(item.k); setNavOtvoren(false); }}
                                                 style={{
                                                     padding: "8px 12px",
                                                     fontSize: 13,
@@ -1938,287 +1974,301 @@ function MainAppContent() {
             </div>
 
             {/* SADRZAJ */}
-            <div style={{ flex: 1, overflow: "auto", padding: mobileMagacionerMode ? 0 : 22 }}>
-
-                {/* DASHBOARD */}
-                {(page === "dash" || page === "dashboard") && <DashboardPRO setPage={setPage} />}
-
-                {/* KALKULATORI */}
-                {page === "kalk_folija" && <KalkulacijaFolije />}
-
-                {/* LISTA KALKULACIJA */}
-                {page === "kalkulacije_lista" && (
-                    <ListaKalkulacija
-                        setPage={setPage}
-                        onOtvoriKalkulaciju={(kal) => {
-                            // Otvori odgovarajuću stranicu zavisno od tipa
-                            if (kal.tip === 'folija') {
-                                setPage('kalk_folija');
-                                // Sačuvaj kalkulaciju u localStorage za učitavanje
-                                localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                            } else if (kal.tip === 'kesa') {
-                                setPage('kalk_kesa');
-                                localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                            } else if (kal.tip === 'spulna') {
-                                setPage('kalk_spulna');
-                                localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                            }
-                        }}
-                        onKreirajPonudu={async (kal) => {
-                            console.log('🚀 Kreiram ponudu iz:', kal);
-                            try {
-                                const result = await kreirajPonuduIzKalkulacije(kal);
-                                console.log('📊 Rezultat:', result);
-
-                                if (result.success) {
-                                    msg('Ponuda kreirana iz kalkulacije!');
-                                    setPage('ponude');
-                                } else {
-                                    console.error('❌ Greška:', result.error);
-                                    msg('Greška pri kreiranju ponude: ' + result.error, 'err');
-                                }
-                            } catch (err) {
-                                console.error('💥 Exception:', err);
-                                msg('Greška: ' + err.message, 'err');
-                            }
-                        }}
-                    />
-                )}
-
-                {/* KALKULACIJA KESE */}
-                {page === "kalk_kesa" && (
-                    <KalkulacijaKese setPage={setPage} />
-                )}
-                {/* KALKULACIJA ŠPULNE */}
-                {page === "kalk_spulna" && (
-                    <KalkulacijaSpulne setPage={setPage} />
-                )}
-
-                {/* PONUDE - ZAMENJENO: render PonudePRO sa handlerima */}
-                {page === "ponude" && (
-
-                    <PonudePRO
-
-                        onPrihvati={kreirajNalogeIzPonude}
-
-                        onOtvoriKalkulaciju={(kal) => {
-
-                            if (kal.tip === 'folija') {
-
-                                setPage('kalk_folija');
-
-                                localStorage.setItem(
-                                    'editKalkulacija',
-                                    JSON.stringify(kal)
-                                );
-
-                            } else if (kal.tip === 'kesa') {
-
-                                setPage('kalk_kesa');
-
-                                localStorage.setItem(
-                                    'editKalkulacija',
-                                    JSON.stringify(kal)
-                                );
-
-                            } else if (kal.tip === 'spulna') {
-
-                                setPage('kalk_spulna');
-
-                                localStorage.setItem(
-                                    'editKalkulacija',
-                                    JSON.stringify(kal)
-                                );
-                            }
-                        }}
-                    />
-                )}
-
-
-
-                {page === "plan_proizvodnje" && (
-                    <MachineSchedulerPRO db={db} msg={msg} />
-                )}
-
-                {page === "live_production" && (
-                    <LiveProductionMES db={db} msg={msg} />
-                )}
-
-
-                {page === "quality_control" && (
-                    <QualityControlPRO db={db} msg={msg} />
-                )}
-
-                {page === "tehnicki_list" && (
-                    <TehnickiListPRO db={db} msg={msg} />
-                )}
-
-
-                {page === "rolne_engine" && (
-                    <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={(isMagacioner || userProfile?.uloga === "radnik") && isMobileViewport} />
-                )}
-
-                {page === "kalkulator_maticnih" && (
-                    <KalkulatorMaticnihRolni db={db} msg={msg} />
-                )}
-
-                {page === "planer_rezanja_magacin" && (
-                    <PlanerRezanjaIzMagacina db={db} setDb={setDb} msg={msg} />
-                )}
-
-                {page === "formatiranje_rolni" && (
-                    <FormatiranjeRolniPRO msg={msg} />
-                )}
-
-                {/* RADNI NALOZI */}
-                {page === "nalozi" && (
-                    <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-                            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
-                            <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
+            {isMobileViewport && !mobileMagacionerMode && !punaAppNaTelefonu ? (
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+                    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 18, padding: "28px 22px", maxWidth: 380, textAlign: "center", boxShadow: "0 10px 30px rgba(15,23,42,.08)" }}>
+                        <div style={{ fontSize: 40 }}>📵</div>
+                        <div style={{ fontWeight: 950, fontSize: 17, margin: "10px 0 6px" }}>Puna aplikacija nije omogućena na telefonu</div>
+                        <div style={{ color: "#64748b", fontSize: 13.5, lineHeight: 1.5 }}>
+                            Tvoj nalog može da koristi MAROPACK sa računara. Za rad za mašinom skeniraj QR kod sa papirnog naloga.
+                            Administrator može da ti omogući pristup sa telefona.
                         </div>
-                        {pregNalog ? (
-                            <PregledNalogaPRO
-                                brojNaloga={pregNalog.ponBr || pregNalog.broj_naloga || pregNalog.broj}
-                                osnovniNalog={pregNalog}
-                                naloziProp={db.nalozi}
-                                nalozi={db.nalozi}
-                                onBack={function () { setPregNalog(null); }}
-                            />
-                        ) : db.nalozi.length === 0 ? (
-                            <div style={Object.assign({}, card, { textAlign: "center", padding: 50, color: "#94a3b8" })}>
-                                <div style={{ fontSize: 36, marginBottom: 10 }}>🔧</div>
-                                <div>Nema naloga. Odobrite ponudu da kreirate naloge.</div>
+                        <button onClick={handleLogout} style={{ marginTop: 16, border: "none", background: "#0f172a", color: "#fff", borderRadius: 12, padding: "11px 20px", fontWeight: 900, cursor: "pointer" }}>Odjavi se</button>
+                    </div>
+                </div>
+            ) : (
+                <div style={{ flex: 1, overflow: "auto", padding: mobileMagacionerMode ? 0 : (isMobileViewport ? "64px 10px 28px" : 22), minWidth: 0 }}>
+
+                    {/* DASHBOARD */}
+                    {(page === "dash" || page === "dashboard") && <DashboardPRO setPage={setPage} />}
+
+                    {/* KALKULATORI */}
+                    {page === "kalk_folija" && <KalkulacijaFolije />}
+
+                    {/* LISTA KALKULACIJA */}
+                    {page === "kalkulacije_lista" && (
+                        <ListaKalkulacija
+                            setPage={setPage}
+                            onOtvoriKalkulaciju={(kal) => {
+                                // Otvori odgovarajuću stranicu zavisno od tipa
+                                if (kal.tip === 'folija') {
+                                    setPage('kalk_folija');
+                                    // Sačuvaj kalkulaciju u localStorage za učitavanje
+                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
+                                } else if (kal.tip === 'kesa') {
+                                    setPage('kalk_kesa');
+                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
+                                } else if (kal.tip === 'spulna') {
+                                    setPage('kalk_spulna');
+                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
+                                }
+                            }}
+                            onKreirajPonudu={async (kal) => {
+                                console.log('🚀 Kreiram ponudu iz:', kal);
+                                try {
+                                    const result = await kreirajPonuduIzKalkulacije(kal);
+                                    console.log('📊 Rezultat:', result);
+
+                                    if (result.success) {
+                                        msg('Ponuda kreirana iz kalkulacije!');
+                                        setPage('ponude');
+                                    } else {
+                                        console.error('❌ Greška:', result.error);
+                                        msg('Greška pri kreiranju ponude: ' + result.error, 'err');
+                                    }
+                                } catch (err) {
+                                    console.error('💥 Exception:', err);
+                                    msg('Greška: ' + err.message, 'err');
+                                }
+                            }}
+                        />
+                    )}
+
+                    {/* KALKULACIJA KESE */}
+                    {page === "kalk_kesa" && (
+                        <KalkulacijaKese setPage={setPage} />
+                    )}
+                    {/* KALKULACIJA ŠPULNE */}
+                    {page === "kalk_spulna" && (
+                        <KalkulacijaSpulne setPage={setPage} />
+                    )}
+
+                    {/* PONUDE - ZAMENJENO: render PonudePRO sa handlerima */}
+                    {page === "ponude" && (
+
+                        <PonudePRO
+
+                            onPrihvati={kreirajNalogeIzPonude}
+
+                            onOtvoriKalkulaciju={(kal) => {
+
+                                if (kal.tip === 'folija') {
+
+                                    setPage('kalk_folija');
+
+                                    localStorage.setItem(
+                                        'editKalkulacija',
+                                        JSON.stringify(kal)
+                                    );
+
+                                } else if (kal.tip === 'kesa') {
+
+                                    setPage('kalk_kesa');
+
+                                    localStorage.setItem(
+                                        'editKalkulacija',
+                                        JSON.stringify(kal)
+                                    );
+
+                                } else if (kal.tip === 'spulna') {
+
+                                    setPage('kalk_spulna');
+
+                                    localStorage.setItem(
+                                        'editKalkulacija',
+                                        JSON.stringify(kal)
+                                    );
+                                }
+                            }}
+                        />
+                    )}
+
+
+
+                    {page === "plan_proizvodnje" && (
+                        <MachineSchedulerPRO db={db} msg={msg} />
+                    )}
+
+                    {page === "live_production" && (
+                        <LiveProductionMES db={db} msg={msg} />
+                    )}
+
+
+                    {page === "quality_control" && (
+                        <QualityControlPRO db={db} msg={msg} />
+                    )}
+
+                    {page === "tehnicki_list" && (
+                        <TehnickiListPRO db={db} msg={msg} />
+                    )}
+
+
+                    {page === "rolne_engine" && (
+                        <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={(isMagacioner || userProfile?.uloga === "radnik") && isMobileViewport} />
+                    )}
+
+                    {page === "kalkulator_maticnih" && (
+                        <KalkulatorMaticnihRolni db={db} msg={msg} />
+                    )}
+
+                    {page === "planer_rezanja_magacin" && (
+                        <PlanerRezanjaIzMagacina db={db} setDb={setDb} msg={msg} />
+                    )}
+
+                    {page === "formatiranje_rolni" && (
+                        <FormatiranjeRolniPRO msg={msg} />
+                    )}
+
+                    {/* RADNI NALOZI */}
+                    {page === "nalozi" && (
+                        <div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
+                                <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
                             </div>
-                        ) : (
-                            <div>
-                                {(function () {
-                                    var grupe = {};
-                                    db.nalozi.forEach(function (n) { var key = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "Bez broja"; if (!grupe[key]) grupe[key] = []; grupe[key].push(n); });
-                                    return Object.keys(grupe).map(function (key) {
-                                        var gr = grupe[key].slice().sort(function (a, b) { return (a.redosled || 0) - (b.redosled || 0); });
-                                        var master = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
-                                        var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
-                                        var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
-                                        var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
-                                        var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
-                                        var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
-                                        var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
-                                        return (
-                                            <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 })}>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
-                                                    <span style={{ fontWeight: 800, fontSize: 14, color: "#1d4ed8" }}>{br || 'N/A'}</span>
-                                                    <span style={{ background: (TIP_BOJA[tipNaloga] || "#64748b") + "20", color: TIP_BOJA[tipNaloga] || "#64748b", borderRadius: 6, padding: "2px 8px", fontWeight: 700, fontSize: 10 }}>{TIP_LAB[tipNaloga] || "—"}</span>
-                                                    <span style={{ fontWeight: 600, fontSize: 13 }}>{grKupac}</span>
-                                                    <span style={{ color: "#64748b", fontSize: 12 }}>{grProizvod}</span>
-                                                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
-                                                    <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
-                                                        <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
+                            {pregNalog ? (
+                                <PregledNalogaPRO
+                                    brojNaloga={pregNalog.ponBr || pregNalog.broj_naloga || pregNalog.broj}
+                                    osnovniNalog={pregNalog}
+                                    naloziProp={db.nalozi}
+                                    nalozi={db.nalozi}
+                                    onBack={function () { setPregNalog(null); }}
+                                />
+                            ) : db.nalozi.length === 0 ? (
+                                <div style={Object.assign({}, card, { textAlign: "center", padding: 50, color: "#94a3b8" })}>
+                                    <div style={{ fontSize: 36, marginBottom: 10 }}>🔧</div>
+                                    <div>Nema naloga. Odobrite ponudu da kreirate naloge.</div>
+                                </div>
+                            ) : (
+                                <div>
+                                    {(function () {
+                                        var grupe = {};
+                                        db.nalozi.forEach(function (n) { var key = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "Bez broja"; if (!grupe[key]) grupe[key] = []; grupe[key].push(n); });
+                                        return Object.keys(grupe).map(function (key) {
+                                            var gr = grupe[key].slice().sort(function (a, b) { return (a.redosled || 0) - (b.redosled || 0); });
+                                            var master = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
+                                            var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
+                                            var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
+                                            var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
+                                            var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
+                                            var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
+                                            var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
+                                            return (
+                                                <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 })}>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+                                                        <span style={{ fontWeight: 800, fontSize: 14, color: "#1d4ed8" }}>{br || 'N/A'}</span>
+                                                        <span style={{ background: (TIP_BOJA[tipNaloga] || "#64748b") + "20", color: TIP_BOJA[tipNaloga] || "#64748b", borderRadius: 6, padding: "2px 8px", fontWeight: 700, fontSize: 10 }}>{TIP_LAB[tipNaloga] || "—"}</span>
+                                                        <span style={{ fontWeight: 600, fontSize: 13 }}>{grKupac}</span>
+                                                        <span style={{ color: "#64748b", fontSize: 12 }}>{grProizvod}</span>
+                                                        <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
+                                                        <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                                                            <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
+                                                        {gr.map(function (n) {
+                                                            return (
+                                                                <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>
+                                                                    <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
+                                                                        <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
+                                                                        <span style={{ fontWeight: 800, fontSize: 15 }}>{n.naziv}</span>
+                                                                    </div>
+                                                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                                                        <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
+                                                                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,.9)" }} />
+                                                                            {statusStil(n.status).tekst}
+                                                                        </span>
+                                                                        {n.radnik && <span style={{ fontSize: 13, color: "#334155", fontWeight: 700 }}>👤 {n.radnik}</span>}
+                                                                    </div>
+                                                                    <div style={{ marginTop: 8, fontSize: 10, color: "#64748b", fontWeight: 700 }}>Klikni za PRO pregled / štampu</div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
-                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
-                                                    {gr.map(function (n) {
-                                                        return (
-                                                            <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>
-                                                                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
-                                                                    <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
-                                                                    <span style={{ fontWeight: 800, fontSize: 15 }}>{n.naziv}</span>
-                                                                </div>
-                                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                                                                    <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
-                                                                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,.9)" }} />
-                                                                        {statusStil(n.status).tekst}
-                                                                    </span>
-                                                                    {n.radnik && <span style={{ fontSize: 13, color: "#334155", fontWeight: 700 }}>👤 {n.radnik}</span>}
-                                                                </div>
-                                                                <div style={{ marginTop: 8, fontSize: 10, color: "#64748b", fontWeight: 700 }}>Klikni za PRO pregled / štampu</div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        );
-                                    });
-                                })()}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-
-
-                {/* Profesionalni nalozi se prikazuju samo kroz PregledNalogaPRO. */}
-
-                {/* BAZA / TEMPLATE MODULI */}
-                {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
-                {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
-                {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
-                {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
-
-                {/* ✅ NOVO: AUDIT LOG */}
-                {page === "audit_log" && isAdmin && <AuditLog />}
-                {page === "user_management" && isAdmin && <UserManagement />}
-
-                {/* MAGACIN UNIFIED - SVE U JEDNOM */}
-                {page === "analiza_materijal_stavke" && (<AnalizaMaterijalStavke msg={msg} />)}
-
-                {/* ✅ DRUGI PRO MODULI */}
-                {page === "dashboard_pro" && <DashboardPRO setPage={setPage} />}
-                {page === "manager_dashboard" && <ManagerDashboard />}
-                {page === "finansije_kpi" && <FinansijeKPI_PRO db={db} msg={msg} />}
-                {page === "mobile" && <MobileApp setPage={setPage} />}
-
-                {/* 🤖 AI MODULI */}
-                {page === "ai_planner" && <AIProductionPlanner setPage={setPage} />}
-                {page === "ai_chat" && <AIChatAssistant />}
-                {page === "ai_agent_command" && <AIAgentCommandCenter />}
-                {page === "ai_workflow" && <ProductAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
-                {page === "ai_documents" && <DocumentAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
-                {page === "ai_waste" && <AIWasteOptimizer />}
-                {page === "ai_quality" && <AIQualityInspector />}
-
-                {page === "system_stabilization" && <SystemStabilizationCenter db={db} msg={msg} />}
-                {page === "production_hardening" && <ProductionHardeningCenter db={db} msg={msg} />}
-                {page === "final_qa_deployment" && <FinalQADeploymentCenter db={db} msg={msg} />}
-                {page === "final_production_readiness" && <FinalProductionReadinessCenter db={db} msg={msg} />}
-                {page === "system_status" && <SystemStatusPRO db={db} />}
-                {page === "backup_security" && <BackupSecurityCenter db={db} />}
-
-                {page === "ai_kalk" && (
-                    <AIAsistentKalkulacije
-                        card={card}
-                        inp={inp}
-                        lbl={lbl}
-                        msg={msg}
-                    />
-                )}
-                {/* PODESAVANJA */}
-                {page === "pod" && isAdmin && (
-                    <div>
-                        <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>⚙️ Podešavanja</h2>
-                        <div style={card}>
-                            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>👥 Korisnici sistema</div>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                                <thead><tr style={{ borderBottom: "2px solid #e2e8f0" }}>
-                                    {["Ime", "Uloga", "Lozinka"].map(function (h) { return <th key={h} style={{ padding: "8px", textAlign: "left", color: "#64748b", fontWeight: 600 }}>{h}</th>; })}
-                                </tr></thead>
-                                <tbody>
-                                    {USERS.map(function (u) {
-                                        return (
-                                            <tr key={u.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                                                <td style={{ padding: "10px 8px", fontWeight: 600 }}>{u.ime}</td>
-                                                <td style={{ padding: "10px 8px" }}><span style={{ background: u.uloga === "admin" ? "#fef3c7" : "#dbeafe", color: u.uloga === "admin" ? "#92400e" : "#1e40af", borderRadius: 6, padding: "2px 10px", fontWeight: 700, fontSize: 11 }}>{u.uloga === "admin" ? "Administrator" : u.uloga === "magacioner" ? "Magacioner" : u.uloga === "manager" ? "Manager" : "Radnik"}</span></td>
-                                                <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#94a3b8" }}>{u.pass}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            )}
                         </div>
-                    </div>
-                )}
+                    )}
 
-            </div>
+
+
+                    {/* Profesionalni nalozi se prikazuju samo kroz PregledNalogaPRO. */}
+
+                    {/* BAZA / TEMPLATE MODULI */}
+                    {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
+                    {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
+                    {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
+                    {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
+
+                    {/* ✅ NOVO: AUDIT LOG */}
+                    {page === "audit_log" && isAdmin && <AuditLog />}
+                    {page === "user_management" && isAdmin && <UserManagement />}
+
+                    {/* MAGACIN UNIFIED - SVE U JEDNOM */}
+                    {page === "analiza_materijal_stavke" && (<AnalizaMaterijalStavke msg={msg} />)}
+
+                    {/* ✅ DRUGI PRO MODULI */}
+                    {page === "dashboard_pro" && <DashboardPRO setPage={setPage} />}
+                    {page === "manager_dashboard" && <ManagerDashboard />}
+                    {page === "finansije_kpi" && <FinansijeKPI_PRO db={db} msg={msg} />}
+                    {page === "mobile" && <MobileApp setPage={setPage} />}
+
+                    {/* 🤖 AI MODULI */}
+                    {page === "ai_planner" && <AIProductionPlanner setPage={setPage} />}
+                    {page === "ai_chat" && <AIChatAssistant />}
+                    {page === "ai_agent_command" && <AIAgentCommandCenter />}
+                    {page === "ai_workflow" && <ProductAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
+                    {page === "ai_documents" && <DocumentAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
+                    {page === "ai_waste" && <AIWasteOptimizer />}
+                    {page === "ai_quality" && <AIQualityInspector />}
+
+                    {page === "system_stabilization" && <SystemStabilizationCenter db={db} msg={msg} />}
+                    {page === "production_hardening" && <ProductionHardeningCenter db={db} msg={msg} />}
+                    {page === "final_qa_deployment" && <FinalQADeploymentCenter db={db} msg={msg} />}
+                    {page === "final_production_readiness" && <FinalProductionReadinessCenter db={db} msg={msg} />}
+                    {page === "system_status" && <SystemStatusPRO db={db} />}
+                    {page === "backup_security" && <BackupSecurityCenter db={db} />}
+
+                    {page === "ai_kalk" && (
+                        <AIAsistentKalkulacije
+                            card={card}
+                            inp={inp}
+                            lbl={lbl}
+                            msg={msg}
+                        />
+                    )}
+                    {/* PODESAVANJA */}
+                    {page === "pod" && isAdmin && (
+                        <div>
+                            <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>⚙️ Podešavanja</h2>
+                            <div style={card}>
+                                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>👥 Korisnici sistema</div>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                                    <thead><tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+                                        {["Ime", "Uloga", "Lozinka"].map(function (h) { return <th key={h} style={{ padding: "8px", textAlign: "left", color: "#64748b", fontWeight: 600 }}>{h}</th>; })}
+                                    </tr></thead>
+                                    <tbody>
+                                        {USERS.map(function (u) {
+                                            return (
+                                                <tr key={u.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                                    <td style={{ padding: "10px 8px", fontWeight: 600 }}>{u.ime}</td>
+                                                    <td style={{ padding: "10px 8px" }}><span style={{ background: u.uloga === "admin" ? "#fef3c7" : "#dbeafe", color: u.uloga === "admin" ? "#92400e" : "#1e40af", borderRadius: 6, padding: "2px 10px", fontWeight: 700, fontSize: 11 }}>{u.uloga === "admin" ? "Administrator" : u.uloga === "magacioner" ? "Magacioner" : u.uloga === "manager" ? "Manager" : "Radnik"}</span></td>
+                                                    <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#94a3b8" }}>{u.pass}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            )}
 
             {/* 🤖 GLOBALNO "Pitaj AI" — na SVAKOM ekranu (magacin, kalkulacije, templejti,
                 nalozi, izveštaji...). Agent kroz svoje alate čita bazu, a kontekst mu kaže
