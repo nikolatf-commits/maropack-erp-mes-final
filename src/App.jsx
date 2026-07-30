@@ -1774,7 +1774,7 @@ function MainAppContent() {
     }
 
     return (
-        <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Segoe UI',system-ui,sans-serif", color: "#1e293b", display: "flex" }}>
+        <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Segoe UI',system-ui,sans-serif", color: "#1e293b", display: "flex", alignItems: "stretch" }}>
             {notif && <Notif msg={notif.msg} tip={notif.tip} />}
             {stampa && <PrintA4 data={stampa} onClose={function () { setStampa(null); }} />}
 
@@ -1816,7 +1816,7 @@ function MainAppContent() {
             {/* ACCORDION SIDEBAR */}
             <div className="mp-sidebar" style={{
                 width: 240, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
-                flexDirection: "column", flexShrink: 0, minHeight: "100vh", borderRight: "1px solid #1e293b",
+                flexDirection: "column", flexShrink: 0, minHeight: "100vh", alignSelf: "stretch", borderRight: "1px solid #1e293b",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
                 <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
@@ -1828,14 +1828,14 @@ function MainAppContent() {
                     <LanguageSwitcher />
                 </div>
 
-                <nav style={{ padding: "8px 6px", flex: 1, overflowY: "auto" }}>
+                <nav style={{ padding: "8px 6px", flex: 1, overflowY: "auto", background: "#0b1120" }}>
                     {navGroups.map(function (group) {
                         const isOpen = openGroups.includes(group.key);
                         const hasActivePage = group.items.some(item => item.k === page);
                         const gBoja = bojaGrupe(group);
 
                         return (
-                            <div key={group.key} style={{ marginBottom: 8 }}>
+                            <div key={group.key} style={{ marginBottom: 6 }}>
                                 {/* GROUP HEADER */}
                                 <div
                                     onClick={function () { toggleGroup(group.key); }}
