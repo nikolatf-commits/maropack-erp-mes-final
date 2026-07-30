@@ -1769,11 +1769,15 @@ function MainAppContent() {
                 - tabele klize prstom umesto da se gnječe
                 - inputi 16px da iOS ne zumira pri fokusu                       */}
             {!mobileMagacionerMode && <style>{`
-                @media (max-width: 820px){
-                    [style*="grid-template-columns"]{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
-                    div:has(> table){ overflow-x: auto; -webkit-overflow-scrolling: touch; }
-                    table{ min-width: 560px; }
-                    input, select, textarea{ font-size: 16px !important; }
+                /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
+                .mp-sidebar{ background:#0f172a !important; }
+                .mp-sidebar *{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                @media (max-width: 767px){
+                    /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
+                    .mp-sadrzaj [style*="grid-template-columns"]{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
+                    .mp-sadrzaj div:has(> table){ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+                    .mp-sadrzaj table{ min-width: 560px; }
+                    .mp-sadrzaj input, .mp-sadrzaj select, .mp-sadrzaj textarea{ font-size: 16px !important; }
                     body{ -webkit-text-size-adjust: 100%; }
                 }
             `}</style>}
@@ -1789,7 +1793,7 @@ function MainAppContent() {
             )}
 
             {/* ACCORDION SIDEBAR */}
-            <div style={{
+            <div className="mp-sidebar" style={{
                 width: 240, background: "#0f172a", display: mobileMagacionerMode ? "none" : "flex",
                 flexDirection: "column", flexShrink: 0, minHeight: "100vh",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
@@ -1849,7 +1853,7 @@ function MainAppContent() {
 
                                 {/* GROUP ITEMS */}
                                 <div style={{
-                                    maxHeight: isOpen ? (group.items.length * 40 + 20) + "px" : "0px",
+                                    maxHeight: isOpen ? (group.items.length * 44 + 24) + "px" : "0px",
                                     overflow: "hidden",
                                     transition: "max-height 0.3s ease",
                                     paddingLeft: 28
@@ -1987,7 +1991,7 @@ function MainAppContent() {
                     </div>
                 </div>
             ) : (
-                <div style={{ flex: 1, overflow: "auto", padding: mobileMagacionerMode ? 0 : (isMobileViewport ? "64px 10px 28px" : 22), minWidth: 0 }}>
+                <div className="mp-sadrzaj" style={{ flex: 1, overflow: "auto", padding: mobileMagacionerMode ? 0 : (isMobileViewport ? "64px 10px 28px" : 22), minWidth: 0 }}>
 
                     {/* DASHBOARD */}
                     {(page === "dash" || page === "dashboard") && <DashboardPRO setPage={setPage} />}

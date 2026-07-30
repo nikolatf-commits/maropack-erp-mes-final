@@ -157,10 +157,17 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
 }
 
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
-const DAN_PX = 116, VIK_PX = 26, IME_PX = 200, RED_PX = 56;
+// Zoom: širina jednog dana. "Krupno" je podrazumevano — čitljivo bez naprezanja,
+// a kroz nedelje se ide horizontalnim skrolom ili strelicama ‹ ›.
+const ZOOM = { s: { dan: 112, vik: 24 }, m: { dan: 160, vik: 30 }, l: { dan: 220, vik: 36 } };
+const IME_PX = 210, RED_PX = 72;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
     const [nedelja, setNedelja] = useState(0); // pomeranje pogleda po nedeljama
+    const [zoom, setZoom] = useState('m');      // s | m | l — širina dana
+    const [prikaziPrazne, setPrikaziPrazne] = useState(false); // prazne mašine samo na zahtev
+    const [grupa, setGrupa] = useState('sve');
+    const DAN_PX = ZOOM[zoom].dan, VIK_PX = ZOOM[zoom].vik;
     // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
     // otvaranja ekrana, pa bi posle sat vremena svi startovi bili u prošlosti.
     const [minut, setMinut] = useState(0);
@@ -219,6 +226,9 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
     }, [raspored, sidro]);
 
     const probijaUk = raspored.filter((s) => s.probija).length;
+    const zauzeteId = useMemo(() => new Set(raspored.map((s) => s.masinaId)), [raspored]);
+    const vidljive = machines.filter((m) =>
+        (grupa === 'sve' || m.type === grupa) && (prikaziPrazne || zauzeteId.has(m.id)));
     const kartica = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, boxShadow: "0 10px 30px rgba(15,23,42,.06)" };
     const chip = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 999, padding: "6px 12px", fontWeight: 800, fontSize: 12.5 };
 
@@ -228,13 +238,23 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                 <span style={chip}>U planu: <b style={{ color: "#1d4ed8" }}>{raspored.length}</b></span>
                 <span style={{ ...chip, ...(probijaUk ? { borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" } : {}) }}>⚠ Probija rok: <b>{probijaUk}</b></span>
                 <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>2 smene · 960 min/dan · pon–pet · datumi se preračunavaju uživo</span>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <label style={{ ...chip, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
+                        prikaži i prazne
+                    </label>
+                    {[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) =>
+                        <button key={k} onClick={() => setZoom(k)} title={"Zoom " + l} style={{ ...chip, cursor: "pointer", padding: "6px 11px", background: zoom === k ? "#0f172a" : "#fff", color: zoom === k ? "#fff" : "#334155", borderColor: zoom === k ? "#0f172a" : "#e2e8f0" }}>{l}</button>)}
                     <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer" }}>‹</button>
                     <button onClick={() => setNedelja(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
                     <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer" }}>›</button>
                 </div>
             </div>
 
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                {[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaширanje']].map(([k, l]) =>
+                    <button key={k} onClick={() => setGrupa(k)} style={{ border: '1px solid #cbd5e1', background: grupa === k ? '#0f172a' : '#fff', color: grupa === k ? '#fff' : '#334155', borderRadius: 9, padding: '6px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer' }}>{l}</button>)}
+            </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11.5, fontWeight: 800, color: "#475569", marginBottom: 10 }}>
                 {[["stampa", "Štampa"], ["rezanje", "Rezanje"], ["kasiranje", "Kaширanje"], ["kese", "Kese"], ["spulne", "Špulne"]].map(([k, l]) =>
                     <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 10, borderRadius: 3, background: OP_BOJA[k] }} />{l}</span>)}
@@ -252,25 +272,26 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                             const jeDanas = c.datum.getTime() === danas.getTime() || (!c.vik && new Date(c.datum).setHours(0, 0, 0, 0) === danas.getTime());
                             return c.vik
                                 ? <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", background: "#f8fafc", color: "#cbd5e1", writingMode: "vertical-rl", textAlign: "center", fontSize: 9, fontWeight: 900, padding: "6px 0" }}>VIKEND</div>
-                                : <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "8px 8px 6px", borderLeft: "1px solid #f1f5f9", fontSize: 11, fontWeight: 900, color: jeDanas ? "#1d4ed8" : "#334155", background: jeDanas ? "#eff6ff" : undefined }}>
+                                : <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "8px 8px 6px", borderLeft: "1px solid #f1f5f9", fontSize: 12.5, fontWeight: 900, color: jeDanas ? "#1d4ed8" : "#334155", background: jeDanas ? "#eff6ff" : undefined }}>
                                     {c.datum.toLocaleDateString("sr-RS", { weekday: "short" }).toUpperCase()}
-                                    <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 10 }}>{c.datum.getDate()}. {c.datum.getMonth() + 1}.{jeDanas ? " · danas" : ""}</div>
+                                    <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 11 }}>{c.datum.getDate()}. {c.datum.getMonth() + 1}.{jeDanas ? " · danas" : ""}</div>
                                 </div>;
                         })}
                     </div>
 
-                    {machines.map((m) => {
+                    {vidljive.length === 0 && <div style={{ padding: 26, textAlign: "center", color: "#94a3b8", fontWeight: 800 }}>Nema mašina sa nalozima za izabrani filter — uključi "prikaži i prazne" ili prevuci naloge na tabu Mašine.</div>}
+                    {vidljive.map((m) => {
                         const moji = raspored.filter((s) => s.masinaId === m.id).sort((a, b) => a.start - b.start);
                         return (
                             <React.Fragment key={m.id}>
                                 <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => dropToMachine && dropToMachine(m.id, e)}
                                     style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
-                                    <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "8px 12px", borderRight: "1px solid #e2e8f0" }}>
+                                    <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "10px 12px", borderRight: "1px solid #e2e8f0" }}>
                                         <div style={{ fontSize: 9.5, color: "#94a3b8", fontWeight: 900 }}>{m.code} · {(m.group || m.type || "").toString().toUpperCase()}</div>
-                                        <b style={{ fontSize: 13 }}>{m.name}</b>
-                                        <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
+                                        <b style={{ fontSize: 14.5 }}>{m.name}</b>
+                                        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
                                     </div>
-                                    <div style={{ position: "relative", flex: 1, height: RED_PX }}>
+                                    <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
                                         {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.vik ? "repeating-linear-gradient(45deg,#f8fafc 0 6px,#f1f5f9 6px 12px)" : undefined }} />)}
                                         {moji.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
@@ -279,20 +300,20 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                             return (
                                                 <React.Fragment key={s.o.id + i}>
                                                     {cx1 !== null && x1 - cx1 > 8 && (
-                                                        <div title={"Čeka " + (OP_LABELE[s.ceka] || s.ceka || "prethodnu")} style={{ position: "absolute", left: cx1, width: x1 - cx1 - 2, top: 8, height: 30, borderRadius: 8, border: "1.5px dashed #f59e0b", background: "repeating-linear-gradient(45deg,#e2e8f0 0 5px,#f8fafc 5px 10px)", color: "#92400e", fontSize: 9, fontWeight: 900, padding: "3px 6px", overflow: "hidden", whiteSpace: "nowrap" }}>
+                                                        <div title={"Čeka " + (OP_LABELE[s.ceka] || s.ceka || "prethodnu")} style={{ position: "absolute", left: cx1, width: x1 - cx1 - 2, top: 13, height: 44, borderRadius: 10, border: "1.5px dashed #f59e0b", background: "repeating-linear-gradient(45deg,#e2e8f0 0 5px,#f8fafc 5px 10px)", color: "#92400e", fontSize: 10.5, fontWeight: 900, padding: "6px 8px", overflow: "hidden", whiteSpace: "nowrap" }}>
                                                             ⏳ čeka {OP_LABELE[s.ceka] || s.ceka || ""}
                                                         </div>)}
                                                     <div draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
                                                         title={s.o.id + " · " + s.o.title + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (s.o.rok ? "\nrok: " + new Date(s.o.rok).toLocaleDateString("sr-RS") : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
-                                                        style={{ position: "absolute", left: x1, width: Math.max(26, x2 - x1 - 2), top: 8, height: 30, borderRadius: 8, background: boja, color: "#fff", fontSize: 10, fontWeight: 900, padding: "3px 7px", overflow: "hidden", whiteSpace: "nowrap", cursor: "grab", boxShadow: "0 3px 8px rgba(15,23,42,.18)", opacity: s.o.status === "u_radu" ? 1 : .93, outline: s.probija ? "2px solid #dc2626" : "none" }}>
+                                                        style={{ position: "absolute", left: x1, width: Math.max(26, x2 - x1 - 2), top: 13, height: 44, borderRadius: 10, background: boja, color: "#fff", fontSize: 12, fontWeight: 900, padding: "5px 9px", overflow: "hidden", whiteSpace: "nowrap", cursor: "grab", boxShadow: "0 3px 8px rgba(15,23,42,.18)", opacity: s.o.status === "u_radu" ? 1 : .93, outline: s.probija ? "2px solid #dc2626" : "none" }}>
                                                         {s.eksterno ? "📦 " : ""}{s.o.opIkona ? s.o.opIkona + " " : ""}{s.o.id}
-                                                        <div style={{ fontWeight: 700, fontSize: 9, opacity: .92 }}>{s.eksterno ? "u štampariji · povratak " + fmtD(s.end) : "gotov: " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}{s.vanPlana ? " · preth. nije u planu!" : ""}</div>
+                                                        <div style={{ fontWeight: 700, fontSize: 10.5, opacity: .92, marginTop: 1 }}>{s.eksterno ? "u štampariji · povratak " + fmtD(s.end) : "gotov: " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}{s.vanPlana ? " · preth. nije u planu!" : ""}</div>
                                                     </div>
-                                                    {s.rokD && <div title={"Rok " + s.o.id} style={{ position: "absolute", left: xOd(s.rokD) - IME_PX, top: 4, bottom: 4, width: 3, background: "#dc2626", borderRadius: 2, zIndex: 2 }} />}
+                                                    {s.rokD && <div title={"Rok " + s.o.id} style={{ position: "absolute", left: xOd(s.rokD) - IME_PX, top: 6, bottom: 6, width: 3.5, background: "#dc2626", borderRadius: 2, zIndex: 2 }} />}
                                                 </React.Fragment>
                                             );
                                         })}
-                                        {moji.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#cbd5e1", fontWeight: 800, fontSize: 11 }}>prevuci nalog ovde</div>}
+                                        {moji.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0", fontWeight: 800, fontSize: 11 }}>prevuci nalog ovde</div>}
                                     </div>
                                 </div>
                                 {/* zauzetost po danu */}
@@ -304,7 +325,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                         const min = zauzetost[m.id + "|" + dat.getTime()] || 0;
                                         const pct = Math.round(min / DAN_MIN * 100);
                                         const st = pct === 0 ? { color: "#cbd5e1" } : pct < 60 ? { background: "#f0fdf4", color: "#15803d" } : pct <= 90 ? { background: "#fffbeb", color: "#b45309" } : { background: "#fef2f2", color: "#dc2626" };
-                                        return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", height: 19, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, fontWeight: 900, borderLeft: "1px solid #f1f5f9", ...st }}>{pct ? pct + "%" : "—"}</div>;
+                                        return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", height: 23, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, borderLeft: "1px solid #f1f5f9", ...st }}>{pct ? pct + "%" : "—"}</div>;
                                     })}
                                 </div>
                             </React.Fragment>
