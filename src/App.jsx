@@ -1819,9 +1819,9 @@ function MainAppContent() {
                                     onClick={function () { toggleGroup(group.key); }}
                                     style={{
                                         padding: "10px 12px",
-                                        background: hasActivePage ? "#182338" : (isOpen ? "#141d30" : "transparent"),
+                                        background: hasActivePage ? "#1e3a8a" : "#1e293b",
                                         borderRadius: 10,
-                                        borderLeft: "3px solid " + (hasActivePage ? "#3b82f6" : "transparent"),
+                                        borderLeft: "3px solid " + (hasActivePage ? "#60a5fa" : "transparent"),
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
@@ -1830,10 +1830,10 @@ function MainAppContent() {
                                         marginBottom: isOpen ? 4 : 0
                                     }}
                                     onMouseEnter={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = "#1a2540";
+                                        if (!hasActivePage) e.currentTarget.style.background = "#334155";
                                     }}
                                     onMouseLeave={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = (isOpen ? "#141d30" : "transparent");
+                                        if (!hasActivePage) e.currentTarget.style.background = "#1e293b";
                                     }}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1871,9 +1871,9 @@ function MainAppContent() {
                                                     borderRadius: 6,
                                                     margin: "2px 0",
                                                     cursor: "pointer",
-                                                    color: isActive ? "#fff" : "#94a3b8",
-                                                    background: isActive ? "rgba(59,130,246,0.16)" : "transparent",
-                                                    borderLeft: "3px solid " + (isActive ? "#3b82f6" : "transparent"),
+                                                    color: isActive ? "#fff" : "#cbd5e1",
+                                                    background: isActive ? "#2563eb" : "transparent",
+                                                    borderLeft: "3px solid " + (isActive ? "#93c5fd" : "transparent"),
                                                     fontWeight: isActive ? 800 : 600,
                                                     display: "flex",
                                                     alignItems: "center",
@@ -1882,7 +1882,7 @@ function MainAppContent() {
                                                 }}
                                                 onMouseEnter={function (e) {
                                                     if (!isActive) {
-                                                        e.currentTarget.style.background = "rgba(148,163,184,0.10)";
+                                                        e.currentTarget.style.background = "#334155";
                                                         e.currentTarget.style.color = "white";
                                                     }
                                                 }}
