@@ -5,7 +5,7 @@ const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
 
 // canonRef/jeMP dolaze iz zajedničkog modula — ista pravila kao planer i AI agent.
-import { canonRef, jeMP } from "./utils/nalogMetrika.js";
+import { canonRef, jeMP, opKljuc } from "./utils/nalogMetrika.js";
 
 export default function AnalizaMaterijalStavke({ msg }) {
     const [rows, setRows] = useState([]);
@@ -31,6 +31,33 @@ export default function AnalizaMaterijalStavke({ msg }) {
             if (error) throw error;
             // Zadrži samo stavke stварno vezane za nalog (imaju nalog_ref).
             const samoNalozi = (data || []).filter(function (r) { return r.nalog_ref && String(r.nalog_ref).trim() && String(r.nalog_ref).trim() !== "—"; });
+
+            // AUTO-DOPUNA IZDAVANJA: ako je operacija MATERIJAL završena, materijal je fizički
+            // izdat — ali stariji nalozi su završeni pre nego što je radnički ekran počeo to da
+            // upisuje, pa "Izdato" večno stoji na 0. Ovde se to popuni (idempotentno: dira SAMO
+            // stavke gde je izdato_m prazno/0, upisuje izdato_m = alocirano_m i status "izdato").
+            try {
+                const { data: ops } = await supabase.from("operativni_nalozi")
+                    .select("broj_naloga, broj, status, tip_naloga, vrsta, naziv").limit(2000);
+                const refovi = new Set();
+                (ops || []).forEach((o) => {
+                    if (opKljuc(o) !== "materijal" || !/^zavr/i.test(String(o.status || ""))) return;
+                    const b = String(o.broj_naloga || o.broj || "").trim();
+                    if (b) { refovi.add(b); refovi.add(canonRef(b)); }
+                });
+                const zaUpis = samoNalozi.filter((r) => refovi.has(String(r.nalog_ref).trim()) && !(num(r.izdato_m) > 0));
+                let upisano = 0, greska = null;
+                for (const r of zaUpis) {
+                    const res = await supabase.from("materijal_stavke")
+                        .update({ izdato_m: num(r.alocirano_m), status: "izdato" }).eq("id", r.id);
+                    if (res.error) { greska = res.error.message; break; }
+                    r.izdato_m = num(r.alocirano_m); r.status = "izdato"; // odmah i u prikazu
+                    upisano++;
+                }
+                if (upisano > 0) msg && msg("Naknadno upisano izdavanje za " + upisano + " stavki (operacija MATERIJAL završena).", "ok");
+                if (greska) msg && msg("Izdavanje ne može da se upiše u bazu: " + greska, "err");
+            } catch (e) { /* auto-dopuna ne sme da sruši analizu */ }
+
             setRows(samoNalozi);
         } catch (e) {
             msg && msg("Greška pri učitavanju analize: " + (e.message || e), "err");
