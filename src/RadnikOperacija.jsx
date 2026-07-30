@@ -180,14 +180,15 @@ export default function RadnikOperacija({ opid }) {
             if (!master || master === broj && !/-/.test(broj)) { /* nema sufiksa — svejedno proveri po masteru */ }
             let sestre = [];
             if (master) {
+                // select("*"): nabrajanje kolona puca ako neka ne postoji u šemi
                 const r1 = await supabase.from("operativni_nalozi")
-                    .select("broj_naloga, tip_naloga, vrsta, naziv, status")
+                    .select("*")
                     .ilike("broj_naloga", master + "-%");
                 sestre = r1.data || [];
             }
             if (!sestre.length && row?.glavni_nalog_id) {
                 const r2 = await supabase.from("operativni_nalozi")
-                    .select("broj_naloga, tip_naloga, vrsta, naziv, status")
+                    .select("*")
                     .eq("glavni_nalog_id", row.glavni_nalog_id);
                 sestre = r2.data || [];
             }

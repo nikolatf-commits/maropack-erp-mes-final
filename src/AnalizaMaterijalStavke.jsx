@@ -37,8 +37,10 @@ export default function AnalizaMaterijalStavke({ msg }) {
             // upisuje, pa "Izdato" večno stoji na 0. Ovde se to popuni (idempotentno: dira SAMO
             // stavke gde je izdato_m prazno/0, upisuje izdato_m = alocirano_m i status "izdato").
             try {
+                // select("*") namerno: nabrajanje kolona puca ako neka ne postoji u šemi
+                // (npr. "broj"), a operativnih naloga je malo pa * ne košta ništa.
                 const { data: ops, error: opsErr } = await supabase.from("operativni_nalozi")
-                    .select("broj_naloga, broj, status, tip_naloga, vrsta, naziv").limit(2000);
+                    .select("*").limit(2000);
                 if (opsErr) { msg && msg("Auto-dopuna izdavanja: ne mogu da pročitam operativne naloge — " + opsErr.message, "err"); }
                 const refovi = new Set();
                 (ops || []).forEach((o) => {
