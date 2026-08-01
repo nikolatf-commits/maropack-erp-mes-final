@@ -52,7 +52,7 @@ export function useLang() {
 export function LanguageSwitcher({ compact = false, style }) {
     const { lang, setLang, t, langs } = useLang();
     return (
-        <div style={{ background: "#1e3a5f", borderRadius: 10, padding: compact ? 6 : 10, ...style }}>
+        <div style={{ background: "transparent", borderRadius: 10, padding: compact ? 6 : "4px 2px", ...style }}>
             {!compact && (
                 <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1, color: "#94a3b8", fontWeight: 800, marginBottom: 6 }}>
                     {t("lang")}
@@ -68,8 +68,8 @@ export function LanguageSwitcher({ compact = false, style }) {
                             title={l.name}
                             style={{
                                 flex: 1,
-                                background: on ? "#2563eb" : "#0f2744",
-                                border: `1px solid ${on ? "#60a5fa" : "#33507a"}`,
+                                background: on ? "#2563eb" : "#22345a",
+                                border: `1px solid ${on ? "#60a5fa" : "#34496f"}`,
                                 color: on ? "#fff" : "#cbd5e1",
                                 borderRadius: 7,
                                 padding: compact ? "5px 4px" : "7px 4px",
