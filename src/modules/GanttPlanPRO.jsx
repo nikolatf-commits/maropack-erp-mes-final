@@ -159,7 +159,9 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
 // Zoom: širina jednog dana. "Krupno" je podrazumevano — čitljivo bez naprezanja,
 // a kroz nedelje se ide horizontalnim skrolom ili strelicama ‹ ›.
-const ZOOM = { s: { dan: 112, vik: 24 }, m: { dan: 160, vik: 30 }, l: { dan: 220, vik: 36 } };
+// dan = širina jednog radnog dana; nedelje = koliko nedelja se prikazuje odjednom.
+// Podrazumevano JEDNA nedelja (široki dani, pun naziv naloga) — ostale kroz ‹ › ili skrol.
+const ZOOM = { s: { dan: 150, vik: 26, nedelje: 1 }, m: { dan: 130, vik: 26, nedelje: 2 }, l: { dan: 116, vik: 26, nedelje: 3 } };
 const IME_PX = 210, RED_PX = 72;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
@@ -167,7 +169,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
     const [zoom, setZoom] = useState('m');      // s | m | l — širina dana
     const [prikaziPrazne, setPrikaziPrazne] = useState(false); // prazne mašine samo na zahtev
     const [grupa, setGrupa] = useState('sve');
-    const DAN_PX = ZOOM[zoom].dan, VIK_PX = ZOOM[zoom].vik;
+    const DAN_PX = ZOOM[zoom].dan, VIK_PX = ZOOM[zoom].vik, NEDELJA = ZOOM[zoom].nedelje;
     // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
     // otvaranja ekrana, pa bi posle sat vremena svi startovi bili u prošlosti.
     const [minut, setMinut] = useState(0);
@@ -179,19 +181,19 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         [machines, plan, orderMap, opStatusi, sidro]
     );
 
-    // vidljivi opseg: ponedeljak tekuće nedelje + offset, 3 nedelje
+    // vidljivi opseg: ponedeljak tekuće nedelje + offset, NEDELJA nedelja (default 1)
     const dani = useMemo(() => {
         const start = new Date(sidro);
         start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7);
         start.setHours(6, 0, 0, 0);
         const out = []; let x = IME_PX; const d = new Date(start);
-        for (let i = 0; i < 21; i++) {
+        for (let i = 0; i < NEDELJA * 7; i++) {
             if (jeRadni(d)) { out.push({ datum: new Date(d), x, w: DAN_PX, vik: false }); x += DAN_PX; }
             else if (d.getDay() === 6) { out.push({ datum: new Date(d), x, w: VIK_PX, vik: true }); x += VIK_PX; } // sub+ned = jedna uska
             d.setDate(d.getDate() + 1);
         }
         return { lista: out, ukupno: x };
-    }, [sidro, nedelja]);
+    }, [sidro, nedelja, NEDELJA, DAN_PX, VIK_PX]);
 
     const xOd = (dat) => {
         for (const c of dani.lista) {
@@ -243,8 +245,8 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                         <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
                         prikaži i prazne
                     </label>
-                    {[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) =>
-                        <button key={k} onClick={() => setZoom(k)} title={"Zoom " + l} style={{ ...chip, cursor: "pointer", padding: "6px 11px", background: zoom === k ? "#0f172a" : "#fff", color: zoom === k ? "#fff" : "#334155", borderColor: zoom === k ? "#0f172a" : "#e2e8f0" }}>{l}</button>)}
+                    {[['s', '1 ned'], ['m', '2 ned'], ['l', '3 ned']].map(([k, l]) =>
+                        <button key={k} onClick={() => setZoom(k)} title={"Prikaži " + l + "elja odjednom"} style={{ ...chip, cursor: "pointer", padding: "6px 11px", background: zoom === k ? "#0f172a" : "#fff", color: zoom === k ? "#fff" : "#334155", borderColor: zoom === k ? "#0f172a" : "#e2e8f0" }}>{l}</button>)}
                     <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer" }}>‹</button>
                     <button onClick={() => setNedelja(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
                     <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer" }}>›</button>
