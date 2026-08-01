@@ -1789,15 +1789,16 @@ function MainAppContent() {
             <style>{`:root{ color-scheme: only light; }`}</style>
             {!mobileMagacionerMode && <style>{`
                 /* Sidebar: čvrsta pravila nezavisna od inline stilova — meni uvek isti izgled */
-                .mp-sidebar{ background:#0b1120 !important; }
+                .mp-sidebar{ background:#0f1b33 !important; }
                 .mp-sidebar nav, .mp-sidebar nav *{ background-color: transparent; }
-                .mp-sidebar .mp-grp{ background:#111c30 !important; }
-                .mp-sidebar .mp-grp-active{ background:#0f2350 !important; }
+                .mp-sidebar .mp-grp{ background:#22345a !important; }
+                .mp-sidebar .mp-grp-active{ background:#22345a !important; }
                 .mp-sidebar .mp-item-active{ background:#2563eb !important; }
                 /* NE seći nazive — dozvoli prelom u dva reda umesto "…" */
                 .mp-sidebar .mp-label{ white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; }
                 /* Ugasi belu pozadinu/okvir oko prekidača jezika — sve tamno kao panel */
                 .mp-lang, .mp-lang > *{ background: transparent !important; border: none !important; box-shadow: none !important; }
+                .mp-lang button{ border-radius:8px !important; }
                 .mp-lang label, .mp-lang > div > div:first-child{ color: #64748b !important; }
                 @media (max-width: 767px){
                     /* VAŽI SAMO ZA SADRŽAJ (.mp-sadrzaj) — nikad za sidebar/meni */
@@ -1821,11 +1822,11 @@ function MainAppContent() {
 
             {/* ACCORDION SIDEBAR */}
             <div className="mp-sidebar" style={{
-                width: 256, background: "#0b1120", display: mobileMagacionerMode ? "none" : "flex",
-                flexDirection: "column", flexShrink: 0, minHeight: "100vh", alignSelf: "stretch", borderRight: "1px solid #1e293b",
+                width: 256, background: "#0f1b33", display: mobileMagacionerMode ? "none" : "flex",
+                flexDirection: "column", flexShrink: 0, minHeight: "100vh", alignSelf: "stretch", borderRight: "1px solid #1a2a49",
                 ...(isMobileViewport ? { position: "fixed", top: 0, bottom: 0, left: navOtvoren ? 0 : -260, zIndex: 1200, transition: "left .22s ease", overflowY: "auto", boxShadow: navOtvoren ? "0 0 44px rgba(0,0,0,.5)" : "none" } : {})
             }}>
-                <div style={{ padding: "16px 16px 10px", textAlign: "center", background: "#0b1120" }}>
+                <div style={{ padding: "16px 16px 10px", textAlign: "center", background: "#0f1b33" }}>
                     <div style={{ background: "#ffffff", borderRadius: 9, padding: "5px 12px", display: "inline-block", boxShadow: "0 2px 10px rgba(0,0,0,.35)" }}>
                         <img src={LOGO_B64} alt="Maropack" style={{ height: 26, objectFit: "contain", display: "block" }} />
                     </div>
@@ -1836,7 +1837,7 @@ function MainAppContent() {
                     <LanguageSwitcher />
                 </div>
 
-                <nav style={{ padding: "8px 6px", flex: 1, overflowY: "auto", background: "#0b1120" }}>
+                <nav style={{ padding: "8px 8px", flex: 1, overflowY: "auto", background: "#0f1b33" }}>
                     {navGroups.map(function (group) {
                         const isOpen = openGroups.includes(group.key);
                         const hasActivePage = group.items.some(item => item.k === page);
@@ -1850,21 +1851,21 @@ function MainAppContent() {
                                     className={hasActivePage ? "mp-grp mp-grp-active" : "mp-grp"}
                                     style={{
                                         padding: "10px 12px",
-                                        background: hasActivePage ? "#0f2350" : "#111c30",
-                                        borderRadius: 10,
+                                        background: "#22345a",
+                                        borderRadius: 11,
                                         borderLeft: (hasActivePage ? "4px" : "0px") + " solid #3b82f6",
                                         cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
                                         justifyContent: "space-between",
                                         transition: "all 0.18s",
-                                        marginBottom: isOpen ? 4 : 0
+                                        marginBottom: isOpen ? 4 : 7
                                     }}
                                     onMouseEnter={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = "#334155";
+                                        if (!hasActivePage) e.currentTarget.style.background = "#2b4068";
                                     }}
                                     onMouseLeave={function (e) {
-                                        if (!hasActivePage) e.currentTarget.style.background = "#1e293b";
+                                        if (!hasActivePage) e.currentTarget.style.background = "#22345a";
                                     }}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1914,14 +1915,14 @@ function MainAppContent() {
                                                 }}
                                                 onMouseEnter={function (e) {
                                                     if (!isActive) {
-                                                        e.currentTarget.style.background = "#334155";
-                                                        e.currentTarget.style.color = "white";
+                                                        e.currentTarget.style.background = "#22345a";
+                                                        e.currentTarget.style.color = "#ffffff";
                                                     }
                                                 }}
                                                 onMouseLeave={function (e) {
                                                     if (!isActive) {
                                                         e.currentTarget.style.background = "transparent";
-                                                        e.currentTarget.style.color = "#94a3b8";
+                                                        e.currentTarget.style.color = "#c7d2e5";
                                                     }
                                                 }}
                                             >
