@@ -157,19 +157,24 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
 }
 
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
-// Zoom: širina jednog dana. "Krupno" je podrazumevano — čitljivo bez naprezanja,
-// a kroz nedelje se ide horizontalnim skrolom ili strelicama ‹ ›.
-// dan = širina jednog radnog dana; nedelje = koliko nedelja se prikazuje odjednom.
-// Podrazumevano JEDNA nedelja (široki dani, pun naziv naloga) — ostale kroz ‹ › ili skrol.
-const ZOOM = { s: { dan: 150, vik: 26, nedelje: 1 }, m: { dan: 130, vik: 26, nedelje: 2 }, l: { dan: 116, vik: 26, nedelje: 3 } };
-const IME_PX = 210, RED_PX = 72;
+// JEDNA NEDELJA, pon–pet, kolone se rastežu na punu širinu (bez horizontalnog skrola).
+// Širina dana se računa iz širine kontejnera; strelice ‹ › listaju nedelje.
+const IME_PX = 210, RED_PX = 104;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
     const [nedelja, setNedelja] = useState(0); // pomeranje pogleda po nedeljama
-    const [zoom, setZoom] = useState('m');      // s | m | l — širina dana
     const [prikaziPrazne, setPrikaziPrazne] = useState(false); // prazne mašine samo na zahtev
     const [grupa, setGrupa] = useState('sve');
-    const DAN_PX = ZOOM[zoom].dan, VIK_PX = ZOOM[zoom].vik, NEDELJA = ZOOM[zoom].nedelje;
+    // širina dana = (širina kontejnera − kolona imena) ÷ 5 radnih dana; prati resize
+    const wrapRef = React.useRef(null);
+    const [sirina, setSirina] = useState(1100);
+    useEffect(() => {
+        const meri = () => { if (wrapRef.current) setSirina(wrapRef.current.clientWidth); };
+        meri(); window.addEventListener('resize', meri); return () => window.removeEventListener('resize', meri);
+    }, []);
+    const DAN_PX = Math.max(150, Math.floor((sirina - IME_PX) / 5)); // 5 radnih dana pune širine
+    const VIK_PX = 0;      // vikend se ne prikazuje (radi se pon–pet)
+    const NEDELJA = 1;
     // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
     // otvaranja ekrana, pa bi posle sat vremena svi startovi bili u prošlosti.
     const [minut, setMinut] = useState(0);
@@ -187,13 +192,13 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7);
         start.setHours(6, 0, 0, 0);
         const out = []; let x = IME_PX; const d = new Date(start);
-        for (let i = 0; i < NEDELJA * 7; i++) {
+        for (let i = 0; i < 7; i++) {
             if (jeRadni(d)) { out.push({ datum: new Date(d), x, w: DAN_PX, vik: false }); x += DAN_PX; }
-            else if (d.getDay() === 6) { out.push({ datum: new Date(d), x, w: VIK_PX, vik: true }); x += VIK_PX; } // sub+ned = jedna uska
+            // vikend se preskače u prikazu — radi se samo pon–pet
             d.setDate(d.getDate() + 1);
         }
         return { lista: out, ukupno: x };
-    }, [sidro, nedelja, NEDELJA, DAN_PX, VIK_PX]);
+    }, [sidro, nedelja, DAN_PX]);
 
     const xOd = (dat) => {
         for (const c of dani.lista) {
@@ -245,11 +250,9 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                         <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
                         prikaži i prazne
                     </label>
-                    {[['s', '1 ned'], ['m', '2 ned'], ['l', '3 ned']].map(([k, l]) =>
-                        <button key={k} onClick={() => setZoom(k)} title={"Prikaži " + l + "elja odjednom"} style={{ ...chip, cursor: "pointer", padding: "6px 11px", background: zoom === k ? "#0f172a" : "#fff", color: zoom === k ? "#fff" : "#334155", borderColor: zoom === k ? "#0f172a" : "#e2e8f0" }}>{l}</button>)}
-                    <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer" }}>‹</button>
+                    <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>‹ pret.</button>
                     <button onClick={() => setNedelja(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
-                    <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer" }}>›</button>
+                    <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>sled. ›</button>
                 </div>
             </div>
 
@@ -265,19 +268,17 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 3, height: 14, borderRadius: 2, background: "#dc2626" }} />Rok</span>
             </div>
 
-            <div style={{ ...kartica, overflowX: "auto" }}>
-                <div style={{ minWidth: dani.ukupno + 8 }}>
+            <div ref={wrapRef} style={{ ...kartica, overflow: "hidden" }}>
+                <div style={{ width: "100%" }}>
                     {/* zaglavlje dana */}
                     <div style={{ display: "flex", borderBottom: "2px solid #e2e8f0", position: "sticky", top: 0, background: "#fff", zIndex: 3 }}>
                         <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "9px 12px", fontSize: 10, fontWeight: 900, color: "#94a3b8", textTransform: "uppercase" }}>Mašina</div>
                         {dani.lista.map((c, i) => {
-                            const jeDanas = c.datum.getTime() === danas.getTime() || (!c.vik && new Date(c.datum).setHours(0, 0, 0, 0) === danas.getTime());
-                            return c.vik
-                                ? <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", background: "#f8fafc", color: "#cbd5e1", writingMode: "vertical-rl", textAlign: "center", fontSize: 9, fontWeight: 900, padding: "6px 0" }}>VIKEND</div>
-                                : <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "8px 8px 6px", borderLeft: "1px solid #f1f5f9", fontSize: 12.5, fontWeight: 900, color: jeDanas ? "#1d4ed8" : "#334155", background: jeDanas ? "#eff6ff" : undefined }}>
-                                    {c.datum.toLocaleDateString("sr-RS", { weekday: "short" }).toUpperCase()}
-                                    <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 11 }}>{c.datum.getDate()}. {c.datum.getMonth() + 1}.{jeDanas ? " · danas" : ""}</div>
-                                </div>;
+                            const jeDanas = new Date(c.datum).setHours(0, 0, 0, 0) === danas.getTime();
+                            return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "9px 10px", borderLeft: "1px solid #eef1f5", textAlign: "center", fontSize: 13, fontWeight: 900, color: jeDanas ? "#1d4ed8" : "#334155", background: jeDanas ? "#eff6ff" : undefined }}>
+                                {c.datum.toLocaleDateString("sr-RS", { weekday: "long" }).toUpperCase()}
+                                <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 11, marginTop: 2 }}>{c.datum.getDate()}. {c.datum.toLocaleDateString("sr-RS", { month: "short" })}{jeDanas ? " · danas" : ""}</div>
+                            </div>;
                         })}
                     </div>
 
@@ -294,7 +295,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                         <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
                                     </div>
                                     <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
-                                        {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.vik ? "repeating-linear-gradient(45deg,#f8fafc 0 6px,#f1f5f9 6px 12px)" : undefined }} />)}
+                                        {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: undefined }} />)}
                                         {moji.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
                                             const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
@@ -302,15 +303,28 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                             return (
                                                 <React.Fragment key={s.o.id + i}>
                                                     {cx1 !== null && x1 - cx1 > 8 && (
-                                                        <div title={"Čeka " + (OP_LABELE[s.ceka] || s.ceka || "prethodnu")} style={{ position: "absolute", left: cx1, width: x1 - cx1 - 3, top: 13, height: 44, borderRadius: 10, border: "1.5px dashed #f59e0b", background: "repeating-linear-gradient(45deg,#e2e8f0 0 5px,#f8fafc 5px 10px)", color: "#92400e", fontSize: 10, fontWeight: 900, padding: "6px 8px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", boxSizing: "border-box", display: "flex", alignItems: "center" }}>
-                                                            ⏳ čeka {OP_LABELE[s.ceka] || s.ceka || ""}
+                                                        <div title={"Čeka " + (OP_LABELE[s.ceka] || s.ceka || "prethodnu")} style={{ position: "absolute", left: cx1, width: x1 - cx1 - 4, top: 9, bottom: 9, borderRadius: 11, border: "1.5px dashed #f59e0b", background: "repeating-linear-gradient(45deg,#e9edf3 0 6px,#f8fafc 6px 12px)", color: "#92400e", fontSize: 11, fontWeight: 900, padding: "0 12px", overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
+                                                            <div>⏳ čeka {OP_LABELE[s.ceka] || s.ceka || ""}</div>
+                                                            <div style={{ fontWeight: 700, fontSize: 9.5, opacity: .8 }}>mašina slobodna dotad</div>
                                                         </div>)}
-                                                    <div draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
-                                                        title={s.o.id + " · " + s.o.title + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (s.o.rok ? "\nrok: " + new Date(s.o.rok).toLocaleDateString("sr-RS") : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
-                                                        style={{ position: "absolute", left: x1, width: Math.max(40, x2 - x1 - 3), top: 13, height: 44, borderRadius: 10, background: boja, color: "#fff", fontSize: 11.5, fontWeight: 900, padding: (x2 - x1) >= 90 ? "5px 9px" : "5px 4px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", boxSizing: "border-box", cursor: "grab", boxShadow: "0 3px 8px rgba(15,23,42,.18)", opacity: s.o.status === "u_radu" ? 1 : .93, outline: s.probija ? "2px solid #dc2626" : "none", zIndex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: (x2 - x1) >= 90 ? "flex-start" : "center" }}>
-                                                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.eksterno ? "📦 " : ""}{s.o.opIkona ? s.o.opIkona + " " : ""}{(x2 - x1) >= 90 ? s.o.id : ""}</div>
-                                                        {(x2 - x1) >= 90 && <div style={{ fontWeight: 700, fontSize: 10, opacity: .92, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.eksterno ? "u štampariji · povratak " + fmtD(s.end) : "gotov: " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}{s.vanPlana ? " · preth. nije u planu!" : ""}</div>}
-                                                    </div>
+                                                    {(() => {
+                                                        const w = Math.max(46, x2 - x1 - 4);
+                                                        const sirokoDosta = w >= 130;   // dovoljno za pun sadržaj
+                                                        const srednje = w >= 74;          // bar broj naloga
+                                                        const metri = s.o.metri ? Number(s.o.metri).toLocaleString("sr-RS") + " m" : "";
+                                                        const detalj = [s.o.title, s.o.customer].filter(Boolean).join(" · ");
+                                                        return (
+                                                            <div draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
+                                                                title={s.o.id + " · " + (s.o.title || "") + (s.o.customer ? " · " + s.o.customer : "") + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (s.o.rok ? "\nrok: " + new Date(s.o.rok).toLocaleDateString("sr-RS") : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
+                                                                style={{ position: "absolute", left: x1, width: w, top: 9, bottom: 9, borderRadius: 11, background: boja, color: "#fff", padding: srednje ? "8px 11px" : "6px", overflow: "hidden", boxSizing: "border-box", cursor: "grab", boxShadow: "0 4px 12px rgba(15,23,42,.2)", opacity: s.o.status === "u_radu" ? 1 : .94, outline: s.probija ? "2px solid #fecaca" : "none", zIndex: 1, display: "flex", flexDirection: "column", gap: 3, justifyContent: srednje ? "flex-start" : "center", alignItems: srednje ? "stretch" : "center" }}>
+                                                                <div style={{ fontSize: 12.5, fontWeight: 900, lineHeight: 1.15, display: "flex", alignItems: "center", gap: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                    {s.eksterno ? "📦 " : (s.o.opIkona ? s.o.opIkona + " " : "")}{srednje ? s.o.id : ""}
+                                                                </div>
+                                                                {sirokoDosta && detalj && <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .95, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalj}</div>}
+                                                                {sirokoDosta && (metri || s.o.brojBoja) && <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .9, whiteSpace: "nowrap" }}>{[metri, s.o.brojBoja ? s.o.brojBoja + " boja" : "", s.o.brojTraka > 1 ? s.o.brojTraka + " trake" : ""].filter(Boolean).join(" · ")}</div>}
+                                                                {srednje && <div style={{ marginTop: "auto", fontSize: 10, fontWeight: 800, background: "rgba(255,255,255,.2)", borderRadius: 6, padding: "2px 7px", width: "fit-content", whiteSpace: "nowrap" }}>{s.eksterno ? "povratak " + fmtD(s.end) : "gotov " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}</div>}
+                                                            </div>);
+                                                    })()}
                                                     {s.rokD && <div title={"Rok " + s.o.id} style={{ position: "absolute", left: xOd(s.rokD) - IME_PX, top: 4, bottom: 4, width: 2.5, background: "#dc2626", borderRadius: 2, zIndex: 3, pointerEvents: "none" }} />}
                                                 </React.Fragment>
                                             );
