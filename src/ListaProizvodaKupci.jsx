@@ -1,267 +1,248 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { supabase } from './supabase.js';
+import React, { useState, useEffect, useMemo } from "react";
+import { supabase } from "./supabase.js";
 
-const initialProducts = [];
+// ─────────────────────────────────────────────────────────────────────────────
+//  Lista proizvoda po kupcima  [v2]
+//  Čita proizvode iz Supabase (tabela "proizvodi"), grupiše po kupcu.
+//  Slojevi se čitaju iz SAČUVANOG templejta: folija/kesa/spulna .layers,
+//  sa PRAVIM poljima (vrsta, pod_vrsta, oznaka_materijala, proizvodjac,
+//  debljina, sirina, gm2). Izbačene su prazne kolone "spoj materijala" i
+//  "broj spojeva" — tih polja nema u templejtu.
+//  Tabele KLIZE unutar svog okvira (overflow-x) umesto da prelaze ivicu.
+// ─────────────────────────────────────────────────────────────────────────────
 
-function safeJson(v) {
-  if (!v) return {};
-  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return {}; } }
-  return typeof v === 'object' ? v : {};
+const TIP_BOJA = { folija: "#2563eb", spulna: "#9333ea", spulne: "#9333ea", kesa: "#16a34a", kese: "#16a34a" };
+const num = (x) => { const n = parseFloat(String(x ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
+
+// izvuci slojeve iz proizvoda ma kako templejt bio spakovan
+function izvuciSlojeve(p) {
+    const t = p?.template || p?.templejt || p || {};
+    const sekcija = t.folija || t.kesa || t.spulna || t.spulne || {};
+    const layers = sekcija.layers || t.layers || p.materijali_struktura || p.mats || [];
+    return Array.isArray(layers) ? layers : [];
 }
-
-function firstValue(...values) {
-  for (const v of values) {
-    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-  }
-  return '-';
+function idealna(p) {
+    const t = p?.template || p || {};
+    return t.idealnaSirinaMaterijala || (t.folija && t.folija.idealnaSirinaMaterijala) || p.idealnaSirinaMaterijala || "";
 }
-
-function normalizeArray(v) {
-  if (!v) return [];
-  if (Array.isArray(v)) return v;
-  if (typeof v === 'string') {
-    try {
-      const parsed = JSON.parse(v);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  }
-  return [];
+function tipProizvoda(p) {
+    const t = (p?.tip || p?.template?.type || p?.type || "").toLowerCase();
+    if (t) return t;
+    const tt = p?.template || p || {};
+    if (tt.spulna || tt.spulne) return "spulna";
+    if (tt.kesa || tt.kese) return "kesa";
+    return "folija";
 }
-
-function layersFromProduct(p) {
-  const t = safeJson(p.template ?? p.template_json ?? p.data ?? p.sastav ?? p.standardi);
-  const nestedRecord = safeJson(t.record);
-  const tip = p.tip || t.tip || nestedRecord.tip || nestedRecord.data?.type || 'folija';
-  const arrays = [
-    p.materijali_struktura,
-    p.mats,
-    t.materijali_struktura,
-    t.mats,
-    t.layers,
-    t.materijali,
-    t.folija?.layers,
-    t.folija?.materijali,
-    t.kesa?.layers,
-    t.spulna?.layers,
-    nestedRecord.data?.[tip]?.layers,
-    p.layers,
-    p.materijali,
-    p.slojevi,
-  ];
-  const arr = arrays.map(normalizeArray).find(a => a.length) || [];
-
-  return arr.map((l, i) => {
-    const idealnaSirina = firstValue(
-      l.idealna_sirina,
-      l.idealnaSirina,
-      l.sirina,
-      l.width,
-      p.sir,
-      p.sirina,
-      p.idealna_sirina
-    );
+// jedan sloj → normalizovana polja
+function normSloj(l) {
     return {
-      sloj: firstValue(l.sloj, l.layer, i + 1),
-      vrsta: firstValue(l.vrsta, l.tip, l.materijal, l.material),
-      pod_vrsta: firstValue(l.pod_vrsta, l.podVrsta, l.podvrsta, l.subtype, l.sub_type),
-      oznaka: firstValue(l.oznaka_materijala, l.oznaka, l.code, l.komercijalnaOznaka),
-      proizvodjac: firstValue(l.proizvodjac, l.proizvođač, l.proizvodac, l.proizvodjač, l.dobavljac),
-      debljina: firstValue(l.debljina, l.deb, l.mic, l.thickness),
-      sirina: idealnaSirina,
-      spoj_materijala: firstValue(l.spoj_materijala, l.spojMaterijala, l.spoj, l.kasiranje, l.kas),
-      broj_spojeva: firstValue(l.broj_spojeva, l.brojSpojeva, l.spojevi, l.kas, l.broj_spoja),
-      gm2: firstValue(l.gm2, l.gramatura, l.g_m2),
+        vrsta: l.vrsta || l.material || "—",
+        pod_vrsta: l.pod_vrsta || l.podVrsta || "—",
+        oznaka: l.oznaka_materijala || l.oznaka || "—",
+        proizvodjac: l.proizvodjac || l.proizvođač || l.dobavljac || "—",
+        debljina: l.debljina ? l.debljina + "µ" : "—",
+        sirina: l.sirina ? l.sirina + " mm" : "—",
+        gm2: l.gm2 || (num(l.debljina) && num(l.koeficijent) ? (num(l.debljina) * num(l.koeficijent)).toFixed(1) : "") || "—",
     };
-  });
+}
+// kratke oznake materijala za "pill" u gornjoj tabeli
+function materijalPills(layers) {
+    return layers.map((l) => {
+        const v = l.vrsta || l.material || "";
+        const o = l.oznaka_materijala || l.oznaka || "";
+        const d = l.debljina ? l.debljina + "µ" : "";
+        return [v, o, d].filter(Boolean).join(" ");
+    }).filter((x) => x.length);
 }
 
-function materialLabel(l) {
-  const parts = [
-    l.vrsta,
-    l.oznaka !== '-' ? l.oznaka : '',
-    l.debljina !== '-' ? `${l.debljina}µ` : '',
-  ].filter(Boolean);
-  return parts.join(' ') || '-';
+const KOLONE = ["SLOJ", "VRSTA", "POD VRSTA", "OZNAKA", "PROIZVOĐAČ", "DEBLJINA", "ŠIRINA", "g/m²"];
+
+function SlojeviTabela({ layers }) {
+    const rows = (layers && layers.length ? layers : []).map(normSloj);
+    if (!rows.length) return <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 700, padding: "8px 2px" }}>Nema unetih slojeva u templejtu.</div>;
+    return (
+        <div style={{ overflowX: "auto", border: "1px solid #e6ebf2", borderRadius: 10, background: "#fff", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560, fontSize: 11.5 }}>
+                <thead>
+                    <tr>{KOLONE.map((c, i) => (
+                        <th key={c} style={{ background: "#f8fafc", color: "#64748b", fontSize: 9.5, textTransform: "uppercase", letterSpacing: .4, fontWeight: 900, textAlign: i === 0 ? "center" : "left", padding: "7px 10px", borderBottom: "1px solid #e6ebf2", whiteSpace: "nowrap" }}>{c}</th>
+                    ))}</tr>
+                </thead>
+                <tbody>
+                    {rows.map((r, i) => (
+                        <tr key={i}>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", textAlign: "center", fontWeight: 900, color: "#3730a3" }}>{i + 1}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 900, whiteSpace: "nowrap" }}>{r.vrsta}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, whiteSpace: "nowrap" }}>{r.pod_vrsta}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.oznaka}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, whiteSpace: "nowrap" }}>{r.proizvodjac}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 900, whiteSpace: "nowrap" }}>{r.debljina}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.sirina}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.gm2}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
 }
 
-function productMainWidth(p, layers) {
-  const width = firstValue(p.sir, p.idealna_sirina, p.sirina, layers[0]?.sirina);
-  return width === '-' ? '-' : `${width} mm`;
-}
-
-const shell = { padding: 22, background: '#f8fafc', minHeight: '100vh', color: '#0f172a' };
-const card = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, boxShadow: '0 8px 22px rgba(15,23,42,.06)' };
-const btn = { border: 0, borderRadius: 12, padding: '10px 14px', fontWeight: 900, cursor: 'pointer' };
-const th = { textAlign: 'left', fontSize: 11, color: '#334155', padding: '11px 12px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', textTransform: 'uppercase', letterSpacing: '.04em' };
-const td = { padding: '12px', borderBottom: '1px solid #f1f5f9', fontSize: 13, verticalAlign: 'middle' };
-const chip = { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 999, padding: '6px 10px', fontSize: 12, fontWeight: 900, marginRight: 6, marginBottom: 4 };
-
-function LayersTable({ layers }) {
-  const rows = layers.length ? layers : [{ sloj: 1, vrsta: '-', pod_vrsta: '-', oznaka: '-', proizvodjac: '-', sirina: '-', spoj_materijala: '-', broj_spojeva: '-' }];
-  return <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr>
-          <th style={th}>Sloj</th>
-          <th style={th}>Vrsta materijala</th>
-          <th style={th}>Pod vrsta</th>
-          <th style={th}>Oznaka</th>
-          <th style={th}>Proizvođač</th>
-          <th style={th}>Idealna širina</th>
-          <th style={th}>Spoj materijala</th>
-          <th style={th}>Broj spojeva</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((l, i) => <tr key={i}>
-          <td style={td}>{l.sloj}</td>
-          <td style={td}><b>{l.vrsta}</b></td>
-          <td style={td}>{l.pod_vrsta}</td>
-          <td style={td}>{l.oznaka}</td>
-          <td style={td}>{l.proizvodjac}</td>
-          <td style={td}>{l.sirina !== '-' ? `${l.sirina} mm` : '-'}</td>
-          <td style={td}>{l.spoj_materijala}</td>
-          <td style={td}>{l.broj_spojeva}</td>
-        </tr>)}
-      </tbody>
-    </table>
-  </div>;
+function KupacKartica({ kupac, proizvodi }) {
+    return (
+        <div style={{ background: "#fff", border: "1px solid #e6ebf2", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 22px rgba(15,23,42,.05)" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #eef2f7", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950, fontSize: 15 }}>🏢 {kupac}</div>
+                <span style={{ background: "#ecfdf5", color: "#15803d", fontSize: 10, fontWeight: 900, padding: "3px 10px", borderRadius: 999 }}>{proizvodi.length} {proizvodi.length === 1 ? "proizvod" : "proizvoda"}</span>
+            </div>
+            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+                {proizvodi.map((p, idx) => {
+                    const layers = izvuciSlojeve(p);
+                    const tip = tipProizvoda(p);
+                    const pills = materijalPills(layers);
+                    return (
+                        <div key={idx}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                                <div>
+                                    <div style={{ fontWeight: 900, fontSize: 13.5 }}>{p.naziv || "—"}</div>
+                                    <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginTop: 2 }}>
+                                        Šifra: {p.sifra || "—"} · Idealna širina: {idealna(p) ? idealna(p) + " mm" : "—"} · Slojeva: {layers.length}
+                                    </div>
+                                </div>
+                                <span style={{ background: (TIP_BOJA[tip] || "#64748b") + "22", color: TIP_BOJA[tip] || "#64748b", fontSize: 9.5, fontWeight: 900, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", textTransform: "uppercase" }}>{tip}</span>
+                            </div>
+                            {pills.length > 0 && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                                    {pills.map((m, i) => <span key={i} style={{ background: "#f1f5f9", borderRadius: 7, padding: "3px 9px", fontSize: 10.5, fontWeight: 800 }}>{m}</span>)}
+                                </div>
+                            )}
+                            <SlojeviTabela layers={layers} />
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
 
 export default function ListaProizvodaKupci({ msg }) {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState('');
-  const [groupBy, setGroupBy] = useState('kupac');
-  const [view, setView] = useState('tabela');
-  const [open, setOpen] = useState({});
+    const [proizvodi, setProizvodi] = useState(null);
+    const [greska, setGreska] = useState("");
+    const [query, setQuery] = useState("");
+    const [prikaz, setPrikaz] = useState("tabela"); // tabela | kartice
 
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase.from('proizvodi').select('*').order('kupac', { ascending: true }).limit(1000);
-        if (error) throw error;
-        if (alive) setProducts(data || []);
-      } catch (e) {
-        console.warn('Lista proizvoda: podaci nisu dostupni', e);
-        if (alive) setProducts(initialProducts);
-        if (msg) msg('Lista proizvoda: tabela proizvodi nije dostupna.');
-      } finally { if (alive) setLoading(false); }
-    }
-    load();
-    return () => { alive = false; };
-  }, [msg]);
+    useEffect(() => {
+        let ziv = true;
+        (async () => {
+            try {
+                const { data, error } = await supabase.from("proizvodi").select("*").order("id", { ascending: false });
+                if (error) throw error;
+                if (ziv) setProizvodi(Array.isArray(data) ? data : []);
+            } catch (e) {
+                if (ziv) { setGreska(e.message || "Greška pri učitavanju"); setProizvodi([]); }
+            }
+        })();
+        return () => { ziv = false; };
+    }, []);
 
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return products;
-    return products.filter(p => JSON.stringify(p).toLowerCase().includes(term) || layersFromProduct(p).some(l => JSON.stringify(l).toLowerCase().includes(term)));
-  }, [products, q]);
+    const lista = proizvodi || [];
+    const filtrirani = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return lista;
+        return lista.filter((p) => {
+            const layers = izvuciSlojeve(p);
+            const tekst = [p.naziv, p.kupac, p.sifra, tipProizvoda(p), ...materijalPills(layers)].join(" ").toLowerCase();
+            return tekst.includes(q);
+        });
+    }, [lista, query]);
 
-  const groups = useMemo(() => {
-    const m = new Map();
-    filtered.forEach(p => {
-      const layers = layersFromProduct(p);
-      let key = p.kupac || p.klijent || 'Bez kupca';
-      if (groupBy === 'tip') key = p.tip || p.tip_proizvoda || 'Bez tipa';
-      if (groupBy === 'materijal') key = layers[0]?.vrsta || 'Bez materijala';
-      if (!m.has(key)) m.set(key, []);
-      m.get(key).push(p);
-    });
-    return Array.from(m.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
-  }, [filtered, groupBy]);
+    const poKupcima = useMemo(() => {
+        const m = {};
+        filtrirani.forEach((p) => { const k = p.kupac || "Bez kupca"; (m[k] = m[k] || []).push(p); });
+        return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0], "sr"));
+    }, [filtrirani]);
 
-  const allLayers = useMemo(() => filtered.flatMap(p => layersFromProduct(p).map(l => ({ ...l, product: p }))), [filtered]);
+    const brKupaca = poKupcima.length;
+    const brSlojeva = filtrirani.reduce((a, p) => a + izvuciSlojeve(p).length, 0);
+    const brMaterijala = new Set(filtrirani.flatMap((p) => izvuciSlojeve(p).map((l) => (l.vrsta || l.material || "").toUpperCase()).filter(Boolean))).size;
 
-  const toggle = (id) => setOpen(o => ({ ...o, [id]: !o[id] }));
+    const wrap = { maxWidth: 1400, margin: "0 auto" };
+    const kartica = { background: "#fff", border: "1px solid #e6ebf2", borderRadius: 14, boxShadow: "0 8px 22px rgba(15,23,42,.05)" };
 
-  return <div style={shell}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', marginBottom: 16 }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 950, color: '#15803d', letterSpacing: 1 }}>BAZA / KATALOG</div>
-        <h1 style={{ margin: '6px 0 4px', fontSize: 30 }}>🗂️ Lista proizvoda po kupcima</h1>
-        <div style={{ color: '#475569', fontWeight: 650 }}>Za svaki proizvod: kupac, vrsta materijala, pod vrsta, oznaka, proizvođač, idealna širina, spoj materijala i broj spojeva.</div>
-      </div>
-      <div style={{ ...card, padding: 6, display: 'flex', gap: 4 }}>
-        <button onClick={() => setView('kartice')} style={{ ...btn, background: view === 'kartice' ? '#22c55e' : '#fff', color: view === 'kartice' ? '#fff' : '#0f172a' }}>Kartice</button>
-        <button onClick={() => setView('tabela')} style={{ ...btn, background: view === 'tabela' ? '#22c55e' : '#fff', color: view === 'tabela' ? '#fff' : '#0f172a' }}>Tabela</button>
-      </div>
-    </div>
+    if (proizvodi === null) return <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam proizvode…</div>;
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 14, marginBottom: 16 }}>
-      {[
-        ['🏷️', 'Proizvoda', filtered.length, 'aktivnih'],
-        ['👥', 'Kupaca', new Set(filtered.map(p=>p.kupac || p.klijent || '-')).size, 'aktivnih'],
-        ['🔗', 'Slojeva', allLayers.length, 'ukupno'],
-        ['📦', 'Materijala', new Set(allLayers.map(l=>l.vrsta).filter(Boolean)).size, 'ukupno'],
-      ].map(([icon,l,v,s]) => <div key={l} style={{ ...card, padding: 18, display: 'flex', gap: 14, alignItems: 'center' }}>
-        <div style={{ width: 46, height: 46, borderRadius: 14, background: '#ecfdf5', display: 'grid', placeItems: 'center', fontSize: 22 }}>{icon}</div>
-        <div><div style={{ color: '#475569', fontWeight: 800 }}>{l}</div><div style={{ fontSize: 24, fontWeight: 950 }}>{v}</div><div style={{ color: '#64748b', fontSize: 12 }}>{s}</div></div>
-      </div>)}
-    </div>
-
-    <div style={{ ...card, padding: 14, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Pretraga po kupcu, nazivu proizvoda, šifri, materijalu, oznaci, proizvođaču..." style={{ flex: 1, border: '1px solid #cbd5e1', borderRadius: 14, padding: 13, fontWeight: 700 }} />
-      <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 14, padding: 13, fontWeight: 900, background: '#fff' }}><option value="kupac">Grupiši po kupcu</option><option value="tip">Grupiši po tipu</option><option value="materijal">Grupiši po materijalu</option></select>
-      <button onClick={() => setQ('')} style={{ ...btn, background: '#f1f5f9' }}>Reset</button>
-    </div>
-
-    {loading ? <div style={{ ...card, padding: 30 }}>Učitavanje...</div> : view === 'tabela' ? <div style={{ ...card, overflow: 'hidden', marginBottom: 28 }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr><th style={th}></th><th style={th}>Naziv proizvoda</th><th style={th}>Kupac</th><th style={th}>Šifra (SKU)</th><th style={th}>Tip</th><th style={th}>Slojevi</th><th style={th}>Idealna širina</th><th style={th}>Materijali (sastav)</th><th style={th}>Akcije</th></tr></thead>
-        <tbody>
-          {filtered.map(p => {
-            const ls = layersFromProduct(p);
-            const isOpen = !!open[p.id];
-            return <React.Fragment key={p.id}>
-              <tr style={{ background: isOpen ? '#f8fffb' : '#fff', borderLeft: isOpen ? '3px solid #22c55e' : '3px solid transparent' }}>
-                <td style={{ ...td, width: 36 }}><button onClick={() => toggle(p.id)} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 18 }}>{isOpen ? '⌄' : '›'}</button></td>
-                <td style={td}><b style={{ fontSize: 15 }}>{p.naziv || p.proizvod || '-'}</b><div style={{ color: '#64748b', fontSize: 12 }}>ID: {p.id}</div></td>
-                <td style={td}>{p.kupac || p.klijent || '-'}</td>
-                <td style={td}>{p.sku || p.sifra || '-'}</td>
-                <td style={td}><span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 999, padding: '5px 10px', fontSize: 12, fontWeight: 900 }}>{p.tip || p.tip_proizvoda || '-'}</span></td>
-                <td style={td}><b>{ls.length}</b></td>
-                <td style={td}>{productMainWidth(p, ls)}</td>
-                <td style={td}>{ls.map((l,i)=><span key={i} style={chip}>{materialLabel(l)}</span>)}</td>
-                <td style={td}><button onClick={() => toggle(p.id)} title="Detalji" style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', cursor: 'pointer' }}>👁</button></td>
-              </tr>
-              {isOpen && <tr>
-                <td style={{ borderBottom: '1px solid #e2e8f0' }}></td>
-                <td colSpan={8} style={{ padding: '12px 18px 18px', borderBottom: '1px solid #e2e8f0', background: '#f8fffb' }}>
-                  <LayersTable layers={ls} />
-                </td>
-              </tr>}
-            </React.Fragment>;
-          })}
-        </tbody>
-      </table>
-      <div style={{ padding: 16, color: '#475569', fontWeight: 800 }}>Ukupno: {filtered.length} proizvoda</div>
-    </div> : null}
-
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 14px' }}>
-      <h2 style={{ margin: 0, fontSize: 20 }}>🧾 Pregled po kupcima</h2>
-      <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
-    </div>
-
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(480px,1fr))', gap: 16 }}>
-      {groups.map(([group, arr]) => <div key={group} style={{ ...card, padding: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 22 }}>🏢 {group}</h2>
-          <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 999, padding: '6px 10px', fontWeight: 900, fontSize: 12 }}>{arr.length} proizvod{arr.length === 1 ? '' : 'a'}</span>
-        </div>
-        <div style={{ display: 'grid', gap: 12 }}>
-          {arr.map(p => { const ls = layersFromProduct(p); return <div key={p.id} style={{ border: '1px solid #e2e8f0', borderRadius: 16, padding: 14, background: '#fff' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-              <div><b style={{ fontSize: 16 }}>{p.naziv || p.proizvod || '-'}</b><div style={{ color: '#64748b', fontSize: 13, marginTop: 3 }}>Šifra: {p.sku || p.sifra || '-'} · Idealna širina: {productMainWidth(p, ls)} · Slojeva: {ls.length}</div></div>
-              <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 999, padding: '5px 10px', fontSize: 12, fontWeight: 900, height: 22 }}>{p.tip || p.tip_proizvoda || '-'}</span>
+    return (
+        <div style={wrap}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" }}>Baza / Katalog</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
+                <div style={{ fontSize: 24, fontWeight: 950 }}>📋 Lista proizvoda po kupcima</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                    {[["tabela", "Tabela"], ["kartice", "Kartice"]].map(([k, l]) =>
+                        <button key={k} onClick={() => setPrikaz(k)} style={{ border: "1px solid #cbd5e1", background: prikaz === k ? "#16a34a" : "#fff", color: prikaz === k ? "#fff" : "#334155", borderRadius: 9, padding: "7px 14px", fontWeight: 900, fontSize: 12.5, cursor: "pointer" }}>{l}</button>)}
+                </div>
             </div>
-            <div style={{ margin: '8px 0 12px' }}>{ls.map((l,i)=><span key={i} style={chip}>{materialLabel(l)}</span>)}</div>
-            <LayersTable layers={ls} />
-          </div>; })}
+            <div style={{ color: "#64748b", fontSize: 12.5, marginBottom: 14 }}>Za svaki proizvod: kupac, vrsta materijala, pod vrsta, oznaka, proizvođač, idealna širina i slojevi laminata.</div>
+
+            {greska && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: "10px 14px", marginBottom: 14, fontWeight: 700 }}>⚠ {greska}</div>}
+
+            {/* KPI */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
+                {[["🏷️", "Proizvoda", filtrirani.length, "aktivnih"], ["👥", "Kupaca", brKupaca, "aktivnih"], ["🔗", "Slojeva", brSlojeva, "ukupno"], ["📦", "Materijala", brMaterijala, "ukupno"]].map(([ik, l, v, sub]) =>
+                    <div key={l} style={{ ...kartica, padding: "14px 16px" }}>
+                        <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 900, textTransform: "uppercase" }}>{ik} {l}</div>
+                        <div style={{ fontSize: 26, fontWeight: 950, margin: "2px 0" }}>{v}</div>
+                        <div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 700 }}>{sub}</div>
+                    </div>)}
+            </div>
+
+            {/* pretraga */}
+            <div style={{ ...kartica, padding: 12, marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔎 Pretraga: kupac, naziv, šifra, materijal, oznaka, proizvođač…"
+                    style={{ flex: 1, minWidth: 240, border: "1px solid #e2e8f0", borderRadius: 10, padding: "11px 14px", fontSize: 14, outline: "none" }} />
+                {query && <button onClick={() => setQuery("")} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>Reset</button>}
+            </div>
+
+            {/* GORNJA TABELA */}
+            {prikaz === "tabela" && (
+                <div style={{ ...kartica, overflow: "hidden", marginBottom: 22 }}>
+                    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900, fontSize: 12.5 }}>
+                            <thead>
+                                <tr>{["NAZIV PROIZVODA", "KUPAC", "ŠIFRA", "TIP", "SLOJEVI", "IDEALNA ŠIRINA", "MATERIJALI (SASTAV)"].map((c) =>
+                                    <th key={c} style={{ background: "#f8fafc", color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: .4, fontWeight: 900, textAlign: "left", padding: "11px 12px", borderBottom: "1px solid #e6ebf2", whiteSpace: "nowrap" }}>{c}</th>)}</tr>
+                            </thead>
+                            <tbody>
+                                {filtrirani.map((p, i) => {
+                                    const layers = izvuciSlojeve(p); const tip = tipProizvoda(p); const pills = materijalPills(layers);
+                                    return (
+                                        <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                            <td style={{ padding: "11px 12px", fontWeight: 900, whiteSpace: "nowrap" }}>{p.naziv || "—"}<div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>ID: {p.id}</div></td>
+                                            <td style={{ padding: "11px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{p.kupac || "—"}</td>
+                                            <td style={{ padding: "11px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{p.sifra || "—"}</td>
+                                            <td style={{ padding: "11px 12px" }}><span style={{ background: (TIP_BOJA[tip] || "#64748b") + "22", color: TIP_BOJA[tip] || "#64748b", fontSize: 10, fontWeight: 900, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", textTransform: "uppercase" }}>{tip}</span></td>
+                                            <td style={{ padding: "11px 12px", fontWeight: 900, textAlign: "center" }}>{layers.length}</td>
+                                            <td style={{ padding: "11px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{idealna(p) ? idealna(p) + " mm" : "—"}</td>
+                                            <td style={{ padding: "11px 12px" }}>
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                                    {pills.length ? pills.map((m, k) => <span key={k} style={{ background: "#f1f5f9", borderRadius: 7, padding: "3px 9px", fontSize: 10.5, fontWeight: 800, whiteSpace: "nowrap" }}>{m}</span>) : <span style={{ color: "#cbd5e1" }}>—</span>}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {filtrirani.length === 0 && <tr><td colSpan={7} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontWeight: 700 }}>Nema proizvoda za ovu pretragu.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style={{ padding: "10px 14px", color: "#64748b", fontSize: 12, fontWeight: 700, borderTop: "1px solid #f1f5f9" }}>Ukupno: {filtrirani.length} proizvoda</div>
+                </div>
+            )}
+
+            {/* PREGLED PO KUPCIMA */}
+            <div style={{ fontSize: 16, fontWeight: 950, margin: "6px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>📇 Pregled po kupcima</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 16 }}>
+                {poKupcima.map(([kupac, prods]) => <KupacKartica key={kupac} kupac={kupac} proizvodi={prods} />)}
+            </div>
+            {poKupcima.length === 0 && <div style={{ color: "#94a3b8", fontWeight: 700, padding: 20 }}>Nema proizvoda.</div>}
         </div>
-      </div>)}
-    </div>
-  </div>;
+    );
 }
