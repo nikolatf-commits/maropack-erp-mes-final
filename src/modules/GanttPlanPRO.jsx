@@ -15,9 +15,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, canonRef, OP_LABELE } from "../utils/nalogMetrika.js";
 
 // ── radni kalendar ───────────────────────────────────────────────────────────
-const DAN_MIN = 960;            // 2 smene × 480
-const DAN_OD = 6 * 60;          // radni dan 06:00–22:00
-const jeRadni = (d) => { const x = d.getDay(); return x >= 1 && x <= 5; };
+const DAN_OD = 6 * 60;          // radni dan počinje 06:00
+const SMENA = 480;
+// Kapacitet dana: pon–pet 2 smene (960), subota 1 smena (480), nedelja 0.
+const jeRadni = (d) => { const x = d.getDay(); return x >= 1 && x <= 6; };
+const kapacitetDana = (d) => { const x = d.getDay(); if (x === 0) return 0; if (x === 6) return SMENA; return 2 * SMENA; };
+const DAN_MIN = 2 * SMENA;      // referentni pun dan (za zauzetost %)
 
 function pocetakRadnog(d) { const x = new Date(d); x.setHours(6, 0, 0, 0); return x; }
 function sledeciRadni(d) { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (!jeRadni(x)); return pocetakRadnog(x); }
@@ -38,8 +41,9 @@ function wmToDate(sidro, wm) {
     let ost = Math.max(0, Math.round(wm));
     for (; ;) {
         if (!jeRadni(d)) { d = sledeciRadni(d); continue; }
+        const cap = kapacitetDana(d);
         const min = d.getHours() * 60 + d.getMinutes();
-        const doKraja = DAN_OD + DAN_MIN - min;
+        const doKraja = DAN_OD + cap - min;
         if (ost < doKraja) return new Date(d.getTime() + ost * 60000);
         ost -= doKraja; d = sledeciRadni(d);
     }
@@ -50,7 +54,8 @@ function dateToWm(sidro, dat) {
     let d = new Date(sidro), wm = 0;
     for (let i = 0; i < 400; i++) {
         if (!jeRadni(d)) { d = sledeciRadni(d); continue; }
-        const kraj = new Date(d); kraj.setHours(22, 0, 0, 0);
+        const cap = kapacitetDana(d);
+        const kraj = new Date(d); kraj.setHours(0, 0, 0, 0); kraj.setMinutes(DAN_OD + cap);
         if (dat <= kraj) { return wm + Math.max(0, (dat - d) / 60000); }
         wm += (kraj - d) / 60000; d = sledeciRadni(d);
     }
@@ -157,7 +162,7 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
 }
 
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
-// JEDNA NEDELJA, pon–pet, kolone se rastežu na punu širinu (bez horizontalnog skrola).
+// Radna nedelja pon–SUB puni ekran; klizač na dnu vodi u sledeće nedelje (6 unapred).
 // Širina dana se računa iz širine kontejnera; strelice ‹ › listaju nedelje.
 const IME_PX = 210, RED_PX = 104;
 
@@ -172,8 +177,8 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         const meri = () => { if (wrapRef.current) setSirina(wrapRef.current.clientWidth); };
         meri(); window.addEventListener('resize', meri); return () => window.removeEventListener('resize', meri);
     }, []);
-    const DAN_PX = Math.max(150, Math.floor((sirina - IME_PX) / 5)); // 5 radnih dana pune širine
-    const VIK_PX = 0;      // vikend se ne prikazuje (radi se pon–pet)
+    const DAN_PX = Math.max(140, Math.floor((sirina - IME_PX) / 6)); // pon–sub (6 dana) pune širine
+    const VIK_PX = 0;      // nedelja se ne prikazuje; subota JESTE radna (1 smena)
     const NEDELJA = 1;
     // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
     // otvaranja ekrana, pa bi posle sat vremena svi startovi bili u prošlosti.
@@ -192,9 +197,9 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7);
         start.setHours(6, 0, 0, 0);
         const out = []; let x = IME_PX; const d = new Date(start);
-        for (let i = 0; i < 7; i++) {
-            if (jeRadni(d)) { out.push({ datum: new Date(d), x, w: DAN_PX, vik: false }); x += DAN_PX; }
-            // vikend se preskače u prikazu — radi se samo pon–pet
+        // 6 nedelja unapred: prva staje na ekran, ostale se dohvataju klizačem na dnu
+        for (let i = 0; i < 6 * 7; i++) {
+            if (jeRadni(d)) { out.push({ datum: new Date(d), x, w: DAN_PX, subota: d.getDay() === 6 }); x += DAN_PX; }
             d.setDate(d.getDate() + 1);
         }
         return { lista: out, ukupno: x };
@@ -203,10 +208,10 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
     const xOd = (dat) => {
         for (const c of dani.lista) {
             const od = new Date(c.datum); od.setHours(6, 0, 0, 0);
-            const doD = new Date(c.datum); doD.setHours(c.vik ? 23 : 22, 0, 0, 0);
-            if (c.vik) { const ned = new Date(doD); ned.setDate(ned.getDate() + 1); if (dat >= od && dat <= ned) return c.x + c.w / 2; continue; }
+            const cap = kapacitetDana(c.datum) || DAN_MIN;
+            const doD = new Date(c.datum); doD.setHours(0, 0, 0, 0); doD.setMinutes(DAN_OD + cap);
             if (dat < od) return c.x;
-            if (dat <= doD) return c.x + Math.min(1, Math.max(0, (dat - od) / (DAN_MIN * 60000))) * c.w;
+            if (dat <= doD) return c.x + Math.min(1, Math.max(0, (dat - od) / (cap * 60000))) * c.w;
         }
         return dani.ukupno;
     };
@@ -221,12 +226,19 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         raspored.forEach((s) => {
             if (s.eksterno) return;
             let a = dateToWm(sidro, s.start), b = dateToWm(sidro, s.end);
-            for (let d = Math.floor(a / DAN_MIN); d <= Math.floor((b - 1) / DAN_MIN); d++) {
-                const min = Math.min(b, (d + 1) * DAN_MIN) - Math.max(a, d * DAN_MIN);
-                if (min <= 0) continue;
-                const dat = wmToDate(sidro, d * DAN_MIN); dat.setHours(0, 0, 0, 0);
-                const k = s.masinaId + "|" + dat.getTime();
-                z[k] = (z[k] || 0) + min;
+            // hodaj po radnim danima od starta do kraja i sabiraj minute po danu
+            let wm = a;
+            while (wm < b) {
+                const danStart = wmToDate(sidro, wm);
+                const cap = kapacitetDana(danStart) || DAN_MIN;
+                const dan0 = new Date(danStart); dan0.setHours(0, 0, 0, 0);
+                // koliko wm-minuta ostaje do kraja tog radnog dana
+                const minuloDanas = (danStart.getHours() * 60 + danStart.getMinutes()) - DAN_OD;
+                const doKrajaDana = Math.max(0, cap - minuloDanas);
+                const uzmi = Math.min(doKrajaDana, b - wm);
+                const k = s.masinaId + "|" + dan0.getTime();
+                z[k] = (z[k] || 0) + uzmi;
+                wm += uzmi > 0 ? uzmi : 1;
             }
         });
         return z;
@@ -244,7 +256,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
             <div style={{ ...kartica, padding: 12, marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={chip}>U planu: <b style={{ color: "#1d4ed8" }}>{raspored.length}</b></span>
                 <span style={{ ...chip, ...(probijaUk ? { borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" } : {}) }}>⚠ Probija rok: <b>{probijaUk}</b></span>
-                <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>2 smene · 960 min/dan · pon–pet · datumi se preračunavaju uživo</span>
+                <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>pon–pet 2 smene · subota 1 smena · klizač na dnu za sledeće nedelje · datumi uživo</span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <label style={{ ...chip, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
                         <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
@@ -268,16 +280,16 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 3, height: 14, borderRadius: 2, background: "#dc2626" }} />Rok</span>
             </div>
 
-            <div ref={wrapRef} style={{ ...kartica, overflow: "hidden" }}>
-                <div style={{ width: "100%" }}>
+            <div ref={wrapRef} style={{ ...kartica, overflowX: "auto", overflowY: "hidden" }}>
+                <div style={{ minWidth: dani.ukupno + 8 }}>
                     {/* zaglavlje dana */}
                     <div style={{ display: "flex", borderBottom: "2px solid #e2e8f0", position: "sticky", top: 0, background: "#fff", zIndex: 3 }}>
                         <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "9px 12px", fontSize: 10, fontWeight: 900, color: "#94a3b8", textTransform: "uppercase" }}>Mašina</div>
                         {dani.lista.map((c, i) => {
                             const jeDanas = new Date(c.datum).setHours(0, 0, 0, 0) === danas.getTime();
-                            return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "9px 10px", borderLeft: "1px solid #eef1f5", textAlign: "center", fontSize: 13, fontWeight: 900, color: jeDanas ? "#1d4ed8" : "#334155", background: jeDanas ? "#eff6ff" : undefined }}>
+                            return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "9px 10px", borderLeft: "1px solid #eef1f5", textAlign: "center", fontSize: 13, fontWeight: 900, color: jeDanas ? "#1d4ed8" : (c.subota ? "#b45309" : "#334155"), background: jeDanas ? "#eff6ff" : (c.subota ? "#fffbeb" : undefined) }}>
                                 {c.datum.toLocaleDateString("sr-RS", { weekday: "long" }).toUpperCase()}
-                                <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 11, marginTop: 2 }}>{c.datum.getDate()}. {c.datum.toLocaleDateString("sr-RS", { month: "short" })}{jeDanas ? " · danas" : ""}</div>
+                                <div style={{ color: c.subota ? "#d97706" : "#94a3b8", fontWeight: 700, fontSize: 11, marginTop: 2 }}>{c.datum.getDate()}. {c.datum.toLocaleDateString("sr-RS", { month: "short" })}{jeDanas ? " · danas" : (c.subota ? " · 1 smena" : "")}</div>
                             </div>;
                         })}
                     </div>
@@ -295,7 +307,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                         <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
                                     </div>
                                     <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
-                                        {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: undefined }} />)}
+                                        {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined }} />)}
                                         {moji.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
                                             const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
@@ -336,10 +348,10 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                 <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0" }}>
                                     <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "2px 12px", fontSize: 9, color: "#94a3b8", fontWeight: 800, textTransform: "uppercase", borderRight: "1px solid #e2e8f0" }}>zauzetost</div>
                                     {dani.lista.map((c, i) => {
-                                        if (c.vik) return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", background: "#f8fafc" }} />;
                                         const dat = new Date(c.datum); dat.setHours(0, 0, 0, 0);
                                         const min = zauzetost[m.id + "|" + dat.getTime()] || 0;
-                                        const pct = Math.round(min / DAN_MIN * 100);
+                                        const cap = kapacitetDana(c.datum) || DAN_MIN;
+                                        const pct = Math.round(min / cap * 100);
                                         const st = pct === 0 ? { color: "#cbd5e1" } : pct < 60 ? { background: "#f0fdf4", color: "#15803d" } : pct <= 90 ? { background: "#fffbeb", color: "#b45309" } : { background: "#fef2f2", color: "#dc2626" };
                                         return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", height: 23, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, borderLeft: "1px solid #f1f5f9", ...st }}>{pct ? pct + "%" : "—"}</div>;
                                     })}
