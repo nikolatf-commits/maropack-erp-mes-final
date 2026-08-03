@@ -80,24 +80,26 @@ function SlojeviTabela({ layers, p }) {
     const rows = (layers && layers.length ? layers : []).map((l) => normSloj(l, p));
     if (!rows.length) return <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 700, padding: "6px 2px" }}>Nema unetih slojeva u templejtu.</div>;
     return (
-        <div style={{ overflowX: "auto", border: "1px solid #e6ebf2", borderRadius: 10, background: "#fff", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ overflowX: "auto", border: "1px solid #ede9fe", borderRadius: 11, background: "#fff", WebkitOverflowScrolling: "touch", marginLeft: 30 }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620, fontSize: 11.5 }}>
                 <thead>
                     <tr>{KOLONE.map((c, i) => (
-                        <th key={c} style={{ background: "#f8fafc", color: "#64748b", fontSize: 9.5, textTransform: "uppercase", letterSpacing: .4, fontWeight: 900, textAlign: i === 0 ? "center" : "left", padding: "7px 11px", borderBottom: "1px solid #e6ebf2", whiteSpace: "nowrap" }}>{c}</th>
+                        <th key={c} style={{ background: "#faf8ff", color: "#7c3aed", fontSize: 9, textTransform: "uppercase", letterSpacing: .5, fontWeight: 900, textAlign: i === 0 ? "center" : "left", padding: "8px 11px", borderBottom: "2px solid #ede9fe", whiteSpace: "nowrap" }}>{c}</th>
                     ))}</tr>
                 </thead>
                 <tbody>
                     {rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", textAlign: "center", fontWeight: 900, color: "#3730a3" }}>{i + 1}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 900, whiteSpace: "nowrap" }}>{r.vrsta}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, whiteSpace: "nowrap" }}>{r.pod_vrsta}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.oznaka}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, whiteSpace: "nowrap" }}>{r.proizvodjac}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 900, whiteSpace: "nowrap" }}>{r.debljina}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.sirina}</td>
-                            <td style={{ padding: "7px 11px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" }}>{r.gm2}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", textAlign: "center" }}>
+                                <span style={{ display: "inline-flex", width: 20, height: 20, borderRadius: 6, background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", color: "#6d28d9", fontWeight: 900, fontSize: 10.5, alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                            </td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 900, whiteSpace: "nowrap" }}>{r.vrsta}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 600, whiteSpace: "nowrap" }}>{r.pod_vrsta}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 700, whiteSpace: "nowrap" }}>{r.oznaka}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 600, whiteSpace: "nowrap" }}>{r.proizvodjac}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 900, whiteSpace: "nowrap" }}>{r.debljina}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 700, whiteSpace: "nowrap" }}>{r.sirina}</td>
+                            <td style={{ padding: "8px 11px", borderBottom: "1px solid #f5f7fa", fontWeight: 700, whiteSpace: "nowrap" }}>{r.gm2}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -106,12 +108,33 @@ function SlojeviTabela({ layers, p }) {
     );
 }
 
+// Čita perforaciju iz proizvoda. Vraća {ima, opis} — opis je "tip · odnos · pozicija".
+function perforacija(p) {
+    const nested = p?.data || p?.template || (p?.standardi && p.standardi.record && p.standardi.record.data) || {};
+    const tip = normalizeTip(nested.type || p.tip);
+    const sek = nested[tip] || nested.folija || nested.kesa || nested.spulna || nested.spulne || {};
+    const k = sek.kpdf || nested.kpdf || p.kpdf || {};
+    // varijante: kpdf.enabled, ili product.perforacija.tip != "Nema", ili operacije
+    const perfTip = (p.perforacija && p.perforacija.tip) || k.tip;
+    const ima = !!(k.enabled) || (perfTip && perfTip !== "Nema") || sek.poprecna_perf || p.poprecna_perf || sek.mikroperforacija || p.mikroperforacija;
+    if (!ima) return { ima: false, opis: "" };
+    const delovi = [
+        (perfTip && perfTip !== "Nema") ? perfTip : "perforacija",
+        k.odnos || (p.perforacija && p.perforacija.odnos) || "",
+        (k.pozicija || (p.perforacija && p.perforacija.pozicija)) ? ("poz. " + (k.pozicija || p.perforacija.pozicija)) : "",
+    ].filter(Boolean);
+    return { ima: true, opis: delovi.join(" · ") };
+}
+
 function KupacKartica({ kupac, proizvodi }) {
     return (
         <div style={{ background: "#fff", border: "1px solid #e6ebf2", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 22px rgba(15,23,42,.05)", marginBottom: 16 }}>
-            <div style={{ padding: "13px 18px", background: "linear-gradient(90deg,#0f1b33,#1a2a49)", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 2 }}>
-                <div style={{ fontWeight: 950, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>🏢 {kupac}</div>
-                <span style={{ background: "rgba(255,255,255,.15)", borderRadius: 999, padding: "3px 12px", fontSize: 11, fontWeight: 900 }}>{proizvodi.length} {proizvodi.length === 1 ? "proizvod" : "proizvoda"}</span>
+            <div style={{ padding: "15px 20px", background: "linear-gradient(120deg,#0f1b33,#1a2a49)", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#7c3aed,#c026d3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, boxShadow: "0 4px 12px rgba(124,58,237,.4)" }}>🏢</div>
+                    <div style={{ fontWeight: 950, fontSize: 16 }}>{kupac}</div>
+                </div>
+                <span style={{ background: "rgba(255,255,255,.15)", border: "1px solid rgba(255,255,255,.2)", borderRadius: 999, padding: "5px 14px", fontSize: 11, fontWeight: 900 }}>{proizvodi.length} {proizvodi.length === 1 ? "proizvod" : "proizvoda"}</span>
             </div>
             <div>
                 {proizvodi.map((p, idx) => {
@@ -119,12 +142,13 @@ function KupacKartica({ kupac, proizvodi }) {
                     const tip = tipProizvoda(p);
                     const pills = materijalPills(layers);
                     const isir = idealnaSirina(p);
+                    const perf = perforacija(p);
                     return (
                         <div key={idx} style={{ padding: "13px 18px", borderBottom: idx < proizvodi.length - 1 ? "1px solid #f1f5f9" : "none" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                                 <div>
                                     <div style={{ fontWeight: 900, fontSize: 13.5, display: "flex", alignItems: "center" }}>
-                                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 7, background: "#eef2ff", color: "#3730a3", fontWeight: 900, fontSize: 11, marginRight: 8 }}>{idx + 1}</span>
+                                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 9, background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", color: "#6d28d9", fontWeight: 950, fontSize: 13, marginRight: 10, flexShrink: 0 }}>{idx + 1}</span>
                                         {p.naziv || "—"}
                                     </div>
                                     <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginTop: 2, marginLeft: 30 }}>
@@ -133,11 +157,12 @@ function KupacKartica({ kupac, proizvodi }) {
                                 </div>
                                 <span style={{ background: (TIP_BOJA[tip] || "#64748b") + "22", color: TIP_BOJA[tip] || "#64748b", fontSize: 9.5, fontWeight: 900, padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap", textTransform: "uppercase" }}>{tip}</span>
                             </div>
-                            {pills.length > 0 && (
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
-                                    {pills.map((m, i) => <span key={i} style={{ background: "#f1f5f9", borderRadius: 7, padding: "3px 9px", fontSize: 10.5, fontWeight: 800 }}>{m}</span>)}
-                                </div>
-                            )}
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8, marginLeft: 30 }}>
+                                {pills.map((m, i) => <span key={i} style={{ background: "#f1f5f9", borderRadius: 7, padding: "3px 9px", fontSize: 10.5, fontWeight: 800 }}>{m}</span>)}
+                                {perf.ima
+                                    ? <span style={{ background: "linear-gradient(135deg,#fff7ed,#ffedd5)", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: 8, padding: "3px 10px", fontSize: 10.5, fontWeight: 900, display: "inline-flex", alignItems: "center", gap: 4 }}>✂️ Perforacija: DA{perf.opis ? " · " + perf.opis : ""}</span>
+                                    : <span style={{ background: "#f8fafc", color: "#b6c0ce", border: "1px solid #e8edf3", borderRadius: 8, padding: "3px 10px", fontSize: 10.5, fontWeight: 800 }}>— bez perforacije</span>}
+                            </div>
                             <SlojeviTabela layers={layers} p={p} />
                         </div>
                     );
