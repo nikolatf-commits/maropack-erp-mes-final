@@ -52,7 +52,9 @@ function sifraP(p) { return p?.sku || p?.sifra || (p?.data && p.data.sifra) || "
 function normSloj(l, p) {
     const deb = l.debljina || l.deb || "";
     const gm2 = l.gm2 || l.gsm || l.tezina || (num(deb) && num(l.koeficijent) ? (num(deb) * num(l.koeficijent)).toFixed(1) : "");
-    const sir = l.sirina || l.idealna_sirina || (p && (p.sir || p.sirina)) || "";
+    // ŠIRINA u tabeli sloja = IDEALNA ŠIRINA MATERIJALA proizvoda (npr. 480),
+    // ne širina samog sloja/trake (360). Zato prvo idealna, pa fallback na sloj.
+    const sir = (p && idealnaSirina(p)) || l.idealna_sirina || l.sirina || "";
     return {
         vrsta: l.vrsta || l.tip || l.material || l.materijal || "—",
         pod_vrsta: l.pod_vrsta || l.podVrsta || l.podvrsta || l.subtype || "—",
