@@ -545,18 +545,21 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
 
             <Card style={{ overflow: "hidden" }}>
                 {selected ? <>
-                    <div style={{ padding: 18, borderBottom: "1px solid #e2e8f0", background: `linear-gradient(135deg,${tipColor(selected.tip)}14,#ffffff 55%)` }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start" }}>
+                    <div style={{ position: "relative", padding: "22px 24px", overflow: "hidden", background: `linear-gradient(120deg, ${tipColor(selected.tip)}, ${tipColor(selected.tip)}cc 60%, #a21caf)`, color: "#fff" }}>
+                        <div style={{ position: "absolute", right: -10, top: -30, fontSize: 150, opacity: .10, transform: "rotate(-15deg)", pointerEvents: "none" }}>{selected.tip === "folija" ? "📦" : selected.tip === "kesa" ? "🛍️" : "🎞️"}</div>
+                        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
                             <div>
-                                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 7 }}><Badge color={tipColor(selected.tip)}>{selected.tip}</Badge><Badge color={statusColor(selected.status)}>{selected.status}</Badge><Badge color="#64748b">{selected.verzija}</Badge></div>
-                                <h2 style={{ margin: 0, fontSize: 22, color: "#0f172a", fontWeight: 950 }}>{selected.naziv}</h2>
-                                <div style={{ marginTop: 5, color: "#64748b", fontWeight: 750 }}>Kupac: {selected.kupac} · Šifra: {selected.sifra}</div>
+                                <h2 style={{ margin: 0, fontSize: 25, fontWeight: 950, letterSpacing: "-.3px", textShadow: "0 2px 8px rgba(0,0,0,.15)" }}>{selected.naziv}</h2>
+                                <div style={{ marginTop: 5, opacity: .9, fontWeight: 700, fontSize: 13 }}>🏢 {selected.kupac} · 🏷️ Šifra: {selected.sifra || "—"}</div>
+                                <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+                                    {[["🎞️", selected.tip], ["🟢", selected.status], ["📌", selected.verzija], ["📅", selected.datum]].map(([ik, v], i) => v ? <span key={i} style={{ background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.25)", borderRadius: 999, padding: "5px 13px", fontSize: 10.5, fontWeight: 900 }}>{ik} {String(v).toUpperCase()}</span> : null)}
+                                </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                <button onClick={() => openTemplateFromProduct(selected)} style={btnStyle("#fff", "#334155", "#cbd5e1")}>Otvori template</button>
-                                <button onClick={() => createCalculationFromProduct(selected)} style={btnStyle(GREEN, "#fff", GREEN)}>Kreiraj kalkulaciju</button>
-                                <button onClick={() => createOfferFromProduct(selected)} style={btnStyle(BLUE, "#fff", BLUE)}>Kreiraj ponudu</button>
-                                <button onClick={() => createOrdersFromProduct(selected)} style={btnStyle(PURPLE, "#fff", PURPLE)}>Kreiraj naloge</button>
+                                <button onClick={() => openTemplateFromProduct(selected)} style={{ border: "none", borderRadius: 11, padding: "10px 15px", fontWeight: 900, fontSize: 12, cursor: "pointer", background: "rgba(255,255,255,.9)", color: "#334155", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>Otvori template</button>
+                                <button onClick={() => createCalculationFromProduct(selected)} style={{ border: "none", borderRadius: 11, padding: "10px 15px", fontWeight: 900, fontSize: 12, cursor: "pointer", background: "linear-gradient(135deg,#22c55e,#16a34a)", color: "#fff", boxShadow: "0 6px 16px rgba(22,163,74,.35)" }}>🧮 Kalkulacija</button>
+                                <button onClick={() => createOfferFromProduct(selected)} style={{ border: "none", borderRadius: 11, padding: "10px 15px", fontWeight: 900, fontSize: 12, cursor: "pointer", background: "linear-gradient(135deg,#3b82f6,#2563eb)", color: "#fff", boxShadow: "0 6px 16px rgba(37,99,235,.35)" }}>📄 Ponuda</button>
+                                <button onClick={() => createOrdersFromProduct(selected)} style={{ border: "none", borderRadius: 11, padding: "10px 15px", fontWeight: 900, fontSize: 12, cursor: "pointer", background: "#fff", color: "#7c3aed", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>🏭 Nalog</button>
                             </div>
                         </div>
                     </div>
@@ -570,7 +573,21 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                         </div>}
                         {tab === "materijali" && <><SectionTitle title="Materijali proizvoda" note="Ista Material PRO tabela kao u kalkulacijama i template-ima. Bez Žuta, ostaju samo Š i L." /><MaterialTable rows={selected.materijali} /></>}
                         {tab === "stampa" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Štampa / lak / kliše" /><InfoRow label="Broj boja" value={selected.stampa.boje} /><InfoRow label="Kliše" value={selected.stampa.klise} /><InfoRow label="Lak" value={selected.stampa.lak} /><InfoRow label="Napomena" value={selected.stampa.napomena} /></Card>}
-                        {tab === "perforacija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Perforacija / KPDF" /><InfoRow label="Tip" value={selected.perforacija.tip} /><InfoRow label="Odnos" value={selected.perforacija.odnos} /><InfoRow label="Pozicija" value={selected.perforacija.pozicija} /></Card>}
+                        {tab === "perforacija" && (() => {
+                            const perf = selected.perforacija || {};
+                            const ima = perf.tip && perf.tip !== "Nema" && perf.tip !== "—";
+                            return <Card style={{ boxShadow: "none", padding: 16 }}>
+                                <SectionTitle title="Perforacija / KPDF" />
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 14px" }}>
+                                    {ima
+                                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg,#dcfce7,#bbf7d0)", color: "#15803d", border: "1px solid #86efac", borderRadius: 10, padding: "8px 15px", fontWeight: 900, fontSize: 14, boxShadow: "0 2px 8px rgba(22,163,74,.15)" }}>✂️ IMA PERFORACIJU</span>
+                                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#f8fafc", color: "#94a3b8", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 15px", fontWeight: 800, fontSize: 14 }}>— nema perforaciju</span>}
+                                </div>
+                                {ima && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                    {[["Tip", perf.tip], ["Odnos", perf.odnos], ["Pozicija", perf.pozicija]].map(([l, v], i) => (v && v !== "—") ? <span key={i} style={{ background: "linear-gradient(135deg,#fff7ed,#ffedd5)", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: 9, padding: "7px 13px", fontSize: 12, fontWeight: 800 }}>{l}: {v}</span> : null)}
+                                </div>}
+                            </Card>;
+                        })()}
                         {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
                         {tab === "dok" && <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}><DocCard title="KPDF" value={selected.dokumentacija.kpdf} /><DocCard title="Tehnički list" value={selected.dokumentacija.tehnickiList} /><DocCard title="Slike / crteži" value={selected.dokumentacija.slike} /></div>}
                         {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Istorija" note="Priprema za povezivanje sa kalkulacijama, nalozima, izmenama i korisnicima." /><ActionRow text="Nema upisane istorije za ovaj proizvod." /></Card>}
