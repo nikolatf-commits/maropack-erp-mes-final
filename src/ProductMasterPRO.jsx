@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { supabase } from "./supabase.js";
+import { useAuth } from "./auth/AuthProvider";
 
 const BLUE = "#2563eb";
 const GREEN = "#059669";
@@ -372,6 +373,8 @@ function tdStyle(center = false) {
 }
 
 export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
+    const auth = (() => { try { return useAuth(); } catch (e) { return {}; } })();
+    const trenutniKorisnik = auth?.user?.ime || auth?.userProfile?.ime || auth?.user?.email || "nepoznat";
     const [query, setQuery] = useState("");
     const [tipFilter, setTipFilter] = useState("sve");
     const [statusFilter, setStatusFilter] = useState("sve");
@@ -391,7 +394,43 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     }), [products, query, tipFilter, statusFilter]);
 
     const [selectedId, setSelectedId] = useState(null);
+    const [istorija, setIstorija] = useState([]);
+    const [istorijaLoad, setIstorijaLoad] = useState(false);
+
+    // upiši događaj u istoriju (tabela: proizvod_istorija)
+    async function zabeleziIstoriju(product, akcija, detalj) {
+        if (!product) return;
+        try {
+            await supabase.from("proizvod_istorija").insert([{
+                proizvod_id: product.db_id || null,
+                proizvod_naziv: product.naziv || "",
+                kupac: product.kupac || "",
+                akcija: akcija,
+                detalj: detalj || "",
+                korisnik: trenutniKorisnik,
+                created_at: new Date().toISOString()
+            }]);
+        } catch (e) { /* tabela možda još ne postoji — tiho */ }
+    }
+
+    // učitaj istoriju za izabrani proizvod
+    async function ucitajIstoriju(product) {
+        if (!product?.db_id) { setIstorija([]); return; }
+        setIstorijaLoad(true);
+        try {
+            const { data, error } = await supabase.from("proizvod_istorija")
+                .select("*").eq("proizvod_id", product.db_id).order("created_at", { ascending: false }).limit(100);
+            if (error) throw error;
+            setIstorija(Array.isArray(data) ? data : []);
+        } catch (e) { setIstorija([]); }
+        finally { setIstorijaLoad(false); }
+    }
     const selected = filtered.find(p => p.id === selectedId) || filtered[0] || products[0];
+
+    // učitaj istoriju kad se otvori tab "istorija" ili promeni proizvod
+    useEffect(() => {
+        if (tab === "istorija" && selected) ucitajIstoriju(selected);
+    }, [tab, selected?.db_id]);
     const stats = {
         total: products.length,
         folija: products.filter(p => p.tip === "folija").length,
@@ -404,6 +443,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
         const template = buildTemplateFromProduct(product);
         localStorage.setItem("maropack_pending_template_edit", JSON.stringify({ product_id: product.id, template }));
         msg && msg("Template je pripremljen za otvaranje iz Baze proizvoda");
+        zabeleziIstoriju(product, "Otvoren template", product.naziv);
         setPage && setPage("template_engine");
     }
 
@@ -435,6 +475,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             if (setDb && data?.[0]) setDb(prev => ({ ...prev, kalkulacije: [data[0], ...(prev?.kalkulacije || [])] }));
             const targetPage = kal.tip === "kesa" ? "kalk_kesa" : kal.tip === "spulna" ? "kalk_spulna" : "kalk_folija";
             msg && msg("Kalkulacija je kreirana iz sačuvanog template-a i sačuvana u bazu");
+            zabeleziIstoriju(product, "Kreirana kalkulacija", data && data.id ? ("Kalkulacija #" + data.id) : "");
             setPage && setPage(targetPage);
             return nextKal;
         } catch (e) {
@@ -474,6 +515,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             if (error) throw error;
             if (setDb && data?.[0]) setDb(prev => ({ ...prev, ponude: [data[0], ...(prev?.ponude || [])] }));
             msg && msg(options.accepted ? "Ponuda je kreirana i označena kao prihvaćena" : "Ponuda je kreirana iz sačuvanog template-a");
+            if (!options.silent) zabeleziIstoriju(product, options.accepted ? "Kreirana ponuda (prihvaćena)" : "Kreirana ponuda", data && data.id ? ("Ponuda #" + data.id) : "");
             if (!options.silent) setPage && setPage("ponude");
             return data?.[0] || null;
         } catch (e) {
@@ -490,6 +532,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             const { error } = await supabase.rpc("kreiraj_naloge_iz_ponude", { p_ponuda_id: ponuda.id });
             if (error) throw error;
             msg && msg("Glavni nalog i A4 operativni nalozi su kreirani iz template-a");
+            zabeleziIstoriju(product, "Kreirani nalozi", "Glavni + A4 operativni nalozi");
             setPage && setPage("master_nalozi");
         } catch (e) {
             msg && msg("Nalozi nisu kreirani. Proveri SQL funkciju kreiraj_naloge_iz_ponude: " + (e?.message || e), "err");
@@ -530,15 +573,22 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                     </div>
                 </div>
                 <div style={{ maxHeight: "calc(100vh - 300px)", overflow: "auto" }}>
-                    {filtered.map((p) => <button key={p.id} onClick={() => { setSelectedId(p.id); setTab("osnovno"); }} style={{ width: "100%", textAlign: "left", border: 0, borderBottom: "1px solid #eef2f7", background: selected?.id === p.id ? "#eff6ff" : "#fff", padding: 14, cursor: "pointer" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                            <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 950, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.naziv}</div>
-                                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 750, marginTop: 3 }}>{p.kupac}</div>
+                    {filtered.map((p) => <button key={p.id} onClick={() => { setSelectedId(p.id); setTab("osnovno"); }} style={{ width: "100%", textAlign: "left", border: 0, borderBottom: "1px solid #eef2f7", background: selected?.id === p.id ? "#f7f5ff" : "#fff", padding: 0, cursor: "pointer", display: "flex", gap: 0 }}>
+                        <div style={{ width: 4, flexShrink: 0, background: tipColor(p.tip), alignSelf: "stretch" }} />
+                        <div style={{ padding: "12px 14px", flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800, display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                                    <span>🏢</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.kupac}</span>
+                                </div>
+                                <Badge color={tipColor(p.tip)}>{p.tip}</Badge>
                             </div>
-                            <Badge color={tipColor(p.tip)}>{p.tip}</Badge>
+                            <div style={{ fontSize: 14, fontWeight: 950, color: "#0f172a", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.naziv}</div>
+                            <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap", alignItems: "center" }}>
+                                <span style={{ fontSize: 9, fontWeight: 900, padding: "3px 9px", borderRadius: 6, background: statusColor(p.status) + "1f", color: statusColor(p.status), textTransform: "uppercase" }}>{p.status}</span>
+                                <span style={{ fontSize: 9, fontWeight: 800, padding: "3px 8px", borderRadius: 6, background: "#f1f5f9", color: "#64748b" }}>{p.verzija}</span>
+                                {p.sifra && p.sifra !== "—" && <span style={{ fontSize: 9, fontWeight: 800, padding: "3px 8px", borderRadius: 6, background: "#f1f5f9", color: "#64748b" }}>{p.sifra}</span>}
+                            </div>
                         </div>
-                        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}><Badge color={statusColor(p.status)}>{p.status}</Badge><Badge color="#64748b">{p.verzija}</Badge><Badge color="#64748b">{p.sifra}</Badge></div>
                     </button>)}
                 </div>
             </Card>
@@ -590,7 +640,26 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                         })()}
                         {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
                         {tab === "dok" && <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}><DocCard title="KPDF" value={selected.dokumentacija.kpdf} /><DocCard title="Tehnički list" value={selected.dokumentacija.tehnickiList} /><DocCard title="Slike / crteži" value={selected.dokumentacija.slike} /></div>}
-                        {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Istorija" note="Priprema za povezivanje sa kalkulacijama, nalozima, izmenama i korisnicima." /><ActionRow text="Nema upisane istorije za ovaj proizvod." /></Card>}
+                        {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}>
+                            <SectionTitle title="Istorija izmena" note="Beleže se kreiranja kalkulacija, ponuda, naloga i otvaranja template-a." />
+                            {istorijaLoad ? <div style={{ color: "#94a3b8", fontWeight: 700, padding: "10px 2px" }}>Učitavam istoriju…</div>
+                                : istorija.length === 0 ? <div style={{ color: "#94a3b8", fontWeight: 700, padding: "10px 2px" }}>Nema zabeleženih događaja za ovaj proizvod.</div>
+                                    : <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+                                        {istorija.map((h, i) => {
+                                            const ik = /kalkulac/i.test(h.akcija) ? "🧮" : /ponud/i.test(h.akcija) ? "📄" : /nalog/i.test(h.akcija) ? "🏭" : /template/i.test(h.akcija) ? "📐" : "•";
+                                            const boja = /kalkulac/i.test(h.akcija) ? "#16a34a" : /ponud/i.test(h.akcija) ? "#2563eb" : /nalog/i.test(h.akcija) ? "#9333ea" : "#64748b";
+                                            const kada = h.created_at ? new Date(h.created_at).toLocaleString("sr-RS") : "";
+                                            return <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "11px 13px", border: "1px solid #eef2f7", borderRadius: 12, background: "#fff" }}>
+                                                <div style={{ width: 34, height: 34, borderRadius: 10, background: boja + "18", color: boja, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{ik}</div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 900, fontSize: 13 }}>{h.akcija}</div>
+                                                    {h.detalj && <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700, marginTop: 1 }}>{h.detalj}</div>}
+                                                    <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginTop: 4 }}>🕘 {kada}{h.korisnik ? " · " + h.korisnik : ""}</div>
+                                                </div>
+                                            </div>;
+                                        })}
+                                    </div>}
+                        </Card>}
                     </div>
                 </> : <div style={{ padding: 40, color: "#64748b", fontWeight: 800 }}>Nema proizvoda za prikaz.</div>}
             </Card>
