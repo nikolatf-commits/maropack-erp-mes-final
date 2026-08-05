@@ -364,23 +364,70 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                 </div>
 
                                 {/* DESNO */}
-                                <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
-                                        Konačna cena
-                                    </div>
-                                    <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981' }}>
-                                        {fmt(kal.konacna_cena || kal.rezultati?.konacnaCena || 0)} €
-                                    </div>
-                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>€ / 1000m</div>
-                                    {kal.tip === 'folija' && (kal.rezultati?.cenaPoKgSaMarza || kal.cena_kg) ? (
-                                        <div style={{ fontSize: 18, fontWeight: 900, color: '#0891b2', marginTop: 4 }}>
-                                            {fmt(kal.rezultati?.cenaPoKgSaMarza || kal.cena_kg || 0)} € <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>/ kg</span>
+                                {(() => {
+                                    const broj = Number(kal.kolicina ?? kal.rezultati?.kolicina ?? 0);
+                                    const po1000Marza = Number(kal.konacna_cena ?? kal.rezultati?.konacnaCena ?? 0);
+                                    const po1000Osnovna = Number(kal.osnovna_cena ?? kal.rezultati?.osnovnaCena ?? 0);
+                                    const poKgMarza = Number(kal.rezultati?.cenaPoKgSaMarza ?? kal.cena_kg ?? 0);
+                                    const poKgOsnovna = Number(kal.rezultati?.cenaPoKgOsnovna ?? 0);
+                                    // UKUPNO NALOG: koristi sačuvani total ako postoji, inače cena po jedinici × količina
+                                    const ukupnoNalog = Number(
+                                        kal.rezultati?.ukupnoNalog ?? kal.ukupno_nalog ?? (po1000Marza * broj)
+                                    );
+                                    const ukupnoOsnovna = Number(
+                                        kal.rezultati?.ukupnoOsnovno ?? kal.ukupno_osnovno ?? (po1000Osnovna * broj)
+                                    );
+                                    return (
+                                        <div style={{ textAlign: 'right', minWidth: 220 }}>
+                                            {/* KONAČNA CENA = UKUPNO ZA CEO NALOG */}
+                                            <div style={{ paddingBottom: 10, marginBottom: 10, borderBottom: '1px solid #e2e8f0' }}>
+                                                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 2 }}>
+                                                    Konačna cena — ukupno nalog
+                                                </div>
+                                                <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.15 }}>
+                                                    {fmt(ukupnoNalog)} €
+                                                </div>
+                                                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                                    osnovna: {fmt(ukupnoOsnovna)} €
+                                                </div>
+                                            </div>
+
+                                            {/* CENA PO KG */}
+                                            <div style={{ marginBottom: 8 }}>
+                                                <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+                                                    Cena po kg
+                                                </div>
+                                                {poKgOsnovna > 0 && (
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#94a3b8' }}>
+                                                        <span>Osnovna</span>
+                                                        <span style={{ fontWeight: 700 }}>{fmt(poKgOsnovna)} €/kg</span>
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#475569' }}>
+                                                    <span>Sa maržom</span>
+                                                    <span style={{ fontWeight: 800, color: '#0891b2' }}>{fmt(poKgMarza)} €/kg</span>
+                                                </div>
+                                            </div>
+
+                                            {/* CENA NA 1000m (samo folija) */}
+                                            {kal.tip === 'folija' && (
+                                                <div>
+                                                    <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+                                                        Cena na 1000m
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#94a3b8' }}>
+                                                        <span>Osnovna</span>
+                                                        <span style={{ fontWeight: 700 }}>{fmt(po1000Osnovna)} €</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#475569' }}>
+                                                        <span>Sa maržom</span>
+                                                        <span style={{ fontWeight: 800, color: '#10b981' }}>{fmt(po1000Marza)} €</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
-                                    ) : null}
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
-                                        Osnovna: {fmt(kal.osnovna_cena || kal.rezultati?.osnovnaCena || 0)} €
-                                    </div>
-                                </div>
+                                    );
+                                })()}
                             </div>
 
                             {/* AKCIJE */}
