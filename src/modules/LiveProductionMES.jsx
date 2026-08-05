@@ -125,13 +125,17 @@ export default function LiveProductionMES({ db = {}, msg }) {
             if (m.status === "aktivna") {
                 ops.forEach((n) => {
                     let s = normStatus(n.status);
-                    if (s === "ceka") s = "spremno"; // dodeljen mašini, čeka start = SPREMNO
+                    if (s === "ceka") {
+                        // SPREMNO samo ako nema nezavršene prethodne operacije; inače ostaje ČEKA
+                        const blok = nadjiBlokadu(canonRef(nalogKey(n)), opKljuc(n), opStatusi);
+                        if (!blok) s = "spremno";
+                    }
                     if ((rang[s] || 0) > (rang[st] || 0)) st = s;
                 });
             }
             return { m, ops, st };
         });
-    }, [machines, plan, nalogMap]);
+    }, [machines, plan, nalogMap, opStatusi]);
 
     // Aktivne operacije koje NISU ni na jednoj mašini u planu — da ništa ne bude nevidljivo.
     const vanPlana = useMemo(() => {
@@ -150,10 +154,11 @@ export default function LiveProductionMES({ db = {}, msg }) {
 
     function OpRed({ n, poz, masina }) {
         const s0 = normStatus(n.status);
-        const s = s0 === "ceka" ? "spremno" : s0;
-        const est = procenaMin(masina, n);
         // redosled: rezanje ne kreće pre štampe istog naloga itd.
-        const blokada = (s === "spremno") ? nadjiBlokadu(canonRef(nalogKey(n)), opKljuc(n), opStatusi) : null;
+        const blokada = (s0 === "ceka" || s0 === "spremno") ? nadjiBlokadu(canonRef(nalogKey(n)), opKljuc(n), opStatusi) : null;
+        // ČEKA dok se zavisnost ne oslobodi; SPREMNO tek kad su sve prethodne operacije gotove
+        const s = (s0 === "ceka" && !blokada) ? "spremno" : s0;
+        const est = procenaMin(masina, n);
         return (
             <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 10, background: "#f8fafc", borderLeft: "4px solid " + statusBoja(s), display: "flex", gap: 8, alignItems: "flex-start" }}>
                 {poz > 0 && <span style={{ minWidth: 21, height: 21, borderRadius: 7, background: statusBoja(s), color: "#fff", fontSize: 11, fontWeight: 950, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>{poz}</span>}
