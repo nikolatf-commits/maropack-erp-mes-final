@@ -43,7 +43,13 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                         const rez = k.rezultati || {};
                         const konacna = n(pick(k, ['konacna_cena'], pick(rez, ['kn', 'konacnaCena', 'saMarza', 'ukupno'], 0)));
                         const osnovna = n(pick(k, ['osnovna_cena'], pick(rez, ['osnovna', 'osn', 'osnovnaCena'], 0)));
-                        map[k.id] = { konacna, osnovna, marza: n(k.marza || rez.izracunataMarza || 0), kolicina: n(k.kolicina || k.kol || rez.kolicina || 0) };
+                        map[k.id] = {
+                            konacna, osnovna,
+                            marza: n(k.marza || rez.izracunataMarza || 0),
+                            kolicina: n(k.kolicina || k.kol || rez.kolicina || 0),
+                            naziv: k.naziv || k.naziv_proizvoda || '',
+                            kupac: k.kupac || k.klijent || ''
+                        };
                     });
                 }
                 if (ziv) setKalkMap(map);
@@ -59,7 +65,17 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
             // količina: PRVO iz naloga (merodavna), pa iz kalkulacije, pa 1
             const kolNalog = n(pick(x, ['kolicina', 'kol', 'quantity', 'metraza'], 0));
             const kalkId = x.kalkulacija_id ?? x.kalkulacijaId ?? x.kalk_id ?? null;
-            const kalk = (kalkId != null && kalkMap[kalkId]) ? kalkMap[kalkId] : null;
+            let kalk = (kalkId != null && kalkMap[kalkId]) ? kalkMap[kalkId] : null;
+            // Ako nalog nema kalkulacija_id, probaj da nađeš kalkulaciju po kupcu + nazivu proizvoda
+            if (!kalk) {
+                const kNaziv = String(x.prod || x.proizvod || x.naziv || '').trim().toLowerCase();
+                const kKupac = String(x.kupac || x.klijent || '').trim().toLowerCase();
+                kalk = Object.values(kalkMap).find(k =>
+                    k.naziv && k.kupac &&
+                    String(k.naziv).trim().toLowerCase() === kNaziv &&
+                    String(k.kupac).trim().toLowerCase() === kKupac
+                ) || null;
+            }
             const kolKalk = kalk ? n(kalk.kolicina) : 0;
             const kolicina = kolNalog > 0 ? kolNalog : (kolKalk > 0 ? kolKalk : 0);
 
