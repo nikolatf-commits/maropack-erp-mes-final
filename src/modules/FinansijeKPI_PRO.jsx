@@ -29,31 +29,43 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
     const rolne = useMemo(() => db.rolne || db.rolne_magacin || [], [db]);
     const sessions = useMemo(() => db.production_sessions || db.sesije || db.live_sessions || [], [db]);
 
-    // Kalkulacije se NE nalaze u db — učitavamo ih ovde i vežemo na naloge preko kalkulacija_id.
-    const [kalkMap, setKalkMap] = useState({}); // { id: {konacna, osnovna, marza} }
+    // Kalkulacije se NE nalaze u db — učitavamo ih ovde i vežemo na naloge preko kalkulacija_id
+    // ili, ako nalog nema taj id, preko normalizovanog naziva (+ kupca).
+    const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const [kalkMap, setKalkMap] = useState({});      // po id
+    const [kalkByName, setKalkByName] = useState({}); // po "naziv|kupac" i po "naziv"
     useEffect(() => {
         let ziv = true;
         (async () => {
-            try {
-                const tabele = ['kalkulacije_folije', 'kalkulacije_kese', 'kalkulacije_spulne', 'kalkulacije'];
-                const map = {};
-                for (const t of tabele) {
-                    const { data } = await supabase.from(t).select('*');
+            const tabele = ['kalkulacije_folije', 'kalkulacije_kese', 'kalkulacije_spulne'];
+            const map = {};
+            const byName = {};
+            for (const t of tabele) {
+                try {
+                    const { data, error } = await supabase.from(t).select('*');
+                    if (error) continue; // npr. tabela ne postoji — preskoči, ne ruši ceo map
                     (data || []).forEach((k) => {
                         const rez = k.rezultati || {};
+                        // konačna i osnovna su PO JEDINICI (za foliju: po 1000m)
                         const konacna = n(pick(k, ['konacna_cena'], pick(rez, ['kn', 'konacnaCena', 'saMarza', 'ukupno'], 0)));
                         const osnovna = n(pick(k, ['osnovna_cena'], pick(rez, ['osnovna', 'osn', 'osnovnaCena'], 0)));
-                        map[k.id] = {
-                            konacna, osnovna,
+                        // trošak sa škartom po jedinici, ako je sačuvan (za "realni trošak")
+                        const saSkartom = n(pick(k, ['cena_sa_skartom'], pick(rez, ['saSkartom', 'saBuffom', 'saSkartomPo1000m'], 0)));
+                        const rec = {
+                            konacna, osnovna, saSkartom,
                             marza: n(k.marza || rez.izracunataMarza || 0),
-                            kolicina: n(k.kolicina || k.kol || rez.kolicina || 0),
+                            kolicina: n(k.kolicina || k.kol || rez.kolicina || 0), // poručena (za foliju: broj × 1000m)
                             naziv: k.naziv || k.naziv_proizvoda || '',
                             kupac: k.kupac || k.klijent || ''
                         };
+                        map[k.id] = rec;
+                        const nm = norm(rec.naziv), kp = norm(rec.kupac);
+                        if (nm && kp) byName[nm + '|' + kp] = rec;
+                        if (nm) byName[nm] = rec; // rezerva ako se kupac ne poklopi
                     });
-                }
-                if (ziv) setKalkMap(map);
-            } catch (e) { /* tiho */ }
+                } catch (e) { /* preskoči tabelu */ }
+            }
+            if (ziv) { setKalkMap(map); setKalkByName(byName); }
         })();
         return () => { ziv = false; };
     }, []);
@@ -62,31 +74,36 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         const base = masterNalozi.length ? masterNalozi : nalozi;
         return base.map((x, i) => {
             const res = x.res || x.rezultat || x.kalkulacija || {};
-            // količina: PRVO iz naloga (merodavna), pa iz kalkulacije, pa 1
+            // PORUČENA količina: PRVO iz naloga (merodavna), pa iz kalkulacije. NE uvećavati za škart.
             const kolNalog = n(pick(x, ['kolicina', 'kol', 'quantity', 'metraza'], 0));
             const kalkId = x.kalkulacija_id ?? x.kalkulacijaId ?? x.kalk_id ?? null;
             let kalk = (kalkId != null && kalkMap[kalkId]) ? kalkMap[kalkId] : null;
-            // Ako nalog nema kalkulacija_id, probaj da nađeš kalkulaciju po kupcu + nazivu proizvoda
+            // Ako nalog nema kalkulacija_id, veži po normalizovanom nazivu (+ kupac ako se poklopi)
             if (!kalk) {
-                const kNaziv = String(x.prod || x.proizvod || x.naziv || '').trim().toLowerCase();
-                const kKupac = String(x.kupac || x.klijent || '').trim().toLowerCase();
-                kalk = Object.values(kalkMap).find(k =>
-                    k.naziv && k.kupac &&
-                    String(k.naziv).trim().toLowerCase() === kNaziv &&
-                    String(k.kupac).trim().toLowerCase() === kKupac
-                ) || null;
+                const nm = norm(x.prod || x.proizvod || x.naziv);
+                const kp = norm(x.kupac || x.klijent);
+                kalk = kalkByName[nm + '|' + kp] || kalkByName[nm] || null;
             }
             const kolKalk = kalk ? n(kalk.kolicina) : 0;
             const kolicina = kolNalog > 0 ? kolNalog : (kolKalk > 0 ? kolKalk : 0);
 
             let prihod, trosak;
             if (kalk) {
-                // PRIHOD = konačna × količina · TROŠAK = osnovna × količina.
-                // Ako nigde nema količine (0), uzmi cenu za 1 kom da KPI ne bude 0.
-                const q = kolicina > 0 ? kolicina : 1;
+                const q = kolicina > 0 ? kolicina : 1; // poručena količina
+                // PRIHOD = konačna cena po jedinici × poručena količina
                 prihod = kalk.konacna * q;
-                trosak = kalk.osnovna * q;
+                // TROŠAK = cena po jedinici × poručena količina.
+                // Podrazumevano OSNOVNA (bez škarta). Za "realni trošak" sa škartom promeni na:
+                //   const cenaTroska = kalk.saSkartom > 0 ? kalk.saSkartom : kalk.osnovna;
+                const cenaTroska = kalk.osnovna;
+                trosak = cenaTroska * q;
             } else {
+                // Nalog nije povezan ni sa jednom kalkulacijom — javi u konzoli radi dijagnostike
+                if (typeof console !== 'undefined') {
+                    console.warn('[KPI] Nalog bez povezane kalkulacije:', x.broj || x.id,
+                        '| naziv:', x.prod || x.proizvod || x.naziv, '| kupac:', x.kupac || x.klijent,
+                        '| dostupne kalkulacije:', Object.keys(kalkByName));
+                }
                 // fallback na stara polja ako nema veze sa kalkulacijom
                 prihod = n(pick(x, ['ukupno', 'vrednost', 'cena_ukupno', 'total', 'iznos'], pick(res, ['kn', 'ukupno', 'vrednost'], 0)));
                 const materijal = n(pick(x, ['trosak_materijala', 'materijal_cost'], pick(res, ['ukM', 'materijali', 'materijal'], prihod * 0.45)));
@@ -109,7 +126,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                 prihod, materijal, proizvodnja, ostalo, trosak, profit, marza, skart,
             };
         });
-    }, [masterNalozi, nalozi, kalkMap]);
+    }, [masterNalozi, nalozi, kalkMap, kalkByName]);
 
     const kpi = useMemo(() => {
         const prihod = rows.reduce((s, r) => s + r.prihod, 0);
