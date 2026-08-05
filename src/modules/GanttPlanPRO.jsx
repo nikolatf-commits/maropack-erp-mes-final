@@ -164,7 +164,7 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
 // Radna nedelja pon–SUB puni ekran; klizač na dnu vodi u sledeće nedelje (6 unapred).
 // Širina dana se računa iz širine kontejnera; strelice ‹ › listaju nedelje.
-const IME_PX = 210, RED_PX = 104;
+const IME_PX = 210, RED_PX = 134;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
     const [nedelja, setNedelja] = useState(0); // pomeranje pogleda po nedeljama
@@ -353,16 +353,20 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                     {vidljive.length === 0 && <div style={{ padding: 26, textAlign: "center", color: "#94a3b8", fontWeight: 800 }}>Nema mašina sa nalozima za izabrani filter — uključi "prikaži i prazne" ili prevuci naloge na tabu Mašine.</div>}
                     {vidljive.map((m) => {
                         const moji = raspored.filter((s) => s.masinaId === m.id).sort((a, b) => a.start - b.start);
-                        // dnevni prikaz: prikaži samo trake koje se preklapaju sa izabranim danom
-                        const mojiV = (jeDan && danBounds) ? moji.filter((s) => s.start < danBounds.e && s.end > danBounds.s) : moji;
+                        // dnevni prikaz: prikaži trake koje se preklapaju sa danom — uključujući period ČEKANJA
+                        // (mašina "čeka prethodnu" traje od cekaOdWm do starta, pa red nije prazan tog dana)
+                        const mojiV = (jeDan && danBounds) ? moji.filter((s) => {
+                            const vidljivOd = (s.cekaOdWm !== null && s.cekaOdWm !== undefined) ? wmToDate(sidro, s.cekaOdWm) : s.start;
+                            return vidljivOd < danBounds.e && s.end > danBounds.s;
+                        }) : moji;
                         return (
                             <React.Fragment key={m.id}>
                                 <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => dropToMachine && dropToMachine(m.id, e)}
                                     style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
                                     <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px", padding: "10px 12px", borderRight: "1px solid #e2e8f0" }}>
-                                        <div style={{ fontSize: 9.5, color: "#94a3b8", fontWeight: 900 }}>{m.code} · {(m.group || m.type || "").toString().toUpperCase()}</div>
-                                        <b style={{ fontSize: 14.5 }}>{m.name}</b>
-                                        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
+                                        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 900, letterSpacing: ".3px" }}>{m.code} · {(m.group || m.type || "").toString().toUpperCase()}</div>
+                                        <b style={{ fontSize: 17, lineHeight: 1.2, display: "block", margin: "1px 0 2px" }}>{m.name}</b>
+                                        <div style={{ fontSize: 12.5, color: "#475569", fontWeight: 800 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
                                     </div>
                                     <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
                                         {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined }} />)}
@@ -387,13 +391,13 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                                         return (
                                                             <div draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
                                                                 title={s.o.id + " · " + (s.o.title || "") + (s.o.customer ? " · " + s.o.customer : "") + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (s.o.rok ? "\nrok: " + new Date(s.o.rok).toLocaleDateString("sr-RS") : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
-                                                                style={{ position: "absolute", left: x1, width: w, top: 9, bottom: 9, borderRadius: 11, background: boja, color: "#fff", padding: srednje ? "8px 11px" : "6px", overflow: "hidden", boxSizing: "border-box", cursor: "grab", boxShadow: "0 4px 12px rgba(15,23,42,.2)", opacity: s.o.status === "u_radu" ? 1 : .94, outline: s.probija ? "2px solid #fecaca" : "none", zIndex: 1, display: "flex", flexDirection: "column", gap: 3, justifyContent: srednje ? "flex-start" : "center", alignItems: srednje ? "stretch" : "center" }}>
-                                                                <div style={{ fontSize: 12.5, fontWeight: 900, lineHeight: 1.15, display: "flex", alignItems: "center", gap: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                style={{ position: "absolute", left: x1, width: w, top: 12, bottom: 12, borderRadius: 12, background: boja, color: "#fff", padding: srednje ? "9px 13px" : "6px", overflow: "hidden", boxSizing: "border-box", cursor: "grab", boxShadow: "0 4px 12px rgba(15,23,42,.2)", opacity: s.o.status === "u_radu" ? 1 : .94, outline: s.probija ? "2px solid #fecaca" : "none", zIndex: 1, display: "flex", flexDirection: "column", gap: 4, justifyContent: "center", alignItems: srednje ? "stretch" : "center" }}>
+                                                                <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.15, display: "flex", alignItems: "center", gap: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                                                     {s.eksterno ? "📦 " : (s.o.opIkona ? s.o.opIkona + " " : "")}{srednje ? s.o.id : ""}
                                                                 </div>
-                                                                {sirokoDosta && detalj && <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .95, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalj}</div>}
-                                                                {sirokoDosta && (metri || s.o.brojBoja) && <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .9, whiteSpace: "nowrap" }}>{[metri, s.o.brojBoja ? s.o.brojBoja + " boja" : "", s.o.brojTraka > 1 ? s.o.brojTraka + " trake" : ""].filter(Boolean).join(" · ")}</div>}
-                                                                {srednje && <div style={{ marginTop: "auto", fontSize: 10, fontWeight: 800, background: "rgba(255,255,255,.2)", borderRadius: 6, padding: "2px 7px", width: "fit-content", whiteSpace: "nowrap" }}>{s.eksterno ? "povratak " + fmtD(s.end) : "gotov " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}</div>}
+                                                                {sirokoDosta && detalj && <div style={{ fontSize: 12, fontWeight: 700, opacity: .98, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalj}</div>}
+                                                                {sirokoDosta && (metri || s.o.brojBoja) && <div style={{ fontSize: 11.5, fontWeight: 700, opacity: .92, whiteSpace: "nowrap" }}>{[metri, s.o.brojBoja ? s.o.brojBoja + " boja" : "", s.o.brojTraka > 1 ? s.o.brojTraka + " trake" : ""].filter(Boolean).join(" · ")}</div>}
+                                                                {srednje && <div style={{ marginTop: 2, fontSize: 11.5, fontWeight: 900, background: "rgba(255,255,255,.24)", borderRadius: 7, padding: "3px 9px", width: "fit-content", whiteSpace: "nowrap" }}>{s.eksterno ? "povratak " + fmtD(s.end) : "gotov " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}</div>}
                                                             </div>);
                                                     })()}
                                                     {s.rokD && <div title={"Rok " + s.o.id} style={{ position: "absolute", left: xOd(s.rokD) - IME_PX, top: 4, bottom: 4, width: 2.5, background: "#dc2626", borderRadius: 2, zIndex: 3, pointerEvents: "none" }} />}
