@@ -125,6 +125,33 @@ export function stvarnoMin(n) {
 export const REDOSLED_OPERACIJA = ["materijal", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "formatiranje", "kesa", "spulna"];
 export const jeGotov = (status) => /^zavr/i.test(String(status || ""));
 
+// Operacije koje ODLAZE u štampariju i moraju da se VRATE ("stiglo iz štamparije").
+// - ŠTAMPA je UVEK eksterna.
+// - LAKIRANJE je eksterno SAMO kad je tako čekirano u templejtu (in-house ili eksterno).
+//   Pošto in-house lakiranje nikad ne dobija status "poslato/stiglo" (ta dugmad se ne
+//   prikazuju), sam status enkodira o čemu se radi — pa nam ne treba dodatno polje ovde.
+export const EKSTERNE_OP = new Set(["stampa", "lakiranje"]);
+
+// "Stiglo iz štamparije" — potvrda fizičkog povratka materijala u pogon.
+export const jeStiglo = (status) => /stiglo/i.test(String(status || ""));
+export const jePoslato = (status) => /^poslato/i.test(String(status || ""));
+
+// Da li je operacija GOTOVA ZA SLEDEĆU (otključava nizvodnu operaciju)?
+//  - štampa (uvek eksterna): tek kad je "stiglo iz štamparije"
+//  - lakiranje: ako je poslato u štampariju → čeka "stiglo"; ako je stiglo → gotovo;
+//               in-house lakiranje (nikad poslato) → dovoljno "završeno"
+//  - interne operacije (materijal, kaширanje, rezanje, kese, špulne): "završeno"
+export function jeGotovZaSledecu(status, opKljucStr) {
+    const s = String(status || "");
+    if (opKljucStr === "stampa") return jeStiglo(s);
+    if (opKljucStr === "lakiranje") {
+        if (jeStiglo(s)) return true;      // eksterno lakiranje se vratilo
+        if (jePoslato(s)) return false;    // poslato u štampariju, još nije stiglo
+        return jeGotov(s);                 // in-house lakiranje: dovoljno "završeno"
+    }
+    return jeGotov(s);
+}
+
 // Mapa statusa po glavnom nalogu: { "MP-2026-0001": { materijal:"...", stampa:"..." } }
 export function mapaOperacija(sviNalozi) {
     const m = {};
@@ -139,15 +166,16 @@ export function mapaOperacija(sviNalozi) {
     return m;
 }
 
-// Vraća ključ NAJBLIŽE prethodne operacije istog naloga koja NIJE gotova, ili null.
-// (npr. rezanje ne sme da krene dok štampa istog master naloga nije završena)
+// Vraća ključ NAJBLIŽE prethodne operacije istog naloga koja NIJE gotova ZA SLEDEĆU, ili null.
+// Za eksterne operacije (štampa/lakiranje) "gotovo" znači "stiglo iz štamparije", ne samo
+// "završeno" — pa kaширanje ostaje blokirano dok se materijal fizički ne vrati.
 export function nadjiBlokadu(masterBroj, mojKljuc, mapa) {
     const i = REDOSLED_OPERACIJA.indexOf(mojKljuc);
     if (i <= 0) return null;
     const ops = (mapa && mapa[canonRef(masterBroj)]) || {};
     for (let j = i - 1; j >= 0; j--) {
         const k = REDOSLED_OPERACIJA[j];
-        if (ops[k] !== undefined && !jeGotov(ops[k])) return k;
+        if (ops[k] !== undefined && !jeGotovZaSledecu(ops[k], k)) return k;
     }
     return null;
 }

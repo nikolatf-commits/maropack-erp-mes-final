@@ -2561,8 +2561,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <div style={{ gridColumn: "span 3" }}>
                             <Input label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
                         </div>
+                        <div style={{ gridColumn: "span 3", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 4, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 750, color: "#0f172a", cursor: "pointer" }}>
+                                <input type="checkbox" checked={!!form.folija.lakiranje?.eksterno} onChange={e => update("folija.lakiranje.eksterno", e.target.checked)} style={{ width: 17, height: 17, accentColor: "#2563eb", cursor: "pointer" }} />
+                                Eksterno lakiranje (u štampariji)
+                            </label>
+                            {form.folija.lakiranje?.eksterno
+                                ? <div style={{ flex: "1 1 240px", minWidth: 200 }}><Input label="Štamparija (lakiranje)" value={form.folija.lakiranje?.stamparija || ""} onChange={v => update("folija.lakiranje.stamparija", v)} /></div>
+                                : <span style={{ fontSize: 12, color: "#64748b" }}>Nečekirano = in-house lakiranje (dovoljno „Završeno", bez čekanja na povratak iz štamparije).</span>}
+                        </div>
                     </Grid>
-                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" ili boja tipa „Lak". Ovi podaci idu na nalog za lakiranje.</div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak kao <b>boja u štampi</b> (red „Lak" u listi boja) radi se u <b>istom prolazu sa štampom</b> — nema zasebne operacije. Zasebno lakiranje nastaje <b>samo kad je na SLOJU čekirana kolona „L"</b>; tada gore biraš in-house ili eksterno.</div>
                 </Section>
 
                 <Section title={t("tmpl.kasiranje")} color={BLUE}>

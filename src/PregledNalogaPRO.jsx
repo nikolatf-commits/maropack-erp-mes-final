@@ -8,6 +8,7 @@ import { enrichNalogForPrint } from "./utils/nalogDataLink";
 const TABOVI = [
     { tip: "materijal", naziv: "Potreba materijala", ik: "📦", boja: "#f59e0b" },
     { tip: "stampa", naziv: "Štampa", ik: "🖨️", boja: "#3b82f6" },
+    { tip: "lakiranje", naziv: "Lakiranje", ik: "✨", boja: "#8b5cf6" },
     { tip: "kasiranje", naziv: "Kaširanje", ik: "🔗", boja: "#1d4ed8" },
     { tip: "perforacija_rezanje", naziv: "Perforacija i rezanje", ik: "✂️", boja: "#6366f1" },
     { tip: "kesa", naziv: "Kesa", ik: "🛍️", boja: "#b91c1c" },
@@ -330,6 +331,25 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     }
 
     const aktivni = gradiAktivni(tab);
+    // Da li aktivna operacija ODLAZI u štampariju (pa joj treba "Poslato"/"Stiglo iz štamparije")?
+    //  - štampa: UVEK eksterna
+    //  - lakiranje: eksterno SAMO ako je tako čekirano u templejtu lakiranja
+    // NAPOMENA: polje se čita tolerantno iz folija.lakiranje. Ako se kod tebe zove drugačije,
+    // prilagodi imena ispod (npr. lak.eksterno / lak.mesto === 'stamparija' / lak.stamparija).
+    function opEksterna(zaTab, akt) {
+        if (zaTab === "stampa") return true;
+        if (zaTab !== "lakiranje") return false;
+        const lak = (akt && akt.folija && akt.folija.lakiranje) || {};
+        if (lak.eksterno === true || lak.eksterna === true || lak.eksterno === "da") return true;
+        if (lak.inhouse === true || lak.in_house === true || lak.inHouse === true) return false;
+        const mesto = String(lak.mesto || lak.mesto_rada || lak.tip_rada || lak.lokacija || lak.gde || "").toLowerCase();
+        if (/ekster|štampar|stampar/.test(mesto)) return true;
+        if (/in.?house|kuc|kuć|intern/.test(mesto)) return false;
+        // ako je uneta štamparija (naziv) a nije eksplicitno in-house → tretiraj kao eksterno
+        if (lak.stamparija || lak.stamparija_naziv || lak.stampanja) return true;
+        return false;
+    }
+    const aktivnaEksterna = opEksterna(tab, aktivni);
     const naslovBroj = brojNaloga || aktivni.ponBr || osnovniNalog.ponBr || "—";
     const closeFn = onBack || onClose;
     const [showQr, setShowQr] = useState(false);
@@ -425,9 +445,12 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     <span style={{ fontSize: 12, fontWeight: 800, color: "#475569" }}>Ručno postavi status:</span>
                     {[
                         { k: "ceka", l: "Čeka", boja: "#f59e0b" },
-                        // "Poslato u štampariju" ima smisla samo za štampu (eksterne štamparije
-                        // Milinković / Topolastika) — na ostalim operacijama se ne prikazuje.
-                        ...(tab === "stampa" ? [{ k: "poslato_stampariji", l: "Poslato u štampariju", boja: "#7c3aed" }] : []),
+                        // "Poslato u štampariju" i "Stiglo iz štamparije" se prikazuju samo za
+                        // EKSTERNE operacije: štampa (uvek) i lakiranje kad je čekirano eksterno.
+                        ...(aktivnaEksterna ? [
+                            { k: "poslato_stampariji", l: "Poslato u štampariju", boja: "#7c3aed" },
+                            { k: "stiglo_iz_stamparije", l: "Stiglo iz štamparije", boja: "#0891b2" },
+                        ] : []),
                         { k: "radi", l: "U toku", boja: "#3b82f6" },
                         { k: "spremljeno", l: "Spremno", boja: "#10b981" },
                         { k: "zavrseno", l: "Završeno", boja: "#16a34a" },
