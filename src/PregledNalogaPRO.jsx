@@ -447,13 +447,12 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                         { k: "ceka", l: "Čeka", boja: "#f59e0b" },
                         // "Poslato u štampariju" i "Stiglo iz štamparije" se prikazuju samo za
                         // EKSTERNE operacije: štampa (uvek) i lakiranje kad je čekirano eksterno.
-                        ...(aktivnaEksterna ? [
-                            { k: "poslato_stampariji", l: "Poslato u štampariju", boja: "#7c3aed" },
-                            { k: "stiglo_iz_stamparije", l: "Stiglo iz štamparije", boja: "#0891b2" },
-                        ] : []),
+                        // "Stiglo iz štamparije" je KRAJNJI korak (roba se vratila), pa stoji na kraju.
+                        ...(aktivnaEksterna ? [{ k: "poslato_stampariji", l: "Poslato u štampariju", boja: "#7c3aed" }] : []),
                         { k: "radi", l: "U toku", boja: "#3b82f6" },
                         { k: "spremljeno", l: "Spremno", boja: "#10b981" },
                         { k: "zavrseno", l: "Završeno", boja: "#16a34a" },
+                        ...(aktivnaEksterna ? [{ k: "stiglo_iz_stamparije", l: "Stiglo iz štamparije", boja: "#0891b2" }] : []),
                     ].map((st) => (
                         <button key={st.k} disabled={statusBusy} onClick={() => postaviStatus(st.k)}
                             style={{

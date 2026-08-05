@@ -12,7 +12,7 @@
 //  Renderuje ga MachineSchedulerPRO kao tab "Kalendar" (isti podaci i drag/drop).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
-import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, canonRef, OP_LABELE } from "../utils/nalogMetrika.js";
+import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, jeGotovZaSledecu, jeStiglo, jePoslato, canonRef, OP_LABELE } from "../utils/nalogMetrika.js";
 
 // ── radni kalendar ───────────────────────────────────────────────────────────
 const DAN_OD = 6 * 60;          // radni dan počinje 06:00
@@ -67,6 +67,17 @@ const KEY2SUF = { materijal: "MATERIJAL", stampa: "STAMPA", lakiranje: "LAKIRANJ
 const OP_BOJA = { stampa: "#2563eb", lakiranje: "#7c3aed", kasiranje: "#0891b2", rezanje: "#dc2626", formatiranje: "#ea580c", kese: "#16a34a", spulne: "#9333ea", ostalo: "#64748b" };
 const POVRATAK_IZ_STAMPARIJE_DANA = 2; // pretpostavka kad nema ručnog datuma
 
+// Da li prethodna EKSTERNA operacija (štampa / eksterno lakiranje) čeka fizički POVRATAK
+// iz štamparije? Ako jeste (poslata ili tamo završena, a nije "stiglo") — nizvodna operacija
+// se planira sa pretpostavljenim povratkom, ne kao "van plana".
+function cekaPovratakIzStamparije(pKljuc, statusP) {
+    const s = String(statusP || "");
+    if (jeStiglo(s)) return false;                     // već stiglo → ne čeka
+    if (jePoslato(s)) return true;                     // poslato u štampariju
+    if (pKljuc === "stampa" && jeGotov(s)) return true; // štampa "završena u štampariji", čeka povratak
+    return false;
+}
+
 function minutaOd(iso) { const d = new Date(iso); return Number.isNaN(d.getTime()) ? 0 : Math.max(0, Math.round((Date.now() - d.getTime()) / 60000)); }
 
 // ── ENGINE: čista funkcija plan → raspored sa datumima ───────────────────────
@@ -86,7 +97,7 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
         const mape = opStatusi[canonRef(o.id)] || {};
         for (let j = i - 1; j >= 0; j--) {
             const k = REDOSLED_OPERACIJA[j];
-            if (mape[k] !== undefined && !jeGotov(mape[k])) return k;
+            if (mape[k] !== undefined && !jeGotovZaSledecu(mape[k], k)) return k;
         }
         return null;
     };
@@ -107,10 +118,16 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
                     if (p) {
                         ceka = p;
                         const predId = canonRef(o.id) + "-" + KEY2SUF[p];
-                        if (kraj[predId] !== undefined) ready = kraj[predId];
-                        else if (String((opStatusi[canonRef(o.id)] || {})[p] || "").indexOf("poslato") === 0) {
-                            ready = POVRATAK_IZ_STAMPARIJE_DANA * DAN_MIN; pretpostavka = true;
-                        } else vanPlana = true; // prethodna postoji, nije gotova, a nije u planu
+                        const statusP = String((opStatusi[canonRef(o.id)] || {})[p] || "");
+                        if (cekaPovratakIzStamparije(p, statusP)) {
+                            // eksterna operacija još NIJE stigla iz štamparije → pretpostavi povratak
+                            const baza = (kraj[predId] !== undefined) ? kraj[predId] : 0;
+                            ready = baza + POVRATAK_IZ_STAMPARIJE_DANA * DAN_MIN; pretpostavka = true;
+                        } else if (kraj[predId] !== undefined) {
+                            ready = kraj[predId];
+                        } else {
+                            vanPlana = true; // prethodna postoji, nije gotova, a nije u planu
+                        }
                     }
                     if (String(o.statusRaw || "").indexOf("poslato") === 0) {
                         // sama operacija je u eksternoj štampariji
