@@ -16,7 +16,8 @@ import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne } from "./kalkula
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
 import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace } from "../services/erpMesCore.js";
-import { metriMasineNaloga, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP } from "../utils/nalogMetrika.js";
+import { metriMasineNaloga, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog } from "../utils/nalogMetrika.js";
+import { izracunajRaspored, radnoSada } from "../utils/planRaspored.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
 const T = (v) => String(v ?? "").trim();
@@ -1432,6 +1433,57 @@ export const ALATI = {
             const vanPlana = ops.filter((o) => !zavrsen(o) && /radi|toku|zastoj|pauz/i.test(T(o.status)) && !uPlanu.has(T(o.broj_naloga || o.broj || o.id)))
                 .map((o) => ({ broj: T(o.broj_naloga || o.broj), status: T(o.status) }));
             return { masina_ukupno: (Array.isArray(masine) ? masine : []).length, masine: rezultat, aktivno_van_plana: vanPlana };
+        },
+    },
+
+    plan_zavrsetak_naloga: {
+        cita: true,
+        opis: "Kalendarski raspored naloga po SADAŠNJEM planu proizvodnje: kad svaka operacija (štampa/kaширanje/rezanje...) počinje i završava i kad je ceo nalog gotov. Koristi ISTI proračun kao vizuelni Plan proizvodnje (Gantt): 2 smene/dan, subota 1 smena, vikend stoji, čekanje prethodne operacije i povratak iz štamparije. NE čita tabelu plan_proizvodnje (ona je prazna) — računa termine iz reda čekanja po mašinama. Koristi kad korisnik pita 'kad će nalog biti gotov po planu', 'koji je termin', 'stiže li do roka'.",
+        ulaz: { broj_naloga: { type: "string", description: "Glavni ili operativni broj, npr. MP-2026-0001 (daje sve operacije naloga)" } },
+        async izvrsi(a) {
+            const trazen = canonRef(T(a.broj_naloga));
+            const [masine, plan] = await Promise.all([loadMachines(), loadProductionPlan()]);
+            const ops = await sve("operativni_nalozi");
+            const norm = (st) => { const x = T(st).toLowerCase(); if (/^zavr/.test(x)) return "zavrseno"; if (/radi|toku|proizvodnj/.test(x)) return "u_radu"; return x || "ceka"; };
+            const orderMap = {};
+            ops.forEach((o) => {
+                const id = T(o.broj_naloga || o.broj); if (!id) return;
+                orderMap[id] = {
+                    id,
+                    opTip: opKljuc(o),
+                    metri: metriMasineNaloga(o),
+                    trajanjeRucno: N(o.trajanje_min),
+                    durationMin: N(o.durationMin),
+                    status: norm(o.status),
+                    statusRaw: T(o.status),
+                    start_ts: o.start_ts || o.pocetak_ts || null,
+                    rok: extraktNalog(o).rok || o.rok || null,
+                    title: T(o.proizvod || o.naziv),
+                    customer: T(o.kupac || o.klijent),
+                };
+            });
+            const opStatusi = mapaOperacija(ops);
+            const sidro = radnoSada();
+            const raspored = izracunajRaspored({ machines: Array.isArray(masine) ? masine : [], plan: plan || {}, orderMap, opStatusi, sidro });
+            const imeMasine = {}; (Array.isArray(masine) ? masine : []).forEach((m) => { imeMasine[m.id] = m.name || m.code; });
+            const fmt = (d) => (d instanceof Date && !Number.isNaN(d.getTime())) ? d.toLocaleString("sr-RS", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+            const mine = raspored.filter((s) => canonRef(s.o.id) === trazen).sort((x, y) => x.start - y.start);
+            if (!mine.length) return { ok: false, poruka: "Nalog " + T(a.broj_naloga) + " nije raspoređen na plan proizvodnje (nijedna operacija nije na mašini) ili ne postoji." };
+            const operacije = mine.map((s) => {
+                const r = { operacija: OP_LABELE[s.o.opTip] || s.o.opTip, masina: imeMasine[s.masinaId] || s.masinaId, start: fmt(s.start), kraj: fmt(s.end) };
+                if (s.ceka) r.ceka_prethodnu = OP_LABELE[s.ceka] || s.ceka;
+                if (s.pretpostavka) r.pretpostavljen_povratak_iz_stamparije = true;
+                if (s.probija) r.probija_rok = "+" + s.kasniDana + " dana";
+                return r;
+            });
+            const zavrsetak = mine.reduce((mx, s) => (s.end > mx ? s.end : mx), mine[0].end);
+            return {
+                ok: true,
+                nalog: trazen,
+                zavrsetak_celog_naloga: fmt(zavrsetak),
+                operacije,
+                napomena: "Termini se računaju u letu iz plana (2 smene/dan, subota 1 smena, vikend stoji; štampa i eksterno lakiranje čekaju „stiglo iz štamparije\"). Isti proračun kao vizuelni Plan proizvodnje.",
+            };
         },
     },
 
