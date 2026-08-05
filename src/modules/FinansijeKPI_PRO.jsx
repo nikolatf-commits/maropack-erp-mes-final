@@ -53,7 +53,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                         const saSkartom = n(pick(k, ['cena_sa_skartom'], pick(rez, ['saSkartom', 'saBuffom', 'saSkartomPo1000m'], 0)));
                         const rec = {
                             konacna, osnovna, saSkartom,
-                            marza: n(k.marza || rez.izracunataMarza || 0),
+                            marza: n(String(k.marza ?? rez.izracunataMarza ?? 0).replace(',', '.')) || 0,
                             kolicina: n(k.kolicina || k.kol || rez.kolicina || 0), // poručena (za foliju: broj × 1000m)
                             naziv: k.naziv || k.naziv_proizvoda || '',
                             kupac: k.kupac || k.klijent || ''
@@ -93,9 +93,13 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                 // PRIHOD = konačna cena po jedinici × poručena količina
                 prihod = kalk.konacna * q;
                 // TROŠAK = cena po jedinici × poručena količina.
-                // Podrazumevano OSNOVNA (bez škarta). Za "realni trošak" sa škartom promeni na:
-                //   const cenaTroska = kalk.saSkartom > 0 ? kalk.saSkartom : kalk.osnovna;
-                const cenaTroska = kalk.osnovna;
+                // Marža u kalkulaciji je MARKUP na cenu SA ŠKARTOM, pa i trošak mora biti "sa škartom".
+                // 1) ako je sačuvana cena sa škartom — koristi nju
+                // 2) inače je izvedi iz sačuvane marže: konačna / (1 + marža/100)
+                // 3) u krajnjem slučaju osnovna (tada markup neće biti identičan kalkulaciji)
+                const cenaTroska =
+                    kalk.saSkartom > 0 ? kalk.saSkartom :
+                        (kalk.marza > 0 ? kalk.konacna / (1 + kalk.marza / 100) : kalk.osnovna);
                 trosak = cenaTroska * q;
             } else {
                 // Nalog nije povezan ni sa jednom kalkulacijom — javi u konzoli radi dijagnostike
@@ -114,7 +118,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
             const materijal = kalk ? trosak : 0; // za prikaz kolone (grubo)
             const proizvodnja = 0, ostalo = 0;
             const profit = prihod - trosak;
-            const marza = prihod > 0 ? (profit / prihod) * 100 : 0;
+            const marza = trosak > 0 ? (profit / trosak) * 100 : 0; // MARKUP na trošak (isto kao u kalkulaciji)
             const skart = n(pick(x, ['skart_proc', 'skart', 'waste_pct'], pick(res, ['sk', 'skart'], 0)));
             return {
                 id: x.id || x.broj || x.ponBr || i,
@@ -132,7 +136,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         const prihod = rows.reduce((s, r) => s + r.prihod, 0);
         const trosak = rows.reduce((s, r) => s + r.trosak, 0);
         const profit = prihod - trosak;
-        const marza = prihod > 0 ? (profit / prihod) * 100 : 0;
+        const marza = trosak > 0 ? (profit / trosak) * 100 : 0; // MARKUP na trošak (isto kao u kalkulaciji)
         const avgSkart = rows.length ? rows.reduce((s, r) => s + r.skart, 0) / rows.length : 0;
         const aktivneRolne = rolne.filter(r => (r.status || '').toLowerCase() !== 'potrošena' && (r.status || '').toLowerCase() !== 'potrosena').length;
         const rezervisane = rolne.filter(r => (r.status || '').toLowerCase().includes('rez')).length;
