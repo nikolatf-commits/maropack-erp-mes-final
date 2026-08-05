@@ -168,6 +168,8 @@ const IME_PX = 210, RED_PX = 104;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
     const [nedelja, setNedelja] = useState(0); // pomeranje pogleda po nedeljama
+    const [prikaz, setPrikaz] = useState('nedelja'); // 'nedelja' | 'dan'
+    const [danPomak, setDanPomak] = useState(0);     // pomeranje po danima (dnevni prikaz)
     const [prikaziPrazne, setPrikaziPrazne] = useState(false); // prazne mašine samo na zahtev
     const [grupa, setGrupa] = useState('sve');
     // širina dana = (širina kontejnera − kolona imena) ÷ 5 radnih dana; prati resize
@@ -178,6 +180,8 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         meri(); window.addEventListener('resize', meri); return () => window.removeEventListener('resize', meri);
     }, []);
     const DAN_PX = Math.max(140, Math.floor((sirina - IME_PX) / 6)); // pon–sub (6 dana) pune širine
+    const DAN_PX_JEDAN = Math.max(640, sirina - IME_PX - 4);         // dnevni prikaz: jedan dan preko cele širine
+    const jeDan = prikaz === 'dan';
     const VIK_PX = 0;      // nedelja se ne prikazuje; subota JESTE radna (1 smena)
     const NEDELJA = 1;
     // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
@@ -193,6 +197,11 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
 
     // vidljivi opseg: ponedeljak tekuće nedelje + offset, NEDELJA nedelja (default 1)
     const dani = useMemo(() => {
+        // DNEVNI prikaz: jedna kolona = izabrani dan, razvučen preko cele širine (kolone su sati)
+        if (jeDan) {
+            const dd = new Date(sidro); dd.setDate(dd.getDate() + danPomak); dd.setHours(6, 0, 0, 0);
+            return { lista: [{ datum: dd, x: IME_PX, w: DAN_PX_JEDAN, subota: dd.getDay() === 6 }], ukupno: IME_PX + DAN_PX_JEDAN };
+        }
         const start = new Date(sidro);
         start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7);
         start.setHours(6, 0, 0, 0);
@@ -203,7 +212,27 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
             d.setDate(d.getDate() + 1);
         }
         return { lista: out, ukupno: x };
-    }, [sidro, nedelja, DAN_PX]);
+    }, [sidro, nedelja, DAN_PX, jeDan, danPomak, DAN_PX_JEDAN]);
+
+    // dnevni prikaz: granice izabranog dana + satne linije (06:00 → kraj smene)
+    const danBounds = useMemo(() => {
+        if (!jeDan || !dani.lista.length) return null;
+        const c = dani.lista[0];
+        const s = new Date(c.datum); s.setHours(6, 0, 0, 0);
+        const cap = kapacitetDana(c.datum) || DAN_MIN;
+        const e = new Date(c.datum); e.setHours(0, 0, 0, 0); e.setMinutes(DAN_OD + cap);
+        return { s, e, cap };
+    }, [jeDan, dani]);
+    const satiRuler = useMemo(() => {
+        if (!jeDan || !dani.lista.length) return [];
+        const c = dani.lista[0];
+        const cap = kapacitetDana(c.datum) || DAN_MIN;
+        const arr = [];
+        for (let mm = 0; mm <= cap; mm += 60) {
+            arr.push({ x: c.x + (mm / cap) * c.w, label: String(6 + mm / 60).padStart(2, '0') + ':00' });
+        }
+        return arr;
+    }, [jeDan, dani]);
 
     const xOd = (dat) => {
         for (const c of dani.lista) {
@@ -262,9 +291,23 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                         <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
                         prikaži i prazne
                     </label>
-                    <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>‹ pret.</button>
-                    <button onClick={() => setNedelja(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
-                    <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>sled. ›</button>
+                    <span style={{ display: "inline-flex", border: "1px solid #cbd5e1", borderRadius: 999, overflow: "hidden" }}>
+                        <button onClick={() => setPrikaz("dan")} style={{ border: "none", cursor: "pointer", fontWeight: 900, fontSize: 12.5, padding: "6px 14px", background: jeDan ? "#0f172a" : "#fff", color: jeDan ? "#fff" : "#334155" }}>Dan</button>
+                        <button onClick={() => setPrikaz("nedelja")} style={{ border: "none", cursor: "pointer", fontWeight: 900, fontSize: 12.5, padding: "6px 14px", background: !jeDan ? "#0f172a" : "#fff", color: !jeDan ? "#fff" : "#334155" }}>Nedelja</button>
+                    </span>
+                    {jeDan ? (
+                        <>
+                            <button onClick={() => setDanPomak(danPomak - 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>‹ pret.</button>
+                            <button onClick={() => setDanPomak(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
+                            <button onClick={() => setDanPomak(danPomak + 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>sled. ›</button>
+                        </>
+                    ) : (
+                        <>
+                            <button onClick={() => setNedelja(nedelja - 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>‹ pret.</button>
+                            <button onClick={() => setNedelja(0)} style={{ ...chip, cursor: "pointer" }}>Danas</button>
+                            <button onClick={() => setNedelja(nedelja + 1)} style={{ ...chip, cursor: "pointer", fontWeight: 900 }}>sled. ›</button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -294,9 +337,24 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                         })}
                     </div>
 
+                    {jeDan && (
+                        <div style={{ display: "flex", borderBottom: "1px solid #eef1f5", background: "#fff" }}>
+                            <div style={{ width: IME_PX, flex: "0 0 " + IME_PX + "px" }} />
+                            <div style={{ position: "relative", flex: 1, height: 20 }}>
+                                {satiRuler.map((h, i) => (
+                                    <div key={i} style={{ position: "absolute", left: h.x - IME_PX, top: 0, bottom: 0, borderLeft: "1px solid #eef1f5" }}>
+                                        <span style={{ position: "absolute", left: 3, top: 2, fontSize: 9.5, color: "#94a3b8", fontWeight: 800, whiteSpace: "nowrap" }}>{h.label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {vidljive.length === 0 && <div style={{ padding: 26, textAlign: "center", color: "#94a3b8", fontWeight: 800 }}>Nema mašina sa nalozima za izabrani filter — uključi "prikaži i prazne" ili prevuci naloge na tabu Mašine.</div>}
                     {vidljive.map((m) => {
                         const moji = raspored.filter((s) => s.masinaId === m.id).sort((a, b) => a.start - b.start);
+                        // dnevni prikaz: prikaži samo trake koje se preklapaju sa izabranim danom
+                        const mojiV = (jeDan && danBounds) ? moji.filter((s) => s.start < danBounds.e && s.end > danBounds.s) : moji;
                         return (
                             <React.Fragment key={m.id}>
                                 <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => dropToMachine && dropToMachine(m.id, e)}
@@ -308,7 +366,8 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                     </div>
                                     <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
                                         {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined }} />)}
-                                        {moji.map((s, i) => {
+                                        {jeDan && satiRuler.map((h, i) => <div key={"h" + i} style={{ position: "absolute", left: h.x - IME_PX, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9" }} />)}
+                                        {mojiV.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
                                             const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
                                             const cx1 = s.cekaOdWm !== null ? xOd(wmToDate(sidro, s.cekaOdWm)) - IME_PX : null;
@@ -341,7 +400,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                                 </React.Fragment>
                                             );
                                         })}
-                                        {moji.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0", fontWeight: 800, fontSize: 11 }}>prevuci nalog ovde</div>}
+                                        {mojiV.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0", fontWeight: 800, fontSize: 11 }}>{jeDan ? "nema naloga za ovaj dan" : "prevuci nalog ovde"}</div>}
                                     </div>
                                 </div>
                                 {/* zauzetost po danu */}
