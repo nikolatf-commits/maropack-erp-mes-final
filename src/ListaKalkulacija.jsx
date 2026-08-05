@@ -371,7 +371,13 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                     <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981' }}>
                                         {fmt(kal.konacna_cena || kal.rezultati?.konacnaCena || 0)} €
                                     </div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>€ / 1000m</div>
+                                    {kal.tip === 'folija' && (kal.rezultati?.cenaPoKgSaMarza || kal.cena_kg) ? (
+                                        <div style={{ fontSize: 18, fontWeight: 900, color: '#0891b2', marginTop: 4 }}>
+                                            {fmt(kal.rezultati?.cenaPoKgSaMarza || kal.cena_kg || 0)} € <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>/ kg</span>
+                                        </div>
+                                    ) : null}
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
                                         Osnovna: {fmt(kal.osnovna_cena || kal.rezultati?.osnovnaCena || 0)} €
                                     </div>
                                 </div>

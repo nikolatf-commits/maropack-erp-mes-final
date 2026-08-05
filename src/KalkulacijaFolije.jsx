@@ -732,6 +732,7 @@ export default function KalkulacijaFolijeSmart() {
             const zapis = {
                 naziv, kupac, sirina, metraza, nalog, skart,
                 kolicina: Number(nalog) || 0,
+                cena_kg: rezultati?.cenaPoKgSaMarza || 0,
                 marza: rezultati?.izracunataMarza,
                 materijali,
                 materijali_struktura,
