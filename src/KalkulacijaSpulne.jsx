@@ -38,6 +38,29 @@ export default function KalkulacijaSpulne() {
     const [datumPorudzbine, setDatumPorudzbine] = useState('');
     const [datumIsporuke, setDatumIsporuke] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
+    const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
+
+    // Učitaj postojeću kalkulaciju iz liste (App stavi u localStorage['editKalkulacija'])
+    useEffect(() => {
+        const raw = localStorage.getItem('editKalkulacija');
+        if (!raw) return;
+        try {
+            const kal = JSON.parse(raw);
+            if ((kal.tip || '').toLowerCase() !== 'spulna') return; // samo špulne ovde
+            if (kal.id) setEditId(kal.id);
+            if (kal.naziv) setNaziv(kal.naziv);
+            if (kal.kupac) setKupac(kal.kupac);
+            if (kal.materijal) setMaterijal(kal.materijal);
+            if (kal.tezina_gm2 !== undefined) setTezinaGM2(Number(kal.tezina_gm2) || 0);
+            if (kal.cena_kg !== undefined) setCenaM2(Number(kal.cena_kg) || 0);
+            if (kal.marza !== undefined) setMarza(Number(kal.marza));
+            if (kal.kolicina !== undefined) setKolicina(Number(kal.kolicina) || 0);
+            if (kal.sirina !== undefined) setSirina(Number(kal.sirina) || 0);
+            if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
+            if (kal.skart !== undefined) setSkart(Number(kal.skart));
+            localStorage.removeItem('editKalkulacija');
+        } catch (e) { /* ignore */ }
+    }, []);
 
     // Materijal
     const [materijal, setMaterijal] = useState('');
@@ -177,7 +200,7 @@ export default function KalkulacijaSpulne() {
     const f3 = (v) => (v || 0).toFixed(3);
 
     // ===================== SAČUVAJ KALKULACIJU =====================
-    async function sacuvajKalkulaciju() {
+    async function sacuvajKalkulaciju(mode = 'new') {
         try {
             const materijali_struktura = buildMaterijaliStruktura([{ material: materijal, vrsta: materijal, gsm: tezinaGM2, sirina, idealna_sirina: sirina, cena: cenaM2, metara: duzina }], sirina);
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
@@ -206,7 +229,7 @@ export default function KalkulacijaSpulne() {
                 operacije: sourceLink?.operacije || [],
                 created_at: new Date().toISOString()
             }));
-            const { error } = await supabase.from('kalkulacije_spulne').insert([{
+            const zapis = {
                 naziv,
                 kupac,
                 materijal,
@@ -225,11 +248,19 @@ export default function KalkulacijaSpulne() {
                 osnovna_cena: rez.osnovna,
                 konacna_cena: rez.saMarza,
                 created_by: user?.id
-            }]);
+            };
+            let error, savedId = editId;
+            if (mode === 'update' && editId) {
+                ({ error } = await supabase.from('kalkulacije_spulne').update(zapis).eq('id', editId));
+            } else {
+                const r = await supabase.from('kalkulacije_spulne').insert([zapis]).select('id').single();
+                error = r.error; savedId = r.data?.id || null;
+                if (savedId) setEditId(savedId);
+            }
 
             if (error) throw error;
 
-            alert('✅ Kalkulacija sačuvana!');
+            alert(mode === 'update' ? '✅ Izmene sačuvane!' : '✅ Nova kalkulacija sačuvana!');
         } catch (err) {
             console.error('Greška:', err);
             alert('❌ Greška pri čuvanju: ' + err.message);
@@ -364,24 +395,16 @@ export default function KalkulacijaSpulne() {
                                 </div>
                             </div>
 
-                            <button
-                                onClick={sacuvajKalkulaciju}
-                                style={{
-                                    width: '100%',
-                                    padding: '14px',
-                                    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '10px',
-                                    fontWeight: 800,
-                                    fontSize: '14px',
-                                    cursor: 'pointer',
-                                    marginTop: '12px',
-                                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)'
-                                }}
-                            >
-                                💾 Sačuvaj kalkulaciju
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                                {editId && (
+                                    <button onClick={() => sacuvajKalkulaciju('update')} style={{ flex: 1, minWidth: 160, padding: '14px', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)' }}>
+                                        💾 Sačuvaj izmene
+                                    </button>
+                                )}
+                                <button onClick={() => sacuvajKalkulaciju('new')} style={{ flex: 1, minWidth: 160, padding: '14px', background: editId ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)' }}>
+                                    {editId ? '🆕 Sačuvaj kao NOVU' : '💾 Sačuvaj kalkulaciju'}
+                                </button>
+                            </div>
 
 
 

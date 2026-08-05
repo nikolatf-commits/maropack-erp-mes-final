@@ -257,6 +257,7 @@ export default function KalkulacijaFolijeSmart() {
     const [zeljenaCenaKg, setZeljenaCenaKg] = useState(0);
     const [reverseBaza, setReverseBaza] = useState("1000m"); // "1000m" | "kg"
     const [sourceLink, setSourceLink] = useState(null);
+    const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
 
     // MATERIJALI (4)
     const [materijali, setMaterijali] = useState([
@@ -380,6 +381,7 @@ export default function KalkulacijaFolijeSmart() {
             try {
                 const kal = JSON.parse(editData);
                 console.log('📝 Učitavam kalkulaciju za izmenu:', kal);
+                if (kal.id) setEditId(kal.id); // postojeća kalkulacija → omogući "Sačuvaj izmene"
 
                 // Popuni sve podatke - KONVERTUJ U BROJEVE!
                 if (kal.naziv) setNaziv(kal.naziv);
@@ -695,7 +697,7 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     // SAVE
     // ========================================================================
-    const sacuvaj = async () => {
+    const sacuvaj = async (mode = "new") => {
         if (!naziv || !kupac) {
             alert("Unesi naziv i kupca!");
             return;
@@ -727,7 +729,7 @@ export default function KalkulacijaFolijeSmart() {
                 operacije: sourceLink?.operacije || [],
                 created_at: new Date().toISOString()
             }));
-            const { error } = await supabase.from('kalkulacije_folije').insert([{
+            const zapis = {
                 naziv, kupac, sirina, metraza, nalog, skart,
                 marza: rezultati?.izracunataMarza,
                 materijali,
@@ -738,10 +740,20 @@ export default function KalkulacijaFolijeSmart() {
                 transport, pakovanje, dorada,
                 rezultati,
                 kreirao_user_id: user?.id
-            }]);
+            };
+            let error, savedId = editId;
+            if (mode === "update" && editId) {
+                // SAČUVAJ IZMENE — prepiši postojeću
+                ({ error } = await supabase.from('kalkulacije_folije').update(zapis).eq('id', editId));
+            } else {
+                // SAČUVAJ KAO NOVU — nov red, original ostaje
+                const r = await supabase.from('kalkulacije_folije').insert([zapis]).select('id').single();
+                error = r.error; savedId = r.data?.id || null;
+                if (savedId) setEditId(savedId); // od sada je "postojeća"
+            }
 
             if (error) throw error;
-            alert("✅ Kalkulacija sačuvana!");
+            alert(mode === "update" ? "✅ Izmene sačuvane!" : "✅ Nova kalkulacija sačuvana!");
         } catch (e) {
             alert("❌ Greška: " + e.message);
         }
@@ -1105,10 +1117,15 @@ export default function KalkulacijaFolijeSmart() {
                             })()}
                         </div>
 
-                        {/* BUTTON */}
-                        <div style={{ marginTop: 20 }}>
-                            <button onClick={sacuvaj} style={{ width: "100%", padding: "14px 20px", background: "#0d9488", color: "white", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                                💾 Sačuvaj kalkulaciju
+                        {/* BUTTONS: izmene / nova */}
+                        <div style={{ marginTop: 20, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            {editId && (
+                                <button onClick={() => sacuvaj("update")} style={{ flex: 1, minWidth: 200, padding: "14px 20px", background: "#0d9488", color: "white", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                                    💾 Sačuvaj izmene
+                                </button>
+                            )}
+                            <button onClick={() => sacuvaj("new")} style={{ flex: 1, minWidth: 200, padding: "14px 20px", background: editId ? "#7c3aed" : "#0d9488", color: "white", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                                {editId ? "🆕 Sačuvaj kao NOVU" : "💾 Sačuvaj kalkulaciju"}
                             </button>
                         </div>
                     </div>

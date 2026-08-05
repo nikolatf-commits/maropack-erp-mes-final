@@ -114,6 +114,40 @@ export default function KalkulacijaKese({ setPage }) {
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
     const [napomena, setNapomena] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
+    const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
+
+    // Učitaj postojeću kalkulaciju iz liste (App stavi u localStorage['editKalkulacija'])
+    useEffect(() => {
+        const raw = localStorage.getItem('editKalkulacija');
+        if (!raw) return;
+        try {
+            const kal = JSON.parse(raw);
+            if ((kal.tip || '').toLowerCase() !== 'kesa') return; // samo kese ovde
+            if (kal.id) setEditId(kal.id);
+            if (kal.naziv) setNaziv(kal.naziv);
+            if (kal.kupac) setKupac(kal.kupac);
+            if (kal.kolicina !== undefined) setKolicina(Number(kal.kolicina) || 0);
+            if (kal.skart !== undefined) setSkart(Number(kal.skart));
+            if (kal.marza !== undefined) setMarza(Number(kal.marza));
+            if (kal.sirina !== undefined) setSirina(Number(kal.sirina) || 0);
+            if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
+            if (kal.klapna !== undefined) setKlapna(Number(kal.klapna));
+            if (kal.falta !== undefined) setFalta(Number(kal.falta));
+            if (kal.napomena) setNapomena(kal.napomena);
+            if (Array.isArray(kal.materijali) && kal.materijali.length) {
+                setMaterijali(kal.materijali.map(m => ({
+                    ...m,
+                    debljina: Number(m.debljina) || m.debljina,
+                    gm2: m.gm2 ?? m.tezina ?? m.gsm,
+                    cena: Number(m.cena) || m.cena,
+                })));
+            }
+            if (kal.eurozumba || kal.duplofan || kal.anleger || kal.perforacija || kal.utor) {
+                setOpts(o => ({ ...o, eurozumba: !!kal.eurozumba, duplofan: !!kal.duplofan, anleger: !!kal.anleger, perforacija: !!kal.perforacija, utor: !!kal.utor }));
+            }
+            localStorage.removeItem('editKalkulacija');
+        } catch (e) { /* ignore */ }
+    }, []);
 
     // ✅ V26: Template → Kalkulacija realno mapiranje za kese.
     // Više ne otvara default OPP ako template ima druge slojeve/opcije.
@@ -369,7 +403,7 @@ export default function KalkulacijaKese({ setPage }) {
     // ===================== RENDER =====================
 
     // ===================== SAČUVAJ KALKULACIJU =====================
-    async function sacuvajKalkulaciju() {
+    async function sacuvajKalkulaciju(mode = 'new') {
         try {
             // Izvuci prosečne vrednosti iz materijala
             const avgTezina = materijali.length > 0
@@ -410,7 +444,7 @@ export default function KalkulacijaKese({ setPage }) {
                 operacije: sourceLink?.operacije || [],
                 created_at: new Date().toISOString()
             }));
-            const { error } = await supabase.from('kalkulacije_kese').insert([{
+            const zapis = {
                 // Osnovni podaci
                 naziv,
                 kupac,
@@ -452,11 +486,19 @@ export default function KalkulacijaKese({ setPage }) {
                 // Meta
                 napomena,
                 created_by: user?.id
-            }]);
+            };
+            let error, savedId = editId;
+            if (mode === 'update' && editId) {
+                ({ error } = await supabase.from('kalkulacije_kese').update(zapis).eq('id', editId));
+            } else {
+                const r = await supabase.from('kalkulacije_kese').insert([zapis]).select('id').single();
+                error = r.error; savedId = r.data?.id || null;
+                if (savedId) setEditId(savedId);
+            }
 
             if (error) throw error;
 
-            alert('✅ Kalkulacija sačuvana!');
+            alert(mode === 'update' ? '✅ Izmene sačuvane!' : '✅ Nova kalkulacija sačuvana!');
         } catch (err) {
             console.error('Greška:', err);
             alert('❌ Greška pri čuvanju: ' + err.message);
@@ -762,25 +804,16 @@ export default function KalkulacijaKese({ setPage }) {
                             </div>
                         </div>
 
-                        <button
-                            onClick={sacuvajKalkulaciju}
-                            style={{
-                                width: '100%',
-                                padding: '11px',
-                                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '9px',
-                                fontWeight: 800,
-                                fontSize: '12px',
-                                cursor: 'pointer',
-                                marginTop: '4px',
-                                marginBottom: '6px',
-                                boxShadow: '0 4px 6px rgba(59, 130, 246, 0.3)'
-                            }}
-                        >
-                            💾 Sačuvaj kalkulaciju
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4, marginBottom: 6 }}>
+                            {editId && (
+                                <button onClick={() => sacuvajKalkulaciju('update')} style={{ flex: 1, minWidth: 150, padding: '11px', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: 'white', border: 'none', borderRadius: '9px', fontWeight: 800, fontSize: '12px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.3)' }}>
+                                    💾 Sačuvaj izmene
+                                </button>
+                            )}
+                            <button onClick={() => sacuvajKalkulaciju('new')} style={{ flex: 1, minWidth: 150, padding: '11px', background: editId ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: 'white', border: 'none', borderRadius: '9px', fontWeight: 800, fontSize: '12px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.3)' }}>
+                                {editId ? '🆕 Sačuvaj kao NOVU' : '💾 Sačuvaj kalkulaciju'}
+                            </button>
+                        </div>
 
                         <button onClick={() => setCurrentTab('nalog')} style={{ width: '100%', padding: '11px', background: '#059669', color: 'white', border: 'none', borderRadius: '9px', fontWeight: 800, fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>📋 Kreiraj nalog →</button>
                     </div>
