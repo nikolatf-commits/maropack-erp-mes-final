@@ -337,9 +337,15 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                         <div style={infoBox}>
                                             <span style={infoLabel}>Količina:</span>
                                             <span style={infoValue}>
-                                                {kal.kolicina?.toLocaleString() ||
-                                                    kal.rezultati?.kolicina?.toLocaleString() ||
-                                                    0} kom
+                                                {(() => {
+                                                    const q = Number(kal.kolicina ?? kal.rezultati?.kolicina ?? 0);
+                                                    if (kal.tip === 'folija') {
+                                                        // folija: količina je broj × 1000m
+                                                        return (q * 1000).toLocaleString('sr-RS') + ' m (' + q.toLocaleString('sr-RS') + '×1000m)';
+                                                    }
+                                                    if (kal.tip === 'spulna') return q.toLocaleString('sr-RS') + ' špulni';
+                                                    return q.toLocaleString('sr-RS') + ' kom';
+                                                })()}
                                             </span>
                                         </div>
                                         <div style={infoBox}>
