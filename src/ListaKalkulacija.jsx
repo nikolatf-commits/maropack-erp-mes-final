@@ -369,7 +369,11 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                     const po1000Marza = Number(kal.konacna_cena ?? kal.rezultati?.konacnaCena ?? 0);
                                     const po1000Osnovna = Number(kal.osnovna_cena ?? kal.rezultati?.osnovnaCena ?? 0);
                                     const poKgMarza = Number(kal.rezultati?.cenaPoKgSaMarza ?? kal.cena_kg ?? 0);
-                                    const poKgOsnovna = Number(kal.rezultati?.cenaPoKgOsnovna ?? 0);
+                                    // osnovna po kg: koristi sačuvanu ako postoji, inače izvedi iz istog markupa kao po 1000m
+                                    const poKgOsnovna = Number(
+                                        kal.rezultati?.cenaPoKgOsnovna ??
+                                        (po1000Marza > 0 ? poKgMarza * (po1000Osnovna / po1000Marza) : 0)
+                                    );
                                     // UKUPNO NALOG: koristi sačuvani total ako postoji, inače cena po jedinici × količina
                                     const ukupnoNalog = Number(
                                         kal.rezultati?.ukupnoNalog ?? kal.ukupno_nalog ?? (po1000Marza * broj)
