@@ -731,6 +731,7 @@ export default function KalkulacijaFolijeSmart() {
             }));
             const zapis = {
                 naziv, kupac, sirina, metraza, nalog, skart,
+                kolicina: Number(nalog) || 0,
                 marza: rezultati?.izracunataMarza,
                 materijali,
                 materijali_struktura,
@@ -997,16 +998,20 @@ export default function KalkulacijaFolijeSmart() {
 
                         {/* GRUPA 5 - KONAČNA */}
                         <div style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)", padding: 24, borderRadius: 12, marginBottom: 12, boxShadow: "0 6px 16px rgba(251,191,36,0.4)", border: "3px solid #fbbf24" }}>
-                            <div style={{ textAlign: "center", marginBottom: 16 }}>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>KONAČNA CENA</div>
-                                <div style={{ fontSize: 42, fontWeight: 800, color: "#92400e", lineHeight: 1 }}>{rezultati.konacnaCena.toFixed(2)}</div>
-                                <div style={{ fontSize: 14, color: "#92400e", marginTop: 4 }}>€ / 1000m</div>
+                            <div style={{ textAlign: "center", marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", letterSpacing: 1, textTransform: "uppercase" }}>KONAČNA PRODAJNA CENA</div>
                             </div>
 
-                            <div style={{ background: "rgba(255,255,255,0.5)", padding: 10, borderRadius: 8, marginBottom: 12 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div style={{ fontSize: 11, color: "#92400e" }}>Mat. trošak po kg</div>
-                                    <div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>{rezultati.cenaPoKgSaMarza.toFixed(2)} €/kg</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                                <div style={{ textAlign: "center", background: "rgba(255,255,255,0.55)", padding: "12px 8px", borderRadius: 10 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: "#92400e", letterSpacing: .5, textTransform: "uppercase" }}>Cena / 1000m</div>
+                                    <div style={{ fontSize: 30, fontWeight: 900, color: "#92400e", lineHeight: 1.1 }}>{rezultati.konacnaCena.toFixed(2)}</div>
+                                    <div style={{ fontSize: 11, color: "#92400e" }}>€ / 1000m</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(255,255,255,0.55)", padding: "12px 8px", borderRadius: 10 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: "#92400e", letterSpacing: .5, textTransform: "uppercase" }}>Cena / kg</div>
+                                    <div style={{ fontSize: 30, fontWeight: 900, color: "#92400e", lineHeight: 1.1 }}>{rezultati.cenaPoKgSaMarza.toFixed(2)}</div>
+                                    <div style={{ fontSize: 11, color: "#92400e" }}>€ / kg</div>
                                 </div>
                             </div>
 

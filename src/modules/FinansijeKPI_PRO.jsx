@@ -35,7 +35,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         let ziv = true;
         (async () => {
             try {
-                const tabele = ['kalkulacije_folije', 'kalkulacije_kese', 'kalkulacije_spulne'];
+                const tabele = ['kalkulacije_folije', 'kalkulacije_kese', 'kalkulacije_spulne', 'kalkulacije'];
                 const map = {};
                 for (const t of tabele) {
                     const { data } = await supabase.from(t).select('*');
@@ -43,7 +43,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                         const rez = k.rezultati || {};
                         const konacna = n(pick(k, ['konacna_cena'], pick(rez, ['kn', 'konacnaCena', 'saMarza', 'ukupno'], 0)));
                         const osnovna = n(pick(k, ['osnovna_cena'], pick(rez, ['osnovna', 'osn', 'osnovnaCena'], 0)));
-                        map[k.id] = { konacna, osnovna, marza: n(k.marza || rez.izracunataMarza || 0) };
+                        map[k.id] = { konacna, osnovna, marza: n(k.marza || rez.izracunataMarza || 0), kolicina: n(k.kolicina || k.kol || rez.kolicina || 0) };
                     });
                 }
                 if (ziv) setKalkMap(map);
@@ -56,17 +56,20 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         const base = masterNalozi.length ? masterNalozi : nalozi;
         return base.map((x, i) => {
             const res = x.res || x.rezultat || x.kalkulacija || {};
-            // količina naloga
-            const kolicina = n(pick(x, ['kolicina', 'kol', 'quantity', 'metraza'], 0)) || 1;
-            // povezana kalkulacija (preko kalkulacija_id)
+            // količina: PRVO iz naloga (merodavna), pa iz kalkulacije, pa 1
+            const kolNalog = n(pick(x, ['kolicina', 'kol', 'quantity', 'metraza'], 0));
             const kalkId = x.kalkulacija_id ?? x.kalkulacijaId ?? x.kalk_id ?? null;
             const kalk = (kalkId != null && kalkMap[kalkId]) ? kalkMap[kalkId] : null;
+            const kolKalk = kalk ? n(kalk.kolicina) : 0;
+            const kolicina = kolNalog > 0 ? kolNalog : (kolKalk > 0 ? kolKalk : 0);
 
             let prihod, trosak;
             if (kalk) {
-                // PRIHOD = konačna cena × količina · TROŠAK = osnovna cena × količina
-                prihod = kalk.konacna * kolicina;
-                trosak = kalk.osnovna * kolicina;
+                // PRIHOD = konačna × količina · TROŠAK = osnovna × količina.
+                // Ako nigde nema količine (0), uzmi cenu za 1 kom da KPI ne bude 0.
+                const q = kolicina > 0 ? kolicina : 1;
+                prihod = kalk.konacna * q;
+                trosak = kalk.osnovna * q;
             } else {
                 // fallback na stara polja ako nema veze sa kalkulacijom
                 prihod = n(pick(x, ['ukupno', 'vrednost', 'cena_ukupno', 'total', 'iznos'], pick(res, ['kn', 'ukupno', 'vrednost'], 0)));
