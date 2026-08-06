@@ -2214,7 +2214,7 @@ function MainAppContent() {
                                                                 <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>
                                                                     <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
                                                                         <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
-                                                                        <span style={{ fontWeight: 800, fontSize: 15, color: "#0f766e" }}>{n.naziv}</span>
+                                                                        <span style={{ fontWeight: 800, fontSize: 15, color: statusStil(n.status).traka }}>{n.naziv}</span>
                                                                     </div>
                                                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                                                         <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
