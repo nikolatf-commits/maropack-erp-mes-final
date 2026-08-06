@@ -16,7 +16,7 @@ import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne } from "./kalkula
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
 import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace } from "../services/erpMesCore.js";
-import { metriMasineNaloga, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog } from "../utils/nalogMetrika.js";
+import { metriMasineNaloga, metriZaMasinu, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog } from "../utils/nalogMetrika.js";
 import { izracunajRaspored, radnoSada } from "../utils/planRaspored.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
@@ -1421,7 +1421,7 @@ export const ALATI = {
                 const red = ((plan && plan[m.id]) || []).map((id) => poBroju[id]).filter((o) => o && !zavrsen(o));
                 let uk = 0;
                 const stavke = red.map((o, i) => {
-                    const metri = metriMasineNaloga(o);
+                    const metri = metriZaMasinu(o, opKljuc(o));
                     const min = procenaMinNaMasini(m, metri);
                     uk += min;
                     const blok = nadjiBlokadu(canonRef(T(o.broj_naloga || o.broj)), opKljuc(o), statusiOp);
@@ -1451,7 +1451,7 @@ export const ALATI = {
                 orderMap[id] = {
                     id,
                     opTip: opKljuc(o),
-                    metri: metriMasineNaloga(o),
+                    metri: metriZaMasinu(o, opKljuc(o)),
                     trajanjeRucno: N(o.trajanje_min),
                     durationMin: N(o.durationMin),
                     status: norm(o.status),
@@ -1499,7 +1499,7 @@ export const ALATI = {
             const ops = await sve("operativni_nalozi");
             const o = ops.find((x) => T(x.broj_naloga || x.broj) === broj) || ops.find((x) => T(x.broj_naloga || x.broj).indexOf(broj) === 0);
             if (!o) return { ok: false, poruka: "Ne nalazim operativni nalog " + broj + "." };
-            const metri = metriMasineNaloga(o);
+            const metri = metriZaMasinu(o, opKljuc(o));
             if (!metri) return { ok: false, poruka: "Nalog " + broj + " nema količinu (metre) — proveri templejt/order_data.", metri_masine: 0 };
             const masine = await loadMachines();
             const tip = T(o.tip_naloga || o.vrsta).toLowerCase();
@@ -1540,7 +1540,7 @@ export const ALATI = {
             next[m.id] = red;
             await saveProductionPlan(next);
             try { await logTrace("order_moved_to_machine", { orderId: broj, machineId: m.id, machine: m.name, izvor: "AI agent" }); } catch (e) { }
-            const metri = metriMasineNaloga(o);
+            const metri = metriZaMasinu(o, opKljuc(o));
             const min = procenaMinNaMasini(m, metri);
             const blok = nadjiBlokadu(canonRef(broj), opKljuc(o), mapaOperacija(ops));
             return { ok: true, poruka: "Nalog " + broj + " raspoređen na " + m.name + " — pozicija " + (red.indexOf(broj) + 1) + " od " + red.length + (min ? ", procena ≈" + min + " min (" + metri + " m)" : "") + "." + (blok ? " UPOZORENJE: prethodna operacija (" + (OP_LABELE[blok] || blok) + ") još nije završena — ne startovati pre nje." : "") };
@@ -1581,7 +1581,7 @@ export const ALATI = {
                 const m = poId[masinaZaBroj[broj]] || (o.masina ? (Array.isArray(masine) ? masine : []).find((x) => BEZKV(x.name) === BEZKV(o.masina)) : null);
                 if (!m) return;
                 if (a && a.masina && !_nadjiMasinu([m], a.masina)) return;
-                const metri = metriMasineNaloga(o);
+                const metri = metriZaMasinu(o, opKljuc(o));
                 const stv = stvarnoMin(o);
                 const proc = procenaMinNaMasini(m, metri);
                 const g = (rez[m.id] = rez[m.id] || { masina: m.name, brzina_trenutna: N(m.speed), setup_min: N(m.setupMin), naloga: 0, ukupno_metri: 0, ukupno_stvarno_min: 0, ukupno_procena_min: 0, primeri: [] });

@@ -52,6 +52,7 @@ export function extraktNalog(n) {
     const tData = safeJson(n.templateData || tpl.data || od.templateData, {});
     const t = Object.keys(tData).length ? tData : tpl;
     const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const kesa = n.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
     const rzn = folija.rezanje || {};
     const st = folija.stampa || {};
     const sirina = num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0;
@@ -86,6 +87,16 @@ export function extraktNalog(n) {
         kolicina, brojTraka,
         // Mašina provlači MATIČNU rolnu: rezanje množi trake, ne skraćuje rolnu.
         metriMasine,
+        // Broj prolaza kaширanja (troslojna = 2, četvoroslojna = 3). "Auto" = slojevi − 1.
+        // Važi i za FOLIJU i za KESE (uzima kaширanje/slojeve iz odgovarajućeg kontejnera).
+        brojKasiranja: (function () {
+            const kasObj = (folija.kasiranje && (folija.kasiranje.brojKasiranja != null && folija.kasiranje.brojKasiranja !== ""))
+                ? folija.kasiranje
+                : (kesa.kasiranje || folija.kasiranje || {});
+            const lyrs = (Array.isArray(folija.layers) && folija.layers.length) ? folija.layers
+                : (Array.isArray(kesa.layers) ? kesa.layers : []);
+            return Math.max(1, num2(kasObj.brojKasiranja) || (lyrs.length > 1 ? lyrs.length - 1 : 1));
+        })(),
         sirina,
         rok: n.rok || n.rok_isporuke || n.datum_isporuke || od.rok || t.rok || "",
         kom: num2(od.kom || t.porucenaKolicinaKom || n.kom),
@@ -94,6 +105,17 @@ export function extraktNalog(n) {
     };
 }
 export function metriMasineNaloga(n) { return extraktNalog(n).metriMasine; }
+
+// Efektivni metri KOJE MAŠINA PROVLAČI za datu operaciju. Za kaширanje materijal prolazi
+// kroz mašinu VIŠE puta (broj prolaza = slojevi − 1), pa je i vreme srazmerno veće:
+//   trajanje = setup + (metri × prolazi) / brzina   (jedan setup, N prolaza)
+// Za sve ostale operacije = metriMasine (jedan prolaz).
+export function metriZaMasinu(n, opTip) {
+    const ex = extraktNalog(n);
+    const kljuc = String(opTip || "").toLowerCase();
+    const prolazi = (kljuc === "kasiranje") ? Math.max(1, ex.brojKasiranja) : 1;
+    return ex.metriMasine * prolazi;
+}
 
 // ── VREME ────────────────────────────────────────────────────────────────────
 // Procena na mašini: setup (min) + metri ÷ brzina (m/min). 0 = nema podataka.

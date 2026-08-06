@@ -168,8 +168,10 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             const st = String(n.status || "ceka").toLowerCase();
             const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
             const ex = extraktNalog(n);
-            // direktne kolone (ako ih ima) i dalje imaju prednost, JSON je dopuna
-            const metri = Number(n.duzina_m || n.metri || 0) || ex.metriMasine || ex.kolicina || 0;
+            // direktne kolone (ako ih ima) i dalje imaju prednost, JSON je dopuna.
+            // Za KAŠIRANJE materijal prolazi kroz mašinu više puta → množi metre brojem prolaza.
+            const prolazi = op.k === "kasiranje" ? Math.max(1, ex.brojKasiranja) : 1;
+            const metri = (Number(n.duzina_m || n.metri || 0) || ex.metriMasine || ex.kolicina || 0) * prolazi;
             out.push({
                 id: String(n.broj_naloga || n.broj || n.id || ""),
                 opTip: op.k, opLabel: op.l, opIkona: op.ikona, type: op.k,
