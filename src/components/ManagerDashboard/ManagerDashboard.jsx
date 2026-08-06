@@ -21,7 +21,7 @@ import {
     YAxis
 } from "recharts";
 
-const RANGE_MAP = { danas: "1", nedelja: "7", mesec: "30" };
+const RANGE_MAP = { danas: "1", nedelja: "7", mesec: "30", sve: "3650" };
 
 export default function ManagerDashboard() {
     const [range, setRange] = useState("mesec");
@@ -49,10 +49,9 @@ export default function ManagerDashboard() {
         refresh();
         const sub = supabase
             .channel("manager-dashboard-live")
-            .on("postgres_changes", { event: "*", schema: "public", table: "radni_nalozi" }, refresh)
+            .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, refresh)
             .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, refresh)
-            .on("postgres_changes", { event: "*", schema: "public", table: "pracenje_rada" }, refresh)
-            .on("postgres_changes", { event: "*", schema: "public", table: "proizvodnja_zastoji" }, refresh)
+            .on("postgres_changes", { event: "*", schema: "public", table: "nalog_zastoji" }, refresh)
             .subscribe();
 
         return () => supabase.removeChannel(sub);
@@ -76,16 +75,17 @@ export default function ManagerDashboard() {
                     <button onClick={() => setRange("danas")} style={range === "danas" ? { ...styles.rangeBtn, ...styles.activeRange } : styles.rangeBtn}>▣ Danas</button>
                     <button onClick={() => setRange("nedelja")} style={range === "nedelja" ? { ...styles.rangeBtn, ...styles.activeRange } : styles.rangeBtn}>▦ Nedelja</button>
                     <button onClick={() => setRange("mesec")} style={range === "mesec" ? { ...styles.rangeBtn, ...styles.activeRange } : styles.rangeBtn}>▥ Mesec</button>
+                    <button onClick={() => setRange("sve")} style={range === "sve" ? { ...styles.rangeBtn, ...styles.activeRange } : styles.rangeBtn}>∞ Sve</button>
                 </div>
             </div>
 
-            <div style={styles.syncInfo}>Izvor: <b>pracenje_rada</b> (rad/faze), <b>proizvodnja_zastoji</b> (zastoji), <b>v_ucinak_radnika</b> (kg/škart) · Period: <b>{days} dana</b> · kg/škart su ukupni (pogled nema datum)</div>
+            <div style={styles.syncInfo}>Izvor: <b>operativni_nalozi</b> (završene operacije) + <b>nalog_zastoji</b> · Period: <b>{days} dana</b> · broji se samo stvarni rad radnika (QR START/ZAVRŠI)</div>
 
             <div style={styles.bigGrid}>
                 <BigCard color="#0f766e" label="Ukupno radnika" value={kpi.ukupnoRadnika} sub={`Aktivnih u periodu: ${kpi.aktivniRadnici}`} />
                 <BigCard color="#7c3aed" label="Završenih faza" value={kpi.zavrseneFaze} sub="U periodu" />
                 <BigCard color="#ea8500" label="Ukupno zastoja" value={kpi.ukupnoZastoja} sub="Zahteva pažnju" />
-                <BigCard color="#0ea56a" label="Efikasnost" value={`${kpi.efikasnost}%`} sub="Rad / (rad + zastoji)" />
+                <BigCard color="#0ea56a" label="Efikasnost" value={kpi.efikasnost === "—" ? "—" : `${kpi.efikasnost}%`} sub="Rad / (rad + zastoji)" />
             </div>
 
             <div style={styles.tabs}>
@@ -102,22 +102,22 @@ export default function ManagerDashboard() {
 
                 {activeTab === "radnici" && !loading && (
                     <>
-                        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Pretraži radnike iz pracenje_rada..." style={styles.search} />
-                        {filteredWorkers.length === 0 ? <Empty text="Nema evidentiranog rada u izabranom periodu. Radnici se pojave čim skeniraju QR (START/ZAVRŠI) — probaj širi period (Mesec)." /> : <div style={styles.workerGrid}>{filteredWorkers.map(w => <WorkerCard key={w.ime} worker={w} />)}</div>}
+                        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Pretraži radnike..." style={styles.search} />
+                        {filteredWorkers.length === 0 ? <Empty text="Nema završenih operacija u izabranom periodu. Radnici se pojave čim završe operaciju preko QR-a (START → ZAVRŠI) — probaj širi period." /> : <div style={styles.workerGrid}>{filteredWorkers.map(w => <WorkerCard key={w.ime} worker={w} />)}</div>}
                     </>
                 )}
 
                 {activeTab === "zastoji" && !loading && (
                     <div>
                         <h3 style={styles.sectionTitle}>⏸️ Zastoji u periodu</h3>
-                        {zastoji.length === 0 ? <Empty text="Nema evidentiranih zastoja u ovom periodu." /> : zastoji.map((z, i) => <div key={z.id || i} style={styles.rowCard}><b>{z.masina_naziv || z.masina || "Mašina"}</b><span>{z.razlog || "Zastoj"}{z.radnik_ime ? " · " + z.radnik_ime : ""}</span><em>{formatNumber(z.trajanje_min || 0, " min")}</em></div>)}
+                        {zastoji.length === 0 ? <Empty text="Nema evidentiranih zastoja u ovom periodu." /> : zastoji.map((z, i) => <div key={z.id || i} style={styles.rowCard}><b>{z.masina || z.masina_naziv || "Mašina"}</b><span>{z.razlog || z.kategorija || "Zastoj"}{z.radnik ? " · " + z.radnik : ""}</span><em>{formatNumber(z.trajanje_min || 0, " min")}</em></div>)}
                     </div>
                 )}
 
                 {activeTab === "top" && !loading && (
                     <div>
                         <h3 style={styles.sectionTitle}>🏆 Top performeri</h3>
-                        {workers.slice(0, 10).map((w, i) => <div key={w.ime} style={styles.rowCard}><b>#{i + 1} {w.ime}</b><span>{w.zavrseno} faza · {formatNumber(w.kolicina, " kg")}</span><em>{w.efikasnost}%</em></div>)}
+                        {workers.slice(0, 10).map((w, i) => <div key={w.ime} style={styles.rowCard}><b>#{i + 1} {w.ime}</b><span>{w.zavrseno} faza · {formatNumber(w.kolicina, " kg")}</span><em>{w.efikasnost == null ? "—" : w.efikasnost + "%"}</em></div>)}
                         {workers.length === 0 && <Empty text="Nema podataka o radnicima." />}
                     </div>
                 )}
@@ -168,8 +168,8 @@ function WorkerCard({ worker }) {
             </div>
             <div style={styles.workerMeta}>⏱ Rad: <b>{formatNumber(worker.radMin, "min")}</b></div>
             <div style={styles.workerMeta}>🏭 Mašina: <b>{worker.masina}</b></div>
-            <div style={styles.effRow}><span>Efikasnost:</span><b>{worker.efikasnost}%</b></div>
-            <div style={styles.progressOuter}><div style={{ ...styles.progressInner, width: `${worker.efikasnost}%` }} /></div>
+            <div style={styles.effRow}><span>Efikasnost:</span><b>{worker.efikasnost == null ? "—" : worker.efikasnost + "%"}</b></div>
+            <div style={styles.progressOuter}><div style={{ ...styles.progressInner, width: `${worker.efikasnost || 0}%` }} /></div>
         </div>
     );
 }

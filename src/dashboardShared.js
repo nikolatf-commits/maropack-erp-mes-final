@@ -139,20 +139,22 @@ export async function loadDashboardData(timeRange = 30) {
     const siroci = sviMasteri.length - nalozi.length;
     if (siroci > 0) console.warn(`Dashboard: ${siroci} glavnih naloga bez operacija (ostatak brisanja) — ne broje se.`);
 
-    // NOVI izvori praćenja rada (prava tabela je pracenje_rada, ne nalog_aktivnosti):
-    //  - pracenje_rada        -> završene faze/rad po radniku (period po `kraj`)
-    //  - proizvodnja_zastoji  -> zastoji (period po `created_at`)
-    //  - v_ucinak_radnika     -> ukupno kg / škart / ucinak_kg_h po radniku (bez datuma)
-    let rad = [], zastojiProd = [], ucinak = [];
+    // PRAVI izvor rada: radnički ekran (RadnikOperacija) piše u operativni_nalozi i
+    // nalog_zastoji — NE u pracenje_rada/proizvodnja_zastoji (te su prazne). Zato dashboard
+    // čita: završene operacije (operativni_nalozi.status=zavrseno) + zastoje (nalog_zastoji).
+    let rad = [], zastojiProd = [];
     try {
-        const [radRes, zastojiRes, ucinakRes] = await Promise.all([
-            supabase.from("pracenje_rada").select("*").gte("kraj", cutoffDate.toISOString()).order("kraj", { ascending: false }),
-            supabase.from("proizvodnja_zastoji").select("*").gte("created_at", cutoffDate.toISOString()).order("created_at", { ascending: false }),
-            supabase.from("v_ucinak_radnika").select("*"),
+        const [radRes, zastRes] = await Promise.all([
+            supabase.from("operativni_nalozi")
+                .select("id, broj_naloga, radnik, masina, status, start_ts, stop_ts, created_at, uradjeno, skart")
+                .eq("status", "zavrseno")
+                .or(`stop_ts.gte.${cutoffDate.toISOString()},and(stop_ts.is.null,created_at.gte.${cutoffDate.toISOString()})`)
+                .order("created_at", { ascending: false }),
+            supabase.from("nalog_zastoji").select("*").gte("start_ts", cutoffDate.toISOString())
+                .order("start_ts", { ascending: false }),
         ]);
         if (!radRes.error) rad = radRes.data || [];
-        if (!zastojiRes.error) zastojiProd = zastojiRes.data || [];
-        if (!ucinakRes.error) ucinak = ucinakRes.data || [];
+        if (!zastRes.error) zastojiProd = zastRes.data || [];
     } catch (e) { console.warn("Dashboard: praćenje rada nije učitano -", e.message); }
 
     return {
@@ -163,7 +165,6 @@ export async function loadDashboardData(timeRange = 30) {
         aktivnosti: aktivnostiRes.data || [],
         rad,
         zastojiProd,
-        ucinak,
         proizvodi: []
     };
 }
@@ -389,34 +390,40 @@ export function prepareMagacinPoTipu(rolne = []) {
     return Array.from(map.values()).map(x => ({ ...x, kg: Math.round(x.kg), metara: Math.round(x.metara) })).sort((a, b) => b.kg - a.kg).slice(0, 8);
 }
 
-// --- NOVO: radnici iz pracenje_rada (period) + kg/škart iz v_ucinak_radnika (ukupno) ---
+// --- Radnici iz ZAVRŠENIH operacija (operativni_nalozi) + zastoji (nalog_zastoji) ---
+// Vreme rada = stop_ts - start_ts; iskorišćenost = (rad - zastoji) / rad.
+function minIzmedju(a, b) {
+    if (!a || !b) return 0;
+    const m = (new Date(b) - new Date(a)) / 60000;
+    return Number.isFinite(m) && m > 0 ? m : 0;
+}
 export function buildWorkersFromRad(data = {}) {
     const rad = data.rad || [];
     const zastoji = data.zastojiProd || [];
-    const ucinak = data.ucinak || [];
     const key = (v) => normalizeText(v);
-    const ucinakBy = new Map();
-    ucinak.forEach((u) => { const k = key(u.radnik); if (k) ucinakBy.set(k, u); });
     const zastBy = new Map();
-    zastoji.forEach((z) => { const k = key(z.radnik_ime); if (!k) return; const g = zastBy.get(k) || { broj: 0, min: 0 }; g.broj += 1; g.min += safeNumber(z.trajanje_min); zastBy.set(k, g); });
+    zastoji.forEach((z) => { const k = key(z.radnik || z.radnik_ime); if (!k) return; const g = zastBy.get(k) || { broj: 0, min: 0 }; g.broj += 1; g.min += safeNumber(z.trajanje_min); zastBy.set(k, g); });
     const map = new Map();
     rad.forEach((r) => {
-        const ime = String(r.radnik || "").trim(); if (!ime) return;
+        const ime = String(r.radnik || "").trim() || "Ručno / bez radnika";
         const k = key(ime);
-        if (!map.has(k)) map.set(k, { ime, pozicija: "Operater", masina: r.masina || "—", zavrseno: 0, aktivnosti: 0, zastoji: 0, zastojMin: 0, kolicina: 0, skartKg: 0, radMin: 0, poslednjaAktivnost: null, status: "Aktivan" });
+        if (!map.has(k)) map.set(k, { ime, pozicija: "Operater", masina: r.masina || "—", zavrseno: 0, aktivnosti: 0, zastoji: 0, zastojMin: 0, kolicina: 0, skartKg: 0, grossMin: 0, radMin: 0, poslednjaAktivnost: null, status: "Aktivan" });
         const w = map.get(k);
         w.zavrseno += 1; w.aktivnosti += 1;
-        w.radMin += safeNumber(r.trajanje_min);
+        w.grossMin += minIzmedju(r.start_ts, r.stop_ts);
+        w.kolicina += safeNumber(r.uradjeno);
+        w.skartKg += safeNumber(r.skart);
         if (r.masina) w.masina = r.masina;
-        const d = r.kraj || r.pocetak;
+        const d = r.stop_ts || r.start_ts;
         if (d && (!w.poslednjaAktivnost || new Date(d) > new Date(w.poslednjaAktivnost))) w.poslednjaAktivnost = d;
     });
     map.forEach((w, k) => {
         const z = zastBy.get(k); if (z) { w.zastoji = z.broj; w.zastojMin = z.min; }
-        const u = ucinakBy.get(k);
-        if (u) { w.kolicina = safeNumber(u.ukupno_proizvedeno_kg); w.skartKg = safeNumber(u.ukupno_skart_kg); w.ucinakKgH = safeNumber(u.ucinak_kg_h); if (u.uloga) w.pozicija = u.uloga; }
-        const uk = w.radMin + w.zastojMin;
-        w.efikasnost = uk > 0 ? Math.min(100, Math.round((w.radMin / uk) * 100)) : (w.radMin > 0 ? 100 : 0);
+        w.radMin = Math.max(0, Math.round(w.grossMin - w.zastojMin));
+        const gross = w.radMin + w.zastojMin;
+        // Efikasnost ima smisla samo ako je bilo evidentiranog vremena (QR). Ručne bez
+        // vremena → "—" (null), da ne obaraju prosek na 0%.
+        w.efikasnost = gross > 0 ? Math.min(100, Math.round((w.radMin / gross) * 100)) : null;
     });
     return Array.from(map.values()).sort((a, b) => b.zavrseno - a.zavrseno || b.radMin - a.radMin);
 }
@@ -424,14 +431,15 @@ export function buildWorkersFromRad(data = {}) {
 export function calcManagerKPIs(data = {}) {
     const rad = data.rad || [];
     const zastoji = data.zastojiProd || [];
-    const ucinak = data.ucinak || [];
     const aktivniSet = new Set(rad.map((r) => normalizeText(r.radnik)).filter(Boolean));
-    const ukupnoRadnika = new Set([...ucinak.map((u) => normalizeText(u.radnik)).filter(Boolean), ...aktivniSet]).size;
     const zavrseneFaze = rad.length;
     const ukupnoZastoja = zastoji.length;
-    const radMin = rad.reduce((s, r) => s + safeNumber(r.trajanje_min), 0);
+    const grossMin = rad.reduce((s, r) => s + minIzmedju(r.start_ts, r.stop_ts), 0);
     const zastMin = zastoji.reduce((s, z) => s + safeNumber(z.trajanje_min), 0);
-    const uk = radMin + zastMin;
-    const efikasnost = uk > 0 ? ((radMin / uk) * 100).toFixed(1) : (radMin > 0 ? "100.0" : "0");
-    return { ukupnoRadnika, aktivniRadnici: aktivniSet.size, zavrseneFaze, ukupnoZastoja, efikasnost, radMin, zastMin };
+    const radMin = Math.max(0, grossMin - zastMin);
+    // Efikasnost samo ako je bilo evidentiranog vremena (QR); inače "—" (ručno bez vremena).
+    const efikasnost = grossMin > 0 ? ((radMin / grossMin) * 100).toFixed(1) : "—";
+    // "Radnici" = svi koji su završili neku operaciju (QR imenom, ručne pod "Ručno / bez radnika").
+    const imena = new Set(rad.map((r) => normalizeText(r.radnik) || "rucno").filter(Boolean));
+    return { ukupnoRadnika: imena.size, aktivniRadnici: aktivniSet.size, zavrseneFaze, ukupnoZastoja, efikasnost, radMin: Math.round(radMin), zastMin: Math.round(zastMin) };
 }
