@@ -48,16 +48,44 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const [nalozi, setNalozi] = useState(naloziProp);
     const [loading, setLoading] = useState(false);
     const [statusBusy, setStatusBusy] = useState(false);
+    const [finish, setFinish] = useState(null); // { radnik, uradjeno, skart } dijalog za ručni završetak
 
-    async function postaviStatus(noviStatus) {
+    // Osnovni upis statusa + vremenskih pečata (da i RUČNI tok puni Manager Dashboard).
+    async function upisiStatus(noviStatus, extra = {}) {
         if (!aktivni || !aktivni.id) return;
         setStatusBusy(true);
         try {
-            const { error } = await supabase.from("operativni_nalozi").update({ status: noviStatus }).eq("id", aktivni.id);
+            const patch = { status: noviStatus, ...extra };
+            // vremenski pečati kao u QR toku (RadnikOperacija):
+            if (noviStatus === "radi" && !aktivni.start_ts) patch.start_ts = new Date().toISOString();
+            if (noviStatus === "zavrseno") patch.stop_ts = new Date().toISOString();
+            const { error } = await supabase.from("operativni_nalozi").update(patch).eq("id", aktivni.id);
             if (error) { alert("Status nije promenjen: " + error.message); }
             else { try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { } }
         } catch (e) { alert("Greška: " + (e.message || e)); }
         setStatusBusy(false);
+    }
+
+    async function postaviStatus(noviStatus) {
+        if (!aktivni || !aktivni.id) return;
+        // Ručni "Završeno": otvori mali dijalog za "ko je završio" + "urađeno/škart" (opciono),
+        // da faza na Manager Dashboardu ima nosioca, vreme i količinu.
+        if (noviStatus === "zavrseno") {
+            setFinish({ radnik: aktivni.radnik || "", uradjeno: "", skart: "" });
+            return;
+        }
+        await upisiStatus(noviStatus);
+    }
+
+    async function potvrdiZavrsetak() {
+        const f = finish || {};
+        const extra = {};
+        const ime = String(f.radnik || "").trim();
+        if (ime) extra.radnik = ime;
+        if (String(f.uradjeno).trim() !== "") extra.uradjeno = Number(f.uradjeno) || 0;
+        if (String(f.skart).trim() !== "") extra.skart = Number(f.skart) || 0;
+        setFinish(null);
+        await upisiStatus("zavrseno", extra);
     }
     // Pocetni tab = operacija koju je korisnik STVARNO kliknuo (ranije uvek "materijal").
     const [tab, setTab] = useState(() => nalogType(osnovniNalog) || "materijal");
@@ -464,6 +492,31 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                         </button>
                     ))}
                     {statusBusy && <span style={{ fontSize: 12, color: "#64748b" }}>Menjam…</span>}
+                </div>
+            )}
+
+            {finish && (
+                <div onClick={() => setFinish(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+                    <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: 340, maxWidth: "92vw", boxShadow: "0 20px 50px rgba(0,0,0,.25)" }}>
+                        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Završetak operacije</div>
+                        <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Opciono — popuni da faza ima nosioca i količinu na dashboardu. Možeš i preskočiti.</div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#475569", margin: "0 0 4px" }}>Ko je završio?</label>
+                        <input autoFocus value={finish.radnik} onChange={e => setFinish({ ...finish, radnik: e.target.value })} placeholder="Ime i prezime (opciono)" style={{ width: "100%", boxSizing: "border-box", padding: 10, border: "1px solid #cbd5e1", borderRadius: 8, marginBottom: 12, fontSize: 14 }} />
+                        <div style={{ display: "flex", gap: 10 }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#475569", margin: "0 0 4px" }}>Urađeno (kom/kg)</label>
+                                <input type="number" value={finish.uradjeno} onChange={e => setFinish({ ...finish, uradjeno: e.target.value })} placeholder="0" style={{ width: "100%", boxSizing: "border-box", padding: 10, border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#475569", margin: "0 0 4px" }}>Škart</label>
+                                <input type="number" value={finish.skart} onChange={e => setFinish({ ...finish, skart: e.target.value })} placeholder="0" style={{ width: "100%", boxSizing: "border-box", padding: 10, border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+                            </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                            <button disabled={statusBusy} onClick={potvrdiZavrsetak} style={{ flex: 1, border: "none", borderRadius: 8, padding: "11px 12px", background: "#16a34a", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>Završi operaciju</button>
+                            <button disabled={statusBusy} onClick={() => setFinish(null)} style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "11px 14px", background: "#fff", color: "#334155", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>Otkaži</button>
+                        </div>
+                    </div>
                 </div>
             )}
 
