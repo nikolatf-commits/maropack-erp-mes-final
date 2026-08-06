@@ -2202,7 +2202,7 @@ function MainAppContent() {
                                                         <span style={{ fontWeight: 800, fontSize: 14, color: "#1d4ed8" }}>{br || 'N/A'}</span>
                                                         <span style={{ background: (TIP_BOJA[tipNaloga] || "#64748b") + "20", color: TIP_BOJA[tipNaloga] || "#64748b", borderRadius: 6, padding: "2px 8px", fontWeight: 700, fontSize: 10 }}>{TIP_LAB[tipNaloga] || "—"}</span>
                                                         <span style={{ fontWeight: 600, fontSize: 13 }}>{grKupac}</span>
-                                                        <span style={{ color: "#64748b", fontSize: 12 }}>{grProizvod}</span>
+                                                        <span style={{ flex: "1 1 100%", fontSize: "clamp(16px, 4.5vw, 22px)", fontWeight: 800, color: "#0f172a", lineHeight: 1.25 }}>{grProizvod}</span>
                                                         <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
                                                         <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
                                                             <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
