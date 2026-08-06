@@ -47,14 +47,18 @@ export default function ManagerDashboard() {
 
     useEffect(() => {
         refresh();
+        // Debounce: realtime promene okidaju najviše 1 osvežavanje na ~4s (da se dashboard
+        // ne preučitava na svaki upis kad ih bude puno).
+        let t = null;
+        const debounced = () => { if (t) clearTimeout(t); t = setTimeout(() => { refresh(); }, 4000); };
         const sub = supabase
             .channel("manager-dashboard-live")
-            .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, refresh)
-            .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, refresh)
-            .on("postgres_changes", { event: "*", schema: "public", table: "nalog_zastoji" }, refresh)
+            .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, debounced)
+            .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, debounced)
+            .on("postgres_changes", { event: "*", schema: "public", table: "nalog_zastoji" }, debounced)
             .subscribe();
 
-        return () => supabase.removeChannel(sub);
+        return () => { if (t) clearTimeout(t); supabase.removeChannel(sub); };
     }, [days]);
 
     const kpi = useMemo(() => calcManagerKPIs(data), [data]);

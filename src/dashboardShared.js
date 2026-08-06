@@ -91,7 +91,7 @@ async function ucitajSveRolne() {
     const PAGE = 1000;
     let od = 0, sve = [];
     for (let i = 0; i < 50; i++) {
-        const { data, error } = await supabase.from("magacin").select("*").range(od, od + PAGE - 1);
+        const { data, error } = await supabase.from("magacin").select("id, tip, status, metraza, metraza_ost, kg_neto, kg_bruto, rezervisano, cena_kg, vrednost").range(od, od + PAGE - 1);
         if (error) throw error;
         const deo = data || [];
         sve = sve.concat(deo);
@@ -119,9 +119,10 @@ export async function loadDashboardData(timeRange = 30) {
     const cutoffDate = dateDaysAgo(days);
 
     // GLAVNI nalozi = radni_nalozi (tabela "nalozi" ne postoji u ovom sistemu)
-    const [naloziRes, rolne, aktivnostiRes] = await Promise.all([
+    const [naloziRes, magZbirRes, rolne, aktivnostiRes] = await Promise.all([
         supabase.from("radni_nalozi").select("*").gte("created_at", cutoffDate.toISOString()).order("created_at", { ascending: false }),
-        ucitajSveRolne(),
+        supabase.from("v_magacin_zbir").select("*").maybeSingle(),   // agregat magacina — 1 red (brzo)
+        ucitajSveRolne(),                                            // slim kolone, za per-tip prikaz
         supabase.from("nalog_aktivnosti").select("*").gte("created_at", cutoffDate.toISOString()).order("created_at", { ascending: false })
     ]);
 
@@ -162,6 +163,7 @@ export async function loadDashboardData(timeRange = 30) {
         siroci,
         operacije,
         rolne: rolne || [],
+        magacinZbir: (magZbirRes && magZbirRes.data) || null,
         aktivnosti: aktivnostiRes.data || [],
         rad,
         zastojiProd,
@@ -239,15 +241,24 @@ export function calculateDashboardKPIs(data = {}) {
         return s + cena * kol;
     }, 0);
 
-    // Identično ekranu "Magacin rolni i materijala": broje se SAMO rolne stvarno na
-    // stanju (iskorišćene/skinute se ne računaju).
-    const naStanjuRolne = rolne.filter(isRollOnStock);
-    const ukupnoRolni = naStanjuRolne.length;
-    const rolneNaStanju = naStanjuRolne.length;
-    const ukupnoMetara = naStanjuRolne.reduce((s, r) => s + rolnaMetri(r), 0);
-    const slobodnoMetara = naStanjuRolne.reduce((s, r) => s + slobodnoNaRolni(r), 0);
-    const ukupnoKg = naStanjuRolne.reduce((s, r) => s + safeNumber(r.kg_neto ?? r.kg ?? r.tezina), 0);
-    const vrednostMagacina = naStanjuRolne.reduce((s, r) => s + rolnaVrednost(r), 0);
+    // Magacin: PRVO iz agregatnog pogleda v_magacin_zbir (1 red, brzo, skalira na 2000+);
+    // ako pogleda nema (npr. nije kreiran), fallback na sabiranje po učitanim rolnama.
+    const mz = data.magacinZbir || null;
+    let ukupnoRolni, rolneNaStanju, ukupnoMetara, slobodnoMetara, ukupnoKg, vrednostMagacina;
+    if (mz) {
+        ukupnoRolni = rolneNaStanju = safeNumber(mz.rolni_na_stanju);
+        ukupnoMetara = safeNumber(mz.ukupno_metara);
+        slobodnoMetara = safeNumber(mz.slobodno_metara);
+        ukupnoKg = safeNumber(mz.ukupno_kg);
+        vrednostMagacina = safeNumber(mz.vrednost);
+    } else {
+        const naStanjuRolne = rolne.filter(isRollOnStock);
+        ukupnoRolni = rolneNaStanju = naStanjuRolne.length;
+        ukupnoMetara = naStanjuRolne.reduce((s, r) => s + rolnaMetri(r), 0);
+        slobodnoMetara = naStanjuRolne.reduce((s, r) => s + slobodnoNaRolni(r), 0);
+        ukupnoKg = naStanjuRolne.reduce((s, r) => s + safeNumber(r.kg_neto ?? r.kg ?? r.tezina), 0);
+        vrednostMagacina = naStanjuRolne.reduce((s, r) => s + rolnaVrednost(r), 0);
+    }
     const ukupnaVrednost = vrednostMagacina;
 
     const ukupnoAktivnosti = aktivnosti.length;
