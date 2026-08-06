@@ -1,0 +1,527 @@
+﻿### src\admin\AuditLog.jsx
+   -> react
+   -> ../supabase
+### src\auth\AuthProvider.jsx
+   -> react
+   -> ../supabase
+### src\auth\Login.jsx
+   -> react
+   -> ./AuthProvider
+   -> ../constants
+### src\auth\ProtectedRoute.jsx
+   -> react
+   -> ./AuthProvider
+### src\components\MagacinPanel\MagacinListaCeka.jsx
+   -> ../../data/materialMaster.js
+   -> react
+   -> ../../utils/supabaseRadnik
+   -> ./MagacinSmestanje
+### src\components\MagacinPanel\MagacinPanel.jsx
+   -> ../../data/materialMaster.js
+   -> react
+   -> ./MagacinListaCeka
+   -> ./MagacinPregled
+   -> ./MagacinPromenaLokacije
+### src\components\MagacinPanel\MagacinPregled.jsx
+   -> ../../data/materialMaster.js
+   -> react
+   -> ../../utils/supabaseRadnik
+### src\components\MagacinPanel\MagacinPromenaLokacije.jsx
+   -> ../../data/materialMaster.js
+   -> react
+   -> ../../utils/supabaseRadnik
+### src\components\MagacinPanel\MagacinSmestanje.jsx
+   -> ../../data/materialMaster.js
+   -> react
+   -> ../../utils/supabaseRadnik
+### src\components\ManagerDashboard\ManagerDashboard.jsx
+   -> react
+   -> ../../supabase.js
+### src\components\Nalozi\NalogFolijaSaQR.jsx
+   -> react
+   -> ../MaterialSelectorPRO.jsx
+   -> ./NalogQRCode
+### src\components\Nalozi\NalogKesaSaQR.jsx
+   -> react
+   -> ../MaterialSelectorPRO.jsx
+   -> ./NalogQRCode
+### src\components\Nalozi\NalogQRCode.jsx
+   -> react
+   -> ../MaterialSelectorPRO.jsx
+   -> qrcode
+### src\components\Nalozi\NalogSpulnaSaQR.jsx
+   -> react
+   -> ../MaterialSelectorPRO.jsx
+   -> ./NalogQRCode
+### src\components\RadnikPanel\NalogDetalji.jsx
+   -> react
+   -> ../MaterialSelectorPRO.jsx
+   -> ../../utils/supabaseRadnik
+   -> ./RazloziZaustavljanja
+   -> ./ZavrsenaPosljednjaFaza
+### src\components\RadnikPanel\RadnikDashboard.jsx
+   -> react
+   -> ../../utils/supabaseRadnik
+   -> ./NalogDetalji
+   -> ../../supabase
+### src\components\RadnikPanel\RadnikLogin-WITH-QR.jsx
+   -> react
+   -> ../../utils/supabaseRadnik
+   -> ../QRScanner
+### src\components\RadnikPanel\RadnikLogin.jsx
+   -> react
+   -> ../../utils/supabaseRadnik
+### src\components\RadnikPanel\RadnikPanel.jsx
+   -> react
+   -> ./RadnikLogin
+   -> ./RadnikDashboard
+### src\components\RadnikPanel\RazloziZaustavljanja.jsx
+   -> react
+   -> ../../utils/supabaseRadnik
+### src\components\RadnikPanel\supabaseRadnik.js
+   -> ./supabaseClient
+### src\components\RadnikPanel\ZavrsenaPosljednjaFaza.jsx
+   -> react
+   -> ../../supabase
+### src\components\AppErrorBoundary.jsx
+   -> react
+### src\components\MaterialEverywhereTest.jsx
+   -> react
+   -> ./MaterialSelectorPRO.jsx
+### src\components\MaterialLayerRowPRO.jsx
+   -> react
+   -> ./MaterialSelectorPRO.jsx
+   -> ../data/materialMaster.js
+### src\components\MaterialLayersTablePRO.jsx
+   -> react
+   -> ./MaterialSelectorPRO.jsx
+   -> ../data/materialMaster.js
+### src\components\MaterialMasterPRO.jsx
+   -> react
+### src\components\MaterialSelectorPRO.jsx
+   -> react
+   -> ../data/materialMaster.js
+### src\components\QRScanner.jsx
+   -> react
+   -> html5-qrcode
+### src\components\RezervacijaMaterijala.jsx
+   -> react
+   -> ../supabase
+### src\components\RolnaPerfViews.jsx
+   -> react
+### src\config\navigation.js
+   -> ../i18n.js
+### src\data\materialMaster.js
+   -> ../supabase.js
+### src\data\pantone.js
+### src\modules\AIAgentCommandCenter.jsx
+   -> react
+   -> ../services/aiAgentLLM.js
+### src\modules\AINalogPreview.jsx
+   -> react
+   -> ../supabase.js
+   -> ../NalogLayoutPRO.jsx
+### src\modules\AIPomoc.jsx
+   -> react
+   -> ../services/aiAgentLLM.js
+### src\modules\BackupSecurityCenter.jsx
+   -> react
+### src\modules\DocumentAIWorkflow.jsx
+   -> react
+### src\modules\dodeliBrojeve.js
+### src\modules\FinalProductionReadinessCenter.jsx
+   -> react
+### src\modules\FinalQADepoymentCenter.jsx
+   -> react
+### src\modules\FinansijeKPI_PRO.jsx
+   -> react
+   -> ../supabase.js
+### src\modules\formatiranjeEngine.js
+### src\modules\formatiranjeExec.js
+### src\modules\formatiranjeIzNaloga.js
+   -> ./dodeliBrojeve.js
+### src\modules\FormatiranjePoPotrebi.jsx
+   -> react
+   -> ../supabase.js
+   -> ./formatiranjeEngine.js
+   -> ./dodeliBrojeve.js
+### src\modules\FormatiranjeRolniPRO.jsx
+   -> react
+   -> qrcode.react
+   -> ../supabase.js
+### src\modules\GanttPlanPRO.jsx
+   -> react
+   -> ../utils/nalogMetrika.js
+   -> ../utils/planRaspored.js
+### src\modules\izvrsiFormatiranje.js
+   -> ./formatiranjeExec.js
+   -> ./izvrsiFormatiranje.js
+   -> ../supabase.js
+### src\modules\LiveProductionMES.jsx
+   -> react
+   -> ../services/erpMesCore.js
+   -> ../utils/nalogMetrika.js
+### src\modules\MachineSchedulerPRO.jsx
+   -> react
+   -> ../services/erpMesCore.js
+   -> ../utils/nalogMetrika.js
+   -> ./GanttPlanPRO.jsx
+   -> ../supabase.js
+### src\modules\MasterNalogEngine.jsx
+   -> react
+   -> qrcode.react
+   -> ../components/MaterialSelectorPRO.jsx
+   -> ../services/rollSuggestionEngine.js
+### src\modules\MasterNalogView.jsx
+   -> react
+   -> ../components/MaterialSelectorPRO.jsx
+   -> qrcode.react
+   -> ./LiveProductionMES.jsx
+### src\modules\MaterijalZaNaloge.jsx
+   -> react
+   -> ../supabase.js
+   -> ../QRScannerModal.jsx
+### src\modules\MESTrackingQualityPRO.jsx
+   -> react
+   -> ../services/mesTrackingCore.js
+### src\modules\MobileRollScanner.jsx
+   -> react
+   -> qrcode.react
+### src\modules\ProductAIWorkflow.jsx
+   -> react
+   -> ../supabase.js
+### src\modules\ProductionHardeningCenter.jsx
+   -> react
+### src\modules\ProductionPlannerPRO.jsx
+   -> react
+### src\modules\QRWorkflow.jsx
+   -> react
+### src\modules\QualityControlPRO.jsx
+   -> react
+### src\modules\RolneWarehouseEngine.jsx
+   -> react
+   -> qrcode.react
+   -> ../supabase.js
+   -> ./MaterijalZaNaloge.jsx
+   -> ./AIPomoc.jsx
+   -> ../utils/magacinIstorija.js
+   -> ../auth/AuthProvider
+### src\modules\spojRolneMatch.js
+### src\modules\SystemStabilizationCenter.jsx
+   -> react
+   -> ../supabase.js
+### src\modules\SystemStatusPRO.jsx
+   -> react
+   -> ../supabase.js
+### src\modules\TehnickiListPRO.jsx
+   -> react
+### src\services\agentAlati.js
+   -> ../supabase.js
+   -> ../modules/spojRolneMatch.js
+   -> ../modules/formatiranjeEngine.js
+   -> ../modules/dodeliBrojeve.js
+   -> ./kalkulacijeCore.js
+   -> ../services/erpMesCore.js
+   -> ../utils/nalogMetrika.js
+   -> ../utils/planRaspored.js
+### src\services\aiAgentCore.js
+   -> ./aiDataHub.js
+   -> ../supabase.js
+### src\services\aiAgentLLM.js
+   -> ../supabase.js
+   -> ./agentAlati.js
+### src\services\aiDataHub.js
+   -> ../supabase.js
+### src\services\erpMesCore.js
+   -> ../supabase.js
+### src\services\kalkulacijeCore.js
+### src\services\materialEngine.js
+### src\services\mesTrackingCore.js
+### src\services\rollSuggestionEngine.js
+   -> ../data/materialMaster.js
+### src\services\supabaseCore.js
+   -> ../supabase.js
+### src\services\warehouseWorkflow.js
+### src\utils\kalkulacijeHelpers.js
+   -> ../supabase
+   -> ./nalogDataLink
+### src\utils\magacinIstorija.js
+   -> ../supabase.js
+### src\utils\nalogDataLink.js
+### src\utils\nalogMetrika.js
+### src\utils\pdfNalog.js
+   -> jspdf
+   -> ./qr.js
+### src\utils\pdfPonuda.js
+   -> jspdf
+   -> ./qr.js
+### src\utils\planRaspored.js
+   -> ./nalogMetrika.js
+### src\utils\qr.js
+   -> qrcode
+### src\utils\supabaseRadnik.js
+   -> ../supabase.js
+### src\AIAsistent-Kalkulacije.jsx
+   -> react
+### src\AIChatAssistant.jsx
+   -> react
+   -> ./geminiAI
+   -> ./services/aiDataHub
+### src\AIProductionPlanner.jsx
+   -> react
+   -> ./supabase
+   -> ./geminiAI
+### src\AIQualityInspector.jsx
+   -> react
+   -> ./supabase
+   -> ./geminiAI
+### src\AIWasteOptimizer.jsx
+   -> react
+   -> ./supabase
+   -> ./geminiAI
+### src\AnalizaMaterijalStavke.jsx
+   -> react
+   -> ./supabase.js
+   -> ./utils/nalogMetrika.js
+### src\AnalizaPotrosnjeMaterijala.jsx
+   -> react
+   -> ./supabase.js
+### src\App.jsx
+   -> react
+   -> ./config/navigation.js
+   -> ./LanguageProvider.jsx
+   -> ./supabase.js
+   -> ./constants.js
+   -> html2canvas
+   -> jspdf
+   -> ./AIAsistent-Kalkulacije.jsx
+   -> ./PregledNalogaPRO.jsx
+   -> ./RadnikOperacija.jsx
+   -> ./ProductTemplateEngineV20.jsx
+   -> ./UvozSpulnaExcel.jsx
+   -> ./ProductMasterPRO.jsx
+   -> ./ListaProizvodaKupci.jsx
+   -> ./AnalizaMaterijalStavke.jsx
+   -> ./PonudePRO.jsx
+   -> ./KalkulacijaFolije.jsx
+   -> ./KalkulacijaKese.jsx
+   -> ./KalkulacijaSpulne.jsx
+   -> ./KalkulatorMaticnihRolni.jsx
+   -> ./PlanerRezanjaIzMagacina.jsx
+   -> qrcode
+   -> ./auth/AuthProvider
+   -> ./auth/Login
+   -> ./auth/ProtectedRoute
+   -> ./admin/AuditLog
+   -> ./UserManagement
+   -> ./components/ManagerDashboard/ManagerDashboard
+   -> ./ListaKalkulacija
+   -> ./utils/kalkulacijeHelpers
+   -> ./utils/nalogDataLink
+   -> ./DashboardPRO.jsx
+   -> ./MobileApp.jsx
+   -> ./AIProductionPlanner.jsx
+   -> ./AIChatAssistant.jsx
+   -> ./AIWasteOptimizer.jsx
+   -> ./AIQualityInspector.jsx
+   -> ./modules/FormatiranjeRolniPRO.jsx
+   -> ./modules/FormatiranjePoPotrebi.jsx
+   -> ./modules/ProductionPlannerPRO.jsx
+   -> ./modules/RolneWarehouseEngine.jsx
+   -> ./modules/LiveProductionMES.jsx
+   -> ./modules/QualityControlPRO.jsx
+   -> ./modules/FinansijeKPI_PRO.jsx
+   -> ./modules/TehnickiListPRO.jsx
+   -> ./modules/ProductAIWorkflow.jsx
+   -> ./modules/DocumentAIWorkflow.jsx
+   -> ./modules/SystemStatusPRO.jsx
+   -> ./modules/BackupSecurityCenter.jsx
+   -> ./modules/MachineSchedulerPRO.jsx
+   -> ./modules/AIAgentCommandCenter.jsx
+   -> ./modules/AIPomoc.jsx
+   -> ./modules/SystemStabilizationCenter.jsx
+   -> ./modules/ProductionHardeningCenter.jsx
+   -> ./modules/FinalQADepoymentCenter.jsx
+   -> ./modules/FinalProductionReadinessCenter.jsx
+   -> ./components/AppErrorBoundary.jsx
+   -> ./services/supabaseCore.js
+### src\constants.js
+### src\CrtezKese.jsx
+   -> react
+   -> ./LanguageProvider.jsx
+### src\DashboardPRO.jsx
+   -> react
+   -> ./supabase.js
+### src\dashboardShared.js
+   -> ./supabase.js
+### src\dataMaterijali.js
+### src\geminiAI.js
+### src\i18n.js
+### src\KalkulacijaFolije.jsx
+   -> react
+   -> ./modules/AIPomoc.jsx
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./components/MaterialLayersTablePRO.jsx
+   -> ./data/materialMaster.js
+   -> ./supabase.js
+   -> ./auth/AuthProvider
+### src\KalkulacijaKese.jsx
+   -> react
+   -> ./modules/AIPomoc.jsx
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./components/MaterialLayersTablePRO.jsx
+   -> ./data/materialMaster.js
+   -> ./supabase.js
+   -> ./auth/AuthProvider
+### src\KalkulacijaSpulne.jsx
+   -> react
+   -> ./modules/AIPomoc.jsx
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./components/MaterialLayersTablePRO.jsx
+   -> ./data/materialMaster.js
+   -> ./supabase.js
+   -> ./auth/AuthProvider
+### src\KalkulatorMaticnihRolni.jsx
+   -> react
+### src\kesaOpcije.js
+### src\kutije.js
+### src\LanguageProvider.jsx
+   -> react
+   -> ./i18n.js
+### src\ListaKalkulacija.jsx
+   -> react
+   -> ./supabase
+### src\ListaProizvodaKupci.jsx
+   -> react
+   -> ./supabase.js
+### src\main.jsx
+   -> react
+   -> react-dom/client
+   -> ./App.jsx
+### src\MaterijalZaNaloge.jsx
+   -> react
+   -> ../supabase.js
+   -> ../QRScannerModal.jsx
+### src\MESWorkflowPRO.jsx
+   -> react
+### src\MobileApp.jsx
+   -> react
+   -> ./supabase.js
+### src\MPTPRollOrientation.jsx
+   -> react
+### src\NalogAktivnosti.jsx
+   -> react
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./supabase.js
+### src\NalogCrtez_Kesa.jsx
+   -> react
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./CrtezKese.jsx
+### src\NalogFolija.jsx
+   -> react
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./supabase.js
+### src\NalogFormatiranje_Spulna.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogKasiranje_Folija.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogKesa_Kesa.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogLayoutPRO.jsx
+   -> react
+   -> qrcode
+   -> ./utils/nalogDataLink
+   -> ./data/pantone.js
+   -> ./LanguageProvider.jsx
+   -> ./CrtezKese.jsx
+   -> ./assets/spulna_technical_drawing.png
+   -> ./kutije.js
+   -> ./kesaOpcije.js
+### src\NalogMaterijal_Folija.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogPerforacijaRezanje_Folija.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogPerforacija_Folija.jsx
+   -> react
+   -> ./components/MaterialSelectorPRO.jsx
+### src\NalogPotrebaMaterijala_Kesa.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogPotrebaMaterijala_Spulna.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogRezanje_Folija.jsx
+   -> react
+   -> ./NalogShared.jsx
+   -> ./MPTPRollOrientation.jsx
+### src\NalogShared.jsx
+   -> react
+### src\NalogSpulne_Spulna.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NalogStampa_Folija.jsx
+   -> react
+   -> ./NalogLayoutPRO.jsx
+### src\NaloziProMES.jsx
+   -> react
+### src\PlanerRezanjaIzMagacina.jsx
+   -> react
+   -> ./services/warehouseWorkflow.js
+### src\PonudePRO.jsx
+   -> react
+   -> ./supabase.js
+   -> ./utils/pdfPonuda.js
+### src\PregledNalogaPRO.jsx
+   -> react
+   -> ./components/MaterialSelectorPRO.jsx
+   -> ./supabase
+   -> ./NalogLayoutPRO.jsx
+   -> qrcode.react
+   -> ./utils/nalogDataLink
+### src\PrikazKesePRO.jsx
+   -> react
+### src\ProductMasterPRO.jsx
+   -> react
+   -> ./supabase.js
+   -> ./auth/AuthProvider
+### src\ProductTemplateEngineV20.jsx
+   -> react
+   -> ./data/materialMaster.js
+   -> ./components/RolnaPerfViews.jsx
+   -> ./data/pantone.js
+   -> ./supabase.js
+   -> ./assets/spulna_technical_drawing.png
+   -> ./CrtezKese.jsx
+   -> ./kesaOpcije.js
+   -> ./kutije.js
+   -> ./LanguageProvider.jsx
+   -> ./modules/AIPomoc.jsx
+### src\QRScannerModal.jsx
+   -> react
+### src\RadnikOperacija.jsx
+   -> react
+   -> ./supabase
+   -> ./utils/nalogMetrika.js
+### src\rolnaAlgoritam.js
+### src\RolneWarehouseEngine.jsx
+   -> react
+   -> qrcode.react
+   -> ../supabase.js
+   -> ./MaterijalZaNaloge.jsx
+   -> ../utils/magacinIstorija.js
+   -> ../auth/AuthProvider
+### src\supabase.js
+   -> @supabase/supabase-js
+### src\UserManagement.jsx
+   -> react
+   -> ./supabase
+   -> ./auth/AuthProvider
+### src\UvozSpulnaExcel.jsx
+   -> react
+   -> xlsx
+   -> ./supabase.js
