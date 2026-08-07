@@ -2193,6 +2193,12 @@ function MainAppContent() {
                                             var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
                                             var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
                                             var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
+                                            var grKreirao = (master && master.kreirao_ime) || gr[0].kreirao_ime || "";
+                                            var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
+                                            var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || gr[0].rok_isporuke || "";
+                                            var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";
+                                            var grRokDana = (grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? Math.ceil((new Date(grRokRaw).setHours(23, 59, 59, 0) - Date.now()) / 86400000) : null;
+                                            var grRokBoja = grRokDana === null ? "#b45309" : (grRokDana < 0 ? "#b91c1c" : grRokDana <= 3 ? "#dc2626" : grRokDana <= 7 ? "#b45309" : "#166534");
                                             var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
                                             var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
@@ -2203,6 +2209,9 @@ function MainAppContent() {
                                                         <span style={{ background: "#1d4ed820", color: "#1d4ed8", borderRadius: 6, padding: "2px 10px", fontWeight: 800, fontSize: 16 }}>{TIP_LAB[tipNaloga] || "—"}</span>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grKupac}</span>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grProizvod}</span>
+                                                        {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {grKreirao}</span> : null}
+                                                        {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
+                                                        {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
                                                         <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
                                                         <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
                                                             <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />

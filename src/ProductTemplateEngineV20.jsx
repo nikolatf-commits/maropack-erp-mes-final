@@ -1837,12 +1837,26 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const obr = form.type === "spulna" ? spulnaObracun(form)
                 : form.type === "folija" ? folijaObracun(form) : null;
 
+            // Ko kreira nalog (prijavljeni korisnik) — da se u Glavnim nalozima vidi autor.
+            let kreiraoIme = "", kreiraoId = null;
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    kreiraoId = user.id;
+                    kreiraoIme = user.email || "";
+                    try { const { data: prof } = await supabase.from("users").select("ime").eq("id", user.id).single(); if (prof && prof.ime) kreiraoIme = prof.ime; } catch (e) { }
+                }
+            } catch (e) { }
+
             const zajednicko = {
                 broj_naloga: broj,
                 tip_proizvoda: form.type,
                 kupac: form.kupac || "",
                 naziv: proizvod,
                 proizvod: proizvod,
+                kreirao_ime: kreiraoIme,
+                kreirao_user_id: kreiraoId,
+                rok_isporuke: form.rokIsporuke || null,
             };
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
