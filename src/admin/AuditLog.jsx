@@ -41,9 +41,23 @@ export default function AuditLog() {
     const tables = [...new Set(logs.map(l => l.table_name))];
     const users = [...new Set(logs.map(l => l.user_email).filter(Boolean))];
 
-    // Lepši prikaz vrednosti u koloni "Izmene" (prazno / objekti / dugi tekst).
+    // Lepši nazivi polja (tehnički -> srpski).
+    const IMENA = {
+        status: 'Status', start_ts: 'Vreme početka', stop_ts: 'Vreme završetka', pauza_ts: 'Vreme pauze',
+        radnik: 'Radnik', masina: 'Mašina', kolicina: 'Količina', uradjeno: 'Urađeno', skart: 'Škart',
+        kupac: 'Kupac', naziv: 'Naziv', proizvod: 'Proizvod', broj_naloga: 'Broj naloga', tip_proizvoda: 'Tip',
+        marza: 'Marža', cena_kg: 'Cena/kg', osnovna_cena: 'Osnovna cena', konacna_cena: 'Konačna cena',
+        rok_isporuke: 'Rok isporuke', kreirao_ime: 'Kreirao', napomena: 'Napomena', parametri: 'Parametri', rezultati: 'Rezultati',
+    };
+    function lepoIme(f) { return IMENA[f] || f.replace(/_/g, ' '); }
+
+    // Lepši prikaz vrednosti u koloni "Izmene" (prazno / datumi u lokalnoj zoni / objekti / dugi tekst).
     function prikaziVrednost(v) {
         if (v === null || v === undefined || v === '') return '∅';
+        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(v)) {
+            const d = new Date(v);
+            if (!isNaN(d.getTime())) return d.toLocaleString('sr-RS', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
         if (typeof v === 'object') { try { const s = JSON.stringify(v); return s.length > 40 ? s.slice(0, 40) + '…' : s; } catch (e) { return '[…]'; } }
         const s = String(v);
         return s.length > 40 ? s.slice(0, 40) + '…' : s;
@@ -153,7 +167,7 @@ export default function AuditLog() {
                                                 ? <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                                                     {log.changed_fields.map((f) => (
                                                         <div key={f} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
-                                                            <b style={{ color: '#0f172a' }}>{f}:</b>
+                                                            <b style={{ color: '#0f172a' }}>{lepoIme(f)}:</b>
                                                             <span style={{ color: '#b91c1c', textDecoration: 'line-through' }}>{prikaziVrednost(log.old_data && log.old_data[f])}</span>
                                                             <span style={{ color: '#94a3b8' }}>→</span>
                                                             <span style={{ color: '#166534', fontWeight: 700 }}>{prikaziVrednost(log.new_data && log.new_data[f])}</span>
