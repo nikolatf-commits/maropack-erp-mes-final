@@ -1,4 +1,6 @@
 // utils/magacinIstorija.js
+// created_at iz baze je UTC; ako nema oznaku zone, tretiraj kao UTC pa prikaži u lokalnoj zoni.
+function uLokalno(v) { if (!v) return ""; let s = String(v); if (!/[zZ]|[+-]\d\d:?\d\d$/.test(s)) s = s.replace(" ", "T") + "Z"; const d = new Date(s); return isNaN(d.getTime()) ? String(v) : d.toLocaleString("sr-RS"); }
 // Jedinstveno mesto za upis u magacin_istorija — sva mesta gde se rolna dodirne
 // (ulaz, rezervacija za nalog, potrošnja, povrat, popis, promena lokacije, brisanje)
 // zovu OVU funkciju, pa istorija uvek završi na jednom mestu i u pravim kolonama.
@@ -171,7 +173,7 @@ export function mapIstorijaRow(h = {}, imeMap = {}) {
         || nv.operater || sv.operater || h.operater || "—";
 
     return {
-        vreme: h.created_at ? new Date(h.created_at).toLocaleString("sr-RS") : "",
+        vreme: uLokalno(h.created_at),
         operater,
         qr: br,
         event,

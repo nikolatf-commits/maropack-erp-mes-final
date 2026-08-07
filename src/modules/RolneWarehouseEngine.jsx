@@ -236,6 +236,7 @@ function safeWrite(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
 }
 function now() { return new Date().toLocaleString("sr-RS"); }
+function uLokalno(v) { if (!v) return ""; let s = String(v); if (!/[zZ]|[+-]\d\d:?\d\d$/.test(s)) s = s.replace(" ", "T") + "Z"; const d = new Date(s); return isNaN(d.getTime()) ? String(v) : d.toLocaleString("sr-RS"); }
 function makeId(prefix = "ID") { return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 90 + 10)}`; }
 
 function Pager({ page, pages, onGo, info }) {
@@ -1028,7 +1029,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (!supabase || supabase.__notConfigured) return;
             const { data } = await supabase.from("povrati_magacin").select("*").order("created_at", { ascending: false }).limit(1000);
             setPovratiDb((data || []).map((r) => ({
-                vreme: r.created_at ? new Date(r.created_at).toLocaleString("sr-RS") : "",
+                vreme: uLokalno(r.created_at),
                 operater: r.operater || "—",
                 qr: r.br_rolne || r.qr || "—",
                 event: "POVRAT U MAGACIN",
