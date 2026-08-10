@@ -2363,7 +2363,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ Kreiraj naloge</button>
                 <button onClick={() => saveTemplate(form.db_id ? "update" : "new")} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {form.db_id ? "Sačuvaj izmene" : "Sačuvaj templejt"}</button>
                 {form.db_id ? <button onClick={() => saveTemplate("new")} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>➕ Sačuvaj kao novi</button> : null}
-                <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 {t("tmpl.ponuda_iz_template")}</button>
+
                 <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 {t("tmpl.ai_workflow")}</button>
             </div>
         </div>
@@ -2424,6 +2424,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
                             onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
                     </div>
+                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: "#334155" }}>Materijal ide prema:</span>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                            <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => update("smerMaterijala", "duzina")} /> dužini kese
+                        </label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                            <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => update("smerMaterijala", "sirina")} /> širini kese
+                        </label>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>(određuje koliko kesa staje po širini materijala)</span>
+                    </div>
                 </div>
             )}
             {/* Red 3 — Materijal + napomena */}
@@ -2432,6 +2442,43 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
+
+            {/* KESA — potreban materijal prema smeru (širina/dužina) */}
+            {form.type === "kesa" && (() => {
+                const sK = Number(form.dimenzijaSirina || 0);      // širina kese (mm)
+                const dK = Number(form.dimenzijaDuzina || 0);      // dužina kese (mm)
+                const sMat = Number(form.idealnaSirinaMaterijala || 0); // širina materijala (mm)
+                const brojKesa = Number(form.porucenaKolicina || 0);    // poručeno (kom)
+                const falta = Number(form.kesa?.falta || 0);
+                const flach = String(form.kesa?.tipKese || "").toLowerCase() === "flach";
+                if (!sK || !dK || !sMat || !brojKesa) return null;
+                const premaDuzini = (form.smerMaterijala || "duzina") === "duzina";
+                // popreko trake ide jedna dimenzija (koliko kesa stane po širini materijala),
+                // uz dužinu trake druga dimenzija (+ falta na dnu). Flach = crevo → ×2.
+                const poprecno = premaDuzini ? sK : dK;            // dimenzija koja se "reda" po širini materijala
+                const uzduzno = (premaDuzini ? dK : sK) + falta;   // dimenzija koja troši dužinu trake
+                const kesaPoRedu = Math.floor(sMat / poprecno) || 0;
+                if (kesaPoRedu < 1) {
+                    return <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 12.5, color: "#b91c1c", fontWeight: 700 }}>
+                        Kesa ({poprecno} mm) je šira od materijala ({sMat} mm) — proveri smer ili širinu materijala.
+                    </div>;
+                }
+                const redova = Math.ceil(brojKesa / kesaPoRedu);
+                const metriMat = (redova * uzduzno * (flach ? 2 : 1)) / 1000;   // m materijala
+                const metriSaRadom = metriMat * 1.05;
+                return (
+                    <div style={{ background: "#eff6ff", border: "1px solid #2446b8", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+                        <div style={{ fontWeight: 950, color: "#2446b8", fontSize: 13, marginBottom: 8 }}>📐 Potreban materijal — prema {premaDuzini ? "dužini" : "širini"} kese{flach ? " (flach ×2)" : ""}</div>
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 13 }}>
+                            <span>Kesa po širini materijala: <b>{kesaPoRedu}</b></span>
+                            <span>Redova: <b>{redova.toLocaleString("sr-RS")}</b></span>
+                            <span>Po redu troši: <b>{uzduzno} mm</b>{falta ? " (+" + falta + " falta)" : ""}</span>
+                            <span style={{ color: "#059669", fontWeight: 900 }}>Potrebno materijala: {metriMat.toLocaleString("sr-RS", { maximumFractionDigits: 0 })} m</span>
+                            <span style={{ color: "#2446b8", fontWeight: 900 }}>+5% za rad: {metriSaRadom.toLocaleString("sr-RS", { maximumFractionDigits: 0 })} m</span>
+                        </div>
+                    </div>
+                );
+            })()}
             {/* AUTO KALKULACIJA — FOLIJA (poštuje broj traka, radi za kom/kg/m) */}
             {form.type === "folija" && (() => {
                 const ob = folijaObracun(form);
@@ -2986,7 +3033,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
-                        <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
+
                         <button onClick={async () => {
                             const next = saved.filter(x => x.id !== t.id);
                             setSaved(next);   // trenutno ukloni iz prikaza

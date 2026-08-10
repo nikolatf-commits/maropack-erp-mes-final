@@ -4,7 +4,7 @@
 //      + numerisan red čekanja po mašini (1., 2., 3...) sa ▲▼ za redosled
 // v53: zajednički modul utils/nalogMetrika.js + bedževi "⚠️ probija rok" i "⏳ čeka prethodnu operaciju"
 import React, { useEffect, useMemo, useState } from 'react';
-import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
+import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
 import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef } from '../utils/nalogMetrika.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
@@ -222,6 +222,12 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         return { machines: machines.length, active: machines.filter(m => m.status === 'aktivna').length, planned: plannedIds.size, minutes };
     }, [machines, plannedIds, plan, orderMap]);
 
+    // Snimi plan; ako je neko drugi u međuvremenu izmenio, osveži i javi (bez pregaza).
+    async function snimiPlan(next) {
+        const r = await saveProductionPlan(next);
+        if (r && r.conflict) { const svez = await loadProductionPlan(); setPlan(svez); msg?.('⚠️ Plan je neko upravo izmenio — učitao sam najnoviju verziju, probaj ponovo.', 'err'); return false; }
+        return true;
+    }
     const dragStart = (e, orderId) => { setDragOrder(orderId); e.dataTransfer.setData('text/plain', orderId); };
     const dropToMachine = async (machineId, e) => {
         e.preventDefault();
@@ -234,7 +240,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== orderId);
         next[machineId] = [...(next[machineId] || []), orderId];
         setPlan(next);
-        await saveProductionPlan(next);
+        await snimiPlan(next);
         await logTrace('order_moved_to_machine', { orderId, machineId, machine: machine.name });
         setTrace(getTraceLog());
         msg?.(`✅ ${orderId} prebačen na ${machine.name}`);
@@ -246,14 +252,14 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         if (j < 0 || j >= lista.length) return;
         [lista[index], lista[j]] = [lista[j], lista[index]];
         const next = { ...plan, [machineId]: lista };
-        setPlan(next); await saveProductionPlan(next);
+        setPlan(next); await snimiPlan(next);
         await logTrace('queue_reordered', { machineId, orderId: lista[j], from: index + 1, to: j + 1 });
         setTrace(getTraceLog());
     };
     const removeFromMachine = async (orderId) => {
         const next = { ...plan };
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== orderId);
-        setPlan(next); await saveProductionPlan(next); await logTrace('order_removed_from_plan', { orderId }); setTrace(getTraceLog());
+        setPlan(next); await snimiPlan(next); await logTrace('order_removed_from_plan', { orderId }); setTrace(getTraceLog());
     };
     const saveMachine = async (m) => {
         const next = machines.map(x => x.id === m.id ? { ...m, maxWidth: Number(m.maxWidth), minWidth: Number(m.minWidth), maxDiameter: Number(m.maxDiameter), speed: Number(m.speed), setupMin: Number(m.setupMin) } : x);

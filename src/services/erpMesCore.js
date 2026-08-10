@@ -149,13 +149,66 @@ export async function saveMachines(machines) {
     }
 }
 
+// Plan proizvodnje se čuva u BAZI (plan_proizvodnje, jedan red id=1) da bi bio isti na
+// svim računarima i da ne nestaje na keš/redeploy. localStorage ostaje samo kao rezerva.
+let _planVersion = 0;
+
 export async function loadProductionPlan() {
+    if (isSupabaseConfigured && supabase) {
+        try {
+            const { data, error } = await supabase.from('plan_proizvodnje').select('plan, version').eq('id', 1).maybeSingle();
+            if (!error && data) {
+                _planVersion = Number(data.version) || 0;
+                const plan = data.plan || getDefaultSchedule();
+                ls.set('maropack_production_plan', plan); // keš
+                return plan;
+            }
+        } catch (e) { /* nema mreže → rezerva ispod */ }
+    }
     return ls.get('maropack_production_plan', getDefaultSchedule());
 }
 
 export async function saveProductionPlan(plan) {
-    ls.set('maropack_production_plan', plan);
+    ls.set('maropack_production_plan', plan); // uvek keširaj lokalno
+    if (isSupabaseConfigured && supabase) {
+        try {
+            let email = null;
+            try { const { data: { user } } = await supabase.auth.getUser(); email = (user && user.email) || null; } catch (e) { }
+            // optimistički lock: upiši SAMO ako se verzija nije promenila u međuvremenu (da se ne pregazi tuđa izmena)
+            const { data, error } = await supabase
+                .from('plan_proizvodnje')
+                .update({ plan, version: _planVersion + 1, updated_at: new Date().toISOString(), updated_by: email })
+                .eq('id', 1).eq('version', _planVersion)
+                .select('version');
+            if (error) { await logTrace('production_plan_changed', { plan }); return { ok: true, offline: true }; }
+            if (!data || data.length === 0) {
+                return { ok: false, conflict: true }; // neko drugi je u međuvremenu izmenio plan
+            }
+            _planVersion = Number(data[0].version) || (_planVersion + 1);
+            await logTrace('production_plan_changed', { plan });
+            return { ok: true };
+        } catch (e) {
+            await logTrace('production_plan_changed', { plan });
+            return { ok: true, offline: true };
+        }
+    }
     await logTrace('production_plan_changed', { plan });
+    return { ok: true };
+}
+
+// Realtime: pozovi onChange(plan) kad bilo ko izmeni plan (da gledaoci vide odmah).
+export function subscribeProductionPlan(onChange) {
+    if (!(isSupabaseConfigured && supabase)) return () => { };
+    const ch = supabase.channel('plan-proizvodnje-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'plan_proizvodnje' }, (payload) => {
+            try {
+                const row = payload.new || {};
+                _planVersion = Number(row.version) || _planVersion;
+                if (row.plan) { ls.set('maropack_production_plan', row.plan); if (onChange) onChange(row.plan); }
+            } catch (e) { }
+        })
+        .subscribe();
+    return () => { try { supabase.removeChannel(ch); } catch (e) { } };
 }
 
 export async function logTrace(event_type, payload = {}) {
