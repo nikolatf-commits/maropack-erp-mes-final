@@ -3,7 +3,12 @@ import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoefic
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
+import { QRCodeSVG } from "qrcode.react";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
+// Jedinstveni QR token proizvoda (UUID → nikad se ne poklopi).
+function noviQrToken() { try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { } return 'P-' + Date.now() + '-' + Math.random().toString(36).slice(2); }
+function qrScanUrl(token) { const base = (typeof window !== 'undefined' && window.location) ? (window.location.origin) : 'https://maropack-erp-mes-final.vercel.app'; return base + '/?p=' + encodeURIComponent(token || ''); }
+
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
 import { KUTIJE, KUTIJA_LBL, proveriKutiju, predloziKutiju, kutijaPoKljucu, poPaletiZa } from "./kutije.js";
@@ -2102,6 +2107,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 return {
                     id: r.id,
                     db_id: r.id,
+                    qr_token: r.qr_token || null,
                     product_master_id: r.product_master_id || ('PROD-' + r.id),
                     template_id: r.template_id || ('TPL-' + r.id),
                     naziv: r.naziv || rec.naziv || "",
@@ -2172,13 +2178,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     record: { ...record, product_master_id: productMasterId, template_id: templateId },
                 },
                 datum: new Date().toLocaleDateString("sr-RS"),
+                qr_token: record.qr_token || noviQrToken(),
             };
 
             // "new" → uvek insert (nov templejt, original ostaje).
             // "update" ili auto → update ako imamo db_id postojećeg, inače insert.
             const existingDbId = (mode === "new") ? null : (record.db_id || (typeof record.id === 'number' ? record.id : null));
             const payloadZaUpis = (mode === "new")
-                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
+                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId, qr_token: noviQrToken() }
                 : payload;
             const query = existingDbId
                 ? supabase.from("proizvodi").update(payloadZaUpis).eq("id", existingDbId).select()
@@ -3030,7 +3037,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         </div>
                         <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>ID: {t.product_master_id || t.id} · verzija: {t.template_version || "V26"} · sačuvano: {t.created_at ? new Date(t.created_at).toLocaleDateString("sr-RS") : "—"}</div>
                     </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {t.qr_token ? <a href={qrScanUrl(t.qr_token)} target="_blank" rel="noreferrer" title="Otvori / skeniraj proizvod" style={{ display: "inline-block", background: "#fff", padding: 4, border: "1px solid #e2e8f0", borderRadius: 8 }}><QRCodeSVG value={qrScanUrl(t.qr_token)} size={64} level="M" /></a> : <span style={{ fontSize: 11, color: "#94a3b8" }}>QR posle čuvanja</span>}
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
 

@@ -286,6 +286,7 @@ export default function KalkulacijaFolijeSmart() {
     const [transport, setTransport] = useState(0);
     const [pakovanje, setPakovanje] = useState(0);
     const [dorada, setDorada] = useState(0);
+    const [napomena, setNapomena] = useState("");
 
     // REZULTATI
     const [rezultati, setRezultati] = useState(null);
@@ -391,6 +392,7 @@ export default function KalkulacijaFolijeSmart() {
                 if (kal.nalog) setNalog(Number(kal.nalog));
                 if (kal.skart !== undefined) setSkart(Number(kal.skart));
                 if (kal.marza !== undefined) setMarza(Number(kal.marza));
+                if (kal.napomena !== undefined) setNapomena(kal.napomena || "");
 
                 // Materijali - KONVERTUJ BROJEVE!
                 if (kal.materijali && Array.isArray(kal.materijali)) {
@@ -740,6 +742,7 @@ export default function KalkulacijaFolijeSmart() {
                 stampa_cena: stampaCena,
                 lakiranje_cena: lakiranjeCena,
                 transport, pakovanje, dorada,
+                napomena,
                 rezultati,
                 kreirao_user_id: user?.id
             };
@@ -940,6 +943,11 @@ export default function KalkulacijaFolijeSmart() {
                             </div>
                         </div>
                     )}
+                    {/* NAPOMENA */}
+                    <div style={{ background: "#fafafa", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16, marginTop: 12 }}>
+                        <h3 style={{ fontSize: 12, fontWeight: 800, color: "#0d9488", marginBottom: 10, textTransform: "uppercase" }}>📝 Napomena</h3>
+                        <textarea value={napomena} onChange={e => setNapomena(e.target.value)} placeholder="Napomena uz kalkulaciju (materijal, rok, posebni zahtevi...)" rows={3} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, resize: "vertical", fontFamily: "inherit" }} />
+                    </div>
                 </div>
 
                 {/* DESNI PANEL - REZULTATI (iz dizajna) */}

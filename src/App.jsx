@@ -8,6 +8,7 @@ import jsPDF from "jspdf";
 import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
 import RadnikOperacija from "./RadnikOperacija.jsx";
+import ProizvodQR from "./ProizvodQR.jsx";
 import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
 import UvozSpulnaExcel from "./UvozSpulnaExcel.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
@@ -2403,6 +2404,12 @@ function AppContent() {
         `}</style>
             </div>
         );
+    }
+
+    // QR proizvoda (?p=<token>) — javna stranica, radi i bez logina.
+    {
+        const pTok = new URLSearchParams(window.location.search).get('p');
+        if (pTok) return <ProizvodQR token={pTok} />;
     }
 
     // Not logged in → show Login

@@ -58,6 +58,7 @@ export default function KalkulacijaSpulne() {
             if (kal.sirina !== undefined) setSirina(Number(kal.sirina) || 0);
             if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
             if (kal.skart !== undefined) setSkart(Number(kal.skart));
+            if (kal.napomena !== undefined) setNapomena(kal.napomena || '');
             localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
     }, []);
@@ -80,6 +81,7 @@ export default function KalkulacijaSpulne() {
 
     // Finalno
     const [marza, setMarza] = useState(40);
+    const [napomena, setNapomena] = useState('');
     const [kolicina, setKolicina] = useState(0);
 
     // ✅ V26: Template → Kalkulacija realno mapiranje za špulne.
@@ -244,7 +246,7 @@ export default function KalkulacijaSpulne() {
                 materijali_struktura,
                 tip_jezgra: '',
                 precnik_jezgra: 0,
-                napomena: '',
+                napomena,
                 osnovna_cena: rez.osnovna,
                 konacna_cena: rez.saMarza,
                 created_by: user?.id
@@ -348,6 +350,11 @@ export default function KalkulacijaSpulne() {
                                 <FormField label="Marža (%)" value={marza} onChange={setMarza} type="number" />
                                 <FormField label="Količina (komada)" value={kolicina} onChange={setKolicina} type="number" />
                             </FormRow>
+                        </Section>
+
+                        {/* Napomena */}
+                        <Section title="📝 Napomena">
+                            <textarea value={napomena} onChange={e => setNapomena(e.target.value)} placeholder="Napomena uz kalkulaciju (materijal, rok, posebni zahtevi...)" rows={3} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, resize: "vertical", fontFamily: "inherit" }} />
                         </Section>
 
                         {mode === 'reverse' && (
