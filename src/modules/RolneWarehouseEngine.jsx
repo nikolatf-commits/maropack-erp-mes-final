@@ -1575,15 +1575,24 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         // ZA PORUCIVANJE: koliko materijala (sa definisanom minimalnom zalihom) ima kg na stanju ispod minimuma.
         const keyOf = (vrsta, oznaka, deb) => `${normKey(vrsta)}|${normMaterialCode(oznaka)}|${Number(deb) || 0}`;
-        const kgByKey = {};
+        const keyOfW = (vrsta, oznaka, deb, sir) => keyOf(vrsta, oznaka, deb) + `|${Number(sir) || 0}`;
+        const kgByKey = {}, kgByKeyW = {};
         rolne.filter((r) => normalizeStatus(r.status) === "dostupna").forEach((r) => {
-            const k = keyOf(r.vrsta, r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka, r.debljina);
-            kgByKey[k] = (kgByKey[k] || 0) + number(r.kg_neto ?? r.kg);
+            const kg = number(r.kg_neto ?? r.kg);
+            const ozn = r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka;
+            const k = keyOf(r.vrsta, ozn, r.debljina);
+            kgByKey[k] = (kgByKey[k] || 0) + kg;
+            const kw = keyOfW(r.vrsta, ozn, r.debljina, r.sirina ?? r.sirina_mm);
+            kgByKeyW[kw] = (kgByKeyW[kw] || 0) + kg;
         });
         const ispodMinimuma = (materialMaster || [])
             .map((m) => {
                 const minimum = number(m.minimalna_zaliha);
-                const naStanju = kgByKey[keyOf(m.vrsta, m.oznaka, m.debljina)] || 0;
+                const sir = number(m.sirina);
+                // Ako granica ima definisanu širinu → gleda samo tu širinu; inače sve širine (kao pre).
+                const naStanju = sir > 0
+                    ? (kgByKeyW[keyOfW(m.vrsta, m.oznaka, m.debljina, sir)] || 0)
+                    : (kgByKey[keyOf(m.vrsta, m.oznaka, m.debljina)] || 0);
                 return { ...m, minimum, naStanju, manjak: round2(Math.max(0, minimum - naStanju)) };
             })
             .filter((m) => m.minimum > 0 && m.naStanju < m.minimum)
@@ -1661,6 +1670,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             koeficijent: number(material.koeficijent),
             gsm: number(material.gsm),
             minimalna_zaliha: number(material.minimalna_zaliha || 0),
+            sirina: number(material.sirina) || null,
             aktivan: true,
         };
         if (!payload.vrsta || !payload.pod_vrsta || !payload.oznaka || !payload.debljina) {
@@ -3471,10 +3481,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     </div>
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                            <thead><tr style={{ background: "#fef3c7" }}>{["Materijal", "Proizvođač", "Na stanju kg", "Minimum kg", "Manjak kg"].map((h) => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #fcd34d", color: "#92400e" }}>{h}</th>)}</tr></thead>
+                            <thead><tr style={{ background: "#fef3c7" }}>{["Materijal", "Proizvođač", "Širina", "Na stanju kg", "Minimum kg", "Manjak kg"].map((h) => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #fcd34d", color: "#92400e" }}>{h}</th>)}</tr></thead>
                             <tbody>{stats.ispodMinimuma.map((m) => <tr key={m.id} style={{ borderBottom: "1px solid #fde68a" }}>
                                 <td style={{ padding: 9 }}><b>{materialDisplayName(m)}</b></td>
                                 <td style={{ padding: 9 }}>{m.proizvodjac || "—"}</td>
+                                <td style={{ padding: 9 }}>{number(m.sirina) > 0 ? number(m.sirina) + " mm" : "sve"}</td>
                                 <td style={{ padding: 9 }}>{fmt(m.naStanju, 2)}</td>
                                 <td style={{ padding: 9 }}>{fmt(m.minimum, 0)}</td>
                                 <td style={{ padding: 9, color: "#b45309", fontWeight: 900 }}>{fmt(m.manjak, 2)}</td>
@@ -3917,7 +3928,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
 
 
 function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, materialMaster = [], materialPrices = {}, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
-    const [p, setP] = React.useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", koeficijent: 0.91, gsm: 18.2, cenaKg: "", minimalna_zaliha: "" });
+    const [p, setP] = React.useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", sirina: "", koeficijent: 0.91, gsm: 18.2, cenaKg: "", minimalna_zaliha: "" });
     const vrste = uniqMaterialValues(materialMaster, "vrsta", materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste);
     const podVrste = uniqMaterialValues(materialMaster.filter((x) => x.vrsta === p.vrsta), "pod_vrsta", []);
     const oznake = uniqMaterialValues(materialMaster.filter((x) => x.vrsta === p.vrsta && (!p.pod_vrsta || x.pod_vrsta === p.pod_vrsta)), "oznaka", []);
@@ -3936,7 +3947,7 @@ function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, material
     }, [selected?.id]);
 
     function editRow(m) {
-        setP({ vrsta: m.vrsta || "BOPP", pod_vrsta: m.pod_vrsta || "", oznaka: m.oznaka || "", debljina: number(m.debljina), proizvodjac: m.proizvodjac || "", koeficijent: number(m.koeficijent), gsm: number(m.gsm), cenaKg: number(materialPrices[m.id]?.cena_kg || m.cenaKg || 0) || "", minimalna_zaliha: number(m.minimalna_zaliha) || "" });
+        setP({ vrsta: m.vrsta || "BOPP", pod_vrsta: m.pod_vrsta || "", oznaka: m.oznaka || "", debljina: number(m.debljina), proizvodjac: m.proizvodjac || "", sirina: m.sirina || "", koeficijent: number(m.koeficijent), gsm: number(m.gsm), cenaKg: number(materialPrices[m.id]?.cena_kg || m.cenaKg || 0) || "", minimalna_zaliha: number(m.minimalna_zaliha) || "" });
     }
     const q = String(matFilter || "").toLowerCase().trim();
     const rows = (materialMaster || []).map((m) => ({ ...m, cenaKg: number(materialPrices[m.id]?.cena_kg) })).filter((m) => !q || [m.vrsta, m.pod_vrsta, m.oznaka, m.proizvodjac, m.debljina, m.gsm].join(" ").toLowerCase().includes(q));
@@ -3951,6 +3962,7 @@ function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, material
                 <label><span style={lbl}>Oznaka</span><input list="mm-oznake" style={input} value={p.oznaka || ""} onChange={(e) => setP({ ...p, oznaka: e.target.value })} /><datalist id="mm-oznake">{uniqSorted(oznake, materialDropdowns.oznake || FALLBACK_MATERIAL_DROPDOWNS.oznake).map((o) => <option key={o} value={o} />)}</datalist></label>
                 <label><span style={lbl}>{p.vrsta === "PAPIR" ? "Gramatura" : "Debljina"}</span><input list="mm-debljine" style={input} type="number" value={p.debljina} onChange={(e) => setP({ ...p, debljina: Number(e.target.value) })} /><datalist id="mm-debljine">{uniqSorted(debljine, materialDropdowns.debljine || FALLBACK_MATERIAL_DROPDOWNS.debljine).map((d) => <option key={d} value={d} />)}</datalist></label>
                 <label><span style={lbl}>Proizvođač</span><input list="mm-proizvodjaci" style={input} value={p.proizvodjac || ""} onChange={(e) => setP({ ...p, proizvodjac: e.target.value })} /><datalist id="mm-proizvodjaci">{proizvodjaci.map((v) => <option key={v} value={v} />)}</datalist></label>
+                <label><span style={lbl}>Širina mm <span style={{ fontWeight: 600, color: "#94a3b8" }}>(prazno = sve širine)</span></span><input style={input} type="number" value={p.sirina || ""} onChange={(e) => setP({ ...p, sirina: e.target.value })} placeholder="npr. 480 — granica važi samo za tu širinu" /></label>
                 <label><span style={lbl}>Koeficijent</span><input style={input} type="number" step="0.001" value={p.koeficijent} onChange={(e) => setP({ ...p, koeficijent: e.target.value, gsm: round2(number(e.target.value) * number(p.debljina)) })} /></label>
                 <label><span style={lbl}>GSM / g/m²</span><input style={input} type="number" step="0.01" value={p.gsm || gsm} onChange={(e) => setP({ ...p, gsm: e.target.value })} /></label>
                 <label><span style={lbl}>Cena €/kg</span><input style={input} type="number" step="0.01" value={p.cenaKg} onChange={(e) => setP({ ...p, cenaKg: e.target.value })} /></label>

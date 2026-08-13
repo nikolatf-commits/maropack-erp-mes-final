@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 // v2: tvrdi blok redosleda operacija — rezanje ne sme da krene pre štampe istog naloga.
 // Ista logika kao planer / Live MES / AI agent (zajednički modul).
 import { canonRef, opKljuc, mapaOperacija, nadjiBlokadu, OP_LABELE } from "./utils/nalogMetrika.js";
+import { loadProductionPlan, loadMachines } from "./services/erpMesCore.js";
 
 // =====================================================================
 // RadnikOperacija — telefonska radnička strana za JEDNU operaciju.
@@ -77,6 +78,7 @@ export default function RadnikOperacija({ opid }) {
     // start-ekran izbori + završetak
     const [radnik, setRadnik] = useState(() => ucitajRadnika());
     const [masina, setMasina] = useState("");
+    const [planMasina, setPlanMasina] = useState(""); // mašina na koju je nalog raspoređen (iz plana)
     const [showRazlog, setShowRazlog] = useState(false);
     const [showFinish, setShowFinish] = useState(false);
     const [fin, setFin] = useState({ uradjeno: "", skart: "", napomena: "" });
@@ -95,6 +97,20 @@ export default function RadnikOperacija({ opid }) {
                 // Sestrinske operacije istog glavnog naloga → da li je prethodna u lancu gotova?
                 // (materijal → štampa → lakiranje → kaширanje → rezanje; kesa/špulna svoj lanac)
                 setBlokada(await proveriRedosled(row));
+                // Mašina NA KOJU JE NALOG RASPOREĐEN (iz plana proizvodnje) — da radnik ne bira iz liste.
+                try {
+                    const [plan, masine] = await Promise.all([loadProductionPlan(), loadMachines()]);
+                    const ref = String(row.broj_naloga || row.broj || row.id || "");
+                    let mId = null;
+                    for (const k of Object.keys(plan || {})) {
+                        if ((plan[k] || []).some((x) => String(x) === ref)) { mId = k; break; }
+                    }
+                    if (mId) {
+                        const m = (Array.isArray(masine) ? masine : []).find((mm) => mm.id === mId);
+                        const ime = (m && (m.name || m.code)) || row.masina || "";
+                        if (ime) { setPlanMasina(ime); setMasina(ime); }
+                    }
+                } catch (e) { /* ako plan ne može da se učita, ostaje ručni izbor */ }
             }
 
             const { data: z } = await supabase
@@ -218,7 +234,7 @@ export default function RadnikOperacija({ opid }) {
         setRadnik(ime);
         setBusy(true); setErr("");
         const { error } = await supabase.from("operativni_nalozi")
-            .update({ status: "radi", radnik: ime, masina, start_ts: op.start_ts || new Date().toISOString(), stop_ts: null, pauza_ts: null })
+            .update({ status: "radi", radnik: ime, masina, start_ts: new Date().toISOString(), stop_ts: null, pauza_ts: null })
             .eq("id", opid);
         if (error) setErr("Start nije uspeo: " + error.message);
         setBusy(false); reload();
@@ -377,7 +393,7 @@ export default function RadnikOperacija({ opid }) {
             )}
 
             {/* ---------- EKRAN: START ---------- */}
-            {!showRazlog && !showFinish && (!op || op.status === "ceka" || !op.start_ts) && op?.status !== "zavrseno" && (
+            {!showRazlog && !showFinish && op && op.status !== "radi" && op.status !== "zastoj" && op.status !== "zavrseno" && (op.status === "ceka" || op.status === "poslato_stampariji" || op.status === "stiglo_iz_stamparije" || !op.start_ts) && (
                 <div>
                     <label style={lbl}>Radnik</label>
                     <input
@@ -389,7 +405,9 @@ export default function RadnikOperacija({ opid }) {
                         autoComplete="name"
                     />
                     <label style={lbl}>Mašina</label>
-                    <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>{MASINE.map((m) => <option key={m}>{m}</option>)}</select>
+                    {planMasina
+                        ? <div style={{ ...inp, display: "flex", alignItems: "center", gap: 8, background: "#f0fdf4", border: "1px solid #16a34a", fontWeight: 800, color: "#166534" }}>🏭 {planMasina} <span style={{ fontSize: 11, fontWeight: 600, color: "#15803d" }}>(iz plana)</span></div>
+                        : <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>{MASINE.map((m) => <option key={m}>{m}</option>)}</select>}
 
                     {trebaSkenirati && (
                         <div style={{ marginTop: 16, background: "#0f1622", border: "1px solid #243246", borderRadius: 12, padding: 14 }}>

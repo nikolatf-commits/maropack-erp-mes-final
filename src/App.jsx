@@ -9,6 +9,9 @@ import AIAsistentKalkulacije from "./AIAsistent-Kalkulacije.jsx";
 import PregledNalogaPRO from "./PregledNalogaPRO.jsx";
 import RadnikOperacija from "./RadnikOperacija.jsx";
 import ProizvodQR from "./ProizvodQR.jsx";
+import { izracunajRaspored, radnoSada } from "./utils/planRaspored.js";
+import { loadProductionPlan, loadMachines, subscribeProductionPlan } from "./services/erpMesCore.js";
+import { opKljuc, metriZaMasinu, mapaOperacija, canonRef } from "./utils/nalogMetrika.js";
 import ProductTemplateEngineV20 from "./ProductTemplateEngineV20.jsx";
 import UvozSpulnaExcel from "./UvozSpulnaExcel.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
@@ -1298,6 +1301,40 @@ function MainAppContent() {
         }
     }, [isMagacioner, userProfile?.uloga]); // ✅ ACCORDION STATE
     const [db, setDb] = useState({ proizvodi: [], ponude: [], nalozi: [], master_nalozi: [], rolne: [], masine: [], radnici: [], production_sessions: [], qc_zapisnici: [] });
+
+    // Očekivani završetak po glavnom nalogu — iz ISTOG proračuna kao Gant (planRaspored),
+    // pa se u traci "Glavni nalozi" vidi kad će nalog biti gotov po AKTUELNOM planu.
+    const [zavrsetakMap, setZavrsetakMap] = useState({});
+    const [fmtPrefill, setFmtPrefill] = useState(null); // prefill za "Formatiranje po potrebi" iz izbora materijala
+    useEffect(() => {
+        let ziv = true;
+        async function preracunaj() {
+            try {
+                const nalozi = (db.nalozi || []);
+                if (!nalozi.length) { if (ziv) setZavrsetakMap({}); return; }
+                const [plan, masine] = await Promise.all([loadProductionPlan(), loadMachines()]);
+                const norm = (st) => { const x = String(st || "").toLowerCase(); if (x.indexOf("zavr") === 0) return "zavrseno"; if (x.indexOf("radi") === 0 || x.indexOf("toku") >= 0) return "u_radu"; return x || "ceka"; };
+                const orderMap = {};
+                nalozi.forEach((n) => {
+                    const id = String(n.broj_naloga || n.broj || n.id || ""); if (!id) return;
+                    orderMap[id] = {
+                        id, opTip: opKljuc(n), metri: metriZaMasinu(n, opKljuc(n)),
+                        trajanjeRucno: Number(n.trajanje_min || 0), durationMin: Number(n.durationMin || 0),
+                        status: norm(n.status), statusRaw: String(n.status || ""),
+                        start_ts: n.start_ts || null, rok: n.rok || n.rok_isporuke || null,
+                        title: n.proizvod || n.naziv || "", customer: n.kupac || "",
+                    };
+                });
+                const raspored = izracunajRaspored({ machines: Array.isArray(masine) ? masine : [], plan: plan || {}, orderMap, opStatusi: mapaOperacija(nalozi), sidro: radnoSada() });
+                const zav = {};
+                raspored.forEach((s) => { const ref = canonRef(s.o.id); if (!zav[ref] || s.end > zav[ref]) zav[ref] = s.end; });
+                if (ziv) setZavrsetakMap(zav);
+            } catch (e) { if (ziv) setZavrsetakMap({}); }
+        }
+        preracunaj();
+        const off = subscribeProductionPlan(() => preracunaj()); // osveži kad se plan promeni
+        return () => { ziv = false; try { off && off(); } catch (e) { } };
+    }, [db.nalozi]);
     const [notif, setNotif] = useState(null);
     const [lIme, setLIme] = useState("");
     const [lPass, setLPass] = useState("");
@@ -2160,7 +2197,7 @@ function MainAppContent() {
                     )}
 
                     {page === "formatiranje_po_potrebi" && (
-                        <FormatiranjePoPotrebi msg={msg} />
+                        <FormatiranjePoPotrebi msg={msg} prefill={fmtPrefill} />
                     )}
 
                     {/* RADNI NALOZI */}
@@ -2200,6 +2237,9 @@ function MainAppContent() {
                                             var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";
                                             var grRokDana = (grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? Math.ceil((new Date(grRokRaw).setHours(23, 59, 59, 0) - Date.now()) / 86400000) : null;
                                             var grRokBoja = grRokDana === null ? "#b45309" : (grRokDana < 0 ? "#b91c1c" : grRokDana <= 3 ? "#dc2626" : grRokDana <= 7 ? "#b45309" : "#166534");
+                                            var grZav = zavrsetakMap[canonRef(br)] || null;
+                                            var grZavTekst = (grZav instanceof Date && !isNaN(grZav.getTime())) ? grZav.toLocaleDateString("sr-RS", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+                                            var grZavProbija = (grZav && grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? (grZav > new Date(new Date(grRokRaw).setHours(23, 59, 59, 0))) : false;
                                             var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
                                             var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
@@ -2213,6 +2253,7 @@ function MainAppContent() {
                                                         {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {grKreirao}</span> : null}
                                                         {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
                                                         {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
+                                                        {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
                                                         <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
                                                         <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
                                                             <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
@@ -2254,7 +2295,7 @@ function MainAppContent() {
                     {/* BAZA / TEMPLATE MODULI */}
                     {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
                     {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
-                    {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} />)}
+                    {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />)}
                     {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 
                     {/* ✅ NOVO: AUDIT LOG */}
