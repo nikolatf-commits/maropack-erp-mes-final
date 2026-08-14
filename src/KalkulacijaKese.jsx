@@ -51,6 +51,7 @@ export default function KalkulacijaKese({ setPage }) {
     const [kolicina, setKolicina] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(30);
+    const [setupMasina, setSetupMasina] = useState(0); // trošak podešavanja mašine (€/1000kom, bez marže)
     const [datumIsp, setDatumIsp] = useState('');
     const [zeljCena, setZeljCena] = useState(120);
 
@@ -129,6 +130,7 @@ export default function KalkulacijaKese({ setPage }) {
             if (kal.kolicina !== undefined) setKolicina(Number(kal.kolicina) || 0);
             if (kal.skart !== undefined) setSkart(Number(kal.skart));
             if (kal.marza !== undefined) setMarza(Number(kal.marza));
+            if (kal.setup_masina !== undefined) setSetupMasina(Number(kal.setup_masina) || 0);
             if (kal.sirina !== undefined) setSirina(Number(kal.sirina) || 0);
             if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
             if (kal.klapna !== undefined) setKlapna(Number(kal.klapna));
@@ -157,13 +159,14 @@ export default function KalkulacijaKese({ setPage }) {
         try {
             const rawMeta = JSON.parse(localStorage.getItem('maropack_pending_template_calculation') || '{}');
             setSourceLink({ product_master_id: rawMeta.product_master_id || tpl.product_master_id || null, template_id: rawMeta.template_id || rawMeta.source_template_id || null, product_template_id: rawMeta.product_template_id || rawMeta.source_template_id || null, template_version: rawMeta.template_version || tpl.template_version || 'V25', template_locked: !!rawMeta.template_locked || !!tpl.template_locked, operacije: rawMeta.operacije || [] });
-        } catch {}
+        } catch { }
         const k = tpl.kesa || {};
         setNaziv(tpl.naziv || k.naziv || '');
         setKupac(tpl.kupac || '');
         setKolicina(Number(k.kolicina || 0));
         setSkart(Number(k.skart || 10));
         setMarza(Number(k.marza || 30));
+        setSetupMasina(Number(k.setup_masina || k.setupMasina || 0));
         setDatumIsp(k.datum || '');
         setSirina(Number(k.sirina || 0));
         setDuzina(Number(k.duzina || 0));
@@ -290,8 +293,10 @@ export default function KalkulacijaKese({ setPage }) {
 
         const trTr = trCena * tezKg1000;
 
+        // Trošak podešavanja mašine: FIKSNO €/1000 kom. NE ulazi u maržu — dodaje se posle.
+        const setupPer1000 = Number(setupMasina) || 0;
         const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr;
-        const konacna = osnovna * (1 + marza / 100);
+        const konacna = osnovna * (1 + marza / 100) + setupPer1000;
 
         const valFak = kolicina / 1000;
         const vrednostKon = konacna * valFak;
@@ -319,7 +324,7 @@ export default function KalkulacijaKese({ setPage }) {
             idealnaS: ik,
             izrMarza
         });
-    }, [sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, opts,
+    }, [sirina, duzina, klapna, falta, kolicina, skart, marza, setupMasina, materijali, opts,
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
         odCena, fdCena, vdCena, trCena, zeljCena]);
@@ -424,6 +429,7 @@ export default function KalkulacijaKese({ setPage }) {
                     kolicina,
                     skart,
                     marza,
+                    setup_masina: Number(setupMasina) || 0,
                     sirina,
                     duzina,
                     klapna,
@@ -508,7 +514,7 @@ export default function KalkulacijaKese({ setPage }) {
     return (
         <div style={s.wrap}>
             <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
-{/* HEADER */}
+            {/* HEADER */}
             <div style={{ background: 'linear-gradient(135deg, #0d9488 0%, #115e59 100%)', padding: 40, borderRadius: 16, color: 'white', marginBottom: 20, position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 40, right: 40, display: 'flex', gap: 8, background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 50 }}>
                     <button onClick={() => setMod('normal')} style={{ background: mod === 'normal' ? 'white' : 'transparent', color: mod === 'normal' ? '#0d9488' : 'white', border: 'none', padding: '12px 24px', borderRadius: 50, fontWeight: 700, cursor: 'pointer' }}>
@@ -539,6 +545,7 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Field label="Škart (%)" value={skart} onChange={setSkart} type="number" />
                                 <Field label="Datum isporuke" value={datumIsp} onChange={setDatumIsp} type="date" />
                                 {mod === 'normal' && <Field label="Marža (%)" value={marza} onChange={setMarza} type="number" />}
+                                <Field label="Trošak podešavanja (€/1000kom, bez marže)" value={setupMasina} onChange={setSetupMasina} type="number" />
                             </div>
                             {mod === 'reverse' && (
                                 <div style={{ ...s.grid2, marginTop: '9px' }}>
