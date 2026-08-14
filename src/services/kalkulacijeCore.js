@@ -204,11 +204,15 @@ export function kalkulacijaKese(u = {}) {
     if (trTr) koraci.push(`Transport: ${N(u.transportCena)} €/kg × ${R4(tezKg1000)} kg = ${eur(trTr)}`);
 
     const osnovna = cenaMatKom + stmTr + adhTr + ostale + kliseTr + trTr + ojTr;
-    const konacna = osnovna * (1 + marza / 100);
+    // Trošak podešavanja mašine: FIKSNO €/1000 kom, NE ulazi u maržu (isto kao ekran KalkulacijaKese).
+    const setupPer1000 = N(u.setup_masina);
+    const konacna = osnovna * (1 + marza / 100) + setupPer1000;
     const valFak = kolicina / 1000;
 
     koraci.push(`OSNOVNA /1000 kom = ${eur(osnovna)}`);
-    koraci.push(`+ marža ${marza}% → KONAČNA ${eur(konacna)} /1000 kom = ${R4(konacna / 1000)} € po komadu`);
+    koraci.push(`+ marža ${marza}% → ${eur(osnovna * (1 + marza / 100))} /1000 kom`);
+    if (setupPer1000) koraci.push(`+ podešavanje mašine (bez marže): ${eur(setupPer1000)} /1000 kom`);
+    koraci.push(`KONAČNA ${eur(konacna)} /1000 kom = ${R4(konacna / 1000)} € po komadu`);
 
     return {
         tip: "kesa", jedinica: "€ / 1000 kom",
