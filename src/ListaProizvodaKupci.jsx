@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase.js";
+import { QRCodeSVG } from "qrcode.react";
+
+function qrScanUrl(token) { const base = (typeof window !== "undefined" && window.location) ? window.location.origin : "https://maropack-erp-mes-final.vercel.app"; return base + "/?p=" + encodeURIComponent(token || ""); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Lista proizvoda po kupcima  [v3]
@@ -146,13 +149,16 @@ function KupacKartica({ kupac, proizvodi }) {
                     return (
                         <div key={idx} style={{ padding: "13px 18px", borderBottom: idx < proizvodi.length - 1 ? "1px solid #f1f5f9" : "none" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                                <div>
-                                    <div style={{ fontWeight: 900, fontSize: 13.5, display: "flex", alignItems: "center" }}>
-                                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 9, background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", color: "#6d28d9", fontWeight: 950, fontSize: 13, marginRight: 10, flexShrink: 0 }}>{idx + 1}</span>
-                                        {p.naziv || "—"}
-                                    </div>
-                                    <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginTop: 2, marginLeft: 30 }}>
-                                        Šifra: {sifraP(p) || "—"} · Idealna širina: {isir ? isir + " mm" : "—"} · Slojeva: {layers.length}
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                                    {p.qr_token ? <a href={qrScanUrl(p.qr_token)} target="_blank" rel="noreferrer" title="Skeniraj / otvori proizvod" style={{ flexShrink: 0, background: "#fff", padding: 4, border: "1px solid #e2e8f0", borderRadius: 8, lineHeight: 0 }}><QRCodeSVG value={qrScanUrl(p.qr_token)} size={54} level="M" /></a> : <span style={{ flexShrink: 0, width: 54, height: 54, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px dashed #cbd5e1", borderRadius: 8, fontSize: 9, color: "#94a3b8", textAlign: "center", fontWeight: 700 }}>QR posle čuvanja</span>}
+                                    <div>
+                                        <div style={{ fontWeight: 900, fontSize: 13.5, display: "flex", alignItems: "center" }}>
+                                            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 9, background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", color: "#6d28d9", fontWeight: 950, fontSize: 13, marginRight: 10, flexShrink: 0 }}>{idx + 1}</span>
+                                            {p.naziv || "—"}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginTop: 2, marginLeft: 30 }}>
+                                            Šifra: {sifraP(p) || "—"} · Idealna širina: {isir ? isir + " mm" : "—"} · Slojeva: {layers.length}
+                                        </div>
                                     </div>
                                 </div>
                                 <span style={{ background: (TIP_BOJA[tip] || "#64748b") + "22", color: TIP_BOJA[tip] || "#64748b", fontSize: 9.5, fontWeight: 900, padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap", textTransform: "uppercase" }}>{tip}</span>
