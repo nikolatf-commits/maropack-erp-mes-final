@@ -2094,6 +2094,24 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         setActiveTab("povrat");
     }
 
+    // "Iskorišćena" — cela rolna potrošena: skida se sa stanja (status potrosena → nestaje iz liste),
+    // ali OSTAJE u bazi (trag/analiza). Za delimično koristi "Skini m".
+    async function markUsed(r) {
+        const currentM = number(r.metraza_ost ?? r.duzina ?? r.metraza ?? 0);
+        if (!window.confirm(`Rolna ${r.qr || r.br_rolne} (${fmt(currentM, 0)} m) — označiti kao ISKORIŠĆENU?\nSkida se sa stanja, ali ostaje u bazi kao potrošena.`)) return;
+        try {
+            if (!supabase?.__notConfigured && r.id) {
+                const { error } = await supabase.from("magacin").update({
+                    status: "Iskorišćeno", metraza_ost: 0, updated_at: new Date().toISOString(),
+                }).eq("id", r.id);
+                if (error) throw error;
+                await logHistory({ qr: r.qr || r.br_rolne, event: "POTROŠENO", opis: `Rolna iskorišćena (skinuto ${fmt(currentM, 0)} m)`, stanje: "Iskorišćeno" });
+            }
+        } catch (e) { msg?.("Nije upisano: " + (e?.message || e), "err"); return; }
+        msg?.(`Rolna ${r.qr || r.br_rolne} označena kao iskorišćena.`);
+        await reload();
+    }
+
     async function consumeRoll(r) {
         const currentM = number(r.metraza_ost ?? r.duzina ?? r.metraza ?? 0);
         const used = prompt("Koliko metara se troši? Prazno = cela rolna", String(currentM || ""));
@@ -3467,7 +3485,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <button onClick={() => setActiveTab("istorija_povrata")} style={tabBtn("istorija_povrata")}>↩️ Istorija povrata</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
-                {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
+                {[["📦 Materijala", materialMaster.length || materijali.length], ["🎞️ Ukupno rolni", stats.total], ["📏 Ukupno m", fmt(stats.totalM, 0)], ["⚖️ Ukupno kg", fmt(stats.totalKg, 2)], ["🟢 Na stanju", stats.dostupna], ["🟡 Rezervisano", stats.rezervisana], ["💰 Vrednost magacina", `€ ${fmt(stats.totalValue, 2)}`], ["🔴 Iskorišćeno", (rolne.filter(x => normalizeStatus(x.status) === "potrosena").length) + " rolni · " + fmt(rolne.filter(x => normalizeStatus(x.status) === "potrosena").reduce((a, x) => a + number(x.kg_neto ?? x.kg), 0), 0) + " kg"], ["⚠️ Za poručivanje", stats.zaPorucivanje]].map(([a, b]) => {
                     const warn = String(a).includes("Za poručivanje") && Number(b) > 0;
                     return <div key={a} style={{ ...card, ...(warn ? { background: "#fffbeb", border: "1px solid #fcd34d" } : {}) }}><div style={{ color: warn ? "#92400e" : "#64748b", fontSize: 12, fontWeight: 900 }}>{a}</div><div style={{ fontSize: 24, fontWeight: 950, marginTop: 4, ...(warn ? { color: "#b45309" } : {}) }}>{b}</div></div>;
                 })}
@@ -3678,7 +3696,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{rezBarCell(r)}</td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
-                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => povratRolne(r)} style={{ ...btn, background: "#e0f2fe", color: "#075985" }}>↩️ Povrat</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
+                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => markUsed(r)} style={{ ...btn, background: "#fecaca", color: "#7f1d1d" }}>✓ Iskorišćena</button><button onClick={() => povratRolne(r)} style={{ ...btn, background: "#e0f2fe", color: "#075985" }}>↩️ Povrat</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
