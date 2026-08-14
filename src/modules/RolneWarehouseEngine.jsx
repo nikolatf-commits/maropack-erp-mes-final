@@ -1670,7 +1670,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             koeficijent: number(material.koeficijent),
             gsm: number(material.gsm),
             minimalna_zaliha: number(material.minimalna_zaliha || 0),
-            sirina: number(material.sirina) || null,
+            sirina: number(material.sirina) || 0,
             aktivan: true,
         };
         if (!payload.vrsta || !payload.pod_vrsta || !payload.oznaka || !payload.debljina) {
@@ -1681,7 +1681,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (supabase?.__notConfigured) throw new Error("Supabase nije dostupan");
             const { data, error } = await supabase
                 .from("material_master")
-                .upsert(payload, { onConflict: "vrsta,pod_vrsta,oznaka,debljina" })
+                .upsert(payload, { onConflict: "vrsta,pod_vrsta,oznaka,debljina,sirina" })
                 .select("*")
                 .limit(1);
             if (error) throw error;
@@ -3495,7 +3495,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 </div>
             )}
 
-            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns }} />}
+            {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns, rolne }} />}
 
             {activeTab === "unos" && (
                 <div style={{ display: "grid", gap: 14 }}>
@@ -3927,7 +3927,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
 }
 
 
-function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, materialMaster = [], materialPrices = {}, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS }) {
+function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, materialMaster = [], materialPrices = {}, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns = FALLBACK_MATERIAL_DROPDOWNS, rolne = [] }) {
     const [p, setP] = React.useState({ vrsta: "BOPP", pod_vrsta: "Transparent", oznaka: "FXC", debljina: 20, proizvodjac: "", sirina: "", koeficijent: 0.91, gsm: 18.2, cenaKg: "", minimalna_zaliha: "" });
     const vrste = uniqMaterialValues(materialMaster, "vrsta", materialDropdowns.vrste || FALLBACK_MATERIAL_DROPDOWNS.vrste);
     const podVrste = uniqMaterialValues(materialMaster.filter((x) => x.vrsta === p.vrsta), "pod_vrsta", []);
@@ -3938,6 +3938,34 @@ function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, material
     const koef = number(p.koeficijent) || number(selected?.koeficijent) || coeffByVrsta(p.vrsta);
     const gsm = number(p.gsm) || number(selected?.gsm) || round2(number(p.debljina) * koef);
     const naziv = materialDisplayName({ ...p, koeficijent: koef, gsm });
+
+    // Materijali koji postoje na rolnama u magacinu a NEMAJU red u material_master (po vrsti/oznaci/debljini/širini).
+    // Samo prikaz — ništa se ne upisuje automatski; klikom "Dodaj" se popuni forma levo.
+    const bezGranice = React.useMemo(() => {
+        const nk = (v) => String(v ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+        const nc = (v) => nk(v).replace(/[^A-Z0-9]+/g, "");
+        const pokriven = (vr, oz, db, sir) => (materialMaster || []).some((m) => {
+            if (nk(m.vrsta) !== nk(vr)) return false;
+            if (nc(m.oznaka) !== nc(oz)) return false;
+            if (Number(m.debljina || 0) !== Number(db || 0)) return false;
+            const ms = Number(m.sirina || 0);
+            return ms === 0 || ms === Number(sir || 0); // granica bez širine pokriva sve; sa širinom → samo tu širinu
+        });
+        const mapa = {};
+        (rolne || []).forEach((r) => {
+            const vr = r.vrsta || r.materijal || ""; if (!vr) return;
+            const oz = r.oznaka_materijala || r.oznaka || r.komercijalnaOznaka || "";
+            const db = Number(r.debljina || r.deb || 0);
+            const sir = Number(r.sirina || r.sirina_mm || 0);
+            const pv = r.pod_vrsta || "";
+            const proiz = r.proizvodjac || r.dobavljac || "";
+            const key = [nk(vr), nk(pv), nc(oz), db, sir, nk(proiz)].join("|");
+            if (mapa[key]) { mapa[key].rolni += 1; mapa[key].kg += number(r.kg_neto ?? r.kg); return; }
+            mapa[key] = { vrsta: vr, pod_vrsta: pv, oznaka: oz, proizvodjac: proiz, debljina: db, sirina: sir, rolni: 1, kg: number(r.kg_neto ?? r.kg) };
+        });
+        return Object.values(mapa).filter((c) => !pokriven(c.vrsta, c.oznaka, c.debljina, c.sirina))
+            .sort((a, b) => (a.vrsta + a.oznaka).localeCompare(b.vrsta + b.oznaka) || a.sirina - b.sirina);
+    }, [rolne, materialMaster]);
 
     React.useEffect(() => {
         if (selected) {
@@ -3972,6 +4000,24 @@ function MaterialsTab({ card, input, btn, lbl, matFilter, setMatFilter, material
                 </div>
                 <button onClick={() => saveMaterialMaster({ ...p, koeficijent: koef, gsm })} style={{ ...btn, background: "#059669", color: "#fff", padding: "13px" }}>Sačuvaj u material_master</button>
                 <button onClick={loadMaterialMaster} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>Osveži bazu</button>
+
+                {bezGranice.length > 0 && (
+                    <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 14, padding: 12, marginTop: 4 }}>
+                        <div style={{ fontWeight: 950, color: "#9a3412", marginBottom: 4 }}>📥 Materijali iz magacina bez granice ({bezGranice.length})</div>
+                        <div style={{ fontSize: 11.5, color: "#9a3412", marginBottom: 8 }}>Kombinacije (sa širinom) koje postoje na rolnama, a nemaju red u bazi. Klik „Dodaj“ popuni formu levo — pregledaš i sačuvaš.</div>
+                        <div style={{ display: "grid", gap: 6, maxHeight: 300, overflowY: "auto" }}>
+                            {bezGranice.map((c, i) => (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #fed7aa", borderRadius: 8, padding: "7px 10px" }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>
+                                        {c.vrsta}{c.pod_vrsta ? " · " + c.pod_vrsta : ""} · {c.oznaka || "—"}{c.proizvodjac ? " · " + c.proizvodjac : ""} · {c.debljina || "—"}µ · <b style={{ color: "#9a3412" }}>{c.sirina || "—"} mm</b>
+                                        <span style={{ color: "#94a3b8", fontWeight: 600, marginLeft: 6 }}>({c.rolni} rolni · {fmt(c.kg, 0)} kg)</span>
+                                    </div>
+                                    <button onClick={() => setP((x) => ({ ...x, vrsta: c.vrsta, pod_vrsta: c.pod_vrsta, oznaka: c.oznaka, proizvodjac: c.proizvodjac, debljina: Number(c.debljina) || "", sirina: c.sirina || "" }))} style={{ ...btn, background: "#ea580c", color: "#fff", whiteSpace: "nowrap" }}>Dodaj →</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
         <div style={card}>
