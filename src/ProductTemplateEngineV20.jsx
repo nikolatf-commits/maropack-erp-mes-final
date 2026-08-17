@@ -2431,16 +2431,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
                             onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
                     </div>
-                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: "#334155" }}>Materijal ide prema:</span>
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                            <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => update("smerMaterijala", "duzina")} /> dužini kese
-                        </label>
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                            <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => update("smerMaterijala", "sirina")} /> širini kese
-                        </label>
-                        <span style={{ fontSize: 11, color: "#94a3b8" }}>(određuje koliko kesa staje po širini materijala)</span>
-                    </div>
                 </div>
             )}
             {/* Red 3 — Materijal + napomena */}
@@ -2449,6 +2439,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
+
+            {/* KESA — smer materijala (prema širini/dužini kese) */}
+            {form.type === "kesa" && (
+                <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#334155" }}>Materijal ide prema:</span>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                        <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => update("smerMaterijala", "duzina")} /> dužini kese
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                        <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => update("smerMaterijala", "sirina")} /> širini kese
+                    </label>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>(određuje koliko kesa staje po širini materijala)</span>
+                </div>
+            )}
 
             {/* KESA — potreban materijal prema smeru (širina/dužina) */}
             {form.type === "kesa" && (() => {
