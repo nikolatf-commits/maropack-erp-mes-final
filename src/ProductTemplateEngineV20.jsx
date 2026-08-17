@@ -1671,9 +1671,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     //   kaširanje → samo ako ima više od jednog sloja
     // (Primer iz baze: MP-2026-0007 = materijal · stampa · perforacija_rezanje — bez kaširanja.)
     function operacijeZa(form) {
-        const L = (form.type === "folija" ? form.folija?.layers
+        const Lraw = (form.type === "folija" ? form.folija?.layers
             : form.type === "kesa" ? form.kesa?.layers
                 : form.spulna?.layers) || [];
+        // SAMO popunjeni slojevi — prazni redovi ne smeju da "izmisle" kaширanje/štampu.
+        const L = Lraw.filter(l => l && (l.vrsta || l.materijal || l.oznaka || l.oznaka_materijala || Number(l.tezina) || Number(l.gm2) || Number(l.debljina)));
         // Stampa se prepoznaje i kad cekboks "Š" na sloju NIJE stikliran, a
         // parametri stampe postoje (brojBoja / lista boja). Ranije se gledao samo
         // cekboks, pa je nalog za stampu izostajao iako su boje unete.

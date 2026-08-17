@@ -187,9 +187,14 @@ function buildSvgPro(c, u, lang = "sr") {
             default: return [x1 - 4, y0 + bh * .5];
         }
     };
-    const BX = 440; let by = 100;
-    legend.forEach((it, i) => {
-        const [ax, ay] = anchor(it.key);
+    const BX = 440;
+    // Poređaj krugove po VISINI tačke na kesi (da leader linije ne ukrštaju),
+    // ali zadrži broj = redni broj iz legende (desna lista).
+    const anchored = legend.map((it, i) => { const a = anchor(it.key); return { it, i, ax: a[0], ay: a[1] }; });
+    const sortByY = [...anchored].sort((p, r) => p.ay - r.ay);
+    let by = 100;
+    sortByY.forEach((entry) => {
+        const { it, i, ax, ay } = entry;
         const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba"].includes(it.key) ? ACC : SUB)));
         g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".8"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
         by += 34;
