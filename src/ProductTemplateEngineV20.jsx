@@ -485,18 +485,24 @@ function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
-        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;   // korak, m
+        const smer = f.smerMaterijala || "duzina";
+        const dkMm = n(k.duzina) + n(k.klapna) + n(k.falta);   // korak po dužini kese
+        const skMm = n(k.sirina);                               // širina kese
+        // Smer: šta ide UZDUŽ materijala (troši metražu) vs POPREČNO (staje po širini materijala).
+        const uzduznoMm = smer === "duzina" ? dkMm : skMm;
+        const poprecnoMm = smer === "duzina" ? skMm : dkMm;
+        const duzM = uzduznoMm / 1000;                          // korak, m
         const kom = n(k.kolicina), skart = n(k.skart) || UVECANJE_KOLICINE_PCT;
-        // BAN = broj traka po sirini. Rezanje NE skracuje duzinu - multiplicira je po traci,
-        // pa je maticna rolna BAN puta KRACA. Ranije se nije delilo -> trazilo se BAN x vise materijala.
+        // BAN = broj traka po sirini. Maticna rolna je BAN puta KRACA.
         const ban = Math.max(1, n(k.ban) || 1);
         const mTrake = kom * duzM;            // metri gotove trake
-        const mMat = mTrake / ban;            // metri maticne rolne  <-- ispravka
+        const mMat = mTrake / ban;            // metri maticne rolne
         return {
             kol: Math.round(mMat),
             kolPlus: Math.ceil(mMat * (1 + skart / 100)),
             kom, duzM, ban,
             mTrake: Math.round(mTrake),
+            smer, poprecnoMm, uzduznoMm,
         };
     }
     if (f.type === "folija") {
@@ -2445,12 +2451,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: "#334155" }}>Materijal ide prema:</span>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => update("smerMaterijala", "duzina")} /> dužini kese
+                        <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => { update("smerMaterijala", "duzina"); const k = form.kesa || {}; const ban = Math.max(1, Number(k.ban) || 1); const pop = Number(k.sirina) || 0; if (pop) update("idealnaSirinaMaterijala", String(ban * pop)); }} /> dužini kese
                     </label>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => update("smerMaterijala", "sirina")} /> širini kese
+                        <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => { update("smerMaterijala", "sirina"); const k = form.kesa || {}; const ban = Math.max(1, Number(k.ban) || 1); const pop = (Number(k.duzina) || 0) + (Number(k.klapna) || 0) + (Number(k.falta) || 0); if (pop) update("idealnaSirinaMaterijala", String(ban * pop)); }} /> širini kese
                     </label>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>(određuje koliko kesa staje po širini materijala)</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>(predlaže idealnu širinu = ban × {(form.smerMaterijala === "sirina") ? "dužina kese" : "širina kese"}; možeš i ručno)</span>
                 </div>
             )}
 
@@ -2757,7 +2763,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.smer === "duzina" ? "dužina+klapna+falta" : "širina kese"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
                             &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
