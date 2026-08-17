@@ -1577,8 +1577,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const keyOf = (vrsta, oznaka, deb) => `${normKey(vrsta)}|${normMaterialCode(oznaka)}|${Number(deb) || 0}`;
         const keyOfW = (vrsta, oznaka, deb, sir) => keyOf(vrsta, oznaka, deb) + `|${Number(sir) || 0}`;
         const kgByKey = {}, kgByKeyW = {};
-        rolne.filter((r) => normalizeStatus(r.status) === "dostupna").forEach((r) => {
-            const kg = number(r.kg_neto ?? r.kg);
+        // Broji SAMO slobodne (nerezervisane) kilograme — rezervisano će se potrošiti,
+        // pa se ne računa u raspoloživu zalihu za poručivanje.
+        rolne.filter((r) => isRollVisibleOnStock(r)).forEach((r) => {
+            const ukM = rolnaUkupnoM(r);
+            const slM = slobodnoNaRolni(r);
+            if (ukM <= 0 || slM <= 0) return;
+            const kgFull = number(r.kg_neto ?? r.kg);
+            const kg = kgFull > 0 ? kgFull * (slM / ukM) : 0;   // samo slobodni deo
             const ozn = r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka;
             const k = keyOf(r.vrsta, ozn, r.debljina);
             kgByKey[k] = (kgByKey[k] || 0) + kg;
