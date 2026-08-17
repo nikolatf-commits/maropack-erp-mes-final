@@ -66,7 +66,33 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 }
             } catch (e) { /* auto-dopuna ne sme da sruši analizu */ }
 
-            setRows(samoNalozi);
+            // RUČNO ISKORIŠĆENO: rolne označene „Iskorišćeno" iz magacina (nisu vezane za nalog).
+            // Da se i ručna potrošnja vidi u analizi. Origin metraža je u `metraza` (metraza_ost je 0).
+            const rucno = [];
+            try {
+                let mq = supabase.from("magacin").select("*").limit(5000);
+                const { data: mag } = await mq;
+                const jeIskor = (s) => /iskoris|iskoriš|potros|potroš/i.test(String(s || ""));
+                (mag || []).filter((r) => jeIskor(r.status)).forEach((r) => {
+                    if (period !== "sve") {
+                        const d = new Date(); d.setDate(d.getDate() - Number(period));
+                        const t = r.updated_at || r.created_at;
+                        if (t && new Date(t) < d) return;
+                    }
+                    const origM = num(r.metraza) || num(r.metraza_ost) || num(r.duzina);
+                    let kg = num(r.kg_neto) || num(r.kg_bruto) || num(r.kg);
+                    const sir = num(r.sirina ?? r.sirina_mm), gsm = num(r.gsm);
+                    if (!kg && origM && sir && gsm) kg = (origM * sir * gsm) / 1000000;
+                    rucno.push({
+                        nalog_ref: "RUČNO ISKORIŠĆENO", status: "Iskorišćeno",
+                        alocirano_m: origM, izdato_m: origM, vraceno_m: 0, otpad_m: 0, kg_alocirano: kg,
+                        vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka_materijala || r.oznaka || "",
+                        debljina: r.deb || r.debljina || "", sirina: sir, dobavljac: r.dobavljac || "—", idealna_sirina: sir,
+                    });
+                });
+            } catch (e) { /* ručna potrošnja opciona */ }
+
+            setRows([...samoNalozi, ...rucno]);
         } catch (e) {
             msg && msg("Greška pri učitavanju analize: " + (e.message || e), "err");
             setRows([]);
