@@ -314,21 +314,27 @@ function kesaD(nalog) {
     const W = num(k.sirina), H = num(k.duzina), KL = num(k.klapna), FA = num(k.falta);
     const ban = Math.max(1, num(k.ban) || 1);
     const skart = num(k.skart) || 5;
-    const korakK = H + KL + FA;
+    // Smer materijala (čekira se u templejtu): šta ide UZDUŽ materijala vs POPREČNO (po širini).
+    const smer = (t && t.smerMaterijala) || k.smerMaterijala || "duzina";
+    const dkMm = H + KL + FA;                                  // korak po dužini kese
+    const uzduznoMm = smer === "duzina" ? dkMm : W;           // troši metražu
+    const poprecnoMm = smer === "duzina" ? W : dkMm;          // staje po širini materijala (× ban)
+    const korakK = uzduznoMm;
     const kom = num(k.kolicina) || num(nalog.kom) || num(od.kom) || 0;
     const mTrake = kom * korakK / 1000;
     const mMat = ban > 0 ? mTrake / ban : mTrake;
     const mMatPlus = mMat * (1 + skart / 100);
-    const sirMat = num(k.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || (ban * W);
+    const sirMat = num(k.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || (ban * poprecnoMm);
     const kgF = (mMatPlus / 1000) * (sirMat / 1000);
     const opts = (k.options && typeof k.options === "object") ? Object.keys(k.options).filter(function (x) { return k.options[x]; }) : [];
     const gr = [];
-    if (ban * W > sirMat) gr.push(ban + " × " + W + " mm = " + (ban * W) + " mm ne staje u ulaznu širinu " + sirMat + " mm.");
+    if (ban * poprecnoMm > sirMat) gr.push(ban + " × " + poprecnoMm + " mm = " + (ban * poprecnoMm) + " mm ne staje u ulaznu širinu " + sirMat + " mm.");
     if (!korakK) gr.push("Nema koraka (dužina + klapna + falta).");
     return {
         raw: k, W: W, H: H, KL: KL, FA: FA, ban: ban, skart: skart, korakK: korakK, kom: kom,
+        smer: smer, poprecnoMm: poprecnoMm, uzduznoMm: uzduznoMm,
         mTrake: Math.ceil(mTrake), mMat: Math.ceil(mMat), mMatPlus: Math.ceil(mMatPlus),
-        sirMat: sirMat, kgF: kgF, otpad: Math.max(0, sirMat - ban * W),
+        sirMat: sirMat, kgF: kgF, otpad: Math.max(0, sirMat - ban * poprecnoMm),
         tip: k.tipKese || "ravna", takt: num(k.takt), tolerancija: k.tolerancija || "±5%",
         pakovanje: k.pakovanje || "—", grafika: k.grafika || "—", transportKg: k.transportKg || "—",
         opts: opts, greske: gr,
