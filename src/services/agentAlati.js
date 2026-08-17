@@ -240,11 +240,23 @@ export const ALATI = {
                 return Math.abs(pre - po);
             };
             const klasa = (h) => {
-                const t = UP(h.akcija) + " " + UP(h.tip_promene);
-                if (/POTRO|ISKORI|USED|IZLAZ/.test(t)) return "potroseno";
-                if (/REZERV/.test(t)) return "rezervisano";
-                if (/POVRAT|VRAĆ|VRAC/.test(t)) return "povrat";
-                if (/ULAZ|PRIJEM|KREIR/.test(t)) return "ulaz";
+                const akc = UP(h.akcija) + " " + UP(h.tip_promene);
+                const nv = (h.nova_vrednost && typeof h.nova_vrednost === "object") ? h.nova_vrednost : {};
+                const novoStatus = UP(nv.status ?? (typeof h.nova_vrednost === "string" ? h.nova_vrednost : ""));
+                // Eksplicitne akcije
+                if (/POTRO|USED|IZLAZ/.test(akc)) return "potroseno";
+                if (/REZERV/.test(akc)) return "rezervisano";
+                if (/POVRAT|VRAĆ|VRAC/.test(akc)) return "povrat";
+                // "Status promenjen" → klasifikuj po NOVOM statusu (Na stanju → Iskorišćeno itd.)
+                if (novoStatus) {
+                    if (/ISKORI|POTRO/.test(novoStatus)) return "potroseno";
+                    if (/REZERV/.test(novoStatus)) return "rezervisano";
+                    if (/OBRIS/.test(novoStatus)) return "obrisano";
+                    if (/STANJ/.test(novoStatus)) return "ulaz";
+                }
+                if (/ISKORI/.test(akc)) return "potroseno";
+                if (/POVRAT|VRAĆ|VRAC/.test(akc)) return "povrat";
+                if (/ULAZ|PRIJEM|KREIR|UNET/.test(akc)) return "ulaz";
                 return "ostalo";
             };
 
