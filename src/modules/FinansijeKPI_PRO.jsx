@@ -138,7 +138,8 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         const profit = prihod - trosak;
         const marza = trosak > 0 ? (profit / trosak) * 100 : 0; // MARKUP na trošak (isto kao u kalkulaciji)
         const avgSkart = rows.length ? rows.reduce((s, r) => s + r.skart, 0) / rows.length : 0;
-        const aktivneRolne = rolne.filter(r => (r.status || '').toLowerCase() !== 'potrošena' && (r.status || '').toLowerCase() !== 'potrosena').length;
+        const NEAKTIVNI = /potro|potroš|iskoris|iskoriš|obris|obriš|arhiv/i;
+        const aktivneRolne = rolne.filter(r => !NEAKTIVNI.test(String(r.status || '')) && (Number(r.metraza_ost ?? r.metraza ?? r.duzina ?? 0) > 0)).length;
         const rezervisane = rolne.filter(r => (r.status || '').toLowerCase().includes('rez')).length;
         const activeSessions = sessions.filter(s => ['active', 'radi', 'u toku', 'running'].includes(String(s.status || '').toLowerCase())).length;
         const downtime = sessions.length ? sessions.filter(s => String(s.status || '').toLowerCase().includes('zastoj')).length / sessions.length * 100 : 0;
