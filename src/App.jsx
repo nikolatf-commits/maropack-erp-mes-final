@@ -102,6 +102,7 @@ import AIWasteOptimizer from './AIWasteOptimizer.jsx';
 import AIQualityInspector from './AIQualityInspector.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
 import FormatiranjePoPotrebi from './modules/FormatiranjePoPotrebi.jsx';
+import NoviFormatiranjeNalog from './modules/NoviFormatiranjeNalog.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';
@@ -2199,6 +2200,7 @@ function MainAppContent() {
                     {page === "formatiranje_po_potrebi" && (
                         <FormatiranjePoPotrebi msg={msg} prefill={fmtPrefill} />
                     )}
+                    {page === "novi_formatiranje" && (<NoviFormatiranjeNalog msg={msg} />)}
 
                     {/* RADNI NALOZI */}
                     {page === "nalozi" && (
@@ -2209,6 +2211,7 @@ function MainAppContent() {
                             </div>
                             {pregNalog ? (
                                 <PregledNalogaPRO
+                                    key={pregNalog.id || pregNalog.broj_naloga}
                                     brojNaloga={pregNalog.ponBr || pregNalog.broj_naloga || pregNalog.broj}
                                     osnovniNalog={pregNalog}
                                     naloziProp={db.nalozi}

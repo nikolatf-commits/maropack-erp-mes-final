@@ -89,6 +89,8 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     }
     // Pocetni tab = operacija koju je korisnik STVARNO kliknuo (ranije uvek "materijal").
     const [tab, setTab] = useState(() => nalogType(osnovniNalog) || "materijal");
+    // Ako se promeni kliknuta operacija (bez remounta), uskladi prikazani tab.
+    useEffect(() => { const t = nalogType(osnovniNalog); if (t) setTab(t); }, [osnovniNalog?.id, osnovniNalog?.broj_naloga]);
     const [tplRow, setTplRow] = useState(null);
     const [rezRolne, setRezRolne] = useState([]);
 
