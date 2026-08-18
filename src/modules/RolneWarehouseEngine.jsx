@@ -3122,11 +3122,28 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
     function rezBarCell(r) {
         const total = rolnaUkupnoM(r);
-        if (normalizeStatus(r.status) === "proizvodnja") {
+        const stx = normalizeStatus(r.status);
+        if (stx === "proizvodnja") {
             return (
                 <div style={{ minWidth: 150 }}>
                     <span style={{ background: "#faf5ff", color: "#7c3aed", border: "1px solid #e9d5ff", borderRadius: 999, padding: "3px 9px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap" }}>⚙️ U proizvodnji</span>
                     <div style={{ fontSize: 10.5, color: "#7c3aed", marginTop: 3, fontWeight: 700 }}>{r.lokacija || "WIP"} · {fmt(total, 0)} m</div>
+                </div>
+            );
+        }
+        if (stx === "stamparija") {
+            return (
+                <div style={{ minWidth: 150 }}>
+                    <span style={{ background: "#ede9fe", color: "#6d28d9", border: "1px solid #ddd6fe", borderRadius: 999, padding: "3px 9px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap" }}>🖨️ U štampariji</span>
+                    <div style={{ fontSize: 10.5, color: "#6d28d9", marginTop: 3, fontWeight: 700 }}>{fmt(total, 0)} m</div>
+                </div>
+            );
+        }
+        if (stx === "vraceno_stamp") {
+            return (
+                <div style={{ minWidth: 150 }}>
+                    <span style={{ background: "#e0f2fe", color: "#0369a1", border: "1px solid #bae6fd", borderRadius: 999, padding: "3px 9px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap" }}>↩️ Vraćeno iz štamparije</span>
+                    <div style={{ fontSize: 10.5, color: "#0369a1", marginTop: 3, fontWeight: 700 }}>{fmt(total, 0)} m</div>
                 </div>
             );
         }
