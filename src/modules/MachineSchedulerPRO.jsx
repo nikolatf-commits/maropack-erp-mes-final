@@ -166,7 +166,12 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             const op = tipOperacije(n);
             if (op.k === "materijal") return;   // materijal se ne raspoređuje na mašinu
             const st = String(n.status || "ceka").toLowerCase();
-            const status = st.indexOf("zavr") === 0 ? "zavrseno" : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 ? "u_radu" : "ceka");
+            // "stiglo iz štamparije" = štampa je gotova (materijal se vratio) → tretira se kao ZAVRŠENO,
+            // pa se štampa ne prikazuje kao "čeka" i ne blokira kaширanje/rezanje.
+            // "poslato u štampariju" = radi se eksterno (u toku), ne "čeka".
+            const status = (st.indexOf("zavr") === 0 || st.indexOf("stiglo") >= 0) ? "zavrseno"
+                : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 || st.indexOf("poslato") >= 0) ? "u_radu"
+                    : "ceka";
             const ex = extraktNalog(n);
             // direktne kolone (ako ih ima) i dalje imaju prednost, JSON je dopuna.
             // Za KAŠIRANJE materijal prolazi kroz mašinu više puta → množi metre brojem prolaza.
