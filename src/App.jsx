@@ -103,6 +103,7 @@ import AIQualityInspector from './AIQualityInspector.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
 import FormatiranjePoPotrebi from './modules/FormatiranjePoPotrebi.jsx';
 import NoviFormatiranjeNalog from './modules/NoviFormatiranjeNalog.jsx';
+import MobilniMagacin from './MobilniMagacin.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';
@@ -1750,6 +1751,8 @@ function MainAppContent() {
     function statusStil(st) {
         var s = String(st || "").toLowerCase();
         if (s.indexOf("zavr") === 0 || s === "zavrseno") return { grad: "linear-gradient(135deg,#16a34a,#15803d)", traka: "#16a34a", bg: "#f4fdf6", tekst: "ZAVRŠENO ✓" };
+        // stiglo iz štamparije — štampa gotova (materijal se vratio) → tretira se kao ZAVRŠENO (zeleno)
+        if (s.indexOf("stiglo") >= 0) return { grad: "linear-gradient(135deg,#16a34a,#15803d)", traka: "#16a34a", bg: "#f4fdf6", tekst: "STIGLO IZ ŠTAMPARIJE ✓" };
         // poslato_stampariji — nalog radi eksterna štamparija (Milinković / Topolastika)
         if (s.indexOf("poslato") === 0) return { grad: "linear-gradient(135deg,#7c3aed,#6d28d9)", traka: "#7c3aed", bg: "#faf7ff", tekst: "U ŠTAMPARIJI" };
         if (s.indexOf("radi") === 0 || s.indexOf("u toku") === 0 || s.indexOf("u_toku") === 0 || s.indexOf("u proizvodnji") === 0) return { grad: "linear-gradient(135deg,#3b82f6,#2563eb)", traka: "#3b82f6", bg: "#f8fbff", tekst: "U TOKU" };
@@ -2243,7 +2246,7 @@ function MainAppContent() {
                                             var grZav = zavrsetakMap[canonRef(br)] || null;
                                             var grZavTekst = (grZav instanceof Date && !isNaN(grZav.getTime())) ? grZav.toLocaleDateString("sr-RS", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
                                             var grZavProbija = (grZav && grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? (grZav > new Date(new Date(grRokRaw).setHours(23, 59, 59, 0))) : false;
-                                            var zav = gr.filter(function (n) { return n.status === "Završeno" || n.status === "zavrseno"; }).length;
+                                            var zav = gr.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") === 0 || s === "zavrseno" || s.indexOf("stiglo") >= 0; }).length;
                                             var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
                                             return (
