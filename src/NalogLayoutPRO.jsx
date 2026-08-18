@@ -673,7 +673,9 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         const K = kesaD(nalog);
         if (vrsta === "kasiranje") return pKesaKas(D, K);
         if (vrsta === "kesa") return pKesa(D, K);
-        return pKesaMat(D, K);
+        if (vrsta === "materijal") return pKesaMat(D, K);
+        // Ostale operacije (štampa/perforacija/lakiranje) NE bacamo u materijal —
+        // padaju na odgovarajuće stranice ispod (folija-stil), da naslov bude tačan.
     }
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);

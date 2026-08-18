@@ -285,6 +285,8 @@ function normalizeStatus(status) {
     if (["delimično rezervisano", "delimicno rezervisano", "delimično rezervisana", "delimicno rezervisana", "partially reserved"].includes(lower)) return "delimicno";
     if (["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(lower)) return "potrosena";
     if (["u proizvodnji", "u_proizvodnji", "proizvodnja", "wip"].includes(lower)) return "proizvodnja";
+    if (["u štampariji", "u stampariji", "poslato u štampariju", "poslato u stampariju", "stamparija"].includes(lower)) return "stamparija";
+    if (["vraćeno iz štamparije", "vraceno iz stamparije", "vraćeno iz stamparije", "vraceno iz štamparije"].includes(lower)) return "vraceno_stamp";
     if (["formatirana", "formatirano"].includes(lower)) return "formatirana";
     if (["blokirana", "blokirano"].includes(lower)) return "blokirana";
     return lower;
@@ -296,6 +298,8 @@ function displayStatus(status) {
     if (st === "delimicno") return "Delimično rezervisano";
     if (st === "potrosena") return "Iskorišćeno";
     if (st === "proizvodnja") return "U proizvodnji";
+    if (st === "stamparija") return "U štampariji";
+    if (st === "vraceno_stamp") return "Vraćeno iz štamparije";
     if (st === "formatirana") return "Formatirana";
     if (st === "blokirana") return "Blokirana";
     return status || "Na stanju";
@@ -308,13 +312,16 @@ function toDbStatus(status) {
     if (st === "potrosena") return "Iskorišćeno";
     if (st === "formatirana") return "Formatirana";
     if (st === "blokirana") return "Blokirana";
+    if (st === "stamparija") return "U štampariji";
+    if (st === "vraceno_stamp") return "Vraćeno iz štamparije";
     return status || "Na stanju";
 }
 function isRollVisibleOnStock(r) {
     const st = normalizeStatus(r?.status);
     // "delimicno" MORA biti ovde — inače rolna sa delimičnom rezervacijom nestane
     // i sa stanja i sa rezervisanih (postoji u bazi, ali je nigde ne vidiš).
-    return ["dostupna", "rezervisana", "delimicno", "formatirana"].includes(st) && number(r?.metraza_ost ?? r?.duzina ?? r?.metraza) > 0;
+    // "stamparija"/"vraceno_stamp" — rezervisan materijal koji je otišao/vratio se; ostaje vidljiv.
+    return ["dostupna", "rezervisana", "delimicno", "formatirana", "stamparija", "vraceno_stamp"].includes(st) && number(r?.metraza_ost ?? r?.duzina ?? r?.metraza) > 0;
 }
 
 // Slobodni metri rolne = ukupna metraža − već rezervisano (za druge naloge).
@@ -327,6 +334,8 @@ function statusColor(s) {
     if (st === "rezervisana") return "#f59e0b";
     if (st === "potrosena") return "#ef4444";
     if (st === "proizvodnja") return "#7c3aed";
+    if (st === "stamparija") return "#7c3aed";
+    if (st === "vraceno_stamp") return "#0ea5e9";
     if (st === "formatirana") return "#2563eb";
     if (st === "blokirana") return "#6d28d9";
     return "#059669";
@@ -1136,6 +1145,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [povratQr, setPovratQr] = useState("");
     const [povratRoll, setPovratRoll] = useState(null);
     const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
+    // Vraćanje iz štamparije — prozor za prečnik/hilznu (preračun metraže/kg kao kod povrata).
+    const [stampModal, setStampModal] = useState(null); // { roll }
+    const [stampForm, setStampForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "" });
     const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat" | "lokacija"
     const [locationTarget, setLocationTarget] = useState("popis");
     const [locationParts, setLocationParts] = useState({ magacin: "", red: "", polica: "", pozicija: "" });
@@ -1597,7 +1609,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const kgByKey = {}, kgByKeyW = {};
         // Broji SAMO slobodne (nerezervisane) kilograme — rezervisano će se potrošiti,
         // pa se ne računa u raspoloživu zalihu za poručivanje.
-        rolne.filter((r) => isRollVisibleOnStock(r)).forEach((r) => {
+        // U obračun SLOBODNIH kg za poručivanje NE ulaze rolne u štampariji / vraćene iz štamparije
+        // (one su namenjene poslu), iako ostaju vidljive u listi stanja.
+        rolne.filter((r) => isRollVisibleOnStock(r) && !["stamparija", "vraceno_stamp"].includes(normalizeStatus(r.status))).forEach((r) => {
             const ukM = rolnaUkupnoM(r);
             const slM = slobodnoNaRolni(r);
             if (ukM <= 0 || slM <= 0) return;
@@ -2133,6 +2147,43 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             }
         } catch (e) { msg?.("Nije upisano: " + (e?.message || e), "err"); return; }
         msg?.(`Rolna ${r.qr || r.br_rolne} označena kao iskorišćena.`);
+        await reload();
+    }
+
+    // Poslato u štampariju — rezervisan materijal ide spoljnom štamparu.
+    async function posaljiStampariju(r) {
+        if (!window.confirm(`Rolna ${r.qr || r.br_rolne} — označiti kao POSLATO U ŠTAMPARIJU?`)) return;
+        try {
+            if (!supabase?.__notConfigured && r.id) {
+                const { error } = await supabase.from("magacin").update({ status: "U štampariji", updated_at: new Date().toISOString() }).eq("id", r.id);
+                if (error) throw error;
+                await logHistory({ qr: r.qr || r.br_rolne, event: "POSLATO U ŠTAMPARIJU", opis: `Poslao ${reserverName || ""}`.trim(), stanje: "U štampariji" });
+            }
+        } catch (e) { msg?.("Nije upisano: " + (e?.message || e), "err"); return; }
+        msg?.(`Rolna ${r.qr || r.br_rolne} — poslato u štampariju.`);
+        await reload();
+    }
+    // Vraćeno iz štamparije — otvori prozor za prečnik/hilznu (metraža/kg se preračunaju).
+    function vratiIzStamparije(r) {
+        setStampForm({ hilzna: "FI76", spoljasnjiPrecnik: "" });
+        setStampModal({ roll: r });
+    }
+    async function potvrdiVracanjeStamp() {
+        const r = stampModal?.roll;
+        if (!r) return;
+        const rollNanos = { ...r, debljina: number(r.debljina ?? r.deb) + 3 };
+        const meters = estimateMetersFromDiameter(rollNanos, stampForm.spoljasnjiPrecnik, stampForm.hilzna);
+        if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
+        const kg = estimateKgForMeters(r, meters);
+        const staraM = number(r.metraza_ost ?? r.duzina ?? r.metraza);
+        try {
+            if (!supabase?.__notConfigured && r.id) {
+                await persistRollState(r, { meters, kg, location: r.lokacija || "Magacin", status: "Vraćeno iz štamparije", napomena: "Vraćeno iz štamparije" });
+                await logHistory({ qr: r.qr || r.br_rolne, event: "VRAĆENO IZ ŠTAMPARIJE", opis: `Ø ${stampForm.spoljasnjiPrecnik} mm / ${stampForm.hilzna} (+3µm nanos) → ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg (bilo ${fmt(staraM, 0)} m) · ${reserverName || ""}`.trim(), stanje: "Vraćeno iz štamparije" });
+            }
+        } catch (e) { msg?.("Nije upisano: " + (e?.message || e), "err"); return; }
+        msg?.(`Rolna ${r.qr || r.br_rolne} vraćena iz štamparije — ${fmt(meters, 0)} m / ${fmt(kg, 2)} kg.`);
+        setStampModal(null);
         await reload();
     }
 
@@ -3171,7 +3222,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
         return (
             <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: 12, color: "#0f172a" }}>
-                {LabelModal}{BulkModal}{RezModal}{RezManualModal}{OslobodiModal}
+                {LabelModal}{BulkModal}{RezModal}{RezManualModal}{OslobodiModal}{StampModal}
                 {scannerMode && <MobileCameraScanner mode={scannerMode} onClose={() => setScannerMode(null)} onScan={handleMobileScan} />}
                 <div style={{ ...card, padding: 14, marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -3279,10 +3330,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                             {r.rezervisao && <div style={{ marginTop: 2 }}>👤 Rezervisao: {r.rezervisao}</div>}
                                         </div>
                                     ) : (napomenaText(r) && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {napomenaText(r)}</div>)}
-                                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                                         <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", flex: 1 }}>QR / Etiketa</button>
                                         <button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e", flex: 1 }}>🔒 Rezerviši</button>
                                         {rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d", flex: 1 }}>🔓 Oslobodi</button>}
+                                        <button onClick={() => markUsed(r)} style={{ ...btn, background: "#fecaca", color: "#7f1d1d", flex: 1 }}>✓ Iskorišćena</button>
+                                        {["dostupna", "rezervisana", "delimicno", "vraceno_stamp", "formatirana"].includes(normalizeStatus(r.status)) && <button onClick={() => posaljiStampariju(r)} style={{ ...btn, background: "#7c3aed", color: "#fff", flex: 1 }}>🖨️ U štampariju</button>}
+                                        {normalizeStatus(r.status) === "stamparija" && <button onClick={() => vratiIzStamparije(r)} style={{ ...btn, background: "#0ea5e9", color: "#fff", flex: 1 }}>↩️ Vraćeno</button>}
                                     </div>
                                 </div>
                             ))}
@@ -3343,6 +3397,33 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
       }
     `}</style>
     );
+
+    // Prozor: Vraćeno iz štamparije — prečnik + hilzna → preračun metraže/kg (kao povrat).
+    // Vraćeno iz štamparije: obračun po prečniku uz +3µm nanosa štampe (deblji namotaj → tačna metraža).
+    const NANOS_STAMPE_UM = 3;
+    const stampRollSaNanosom = stampModal ? { ...stampModal.roll, debljina: number(stampModal.roll.debljina ?? stampModal.roll.deb) + NANOS_STAMPE_UM } : null;
+    const stampMeters = stampModal ? estimateMetersFromDiameter(stampRollSaNanosom, stampForm.spoljasnjiPrecnik, stampForm.hilzna) : 0;
+    const stampKg = stampModal ? estimateKgForMeters(stampModal.roll, stampMeters) : 0;
+    const StampModal = stampModal ? (
+        <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: 460, maxWidth: "94vw" }}>
+                <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>↩️ Vraćeno iz štamparije</div>
+                <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>{stampModal.roll.qr || stampModal.roll.br_rolne} · {stampModal.roll.vrsta} {stampModal.roll.oznaka_materijala || stampModal.roll.oznaka} · {stampModal.roll.sirina} mm · deb {stampModal.roll.deb || stampModal.roll.debljina || "—"}µ</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 5 }}>Spoljašnji prečnik (mm)</label><input autoFocus type="number" value={stampForm.spoljasnjiPrecnik} onChange={(e) => setStampForm((f) => ({ ...f, spoljasnjiPrecnik: e.target.value }))} placeholder="npr. 420" style={{ width: "100%", padding: 10, border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 15, boxSizing: "border-box" }} /></div>
+                    <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 5 }}>Hilzna</label><select value={stampForm.hilzna} onChange={(e) => setStampForm((f) => ({ ...f, hilzna: e.target.value }))} style={{ width: "100%", padding: 10, border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 15, boxSizing: "border-box" }}><option value="FI76">FI76 (76 mm)</option><option value="FI152">FI152 (152 mm)</option></select></div>
+                </div>
+                <div style={{ marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "12px 14px", fontSize: 14 }}>
+                    Preračunato: <b style={{ color: "#0369a1" }}>{fmt(stampMeters, 0)} m</b> · <b style={{ color: "#0369a1" }}>{fmt(stampKg, 2)} kg</b>
+                    <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 3 }}>Bilo: {fmt(number(stampModal.roll.metraza_ost ?? stampModal.roll.duzina ?? stampModal.roll.metraza), 0)} m</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                    <button onClick={() => setStampModal(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Otkaži</button>
+                    <button onClick={potvrdiVracanjeStamp} disabled={!(stampMeters > 0)} style={{ ...btn, background: stampMeters > 0 ? "#0ea5e9" : "#cbd5e1", color: "#fff" }}>✓ Potvrdi vraćanje</button>
+                </div>
+            </div>
+        </div>
+    ) : null;
 
     const LabelModal = labelRoll ? (
         <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -3730,7 +3811,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                 <td style={cell}><input type="checkbox" checked={selectedRolls.includes(r.qr)} onChange={() => toggleSelected(r.qr)} /></td>
                                 <td style={{ ...cell, fontWeight: 900 }}>{r.qr}{crevoLabel(r) && <span style={CREVO_BADGE}>{crevoLabel(r)}</span>}</td><td style={cell}>{r.datum_ulaza || r.datum || "—"}</td><td style={cell}>{formatDateLabel(r.datum_proizvodnje) || "—"}</td><td style={cell}>{r.vrsta}</td><td style={cell}>{r.pod_vrsta || "—"}</td><td style={cell}>{rollOznaka(r) || "—"}</td><td style={cell}>{r.proizvodjac || "—"}</td><td style={cell}>{r.debljina || "—"}</td><td style={cell}>{r.sirina} mm</td><td style={cell}>{fmt(r.duzina, 0)}</td><td style={cell}>{fmt(r.kg, 2)}</td><td style={cell}>{r.lot || "—"}</td><td style={cell}>{r.lokacija}</td><td style={cell}>{rezBarCell(r)}</td>
                                 <td style={{ ...cell, maxWidth: 220, whiteSpace: "normal", color: "#475569" }}>{r.napomena || "—"}</td>
-                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => markUsed(r)} style={{ ...btn, background: "#fecaca", color: "#7f1d1d" }}>✓ Iskorišćena</button><button onClick={() => povratRolne(r)} style={{ ...btn, background: "#e0f2fe", color: "#075985" }}>↩️ Povrat</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
+                                <td style={cell}><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8" }}>QR / Etiketa</button><button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e" }}>Rezerviši</button>{rolnaRezM(r) > 0 && <button onClick={() => oslobodiRez(r)} style={{ ...btn, background: "#dcfce7", color: "#15803d" }}>Oslobodi</button>}<button onClick={() => consumeRoll(r)} style={{ ...btn, background: "#fee2e2", color: "#991b1b" }}>Skini m</button><button onClick={() => markUsed(r)} style={{ ...btn, background: "#fecaca", color: "#7f1d1d" }}>✓ Iskorišćena</button>{["dostupna", "rezervisana", "delimicno", "vraceno_stamp", "formatirana"].includes(normalizeStatus(r.status)) && <button onClick={() => posaljiStampariju(r)} style={{ ...btn, background: "#7c3aed", color: "#fff" }}>🖨️ Poslato u štampariju</button>}{normalizeStatus(r.status) === "stamparija" && <button onClick={() => vratiIzStamparije(r)} style={{ ...btn, background: "#0ea5e9", color: "#fff" }}>↩️ Vraćeno iz štamparije</button>}<button onClick={() => povratRolne(r)} style={{ ...btn, background: "#e0f2fe", color: "#075985" }}>↩️ Povrat</button><button onClick={() => changeStatus(r, "Na stanju")} style={{ ...btn, background: "#dcfce7", color: "#166534" }}>Na stanju</button>{adminMode && normalizeStatus(r.status) === "dostupna" && <button onClick={() => deleteRoll(r)} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši</button>}</div></td>
                             </tr>)}</tbody>
                         </table>
                         {filteredRolls.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#64748b" }}>Nema rolni za prikaz.</div>}
