@@ -2918,6 +2918,16 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 } else {
                     msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
                 }
+            } else if (scannerMode === "posalji_stamp") {
+                setScannerMode(null);
+                if (found) { await posaljiStampariju(found); }
+                else { msg?.(`Rolna nije pronađena: ${qr}`, "err"); }
+                return;
+            } else if (scannerMode === "vrati_stamp") {
+                setScannerMode(null);
+                if (found) { vratiIzStamparije(found); }   // otvara prozor za prečnik + hilzna
+                else { msg?.(`Rolna nije pronađena: ${qr}`, "err"); }
+                return;
             } else {
                 setActiveTab("popis");
                 setPopisQr(qr);
@@ -3230,6 +3240,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const mobileActions = [
             mobileActionBtn("popis", "📷", "Skeniraj / popiši", "QR popis rolne"),
             mobileActionBtn("povrat", "↩️", "Povrat u magacin", "Prečnik + hilzna"),
+            mobileActionBtn("posalji_stamp", "🖨️", "Poslato u štampariju", "Skeniraj rolnu"),
+            mobileActionBtn("vrati_stamp", "🔄", "Vraćeno iz štamparije", "Skeniraj + prečnik"),
             mobileActionBtn("unos", "➕", "Unos rolne", "Ručni unos"),
             mobileActionBtn("creva", "🧵", "Polu-rolne / creva", "Merenje prečnika"),
             mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
@@ -3262,7 +3274,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                     {mobileActions.map((a) => (
-                        <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat") openMobileScanner(a.key); else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
+                        <button key={a.key} onClick={() => { if (a.key === "popis" || a.key === "povrat" || a.key === "posalji_stamp" || a.key === "vrati_stamp") openMobileScanner(a.key); else { setActiveTab(a.key); if (a.key === "unos") setInputMode("rucno"); } }} style={{
                             border: a.active ? "2px solid #0f172a" : "1px solid #e2e8f0",
                             background: a.active ? "#0f172a" : "#fff",
                             color: a.active ? "#fff" : "#0f172a",
