@@ -58,6 +58,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
             icon: '🏭',
             items: [
                 { k: 'nalozi', l: 'Glavni nalozi', i: '🏭' },
+                { k: 'novi_formatiranje', l: 'Novi nalog za formatiranje', i: '✂️' },
                 { k: 'ponude', l: 'Ponude', i: '📄' },
                 { k: 'plan_proizvodnje', l: 'Plan proizvodnje', i: '📅' },
                 { k: 'live_production', l: 'Praćenje proizvodnje', i: '🔴' },
@@ -104,6 +105,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
                 { k: 'backup_security', l: 'Backup i bezbednost', i: '🛡️' },
                 { k: 'mobile', l: 'Mobilni / tablet režim', i: '📱' },
                 ...(isAdmin ? [
+                    { k: 'ai_koriscenje', l: 'AI korišćenje', i: '🤖' },
                     { k: 'user_management', l: 'Korisnici', i: '👥' },
                     { k: 'pod', l: 'Podešavanja', i: '⚙️' },
                     { k: 'audit_log', l: 'Audit evidencija', i: '📜' }

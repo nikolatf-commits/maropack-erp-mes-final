@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { pokreniAgenta, potvrdiPlan, ponistiRadnje } from "../services/aiAgentLLM.js";
+import { supabase } from "../supabase.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  AI POMOĆ — mali plutajući panel koji se ubacuje u bilo koji ekran.
@@ -298,6 +299,18 @@ export default function AIPomoc({ ekran = "Aplikacija", kontekst = null, naslov 
             setPoruke((p) => [...p, { od: "ai", tekst: r.odgovor, koraci: r.koraci }]);
             setIstorija(r.messages || []);
             if (r.plan?.length) setPlan(r.plan);
+            // Logovanje korišćenja AI-ja (ko / kada / šta pita / na kom ekranu).
+            try {
+                let ime = "";
+                try { const { data } = await supabase.auth.getUser(); ime = data?.user?.user_metadata?.ime || data?.user?.email || ""; } catch (e) { }
+                await supabase.from("ai_koriscenje").insert([{
+                    ko_ime: ime || "—",
+                    ekran: String(ekran || ""),
+                    pitanje: q.slice(0, 2000),
+                    duzina_odgovora: (r.odgovor || "").length,
+                    broj_koraka: (r.koraci || []).length,
+                }]);
+            } catch (e) { /* logovanje ne sme da ruši chat */ }
         } catch (e) {
             setGreska(e.message || String(e));
         } finally { setBusy(false); setKorak(""); }

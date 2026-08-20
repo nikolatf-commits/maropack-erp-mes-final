@@ -103,6 +103,7 @@ import AIQualityInspector from './AIQualityInspector.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
 import FormatiranjePoPotrebi from './modules/FormatiranjePoPotrebi.jsx';
 import NoviFormatiranjeNalog from './modules/NoviFormatiranjeNalog.jsx';
+import MobilniMagacin from './MobilniMagacin.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';
@@ -116,6 +117,7 @@ import BackupSecurityCenter from './modules/BackupSecurityCenter.jsx';
 import MachineSchedulerPRO from './modules/MachineSchedulerPRO.jsx';
 import AIAgentCommandCenter from './modules/AIAgentCommandCenter.jsx';
 import AIPomoc from './modules/AIPomoc.jsx';
+import AIKoriscenje from './modules/AIKoriscenje.jsx';
 import SystemStabilizationCenter from './modules/SystemStabilizationCenter.jsx';
 import ProductionHardeningCenter from './modules/ProductionHardeningCenter.jsx';
 import FinalQADeploymentCenter from './modules/FinalQADepoymentCenter.jsx';
@@ -2319,6 +2321,7 @@ function MainAppContent() {
                     {/* 🤖 AI MODULI */}
                     {page === "ai_planner" && <AIProductionPlanner setPage={setPage} />}
                     {page === "ai_chat" && <AIChatAssistant />}
+                    {page === "ai_koriscenje" && <AIKoriscenje />}
                     {page === "ai_agent_command" && <AIAgentCommandCenter />}
                     {page === "ai_workflow" && <ProductAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
                     {page === "ai_documents" && <DocumentAIWorkflow db={db} setDb={setDb} msg={msg} setPage={setPage} />}
