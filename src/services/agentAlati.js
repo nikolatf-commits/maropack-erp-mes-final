@@ -451,25 +451,43 @@ export const ALATI = {
             const { data, error } = await q.order("created_at", { ascending: false }).limit(3000);
             if (error) return { greska: "magacin_istorija: " + error.message };
             const redovi = data || [];
+            // Podaci o rolnama (vrsta, oznaka, širina, debljina, kg, metri) — spoj po broju rolne / id.
+            const mapRolne = {};
+            try {
+                const { data: mag } = await supabase.from("magacin").select("*").limit(5000);
+                (mag || []).forEach((r) => { if (r.br_rolne) mapRolne[String(r.br_rolne)] = r; if (r.id != null) mapRolne["id:" + r.id] = r; });
+            } catch (e) { /* ako ne uspe, ide bez detalja */ }
             const tekstOf = (r) => {
                 const nv = (r.nova_vrednost && typeof r.nova_vrednost === "object") ? (r.nova_vrednost.status || "") : (r.nova_vrednost || "");
                 return UP(r.akcija) + " " + UP(r.tip_promene) + " " + UP(nv) + " " + UP(r.napomena);
             };
             const jePoslato = (r) => /POSLATO U ŠTAMPAR|POSLATO U STAMPAR|U ŠTAMPARIJI|U STAMPARIJI/.test(tekstOf(r));
             const jeVraceno = (r) => /VRAĆENO IZ ŠTAMPAR|VRACENO IZ STAMPAR|VRAĆENO IZ STAMPAR|VRACENO IZ ŠTAMPAR/.test(tekstOf(r));
-            const mapRed = (r) => ({
-                rolna: r.br_rolne || r.rolna_id || "—",
-                datum: String(r.created_at || "").slice(0, 16).replace("T", " "),
-                ko: T(r.operater) || T(r.ko) || "—",
-                metara: Math.abs(N(r.promena_m)) || null,
-                napomena: T(r.napomena).slice(0, 160),
-            });
+            const mapRed = (r) => {
+                const rol = mapRolne[String(r.br_rolne)] || mapRolne["id:" + r.rolna_id] || {};
+                const metriRolne = N(rol.metraza_ost ?? rol.metraza ?? rol.duzina);
+                return {
+                    rolna: r.br_rolne || r.rolna_id || "—",
+                    datum: String(r.created_at || "").slice(0, 16).replace("T", " "),
+                    ko: T(r.operater) || T(r.ko) || "—",
+                    vrsta: T(rol.vrsta) || "—",
+                    pod_vrsta: T(rol.pod_vrsta) || "—",
+                    oznaka: T(rol.oznaka_materijala || rol.oznaka) || "—",
+                    sirina_mm: N(rol.sirina) || null,
+                    debljina: N(rol.debljina ?? rol.deb) || null,
+                    kg: N(rol.kg_neto ?? rol.kg_bruto ?? rol.kg) || null,
+                    metara: Math.abs(N(r.promena_m)) || metriRolne || null,
+                    stamparija: T(rol.stamparija) || T(r.stamparija) || null,
+                    napomena: T(r.napomena).slice(0, 160),
+                };
+            };
             const poslato = redovi.filter(jePoslato).map(mapRed);
             const vraceno = redovi.filter(jeVraceno).map(mapRed);
+            const zbir = (arr) => ({ kg: Math.round(arr.reduce((a, x) => a + (x.kg || 0), 0)), m: Math.round(arr.reduce((a, x) => a + (x.metara || 0), 0)) });
             return {
                 period: { od: odDate.toISOString().slice(0, 10), do: (doDate || new Date()).toISOString().slice(0, 10) },
-                poslato_u_stampariju: { broj_rolni: poslato.length, rolne: poslato.slice(0, 60) },
-                vraceno_iz_stamparije: { broj_rolni: vraceno.length, ukupno_m: Math.round(vraceno.reduce((a, x) => a + (x.metara || 0), 0)), rolne: vraceno.slice(0, 60) },
+                poslato_u_stampariju: { broj_rolni: poslato.length, ukupno_kg: zbir(poslato).kg, ukupno_m: zbir(poslato).m, rolne: poslato.slice(0, 80) },
+                vraceno_iz_stamparije: { broj_rolni: vraceno.length, ukupno_kg: zbir(vraceno).kg, ukupno_m: zbir(vraceno).m, rolne: vraceno.slice(0, 80) },
             };
         },
     },
