@@ -103,7 +103,6 @@ import AIQualityInspector from './AIQualityInspector.jsx';
 import FormatiranjeRolniPRO from './modules/FormatiranjeRolniPRO.jsx';
 import FormatiranjePoPotrebi from './modules/FormatiranjePoPotrebi.jsx';
 import NoviFormatiranjeNalog from './modules/NoviFormatiranjeNalog.jsx';
-import MobilniMagacin from './MobilniMagacin.jsx';
 import ProductionPlannerPRO from './modules/ProductionPlannerPRO.jsx';
 import RolneWarehouseEngine from './modules/RolneWarehouseEngine.jsx';
 import LiveProductionMES from './modules/LiveProductionMES.jsx';

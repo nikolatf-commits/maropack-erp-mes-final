@@ -191,163 +191,6 @@ function _nadjiMasinu(masine, ime) {
 export const ALATI = {
 
     // ── ČITANJE ──────────────────────────────────────────────────────────────
-    analiza_potrosnje: {
-        cita: true,
-        opis: "Analiza potrošnje materijala u periodu: koliko je metara/kg potrošeno (i rezervisano) po materijalu, iz magacin_istorije. Koristi kad korisnik pita „koliko je potrošeno materijala“, „potrošnja u avgustu“, „šta smo najviše trošili“. Datumi u formatu GGGG-MM-DD; ako se ne zadaju → poslednjih 30 dana.",
-        ulaz: {
-            od: { type: "string", description: "Početni datum GGGG-MM-DD (opciono)" },
-            do: { type: "string", description: "Krajnji datum GGGG-MM-DD (opciono)" },
-            vrsta: { type: "string", description: "Opciono: filtriraj po vrsti materijala, npr. BOPP" },
-        },
-        async izvrsi({ od, do: doDat, vrsta }) {
-            const danas = new Date();
-            const doISO = doDat ? new Date(doDat + "T23:59:59").toISOString() : danas.toISOString();
-            const odISO = od ? new Date(od + "T00:00:00").toISOString() : new Date(danas.getTime() - 30 * 86400000).toISOString();
-
-            // Istorija u periodu (direktan upit sa filterom po datumu)
-            let ist = [];
-            try {
-                const { data } = await supabase.from("magacin_istorija").select("*")
-                    .gte("created_at", odISO).lte("created_at", doISO).limit(5000);
-                ist = data || [];
-            } catch (e) { ist = []; }
-
-            // Mapa rolni (za materijal + širinu)
-            const rolne = await sve("magacin");
-            const poId = {}, poBr = {};
-            rolne.forEach((r) => { if (r.id != null) poId[String(r.id)] = r; const b = r.br_rolne || r.qr_code; if (b) poBr[String(b)] = r; });
-
-            // Gramatura (g/m²) po materijalu iz material_master → za preračun metri→kg
-            const granice = await sve("material_master");
-            const gsmMap = {};
-            const nk = (v) => UP(v).replace(/\s+/g, " ").trim();
-            const nc = (v) => nk(v).replace(/[^A-Z0-9]+/g, "");
-            (granice || []).forEach((m) => { const k = [nk(m.vrsta), nc(m.oznaka), N(m.debljina)].join("|"); const gsm = N(m.gsm ?? m.gramatura); if (gsm) gsmMap[k] = gsm; });
-            const kgPoMetru = (r, m) => {
-                const sir = N(r.sirina ?? r.sirina_mm);
-                const kljuc = [nk(r.vrsta), nc(r.oznaka_materijala ?? r.oznaka), N(r.deb ?? r.debljina)].join("|");
-                const gsm = gsmMap[kljuc];
-                if (sir && gsm) return (m * sir * gsm) / 1000000;        // metri × širina(mm) × g/m² ÷ 1e6
-                const rkg = N(r.kg_neto ?? r.kg), rm = N(r.metraza ?? r.metraza_ost);
-                if (rkg && rm) return m * (rkg / rm);                    // rezerva: kg/m rolne
-                return 0;
-            };
-
-            const metriRed = (h) => {
-                const p = N(h.promena_m);
-                if (p) return Math.abs(p);
-                const pre = N(h.metraza_pre), po = N(h.metraza_posle);
-                return Math.abs(pre - po);
-            };
-            const klasa = (h) => {
-                const akc = UP(h.akcija) + " " + UP(h.tip_promene);
-                const nv = (h.nova_vrednost && typeof h.nova_vrednost === "object") ? h.nova_vrednost : {};
-                const novoStatus = UP(nv.status ?? (typeof h.nova_vrednost === "string" ? h.nova_vrednost : ""));
-                // Eksplicitne akcije
-                if (/POTRO|USED|IZLAZ/.test(akc)) return "potroseno";
-                if (/REZERV/.test(akc)) return "rezervisano";
-                if (/POVRAT|VRAĆ|VRAC/.test(akc)) return "povrat";
-                // "Status promenjen" → klasifikuj po NOVOM statusu (Na stanju → Iskorišćeno itd.)
-                if (novoStatus) {
-                    if (/ISKORI|POTRO/.test(novoStatus)) return "potroseno";
-                    if (/REZERV/.test(novoStatus)) return "rezervisano";
-                    if (/OBRIS/.test(novoStatus)) return "obrisano";
-                    if (/STANJ/.test(novoStatus)) return "ulaz";
-                }
-                if (/ISKORI/.test(akc)) return "potroseno";
-                if (/POVRAT|VRAĆ|VRAC/.test(akc)) return "povrat";
-                if (/ULAZ|PRIJEM|KREIR|UNET/.test(akc)) return "ulaz";
-                return "ostalo";
-            };
-
-            const g = {};
-            let ukPotroseno = 0, ukRezervisano = 0, ukPotroseKg = 0, ukRezervKg = 0;
-            ist.forEach((h) => {
-                const k = klasa(h);
-                if (k !== "potroseno" && k !== "rezervisano") return;
-                const r = poId[String(h.rolna_id)] || poBr[String(h.br_rolne)] || {};
-                const vr = r.vrsta || "";
-                if (vrsta && !UP(vr).includes(UP(vrsta))) return;
-                const ozn = r.oznaka_materijala || r.oznaka || "";
-                const key = [T(vr), T(r.pod_vrsta), T(ozn), N(r.deb ?? r.debljina) ? N(r.deb ?? r.debljina) + "µ" : "", N(r.sirina ?? r.sirina_mm) ? N(r.sirina ?? r.sirina_mm) + "mm" : ""].filter(Boolean).join(" · ") || "NEPOZNATO (rolna van baze)";
-                const m = metriRed(h);
-                const kg = kgPoMetru(r, m);
-                if (!g[key]) g[key] = { materijal: key, potroseno_m: 0, potroseno_kg: 0, rezervisano_m: 0, rezervisano_kg: 0, dogadjaja: 0, rolne: new Set() };
-                g[key].dogadjaja++; if (h.br_rolne) g[key].rolne.add(String(h.br_rolne));
-                if (k === "potroseno") { g[key].potroseno_m += m; g[key].potroseno_kg += kg; ukPotroseno += m; ukPotroseKg += kg; }
-                else { g[key].rezervisano_m += m; g[key].rezervisano_kg += kg; ukRezervisano += m; ukRezervKg += kg; }
-            });
-
-            const lista = Object.values(g).map((x) => ({
-                materijal: x.materijal,
-                potroseno_m: Math.round(x.potroseno_m),
-                potroseno_kg: Math.round(x.potroseno_kg),
-                rezervisano_m: Math.round(x.rezervisano_m),
-                rezervisano_kg: Math.round(x.rezervisano_kg),
-                broj_rolni: x.rolne.size,
-                dogadjaja: x.dogadjaja,
-            })).sort((a, b) => b.potroseno_kg - a.potroseno_kg);
-
-            return {
-                period: { od: odISO.slice(0, 10), do: doISO.slice(0, 10) },
-                ukupno_potroseno_m: Math.round(ukPotroseno),
-                ukupno_potroseno_kg: Math.round(ukPotroseKg),
-                ukupno_rezervisano_m: Math.round(ukRezervisano),
-                ukupno_rezervisano_kg: Math.round(ukRezervKg),
-                broj_zapisa: ist.length,
-                po_materijalu: lista.slice(0, 50),
-                napomena: ist.length >= 5000 ? "Prikazano prvih 5000 zapisa — suzi period za precizniju analizu." : undefined,
-            };
-        },
-    },
-
-    za_poruciti: {
-        cita: true,
-        opis: "Šta treba poručiti: materijali čija je zaliha ISPOD minimuma (granice iz material_master). Poštuje širinu — ako granica ima zadatu širinu, poredi samo tu širinu; ako nema (0), sve širine. Koristi kad korisnik pita „šta da poručim“, „šta je ispod minimuma“, „koje su granice“.",
-        ulaz: { vrsta: { type: "string", description: "Opciono: filtriraj po vrsti, npr. BOPP" } },
-        async izvrsi({ vrsta }) {
-            const [granice, rolne] = await Promise.all([sve("material_master"), sve("magacin")]);
-            const dostupne = rolne.filter(naStanju);
-            const nk = (v) => UP(v).replace(/\s+/g, " ").trim();
-            const nc = (v) => nk(v).replace(/[^A-Z0-9]+/g, "");
-            const kg = {}, kgW = {};
-            dostupne.forEach((r) => {
-                const ozn = r.oznaka_materijala ?? r.oznaka ?? r.komercijalnaOznaka;
-                const baza = [nk(r.vrsta), nc(ozn), N(r.deb ?? r.debljina)].join("|");
-                kg[baza] = (kg[baza] || 0) + N(r.kg_neto ?? r.kg);
-                const kw = baza + "|" + N(r.sirina ?? r.sirina_mm);
-                kgW[kw] = (kgW[kw] || 0) + N(r.kg_neto ?? r.kg);
-            });
-            const out = (granice || [])
-                .filter((m) => N(m.minimalna_zaliha) > 0)
-                .filter((m) => !vrsta || UP(m.vrsta).includes(UP(vrsta)))
-                .map((m) => {
-                    const baza = [nk(m.vrsta), nc(m.oznaka), N(m.debljina)].join("|");
-                    const sir = N(m.sirina);
-                    const naStanjuKg = sir > 0 ? (kgW[baza + "|" + sir] || 0) : (kg[baza] || 0);
-                    const minimum = N(m.minimalna_zaliha);
-                    const manjak = Math.max(0, minimum - naStanjuKg);
-                    return {
-                        materijal: [T(m.vrsta), T(m.pod_vrsta), T(m.oznaka), N(m.debljina) ? N(m.debljina) + "µ" : ""].filter(Boolean).join(" · "),
-                        proizvodjac: m.proizvodjac || "—",
-                        sirina: sir > 0 ? sir + " mm" : "sve",
-                        na_stanju_kg: Math.round(naStanjuKg),
-                        minimum_kg: Math.round(minimum),
-                        manjak_kg: Math.round(manjak),
-                        ispod_minimuma: manjak > 0,
-                    };
-                })
-                .sort((a, b) => b.manjak_kg - a.manjak_kg);
-            const zaPorucivanje = out.filter((x) => x.ispod_minimuma);
-            return {
-                ukupno_granica: out.length,
-                broj_za_porucivanje: zaPorucivanje.length,
-                za_porucivanje: zaPorucivanje,
-                sve_granice: out.slice(0, 60),
-            };
-        },
-    },
-
     stanje_magacina: {
         cita: true,
         opis: "Zbirno stanje magacina po materijalu (rolni, metara, kg). Koristi kad korisnik pita šta ima na stanju.",
@@ -586,6 +429,47 @@ export const ALATI = {
                 })),
                 fali: r.fali,
                 _plan_sirovo: r,
+            };
+        },
+    },
+
+    stamparija: {
+        cita: true,
+        opis: "Šta je POSLATO u štampariju i VRAĆENO iz štamparije, po periodu. Koristi za pitanja tipa: šta je poslato/vraćeno iz štamparije, šta je bilo u štampariji u tom periodu, koliko rolni je vraćeno od datuma do datuma.",
+        ulaz: {
+            dana: { type: "number", description: "Koliko dana unazad (podrazumevano 30). Ignoriše se ako su dati od/do." },
+            od: { type: "string", description: "Datum OD (YYYY-MM-DD), opciono" },
+            do: { type: "string", description: "Datum DO (YYYY-MM-DD), opciono" },
+        },
+        async izvrsi({ dana, od, do: doDatum }) {
+            let odDate, doDate;
+            if (od) { odDate = new Date(od + "T00:00:00"); }
+            else { odDate = new Date(); odDate.setDate(odDate.getDate() - (N(dana) || 30)); }
+            if (doDatum) { doDate = new Date(doDatum + "T23:59:59"); }
+            let q = supabase.from("magacin_istorija").select("*").gte("created_at", odDate.toISOString());
+            if (doDate) q = q.lte("created_at", doDate.toISOString());
+            const { data, error } = await q.order("created_at", { ascending: false }).limit(3000);
+            if (error) return { greska: "magacin_istorija: " + error.message };
+            const redovi = data || [];
+            const tekstOf = (r) => {
+                const nv = (r.nova_vrednost && typeof r.nova_vrednost === "object") ? (r.nova_vrednost.status || "") : (r.nova_vrednost || "");
+                return UP(r.akcija) + " " + UP(r.tip_promene) + " " + UP(nv) + " " + UP(r.napomena);
+            };
+            const jePoslato = (r) => /POSLATO U ŠTAMPAR|POSLATO U STAMPAR|U ŠTAMPARIJI|U STAMPARIJI/.test(tekstOf(r));
+            const jeVraceno = (r) => /VRAĆENO IZ ŠTAMPAR|VRACENO IZ STAMPAR|VRAĆENO IZ STAMPAR|VRACENO IZ ŠTAMPAR/.test(tekstOf(r));
+            const mapRed = (r) => ({
+                rolna: r.br_rolne || r.rolna_id || "—",
+                datum: String(r.created_at || "").slice(0, 16).replace("T", " "),
+                ko: T(r.operater) || T(r.ko) || "—",
+                metara: Math.abs(N(r.promena_m)) || null,
+                napomena: T(r.napomena).slice(0, 160),
+            });
+            const poslato = redovi.filter(jePoslato).map(mapRed);
+            const vraceno = redovi.filter(jeVraceno).map(mapRed);
+            return {
+                period: { od: odDate.toISOString().slice(0, 10), do: (doDate || new Date()).toISOString().slice(0, 10) },
+                poslato_u_stampariju: { broj_rolni: poslato.length, rolne: poslato.slice(0, 60) },
+                vraceno_iz_stamparije: { broj_rolni: vraceno.length, ukupno_m: Math.round(vraceno.reduce((a, x) => a + (x.metara || 0), 0)), rolne: vraceno.slice(0, 60) },
             };
         },
     },
@@ -876,7 +760,6 @@ export const ALATI = {
             stampa: { type: "boolean" }, stampaCena: { type: "number", description: "€/kg" },
             transportCena: { type: "number", description: "€/kg" },
             ostaleOpcijeEur: { type: "number", description: "Zbir ostalih opcija u € na 1000 kom" },
-            setup_masina: { type: "number", description: "Trošak podešavanja mašine u € na 1000 kom — FIKSNO, dodaje se posle marže (bez marže)" },
         },
         async izvrsi(a) { return kalkulacijaKese(a); },
     },
