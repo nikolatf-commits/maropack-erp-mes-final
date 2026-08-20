@@ -1080,7 +1080,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
-    const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "" });
+    const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "", nacinUnosa: "precnik", kgUnos: "" });
     const [rezPopup, setRezPopup] = useState(null);
     const [rezForm, setRezForm] = useState(null);
     const [oslForm, setOslForm] = useState(null);
@@ -1123,9 +1123,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             }
         }
         const baznaCena = m ? number(m.cenaKg ?? m.cena_kg) : (() => { const v = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === vU && number(x.cenaKg ?? x.cena_kg)); return v ? number(v.cenaKg ?? v.cena_kg) : 0; })();
-        const meters = estimateMetersFromDiameter({ debljina: deb * k }, crevoForm.precnik, crevoForm.hilzna);
         const razvijena = round2(number(crevoForm.sirina) * k);
-        const kg = kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
+        // Metraža: iz PREČNIKA (default) ili iz KG (kada je izabran taj način unosa).
+        const meters = crevoForm.nacinUnosa === "kg"
+            ? metersFromKg({ sirinaMm: razvijena, kg: crevoForm.kgUnos, gsm })
+            : estimateMetersFromDiameter({ debljina: deb * k }, crevoForm.precnik, crevoForm.hilzna);
+        const kg = crevoForm.nacinUnosa === "kg"
+            ? (number(crevoForm.kgUnos) || 0)
+            : kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
         const cenaKg = number(crevoForm.cenaKg) || baznaCena;
         const vrednost = round2(kg * cenaKg);
         return { k, gsm, meters, razvijena, kg, cenaKg, baznaCena, vrednost };
@@ -3057,10 +3062,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
             <div style={{ marginBottom: 16 }}>
                 <div style={crevoGT}><span style={crevoDot} />2 · Merenje rolne / creva</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "precnik" }))} style={{ flex: 1, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa !== "kg" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa !== "kg" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa !== "kg" ? "#0f766e" : "#64748b" }}>📏 Preko prečnika</button>
+                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "kg" }))} style={{ flex: 1, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa === "kg" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa === "kg" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa === "kg" ? "#0f766e" : "#64748b" }}>⚖️ Preko kg</button>
+                </div>
                 <div style={crevoGrid}>
                     <label><span style={lbl}>Spljoštena širina (mm)</span><input style={input} type="number" value={crevoForm.sirina} onChange={(e) => setCrevoForm((f) => ({ ...f, sirina: e.target.value }))} placeholder="npr. 840" /></label>
-                    <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
-                    <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>
+                    {crevoForm.nacinUnosa === "kg" ? (
+                        <label><span style={lbl}>⚖️ Težina (kg) — uneto</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.kgUnos} onChange={(e) => setCrevoForm((f) => ({ ...f, kgUnos: e.target.value }))} placeholder="npr. 120" /></label>
+                    ) : (
+                        <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
+                    )}
+                    {crevoForm.nacinUnosa !== "kg" && <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>}
                     <label><span style={lbl}>⭐ Oblik namotaja</span><select style={{ ...input, borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 900 }} value={crevoForm.oblik} onChange={(e) => setCrevoForm((f) => ({ ...f, oblik: e.target.value }))}><option value="ravna">Ravna folija (×1)</option><option value="crevo">Polu-crevo / crevo (×2)</option><option value="custom">Custom faktor…</option></select></label>
                     {crevoForm.oblik === "custom" && <label><span style={lbl}>Custom faktor</span><input style={input} type="number" value={crevoForm.kCustom} onChange={(e) => setCrevoForm((f) => ({ ...f, kCustom: e.target.value }))} /></label>}
                 </div>
