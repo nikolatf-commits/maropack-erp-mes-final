@@ -1076,6 +1076,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const toggleStiglo = (m) => { const k = porucKljuc(m); const cur = porucStatus[k] || {}; if (!cur.poruceno) return; upsertPoruc(m, { stiglo: true, ko_stiglo: reserverName, stiglo_ts: new Date().toISOString() }); };
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
+    // Napredni filter: opsezi od-do (debljina, širina, kg, metraža)
+    const [rangeFilters, setRangeFilters] = useState({ debOd: "", debDo: "", sirOd: "", sirDo: "", kgOd: "", kgDo: "", mOd: "", mDo: "" });
+    // Višestruki izbor: vrsta / pod vrsta / oznaka / proizvođač (može više vrednosti odjednom)
+    const [multiSel, setMultiSel] = useState({ vrsta: [], pod_vrsta: [], oznaka: [], proizvodjac: [] });
+    const toggleMulti = (polje, val) => setMultiSel((m) => { const arr = m[polje] || []; return { ...m, [polje]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val] }; });
+    // Koji dropdown je otvoren + pretraga unutar dropdowna
+    const [openDrop, setOpenDrop] = useState(null);
+    const [dropQ, setDropQ] = useState({});
+    useEffect(() => {
+        if (!openDrop) return;
+        const zatvori = () => setOpenDrop(null);
+        document.addEventListener("click", zatvori);
+        return () => document.removeEventListener("click", zatvori);
+    }, [openDrop]);
+    const [naprMore, setNaprMore] = useState(false);
     const [matFilter, setMatFilter] = useState("");
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
@@ -1152,6 +1167,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [povratForm, setPovratForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "", lokacija: "Magacin", napomena: "Povrat u magacin" });
     // Vraćanje iz štamparije — prozor za prečnik/hilznu (preračun metraže/kg kao kod povrata).
     const [stampModal, setStampModal] = useState(null); // { roll }
+    // Vraćanje iz štamparije — LISTA vraćenih rolni (odštampane/čiste), škart se računa.
+    const [stampRolne, setStampRolne] = useState([{ tip: "ods", precnik: "", hilzna: "FI76" }]);
+    const [stampGotovo, setStampGotovo] = useState(null); // rezultat posle potvrde (spisak nastalih)
     const [stampForm, setStampForm] = useState({ hilzna: "FI76", spoljasnjiPrecnik: "" });
     const [scannerMode, setScannerMode] = useState(null); // "popis" | "povrat" | "lokacija"
     const [locationTarget, setLocationTarget] = useState("popis");
@@ -1543,7 +1561,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const matchesText = (val, needle) => String(val ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase().trim());
         return rolne.filter((r) => {
             if (!isRollVisibleOnStock(r)) return false;
-            if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_proizvodnje, r.datum_popisa, r.vrsta, r.pod_vrsta, r.oznaka_materijala, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id].join(" ").toLowerCase().includes(q)) return false;
+            if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_proizvodnje, r.datum_popisa, r.vrsta, r.pod_vrsta, r.oznaka_materijala, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id, r.napomena, r.komentar, r.dodeljeno_nalogu, r.rezervisano_za, r.popis, r.popis_broj].join(" ").toLowerCase().includes(q)) return false;
             if (columnFilters.datum && !matchesText(r.datum_ulaza || r.datum, columnFilters.datum)) return false;
             if (columnFilters.vrsta && !matchesText(r.vrsta, columnFilters.vrsta)) return false;
             if (columnFilters.pod_vrsta && !matchesText(r.pod_vrsta, columnFilters.pod_vrsta)) return false;
@@ -1557,15 +1575,39 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (columnFilters.lot && !matchesText(r.lot, columnFilters.lot)) return false;
             if (columnFilters.lokacija && !matchesText(r.lokacija, columnFilters.lokacija)) return false;
             if (columnFilters.status && normalizeStatus(r.status) !== normalizeStatus(columnFilters.status)) return false;
+            // Multi-izbor (ako je nešto izabrano, rolna mora biti u listi)
+            const inMulti = (arr, val) => !arr || arr.length === 0 || arr.map((x) => String(x).toLowerCase()).includes(String(val ?? "").toLowerCase());
+            if (!inMulti(multiSel.vrsta, r.vrsta)) return false;
+            if (!inMulti(multiSel.pod_vrsta, r.pod_vrsta)) return false;
+            if (!inMulti(multiSel.oznaka, rollOznaka(r))) return false;
+            if (!inMulti(multiSel.proizvodjac, r.proizvodjac)) return false;
+            // Višestruki izbor (ako je nešto izabrano, vrednost rolne mora biti u listi)
+            if (multiSel.vrsta.length && !multiSel.vrsta.includes(String(r.vrsta || ""))) return false;
+            if (multiSel.pod_vrsta.length && !multiSel.pod_vrsta.includes(String(r.pod_vrsta || ""))) return false;
+            if (multiSel.oznaka.length && !multiSel.oznaka.includes(String(rollOznaka(r) || ""))) return false;
+            if (multiSel.proizvodjac.length && !multiSel.proizvodjac.includes(String(r.proizvodjac || ""))) return false;
+            // Opsezi od-do
+            const inRange = (val, od, doV) => { const v = number(val); if (od !== "" && v < number(od)) return false; if (doV !== "" && v > number(doV)) return false; return true; };
+            if (!inRange(r.debljina, rangeFilters.debOd, rangeFilters.debDo)) return false;
+            if (!inRange(r.sirina ?? r.sirina_mm, rangeFilters.sirOd, rangeFilters.sirDo)) return false;
+            if (!inRange(r.kg_neto ?? r.kg, rangeFilters.kgOd, rangeFilters.kgDo)) return false;
+            if (!inRange(r.metraza_ost ?? r.duzina ?? r.metraza, rangeFilters.mOd, rangeFilters.mDo)) return false;
             return true;
         });
-    }, [rolne, filter, columnFilters]);
+    }, [rolne, filter, columnFilters, rangeFilters, multiSel]);
+
+    // Jedinstvene vrednosti (iz rolni na stanju) za višestruki izbor
+    const multiOpcije = useMemo(() => {
+        const vidljive = (rolne || []).filter((r) => isRollVisibleOnStock(r));
+        const uniq = (fn) => Array.from(new Set(vidljive.map(fn).map((x) => String(x || "").trim()).filter(Boolean))).sort();
+        return { vrsta: uniq((r) => r.vrsta), pod_vrsta: uniq((r) => r.pod_vrsta), oznaka: uniq((r) => rollOznaka(r)), proizvodjac: uniq((r) => r.proizvodjac) };
+    }, [rolne]);
 
     // --- Paginacija (50 po strani; pretraga radi na celoj listi) ---
     const PER_PAGE = 50;
     const [rollPage, setRollPage] = useState(1);
     const [histPage, setHistPage] = useState(1);
-    useEffect(() => { setRollPage(1); }, [filter, columnFilters]);
+    useEffect(() => { setRollPage(1); }, [filter, columnFilters, rangeFilters, multiSel]);
     const rollPages = Math.max(1, Math.ceil(filteredRolls.length / PER_PAGE));
     const rollPageC = Math.min(rollPage, rollPages);
     const pagedRolls = useMemo(() => filteredRolls.slice((rollPageC - 1) * PER_PAGE, rollPageC * PER_PAGE), [filteredRolls, rollPageC]);
@@ -1981,6 +2023,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!crevoForm.vrsta) { msg?.("Izaberi vrstu materijala", "err"); return; }
         if (!number(crevoForm.sirina)) { msg?.("Unesi spljoštenu širinu", "err"); return; }
         if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljni prečnik (veći od hilzne) i debljinu", "err"); return; }
+        if (await lotVecPostoji(crevoForm.lot)) { msg?.(`LOT „${crevoForm.lot}" već postoji u magacinu — LOT ne može da se duplira.`, "err"); return; }
         const oblikLabel = crevoForm.oblik === "ravna" ? "Ravna folija" : (crevoForm.oblik === "custom" ? `Custom ×${k}` : "Polu-crevo / crevo");
         // napomena = ISKLJUČIVO korisnikov tekst; crevo se beleži skrivenim markerom (badge ga čita, prikaz ga skida)
         const marker = crevoForm.oblik === "ravna" ? "" : `⟨CREVO×${k}⟩`;
@@ -2171,24 +2214,98 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // Vraćeno iz štamparije — otvori prozor za prečnik/hilznu (metraža/kg se preračunaju).
     function vratiIzStamparije(r) {
         setStampForm({ hilzna: "FI76", spoljasnjiPrecnik: "" });
+        setStampRolne([{ tip: "ods", precnik: "", hilzna: "FI76" }, { tip: "cis", precnik: "", hilzna: "FI76" }]);
+        setStampGotovo(null);
         setStampModal({ roll: r });
     }
     async function potvrdiVracanjeStamp() {
         const r = stampModal?.roll;
         if (!r) return;
-        const rollNanos = { ...r, debljina: number(r.debljina ?? r.deb) + 3 };
-        const meters = estimateMetersFromDiameter(rollNanos, stampForm.spoljasnjiPrecnik, stampForm.hilzna);
-        if (!meters || meters <= 0) { msg?.("Unesi ispravan spoljašnji prečnik veći od hilzne", "err"); return; }
-        const kg = estimateKgForMeters(r, meters);
-        const staraM = number(r.metraza_ost ?? r.duzina ?? r.metraza);
+        const poslato = number(r.metraza_ost ?? r.duzina ?? r.metraza);
+        // Izračunaj metražu/kg za svaku vraćenu rolnu (odštampana = +3µm nanos, čista = bez).
+        const stavke = (stampRolne || []).map((s) => {
+            const nanos = s.tip === "ods" ? 3 : 0;
+            const rollN = { ...r, debljina: number(r.debljina ?? r.deb) + nanos };
+            const m = estimateMetersFromDiameter(rollN, s.precnik, s.hilzna);
+            const kg = estimateKgForMeters(r, m);
+            return { ...s, m: Math.round(m), kg: Math.round(kg * 100) / 100 };
+        }).filter((s) => s.m > 0);
+        if (stavke.length === 0) { msg?.("Dodaj bar jednu vraćenu rolnu sa ispravnim prečnikom", "err"); return; }
+        const odst = stavke.filter((s) => s.tip === "ods");   // odштampane → nove rolne za nalog
+        const ostatci = stavke.filter((s) => s.tip === "cis"); // čist ostatak → ostaje na matičnoj
+        const odstUk = odst.reduce((a, s) => a + s.m, 0);
+        const ostatakUk = ostatci.reduce((a, s) => a + s.m, 0);
+        const ostatakKg = ostatci.reduce((a, s) => a + s.kg, 0);
+        const vracenoUk = odstUk + ostatakUk;
+        const skart = Math.max(0, Math.round(poslato - vracenoUk));
+        const lotBaza = r.lot || r.br_rolne || r.qr || "LOT";
+        const imeOp = reserverName || operater?.ime || _operaterIme || "—";
+        const nastale = [];
         try {
-            if (!supabase?.__notConfigured && r.id) {
-                await persistRollState(r, { meters, kg, location: r.lokacija || "Magacin", status: "Vraćeno iz štamparije", napomena: "Vraćeno iz štamparije" });
-                await logHistory({ qr: r.qr || r.br_rolne, event: "VRAĆENO IZ ŠTAMPARIJE", opis: `Ø ${stampForm.spoljasnjiPrecnik} mm / ${stampForm.hilzna} (+3µm nanos) → ${fmt(meters, 0)} m · ${fmt(kg, 2)} kg (bilo ${fmt(staraM, 0)} m) · ${reserverName || ""}`.trim(), stanje: "Vraćeno iz štamparije" });
+            if (supabase?.__notConfigured) { msg?.("Supabase nije povezan.", "err"); return; }
+            // 1) MATIČNA ostaje (isti broj/LOT) — umanji metražu na ostatak, vrati na stanje.
+            //    Ako nema ostatka (sve odštampano), matična se zatvara (Iskorišćeno).
+            const matStatus = ostatakUk > 0 ? "Na stanju" : "Iskorišćeno";
+            await persistRollState(r, { meters: ostatakUk, kg: ostatakKg, status: matStatus, napomena: `Iz štamparije — ostatak ${fmt(ostatakUk, 0)} m (odsečeno ${odst.length} odštampanih, škart ${skart} m)` });
+            await logHistory({ qr: r.qr || r.br_rolne, event: "OSTATAK IZ ŠTAMPARIJE", opis: `Ostatak ${fmt(ostatakUk, 0)} m · odsečeno ${odst.length} odštampanih (${fmt(odstUk, 0)} m) · škart ${fmt(skart, 0)} m`, stanje: matStatus });
+            // 2) ODŠTAMPANE → nove rolne (za nalog), svaka LOT/n + QR.
+            for (let i = 0; i < odst.length; i++) {
+                const s = odst[i];
+                const noviLot = `${lotBaza}/${i + 1}`;
+                const noviBr = await uniqueBrRolne();
+                const nova = {
+                    br_rolne: noviBr, qr_code: noviBr, tip: r.tip || r.vrsta, vrsta: r.vrsta, pod_vrsta: r.pod_vrsta || null,
+                    oznaka_materijala: r.oznaka_materijala || r.oznaka || null, deb: number(r.debljina ?? r.deb) || null,
+                    sirina: number(r.sirina) || null, metraza: s.m, metraza_ost: s.m, kg_bruto: s.kg, kg_neto: s.kg,
+                    lot: noviLot, dobavljac: r.dobavljac || null, proizvodjac: r.proizvodjac || null,
+                    datum: new Date().toISOString().slice(0, 10), status: "Vraćeno iz štamparije",
+                    lokacija: r.lokacija || "Magacin",
+                    napomena: `ODŠTAMPANA (za nalog) · iz štamparije · orig ${lotBaza} · Ø ${s.precnik}/${s.hilzna} +3µm`,
+                    dodeljeno_nalogu: r.dodeljeno_nalogu || null,
+                };
+                try {
+                    const { data } = await supabase.from("magacin").insert(nova).select().limit(1);
+                    const kreirana = (data && data[0]) || nova;
+                    nastale.push({ br_rolne: kreirana.br_rolne, lot: noviLot, m: s.m, kg: s.kg, tip: "ods" });
+                    await logHistory({ qr: kreirana.br_rolne, event: "NASTALA IZ ŠTAMPARIJE (odštampana)", opis: `Ø ${s.precnik}/${s.hilzna} → ${fmt(s.m, 0)} m · ${fmt(s.kg, 2)} kg · orig ${lotBaza}`, stanje: nova.status });
+                    await supabase.from("povrati_magacin").insert({
+                        rolna_id: kreirana.id || null, br_rolne: kreirana.br_rolne, qr: kreirana.br_rolne,
+                        metri: s.m, kg: s.kg, precnik: number(s.precnik) || null, hilzna: s.hilzna,
+                        lokacija: r.lokacija || "Magacin", nalog_ref: nova.dodeljeno_nalogu || null,
+                        operater: imeOp, operater_id: userProfile?.id || null,
+                        opis: `↩️ Iz štamparije (odštampana) · ${noviLot} · Ø ${s.precnik}/${s.hilzna} → ${fmt(s.m, 0)} m`,
+                    });
+                } catch (e) { console.warn("nova rolna:", e?.message); }
             }
+            // ostatak na matičnoj — zabeleži i u istoriju povrata
+            if (ostatakUk > 0) {
+                try {
+                    await supabase.from("povrati_magacin").insert({
+                        rolna_id: r.id || null, br_rolne: r.br_rolne || r.qr, qr: r.qr || r.br_rolne,
+                        metri: Math.round(ostatakUk), kg: Math.round(ostatakKg * 100) / 100,
+                        precnik: number(ostatci[0]?.precnik) || null, hilzna: ostatci[0]?.hilzna || null,
+                        lokacija: r.lokacija || "Magacin", nalog_ref: null, operater: imeOp, operater_id: userProfile?.id || null,
+                        opis: `↩️ Iz štamparije (ostatak na matičnoj) · ${fmt(ostatakUk, 0)} m`,
+                    });
+                } catch (e) { console.warn("povrat ostatak:", e?.message); }
+            }
+            // 3) Zabeleži ŠKART (za izveštaje + AI).
+            try {
+                await supabase.from("stamparija_skart").insert({
+                    rolna_id: r.id || null, br_rolne: r.br_rolne || r.qr || null,
+                    poslato_m: Math.round(poslato), vraceno_m: vracenoUk, skart_m: skart,
+                    broj_rolni: odst.length + (ostatakUk > 0 ? 1 : 0), operater: imeOp,
+                    napomena: `orig ${lotBaza} → ${odst.length} odštampanih + ostatak ${fmt(ostatakUk, 0)} m`,
+                });
+            } catch (e) { console.warn("stamparija_skart:", e?.message); }
+            try {
+                const povRec = { vreme: now(), operater: imeOp, qr: r.br_rolne || r.qr, event: "VRAĆENO IZ ŠTAMPARIJE", opis: `${odst.length} odštampanih + ostatak ${fmt(ostatakUk, 0)} m · škart ${fmt(skart, 0)} m`, metri: vracenoUk, kg: stavke.reduce((a, s) => a + s.kg, 0), lokacija: r.lokacija || "Magacin" };
+                setPovratLog((prev) => { const arr = [povRec, ...(Array.isArray(prev) ? prev : [])].slice(0, 1000); safeWrite(LS_POVRAT, arr); return arr; });
+            } catch (e) { }
+            await loadPovrati();
         } catch (e) { msg?.("Nije upisano: " + (e?.message || e), "err"); return; }
-        msg?.(`Rolna ${r.qr || r.br_rolne} vraćena iz štamparije — ${fmt(meters, 0)} m / ${fmt(kg, 2)} kg.`);
-        setStampModal(null);
+        msg?.(`Iz štamparije: ${odst.length} odštampanih, ostatak ${fmt(ostatakUk, 0)} m, škart ${fmt(skart, 0)} m.`);
+        setStampGotovo({ nastale, skart, vracenoUk, poslato, ostatak: ostatakUk, matBr: r.br_rolne || r.qr });
         await reload();
     }
 
@@ -3443,26 +3560,78 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // Prozor: Vraćeno iz štamparije — prečnik + hilzna → preračun metraže/kg (kao povrat).
     // Vraćeno iz štamparije: obračun po prečniku uz +3µm nanosa štampe (deblji namotaj → tačna metraža).
     const NANOS_STAMPE_UM = 3;
-    const stampRollSaNanosom = stampModal ? { ...stampModal.roll, debljina: number(stampModal.roll.debljina ?? stampModal.roll.deb) + NANOS_STAMPE_UM } : null;
-    const stampMeters = stampModal ? estimateMetersFromDiameter(stampRollSaNanosom, stampForm.spoljasnjiPrecnik, stampForm.hilzna) : 0;
-    const stampKg = stampModal ? estimateKgForMeters(stampModal.roll, stampMeters) : 0;
+    // Vraćanje iz štamparije — obračun po stavci (odštampana=+3µm, čista=bez)
+    const stampMetriStavke = (stampRolne || []).map((s) => {
+        const nanos = s.tip === "ods" ? 3 : 0;
+        const rN = stampModal ? { ...stampModal.roll, debljina: number(stampModal.roll.debljina ?? stampModal.roll.deb) + nanos } : null;
+        const m = rN ? estimateMetersFromDiameter(rN, s.precnik, s.hilzna) : 0;
+        return { m: Math.round(m), kg: Math.round(estimateKgForMeters(stampModal?.roll || {}, m) * 100) / 100 };
+    });
+    const stampPoslato = stampModal ? number(stampModal.roll.metraza_ost ?? stampModal.roll.duzina ?? stampModal.roll.metraza) : 0;
+    const stampVracenoUk = stampMetriStavke.reduce((a, x) => a + x.m, 0);
+    const stampSkart = Math.max(0, Math.round(stampPoslato - stampVracenoUk));
     const StampModal = stampModal ? (
         <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: 460, maxWidth: "94vw" }}>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: 560, maxWidth: "96vw", maxHeight: "92vh", overflowY: "auto" }}>
                 <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>↩️ Vraćeno iz štamparije</div>
-                <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>{stampModal.roll.qr || stampModal.roll.br_rolne} · {stampModal.roll.vrsta} {stampModal.roll.oznaka_materijala || stampModal.roll.oznaka} · {stampModal.roll.sirina} mm · deb {stampModal.roll.deb || stampModal.roll.debljina || "—"}µ</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 5 }}>Spoljašnji prečnik (mm)</label><input autoFocus type="number" value={stampForm.spoljasnjiPrecnik} onChange={(e) => setStampForm((f) => ({ ...f, spoljasnjiPrecnik: e.target.value }))} placeholder="npr. 420" style={{ width: "100%", padding: 10, border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 15, boxSizing: "border-box" }} /></div>
-                    <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 5 }}>Hilzna</label><select value={stampForm.hilzna} onChange={(e) => setStampForm((f) => ({ ...f, hilzna: e.target.value }))} style={{ width: "100%", padding: 10, border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 15, boxSizing: "border-box" }}><option value="FI76">FI76 (76 mm)</option><option value="FI152">FI152 (152 mm)</option></select></div>
-                </div>
-                <div style={{ marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "12px 14px", fontSize: 14 }}>
-                    Preračunato: <b style={{ color: "#0369a1" }}>{fmt(stampMeters, 0)} m</b> · <b style={{ color: "#0369a1" }}>{fmt(stampKg, 2)} kg</b>
-                    <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 3 }}>Bilo: {fmt(number(stampModal.roll.metraza_ost ?? stampModal.roll.duzina ?? stampModal.roll.metraza), 0)} m</div>
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setStampModal(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Otkaži</button>
-                    <button onClick={potvrdiVracanjeStamp} disabled={!(stampMeters > 0)} style={{ ...btn, background: stampMeters > 0 ? "#0ea5e9" : "#cbd5e1", color: "#fff" }}>✓ Potvrdi vraćanje</button>
-                </div>
+                <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>{stampModal.roll.qr || stampModal.roll.br_rolne} · {stampModal.roll.vrsta} {stampModal.roll.oznaka_materijala || stampModal.roll.oznaka} · {stampModal.roll.sirina} mm · deb {stampModal.roll.deb || stampModal.roll.debljina || "—"}µ</div>
+
+                {stampGotovo ? (
+                    <div>
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                            <div style={{ fontWeight: 900, color: "#15803d", marginBottom: 8 }}>✓ Iz štamparije — nastale odštampane rolne:</div>
+                            {stampGotovo.nastale.length === 0 && <div style={{ fontSize: 13, color: "#64748b" }}>Nema odštampanih (sve je ostatak).</div>}
+                            {stampGotovo.nastale.map((n, i) => (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "7px 10px", marginBottom: 5, fontSize: 13 }}>
+                                    <span><b>{n.br_rolne}</b> · LOT {n.lot} · 📗 odštampana</span>
+                                    <span style={{ color: "#64748b" }}>{fmt(n.m, 0)} m · {fmt(n.kg, 2)} kg</span>
+                                </div>
+                            ))}
+                            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "7px 10px", marginTop: 6, fontSize: 13 }}>
+                                ⚪ <b>Ostatak na matičnoj</b> ({stampGotovo.matBr}): {fmt(stampGotovo.ostatak, 0)} m → {stampGotovo.ostatak > 0 ? "Na stanju" : "Iskorišćeno"}
+                            </div>
+                            <div style={{ fontSize: 12.5, color: "#b91c1c", fontWeight: 800, marginTop: 8 }}>Škart u štampariji: {fmt(stampGotovo.skart, 0)} m (zabeleženo)</div>
+                            <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6 }}>Nalepnice: odmah ili kasnije sa računara — pretraži „{stampModal.roll.lot || stampModal.roll.br_rolne}" i klikni „QR / Etiketa" na svakoj.</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => { setStampModal(null); setStampGotovo(null); }} style={{ ...btn, background: "#0ea5e9", color: "#fff" }}>Gotovo</button>
+                        </div>
+                    </div>
+                ) : (
+                    <div>
+                        <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 13 }}>Poslato u štampariju: <b style={{ color: "#6d28d9" }}>{fmt(stampPoslato, 0)} m</b></div>
+                        {stampRolne.map((s, i) => {
+                            const calc = stampMetriStavke[i] || { m: 0, kg: 0 };
+                            return (
+                                <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 12, marginBottom: 8, background: s.tip === "ods" ? "#f0fdf4" : "#f8fafc", position: "relative" }}>
+                                    {stampRolne.length > 1 && <button onClick={() => setStampRolne((a) => a.filter((_, k) => k !== i))} style={{ position: "absolute", top: 8, right: 8, background: "#fee2e2", color: "#b91c1c", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>✕</button>}
+                                    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                                        <button onClick={() => setStampRolne((a) => a.map((x, k) => k === i ? { ...x, tip: "ods" } : x))} style={{ flex: 1, padding: 7, borderRadius: 7, fontWeight: 800, fontSize: 12, cursor: "pointer", border: s.tip === "ods" ? "2px solid #16a34a" : "1px solid #cbd5e1", background: s.tip === "ods" ? "#dcfce7" : "#fff", color: s.tip === "ods" ? "#15803d" : "#94a3b8" }}>📗 Odštampana (za nalog)</button>
+                                        <button onClick={() => setStampRolne((a) => a.map((x, k) => k === i ? { ...x, tip: "cis" } : x))} style={{ flex: 1, padding: 7, borderRadius: 7, fontWeight: 800, fontSize: 12, cursor: "pointer", border: s.tip === "cis" ? "2px solid #64748b" : "1px solid #cbd5e1", background: s.tip === "cis" ? "#e2e8f0" : "#fff", color: s.tip === "cis" ? "#334155" : "#94a3b8" }}>⚪ Ostatak (na matičnu → stanje)</button>
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
+                                        <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>Prečnik (mm)</label><input type="number" value={s.precnik} onChange={(e) => setStampRolne((a) => a.map((x, k) => k === i ? { ...x, precnik: e.target.value } : x))} placeholder="npr. 420" style={{ width: "100%", padding: 9, border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} /></div>
+                                        <div><label style={{ fontSize: 11, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>Hilzna</label><select value={s.hilzna} onChange={(e) => setStampRolne((a) => a.map((x, k) => k === i ? { ...x, hilzna: e.target.value } : x))} style={{ width: "100%", padding: 9, border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}><option value="FI76">FI76</option><option value="FI152">FI152</option></select></div>
+                                        <div style={{ fontSize: 11, color: "#64748b", paddingBottom: 8 }}>{s.tip === "ods" ? "+3µm" : "bez"}</div>
+                                    </div>
+                                    <div style={{ background: "#fff", border: "1px dashed #cbd5e1", borderRadius: 8, padding: 7, textAlign: "center", fontWeight: 900, fontSize: 13, marginTop: 8 }}>= {fmt(calc.m, 0)} m · {fmt(calc.kg, 2)} kg</div>
+                                </div>
+                            );
+                        })}
+                        <button onClick={() => setStampRolne((a) => [...a, { tip: "cis", precnik: "", hilzna: "FI76" }])} style={{ width: "100%", border: "2px dashed #cbd5e1", background: "#f8fafc", color: "#475569", borderRadius: 10, padding: 10, fontWeight: 800, cursor: "pointer", marginBottom: 12 }}>+ Dodaj vraćenu rolnu</button>
+
+                        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ fontSize: 12.5 }}><b>Škart u štampariji</b><div style={{ fontSize: 11, color: "#64748b" }}>poslato − vraćeno (beleži se)</div></div>
+                            <div style={{ fontSize: 18, fontWeight: 900, color: "#b91c1c" }}>{fmt(stampSkart, 0)} m</div>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Vraćeno ukupno: <b>{fmt(stampVracenoUk, 0)} m</b> · LOT dodeljuje sistem ({stampModal.roll.lot || stampModal.roll.br_rolne}/1, /2…)</div>
+
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => setStampModal(null)} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Otkaži</button>
+                            <button onClick={potvrdiVracanjeStamp} disabled={!(stampVracenoUk > 0)} style={{ ...btn, background: stampVracenoUk > 0 ? "#0ea5e9" : "#cbd5e1", color: "#fff" }}>✓ Potvrdi vraćanje</button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     ) : null;
@@ -3823,9 +3992,55 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                             <button onClick={clearSelection} style={{ ...btn, background: "#f1f5f9", color: "#334155" }}>Poništi izbor</button>
                             <button onClick={openBulkLabels} style={{ ...btn, background: "#059669", color: "#fff" }}>🖨️ Štampaj izabrane QR etikete</button>
                             {adminMode && <button onClick={deleteAllStockRolls} style={{ ...btn, background: "#991b1b", color: "#fff" }}>🗑️ Obriši sve sa stanja</button>}
-                            <input style={{ ...input, maxWidth: 390 }} placeholder="Globalna pretraga..." value={filter} onChange={(e) => setFilter(e.target.value)} />
+                            <input style={{ ...input, maxWidth: 390 }} placeholder="Globalna pretraga (uklj. napomenu/rezervaciju)..." value={filter} onChange={(e) => setFilter(e.target.value)} />
+                            <button onClick={() => setNaprMore((v) => !v)} style={{ ...btn, background: naprMore ? "#1d4ed8" : "#eff6ff", color: naprMore ? "#fff" : "#1d4ed8" }}>⚙️ Napredni filter</button>
                         </div>
                     </div>
+                    {naprMore && (
+                        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, margin: "0 0 12px" }}>
+                            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+                                {[["vrsta", "Vrsta"], ["pod_vrsta", "Pod vrsta"], ["oznaka", "Oznaka"], ["proizvodjac", "Proizvođač"]].map(([polje, naziv]) => {
+                                    const izabrano = multiSel[polje] || [];
+                                    const opcije = multiOpcije[polje] || [];
+                                    const fq = String(dropQ[polje] || "").toLowerCase();
+                                    const filtOpcije = fq ? opcije.filter((v) => String(v).toLowerCase().includes(fq)) : opcije;
+                                    const labela = izabrano.length === 0 ? `${naziv}: sve` : izabrano.length === 1 ? `${naziv}: ${izabrano[0]}` : `${naziv}: ${izabrano.length} izabrano`;
+                                    return (
+                                        <div key={polje} style={{ position: "relative" }}>
+                                            <div style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 4 }}>{naziv}</div>
+                                            <div onClick={(e) => { e.stopPropagation(); setOpenDrop(openDrop === polje ? null : polje); }} style={{ border: izabrano.length ? "1.5px solid #1d4ed8" : "1px solid #cbd5e1", background: "#fff", color: izabrano.length ? "#1d4ed8" : "#475569", borderRadius: 9, padding: "9px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", minWidth: 155, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{labela}</span><span>▾</span>
+                                            </div>
+                                            {openDrop === polje && (
+                                                <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", zIndex: 30, top: "100%", left: 0, marginTop: 4, background: "#fff", border: "1px solid #cbd5e1", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.12)", minWidth: 210, maxHeight: 260, overflowY: "auto", padding: 6 }}>
+                                                    <input autoFocus value={dropQ[polje] || ""} onChange={(e) => setDropQ((q) => ({ ...q, [polje]: e.target.value }))} placeholder="Traži..." style={{ width: "100%", padding: 7, border: "1px solid #e2e8f0", borderRadius: 7, marginBottom: 6, fontSize: 12, boxSizing: "border-box" }} />
+                                                    {filtOpcije.length === 0 && <div style={{ color: "#94a3b8", fontSize: 12, padding: 6 }}>nema</div>}
+                                                    {filtOpcije.map((val) => {
+                                                        const on = izabrano.includes(val);
+                                                        return (
+                                                            <label key={val} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", borderRadius: 7, cursor: "pointer", fontSize: 13, background: on ? "#eff6ff" : "transparent" }}>
+                                                                <input type="checkbox" checked={on} onChange={() => toggleMulti(polje, val)} style={{ width: 16, height: 16 }} /> {val}
+                                                            </label>
+                                                        );
+                                                    })}
+                                                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #eef2f7", marginTop: 4, paddingTop: 6 }}>
+                                                        <button onClick={() => setMultiSel((m) => ({ ...m, [polje]: [] }))} style={{ border: "none", background: "none", color: "#1d4ed8", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Poništi</button>
+                                                        <button onClick={() => setOpenDrop(null)} style={{ border: "none", background: "none", color: "#1d4ed8", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Zatvori</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                <div><div style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Debljina (µ) od–do</div><div style={{ display: "flex", gap: 4 }}><input style={{ ...input, width: 60 }} type="number" value={rangeFilters.debOd} onChange={(e) => setRangeFilters((f) => ({ ...f, debOd: e.target.value }))} placeholder="od" /><input style={{ ...input, width: 60 }} type="number" value={rangeFilters.debDo} onChange={(e) => setRangeFilters((f) => ({ ...f, debDo: e.target.value }))} placeholder="do" /></div></div>
+                                <div><div style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Širina (mm) od–do</div><div style={{ display: "flex", gap: 4 }}><input style={{ ...input, width: 70 }} type="number" value={rangeFilters.sirOd} onChange={(e) => setRangeFilters((f) => ({ ...f, sirOd: e.target.value }))} placeholder="od" /><input style={{ ...input, width: 70 }} type="number" value={rangeFilters.sirDo} onChange={(e) => setRangeFilters((f) => ({ ...f, sirDo: e.target.value }))} placeholder="do" /></div></div>
+                                <div><div style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Kg od–do</div><div style={{ display: "flex", gap: 4 }}><input style={{ ...input, width: 60 }} type="number" value={rangeFilters.kgOd} onChange={(e) => setRangeFilters((f) => ({ ...f, kgOd: e.target.value }))} placeholder="od" /><input style={{ ...input, width: 60 }} type="number" value={rangeFilters.kgDo} onChange={(e) => setRangeFilters((f) => ({ ...f, kgDo: e.target.value }))} placeholder="do" /></div></div>
+                                <div><div style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Metraža od–do</div><div style={{ display: "flex", gap: 4 }}><input style={{ ...input, width: 70 }} type="number" value={rangeFilters.mOd} onChange={(e) => setRangeFilters((f) => ({ ...f, mOd: e.target.value }))} placeholder="od" /><input style={{ ...input, width: 70 }} type="number" value={rangeFilters.mDo} onChange={(e) => setRangeFilters((f) => ({ ...f, mDo: e.target.value }))} placeholder="do" /></div></div>
+                                <button onClick={() => { setMultiSel({ vrsta: [], pod_vrsta: [], oznaka: [], proizvodjac: [] }); setRangeFilters({ debOd: "", debDo: "", sirOd: "", sirDo: "", kgOd: "", kgDo: "", mOd: "", mDo: "" }); }} style={{ ...btn, background: "#f1f5f9", color: "#475569" }}>Očisti</button>
+                            </div>
+                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 8, fontWeight: 700 }}>Rezultat: {filteredRolls.length} rolni</div>
+                        </div>
+                    )}
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                             <thead>
@@ -3844,7 +4059,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.kg} onChange={(e) => setColFilter("kg", e.target.value)} placeholder="kg" /></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lot} onChange={(e) => setColFilter("lot", e.target.value)} placeholder="Lot" /></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.lokacija} onChange={(e) => setColFilter("lokacija", e.target.value)} placeholder="Lokacija" /></th>
-                                    <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Delimično rezervisano">Delimično rezervisano</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
+                                    <th style={filterTh}><select style={smallInput} value={columnFilters.status} onChange={(e) => setColFilter("status", e.target.value)}><option value="">Svi</option><option value="Na stanju">Na stanju</option><option value="Rezervisano">Rezervisano</option><option value="Delimično rezervisano">Delimično rezervisano</option><option value="U štampariji">U štampariji</option><option value="Vraćeno iz štamparije">Vraćeno iz štamparije</option><option value="Iskorišćeno">Iskorišćeno</option><option value="formatirana">formatirana</option><option value="blokirana">blokirana</option></select></th>
                                     <th style={filterTh}></th>
                                     <th style={filterTh}><button onClick={() => { setFilter(""); setColumnFilters({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" }); }} style={{ ...btn, padding: "7px 9px", background: "#f1f5f9" }}>Reset</button></th>
                                 </tr>

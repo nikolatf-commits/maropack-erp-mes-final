@@ -58,7 +58,6 @@ function getNavGroupsRaw(isAdmin, userRole) {
             icon: '🏭',
             items: [
                 { k: 'nalozi', l: 'Glavni nalozi', i: '🏭' },
-                { k: 'novi_formatiranje', l: 'Novi nalog za formatiranje', i: '✂️' },
                 { k: 'ponude', l: 'Ponude', i: '📄' },
                 { k: 'plan_proizvodnje', l: 'Plan proizvodnje', i: '📅' },
                 { k: 'live_production', l: 'Praćenje proizvodnje', i: '🔴' },

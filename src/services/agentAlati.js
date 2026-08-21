@@ -484,10 +484,20 @@ export const ALATI = {
             const poslato = redovi.filter(jePoslato).map(mapRed);
             const vraceno = redovi.filter(jeVraceno).map(mapRed);
             const zbir = (arr) => ({ kg: Math.round(arr.reduce((a, x) => a + (x.kg || 0), 0)), m: Math.round(arr.reduce((a, x) => a + (x.metara || 0), 0)) });
+            // Škart iz štamparije (poslato − vraćeno), zbir za period
+            let skartUk = 0, skartZapisi = [];
+            try {
+                let sq = supabase.from("stamparija_skart").select("*").gte("created_at", odDate.toISOString());
+                if (doDate) sq = sq.lte("created_at", doDate.toISOString());
+                const { data: sk } = await sq.order("created_at", { ascending: false }).limit(500);
+                (sk || []).forEach((x) => { skartUk += N(x.skart_m); });
+                skartZapisi = (sk || []).slice(0, 40).map((x) => ({ rolna: x.br_rolne, poslato_m: N(x.poslato_m), vraceno_m: N(x.vraceno_m), skart_m: N(x.skart_m), broj_rolni: x.broj_rolni, datum: String(x.created_at || "").slice(0, 10) }));
+            } catch (e) { /* tabela možda ne postoji još */ }
             return {
                 period: { od: odDate.toISOString().slice(0, 10), do: (doDate || new Date()).toISOString().slice(0, 10) },
                 poslato_u_stampariju: { broj_rolni: poslato.length, ukupno_kg: zbir(poslato).kg, ukupno_m: zbir(poslato).m, rolne: poslato.slice(0, 80) },
                 vraceno_iz_stamparije: { broj_rolni: vraceno.length, ukupno_kg: zbir(vraceno).kg, ukupno_m: zbir(vraceno).m, rolne: vraceno.slice(0, 80) },
+                skart_stamparija: { ukupno_m: Math.round(skartUk), zapisi: skartZapisi },
             };
         },
     },

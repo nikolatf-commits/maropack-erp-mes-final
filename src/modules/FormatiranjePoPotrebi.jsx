@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase.js";
+import { QRCodeSVG } from "qrcode.react";
 import { predloziFormatiranje } from "./formatiranjeEngine.js";
 import { dodeliBrojeveNaloga } from "./dodeliBrojeve.js";
 
@@ -135,7 +136,75 @@ function Traka({ t }) {
     return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${col}33`, background: `${col}0d`, color: col, borderRadius: 8, padding: "4px 9px", fontSize: 11.5, fontWeight: 800 }}>{t.sirina_mm} mm<span style={{ fontWeight: 600, opacity: .8 }}>{st ? "→ stanje" : "→ " + t.odrediste.replace("nalog:", "")}</span></span>;
 }
 
-export default function FormatiranjePoPotrebi({ msg }) {
+// Prikaz reza — matična traka sa plavim trakama + crveni bočni otpad + kota (kao nalog za rezanje).
+function RezPrikaz({ sirinaMat, trake, otpad }) {
+    const total = Number(sirinaMat) || 1;
+    const X0 = 50, X1 = 660, h = 50, topY = 40, scale = (X1 - X0) / total;
+    const we = (Number(otpad) || 0) / 2, wePx = we * scale;
+    let x = X0 + wePx; const rects = [];
+    (trake || []).forEach((lw, i) => {
+        const w = Number(lw) || 0, sPx = w * scale;
+        rects.push(<g key={i}>
+            <rect x={x} y={topY} width={sPx} height={h} fill="#dbeafe" stroke="#1d4ed8" strokeWidth="1" />
+            <text x={x + sPx / 2} y={topY + h / 2 + 4} textAnchor="middle" fontSize="12" fontWeight="900" fill="#1d4ed8">{i + 1}</text>
+            <text x={x + sPx / 2} y={topY + h + 12} textAnchor="middle" fontSize="8.5" fontWeight="800" fill="#334155">{w}</text>
+        </g>);
+        x += sPx;
+    });
+    return (
+        <svg viewBox="0 0 710 110" width="100%" style={{ maxWidth: 620, background: "#fff" }}>
+            <rect x={X0} y={topY} width={X1 - X0} height={h} fill="#eef4fc" stroke="#1e3a8a" strokeWidth="1.2" />
+            <rect x={X0} y={topY} width={wePx} height={h} fill="#fee2e2" />
+            {rects}
+            <rect x={X1 - wePx} y={topY} width={wePx} height={h} fill="#fee2e2" />
+            <line x1={X0} y1={topY - 14} x2={X1} y2={topY - 14} stroke="#1e40af" strokeWidth="1" />
+            <rect x={(X0 + X1) / 2 - 26} y={topY - 23} width="52" height="14" rx="2" fill="#fff" stroke="#dbeafe" />
+            <text x={(X0 + X1) / 2} y={topY - 12} textAnchor="middle" fontSize="11" fontWeight="800" fill="#1e40af">{total} mm</text>
+        </svg>
+    );
+}
+
+// Sve nastale rolne iz jednog naloga (matične): LOT/1, /2… (širina × dužina segmenta)
+function nastaleRolneZa(n, lotBaza) {
+    const out = []; let br = 0;
+    (n.plan_reza || []).forEach((s) => {
+        (s.trake || []).forEach((t) => {
+            br += 1;
+            out.push({ lot: String(lotBaza) + "/" + br, sirina: t.sirina_mm, duzina: s.duzina_m, odrediste: t.odrediste });
+        });
+    });
+    return out;
+}
+
+// QR etiketa 100×140 (kao FormatiranjeRolniPRO)
+function Etiketa({ r, mat }) {
+    const tdh = { background: "#f1f5f9", fontWeight: 800, padding: "2px 4px", border: "1px solid #cbd5e1", fontSize: 10 };
+    const td = { padding: "2px 4px", border: "1px solid #cbd5e1", fontSize: 10 };
+    return (
+        <div className="fmt-roll-label" style={{ width: "100mm", height: "140mm", background: "#fff", border: "1px solid #111827", padding: "5mm", boxSizing: "border-box", fontFamily: "Arial, sans-serif", color: "#111827", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #111827", paddingBottom: 4 }}>
+                <div><div style={{ fontSize: 18, fontWeight: 900 }}>MAROPACK</div><div style={{ fontSize: 9, fontWeight: 800 }}>ETIKETA ROLNE — FORMATIRANO</div></div>
+                <div style={{ fontSize: 9, fontWeight: 900 }}>100 × 140</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "34mm 1fr", gap: 5, marginTop: 5 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><QRCodeSVG value={String(r.lot)} size={150} level="M" includeMargin={true} /></div>
+                <div style={{ fontSize: 10, lineHeight: 1.35 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, wordBreak: "break-all" }}>{r.lot}</div>
+                    <div style={{ fontSize: 9 }}>{mat}</div>
+                </div>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 5, fontSize: 10 }}>
+                <tbody>
+                    <tr><td style={tdh}>ŠIRINA</td><td style={td}>{r.sirina} mm</td><td style={tdh}>DUŽINA</td><td style={td}>{r.duzina} m</td></tr>
+                    <tr><td style={tdh}>LOT</td><td style={td} colSpan={3}>{r.lot}</td></tr>
+                </tbody>
+            </table>
+            <div style={{ marginTop: 5, borderTop: "1px solid #111", paddingTop: 3, fontSize: 8 }}>Odredište: {r.odrediste === "stanje" || !r.odrediste ? "na stanje" : String(r.odrediste).replace("nalog:", "nalog ")}</div>
+        </div>
+    );
+}
+
+export default function FormatiranjePoPotrebi({ msg, prefill }) {
     const say = (t, k) => (msg ? msg(t, k) : (k === "err" ? console.error(t) : console.log(t)));
     const [magacin, setMagacin] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -144,6 +213,21 @@ export default function FormatiranjePoPotrebi({ msg }) {
     const [bocni, setBocni] = useState(true);
     const [izvorPonbr, setIzvorPonbr] = useState(""); // prazno = preventivno
     const [rezultat, setRezultat] = useState(null);    // { nalozi(sa brojem), na_stanje, fali, zbirno }
+
+    // Prefill iz izbora materijala (dugme "Formatiraj iz magacina"): popuni prvi red
+    // materijalom i širinom matične rolne — korisnik samo zada na koliko traka seče.
+    useEffect(() => {
+        if (!prefill) return;
+        setRows([noviRed({
+            vrsta: prefill.vrsta || "",
+            pod_vrsta: prefill.pod_vrsta || "",
+            oznaka: prefill.oznaka || "",
+            proizvodjac: prefill.proizvodjac || "",
+            debljina: prefill.debljina || "",
+            sirina_mm: prefill.sirina_mm || "",
+            napomena: prefill.ciljSirina ? ("cilj: traka " + prefill.ciljSirina + " mm") : "",
+        })]);
+    }, [prefill]);
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
@@ -279,6 +363,24 @@ export default function FormatiranjePoPotrebi({ msg }) {
         } finally { setBusy(false); }
     }
 
+    function stampajNalepnice() {
+        setTimeout(() => {
+            const root = document.querySelector(".fmt-labels-root");
+            const labels = root ? Array.from(root.querySelectorAll(".fmt-roll-label")).map((el) => el.outerHTML).join("\n") : "";
+            if (!labels) { say && say("Nema nastalih rolni za štampu — prvo klikni Predloži.", "err"); return; }
+            const w = window.open("", "_blank", "width=520,height=720");
+            if (!w) { window.print(); return; }
+            w.document.open();
+            w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>QR etikete</title>
+<style>@page{size:100mm 140mm;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+html,body{margin:0;padding:0;width:100mm;font-family:Arial,sans-serif}
+.fmt-roll-label{width:100mm!important;height:140mm!important;padding:5mm!important;page-break-after:always!important;overflow:hidden}
+.fmt-roll-label:last-child{page-break-after:auto!important}</style></head><body>${labels}</body></html>`);
+            w.document.close(); w.focus();
+            setTimeout(() => { w.print(); setTimeout(() => w.close(), 400); }, 400);
+        }, 60);
+    }
+
     const Toggle = ({ active, onClick, title, desc }) => (
         <button onClick={onClick} style={{ textAlign: "left", flex: 1, minWidth: 240, border: active ? `2px solid ${BLUE}` : "1px solid #e2e8f0", background: active ? "#eef2ff" : "#fff", borderRadius: 12, padding: "11px 14px", cursor: "pointer" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 3 }}>
@@ -328,21 +430,45 @@ export default function FormatiranjePoPotrebi({ msg }) {
                         ))}
                     </div>
 
-                    {rezultat.nalozi.map((n) => (
-                        <div key={n.maticna_id} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16, marginBottom: 12 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "2px solid #eef2f7", paddingBottom: 10, marginBottom: 12 }}>
-                                <div style={{ fontWeight: 900 }}><span style={{ color: BLUE }}>{n.broj}</span><span style={{ color: "#94a3b8", fontWeight: 700, marginLeft: 8, fontSize: 12 }}>matična {n.br_rolne} · {n.sirina_mm} mm</span></div>
-                                <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>utrošak {n.utrosak_m.toLocaleString("sr")} m</div>
-                            </div>
-                            {(n.plan_reza || []).map((s, k) => (
-                                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 0", borderTop: k ? "1px dashed #eef2f7" : "none" }}>
-                                    <span style={{ fontSize: 11, fontWeight: 900, color: "#334155", minWidth: 74 }}>segment {s.duzina_m} m</span>
-                                    {(s.trake || []).map((t, ti) => <Traka key={ti} t={t} />)}
-                                    {s.otpad_mm > 0 && <span style={{ border: "1px dashed #fca5a5", color: RED, borderRadius: 8, padding: "4px 9px", fontSize: 11, fontWeight: 800 }}>otpad {s.otpad_mm} mm</span>}
+                    {rezultat.nalozi.map((n) => {
+                        const m = magacin.find((x) => x.id === n.maticna_id) || {};
+                        const lotBaza = m.lot || m.br_rolne || "LOT";
+                        const matOpis = [gVrsta(m), gPod(m), gOzn(m), gDeb(m) ? gDeb(m) + "µ" : ""].filter(Boolean).join(" · ");
+                        const trakeSveg = (n.plan_reza && n.plan_reza[0] && n.plan_reza[0].trake || []).map((t) => t.sirina_mm);
+                        const otpad = (n.plan_reza && n.plan_reza[0] && n.plan_reza[0].otpad_mm) || 0;
+                        const nastale = nastaleRolneZa(n, lotBaza);
+                        return (
+                            <div key={n.maticna_id} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "2px solid #eef2f7", paddingBottom: 10, marginBottom: 12 }}>
+                                    <div style={{ fontWeight: 900 }}><span style={{ color: BLUE }}>{n.broj}</span><span style={{ color: "#94a3b8", fontWeight: 700, marginLeft: 8, fontSize: 12 }}>matična {n.br_rolne} · {n.sirina_mm} mm</span></div>
+                                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>utrošak {n.utrosak_m.toLocaleString("sr")} m</div>
                                 </div>
-                            ))}
-                        </div>
-                    ))}
+                                {/* prikaz reza (grafika) */}
+                                {trakeSveg.length > 0 && <div style={{ textAlign: "center", marginBottom: 10 }}><RezPrikaz sirinaMat={n.sirina_mm} trake={trakeSveg} otpad={otpad} /></div>}
+                                {(n.plan_reza || []).map((s, k) => (
+                                    <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 0", borderTop: k ? "1px dashed #eef2f7" : "none" }}>
+                                        <span style={{ fontSize: 11, fontWeight: 900, color: "#334155", minWidth: 74 }}>segment {s.duzina_m} m</span>
+                                        {(s.trake || []).map((t, ti) => <Traka key={ti} t={t} />)}
+                                        {s.otpad_mm > 0 && <span style={{ border: "1px dashed #fca5a5", color: RED, borderRadius: 8, padding: "4px 9px", fontSize: 11, fontWeight: 800 }}>otpad {s.otpad_mm} mm</span>}
+                                    </div>
+                                ))}
+                                {/* nastale rolne LOT/n */}
+                                {nastale.length > 0 && (
+                                    <div style={{ marginTop: 10, borderTop: "1px dashed #e2e8f0", paddingTop: 10 }}>
+                                        <div style={{ ...lbl, marginBottom: 6 }}>Nastale rolne (LOT/n) — svaka dobija QR</div>
+                                        <div style={{ display: "grid", gap: 4 }}>
+                                            {nastale.map((r, ri) => (
+                                                <div key={ri} style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 7, padding: "5px 10px", fontSize: 12 }}>
+                                                    <span><b style={{ color: "#ea580c" }}>{r.lot}</b> · {r.sirina} mm × {r.duzina} m</span>
+                                                    <span style={{ color: "#64748b" }}>{r.odrediste === "stanje" || !r.odrediste ? "na stanje" : String(r.odrediste).replace("nalog:", "nalog ")}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
 
                     {rezultat.na_stanje.length > 0 && (
                         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 12 }}>
@@ -361,6 +487,20 @@ export default function FormatiranjePoPotrebi({ msg }) {
                     <button onClick={kreiraj} disabled={busy || !rezultat.nalozi.length} style={{ width: "100%", border: "none", background: !busy && rezultat.nalozi.length ? GREEN : "#cbd5e1", color: "#fff", borderRadius: 12, padding: 14, fontWeight: 900, fontSize: 14, cursor: !busy && rezultat.nalozi.length ? "pointer" : "not-allowed" }}>
                         {busy ? "Kreiram…" : `Kreiraj ${rezultat.nalozi.length} nalog(a) za formatiranje →`}
                     </button>
+
+                    <button onClick={stampajNalepnice} style={{ width: "100%", marginTop: 10, border: "none", background: "#0f766e", color: "#fff", borderRadius: 12, padding: 13, fontWeight: 900, fontSize: 14, cursor: "pointer" }}>
+                        🖨️ Štampaj QR nalepnice (sve nastale rolne)
+                    </button>
+
+                    {/* skriveni root za štampu nalepnica */}
+                    <div className="fmt-labels-root" style={{ position: "fixed", left: -99999, top: 0 }}>
+                        {rezultat.nalozi.flatMap((n) => {
+                            const m = magacin.find((x) => x.id === n.maticna_id) || {};
+                            const lotBaza = m.lot || m.br_rolne || "LOT";
+                            const matOpis = [gVrsta(m), gPod(m), gOzn(m), gDeb(m) ? gDeb(m) + "µ" : ""].filter(Boolean).join(" · ");
+                            return nastaleRolneZa(n, lotBaza).map((r, ri) => <Etiketa key={n.maticna_id + "-" + ri} r={r} mat={matOpis} />);
+                        })}
+                    </div>
                 </div>
             )}
         </div>
