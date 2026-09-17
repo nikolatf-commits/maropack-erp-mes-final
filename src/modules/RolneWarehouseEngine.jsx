@@ -388,6 +388,17 @@ function crevoLabel(r) {
 function napomenaText(r) {
     return String(r?.napomena || "").replace(/\s*⟨CREVO×\d+⟩\s*/gi, "").trim();
 }
+// Dodaje NOVU napomenu na postojeće (ne pregazi). Svaka linija: [datum · akcija] tekst.
+// Tako se sve napomene akumuliraju — istorija napomena na rolni.
+function dodajNapomenu(staraNapomena, novaNapomena, akcija) {
+    const nova = String(novaNapomena || "").trim();
+    if (!nova) return staraNapomena || "";
+    const datum = new Date().toLocaleString("sr-RS");
+    const prefiks = akcija ? `[${datum} · ${akcija}]` : `[${datum}]`;
+    const red = `${prefiks} ${nova}`;
+    const staro = String(staraNapomena || "").trim();
+    return staro ? (staro + "\n" + red) : red;
+}
 function rolnaUkupnoM(r) { return number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) || 0; }
 function rolnaRezM(r) { return number(r?.rezervisano) || 0; }
 function rolnaSlobodnoM(r) { return Math.max(0, rolnaUkupnoM(r) - rolnaRezM(r)); }
@@ -1078,6 +1089,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
     // Napredni filter: opsezi od-do (debljina, širina, kg, metraža)
     const [rangeFilters, setRangeFilters] = useState({ debOd: "", debDo: "", sirOd: "", sirDo: "", kgOd: "", kgDo: "", mOd: "", mDo: "" });
+    // Sortiranje tabele: klik na kolonu (debljina, širina, kg, m...) menja smer
+    const [sortCfg, setSortCfg] = useState({ key: "", dir: "asc" }); // key="" = bez sortiranja
+    const toggleSort = (key) => setSortCfg((c) => c.key === key ? { key, dir: c.dir === "asc" ? "desc" : (c.dir === "desc" ? "" : "asc") } : { key, dir: "asc" });
     // Višestruki izbor: vrsta / pod vrsta / oznaka / proizvođač (može više vrednosti odjednom)
     const [multiSel, setMultiSel] = useState({ vrsta: [], pod_vrsta: [], oznaka: [], proizvodjac: [] });
     const toggleMulti = (polje, val) => setMultiSel((m) => { const arr = m[polje] || []; return { ...m, [polje]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val] }; });
@@ -1095,7 +1109,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [selectedMatId, setSelectedMatId] = useState("");
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
-    const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "", nacinUnosa: "precnik", kgUnos: "" });
+    const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "", nacinUnosa: "precnik", kgUnos: "", mUnos: "" });
     const [rezPopup, setRezPopup] = useState(null);
     const [rezForm, setRezForm] = useState(null);
     const [oslForm, setOslForm] = useState(null);
@@ -1139,10 +1153,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
         const baznaCena = m ? number(m.cenaKg ?? m.cena_kg) : (() => { const v = materialMaster.find((x) => String(x.vrsta || "").toUpperCase() === vU && number(x.cenaKg ?? x.cena_kg)); return v ? number(v.cenaKg ?? v.cena_kg) : 0; })();
         const razvijena = round2(number(crevoForm.sirina) * k);
-        // Metraža: iz PREČNIKA (default) ili iz KG (kada je izabran taj način unosa).
+        // Metraža: iz PREČNIKA (default), iz KG, ili DIREKTNO uneta (metri).
         const meters = crevoForm.nacinUnosa === "kg"
             ? metersFromKg({ sirinaMm: razvijena, kg: crevoForm.kgUnos, gsm })
-            : estimateMetersFromDiameter({ debljina: deb * k }, crevoForm.precnik, crevoForm.hilzna);
+            : crevoForm.nacinUnosa === "metri"
+                ? (number(crevoForm.mUnos) || 0)
+                : estimateMetersFromDiameter({ debljina: deb * k }, crevoForm.precnik, crevoForm.hilzna);
         const kg = crevoForm.nacinUnosa === "kg"
             ? (number(crevoForm.kgUnos) || 0)
             : kgFromMeters({ sirinaMm: razvijena, duzinaM: meters, gsm });
@@ -1158,7 +1174,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [packingRows, setPackingRows] = useState([]);
     const [popisQr, setPopisQr] = useState("");
     const [popisRoll, setPopisRoll] = useState(null);
-    const [popisForm, setPopisForm] = useState({ duzina: "", kg: "", lokacija: "" });
+    const [popisForm, setPopisForm] = useState({ duzina: "", kg: "", lokacija: "", napomena: "" });
     const [popisMagacin, setPopisMagacin] = useState("A");
     const [popisSessionId, setPopisSessionId] = useState(() => `POPIS-${new Date().toISOString().slice(0, 10)}-${Date.now().toString().slice(-6)}`);
     const [popisScanned, setPopisScanned] = useState({});
@@ -1426,7 +1442,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             payload.status = toDbStatus(updates.status || "Na stanju");
         }
         if (Object.prototype.hasOwnProperty.call(updates, "napomena")) {
-            payload.napomena = updates.napomena || null;
+            // Ako je prosleđen updates.napomenaAkcija (npr. "Povrat", "Popis", "Unos"),
+            // NOVA napomena se DODAJE na postojeću (akumulacija), inače se postavlja direktno.
+            if (updates.napomenaAkcija) {
+                payload.napomena = dodajNapomenu(roll.napomena, updates.napomena, updates.napomenaAkcija) || null;
+            } else {
+                payload.napomena = updates.napomena || null;
+            }
         }
         if (updates.popis) {
             payload.datum_poslednjeg_popisa = new Date().toISOString();
@@ -1596,6 +1618,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         });
     }, [rolne, filter, columnFilters, rangeFilters, multiSel]);
 
+    // Sortirana lista (po izabranoj koloni; numeričke kolone porede brojčano)
+    const sortedRolls = useMemo(() => {
+        if (!sortCfg.key || !sortCfg.dir) return filteredRolls;
+        const numKeys = { debljina: (r) => number(r.debljina), sirina: (r) => number(r.sirina ?? r.sirina_mm), kg: (r) => number(r.kg_neto ?? r.kg), duzina: (r) => number(r.metraza_ost ?? r.duzina ?? r.metraza) };
+        const getter = numKeys[sortCfg.key] || ((r) => String(r[sortCfg.key] ?? "").toLowerCase());
+        const arr = [...filteredRolls].sort((a, b) => {
+            const va = getter(a), vb = getter(b);
+            if (typeof va === "number" && typeof vb === "number") return va - vb;
+            return String(va).localeCompare(String(vb), "sr");
+        });
+        return sortCfg.dir === "desc" ? arr.reverse() : arr;
+    }, [filteredRolls, sortCfg]);
+
     // Jedinstvene vrednosti (iz rolni na stanju) za višestruki izbor
     const multiOpcije = useMemo(() => {
         const vidljive = (rolne || []).filter((r) => isRollVisibleOnStock(r));
@@ -1608,9 +1643,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [rollPage, setRollPage] = useState(1);
     const [histPage, setHistPage] = useState(1);
     useEffect(() => { setRollPage(1); }, [filter, columnFilters, rangeFilters, multiSel]);
-    const rollPages = Math.max(1, Math.ceil(filteredRolls.length / PER_PAGE));
+    const rollPages = Math.max(1, Math.ceil(sortedRolls.length / PER_PAGE));
     const rollPageC = Math.min(rollPage, rollPages);
-    const pagedRolls = useMemo(() => filteredRolls.slice((rollPageC - 1) * PER_PAGE, rollPageC * PER_PAGE), [filteredRolls, rollPageC]);
+    const pagedRolls = useMemo(() => sortedRolls.slice((rollPageC - 1) * PER_PAGE, rollPageC * PER_PAGE), [sortedRolls, rollPageC]);
     const histPages = Math.max(1, Math.ceil((history ? history.length : 0) / PER_PAGE));
     const histPageC = Math.min(histPage, histPages);
     const pagedHistory = useMemo(() => (history || []).slice((histPageC - 1) * PER_PAGE, histPageC * PER_PAGE), [history, histPageC]);
@@ -2396,6 +2431,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 location: novaLokacija,
                 status: "Na stanju",
                 napomena,
+                napomenaAkcija: "Povrat",
             });
 
             await logHistory({
@@ -3103,7 +3139,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 kg,
                 location: updatedLokacija,
                 status: popisRoll.status || "Na stanju",
-                napomena: `Popis ${popisSessionId} · ${popisMagacin}`,
+                napomena: `Popis ${popisSessionId} · ${popisMagacin}${popisForm.napomena ? " · " + popisForm.napomena : ""}`,
+                napomenaAkcija: "Popis",
                 popis: true,
             });
 
@@ -3179,18 +3216,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
             <div style={{ marginBottom: 16 }}>
                 <div style={crevoGT}><span style={crevoDot} />2 · Merenje rolne / creva</div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "precnik" }))} style={{ flex: 1, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa !== "kg" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa !== "kg" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa !== "kg" ? "#0f766e" : "#64748b" }}>📏 Preko prečnika</button>
-                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "kg" }))} style={{ flex: 1, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa === "kg" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa === "kg" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa === "kg" ? "#0f766e" : "#64748b" }}>⚖️ Preko kg</button>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "precnik" }))} style={{ flex: 1, minWidth: 100, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa === "precnik" || (!crevoForm.nacinUnosa) ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa === "precnik" || (!crevoForm.nacinUnosa) ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa === "precnik" || (!crevoForm.nacinUnosa) ? "#0f766e" : "#64748b" }}>📏 Preko prečnika</button>
+                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "kg" }))} style={{ flex: 1, minWidth: 100, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa === "kg" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa === "kg" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa === "kg" ? "#0f766e" : "#64748b" }}>⚖️ Preko kg</button>
+                    <button type="button" onClick={() => setCrevoForm((f) => ({ ...f, nacinUnosa: "metri" }))} style={{ flex: 1, minWidth: 100, padding: "9px", borderRadius: 9, fontWeight: 900, cursor: "pointer", border: crevoForm.nacinUnosa === "metri" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: crevoForm.nacinUnosa === "metri" ? "#f0fdfa" : "#fff", color: crevoForm.nacinUnosa === "metri" ? "#0f766e" : "#64748b" }}>📐 Preko metara</button>
                 </div>
                 <div style={crevoGrid}>
                     <label><span style={lbl}>Spljoštena širina (mm)</span><input style={input} type="number" value={crevoForm.sirina} onChange={(e) => setCrevoForm((f) => ({ ...f, sirina: e.target.value }))} placeholder="npr. 840" /></label>
                     {crevoForm.nacinUnosa === "kg" ? (
                         <label><span style={lbl}>⚖️ Težina (kg) — uneto</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.kgUnos} onChange={(e) => setCrevoForm((f) => ({ ...f, kgUnos: e.target.value }))} placeholder="npr. 120" /></label>
+                    ) : crevoForm.nacinUnosa === "metri" ? (
+                        <label><span style={lbl}>📐 Metraža (m) — uneto</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.mUnos} onChange={(e) => setCrevoForm((f) => ({ ...f, mUnos: e.target.value }))} placeholder="npr. 3000" /></label>
                     ) : (
                         <label><span style={lbl}>Spoljni prečnik (mm) — mereno</span><input style={{ ...input, borderColor: "#0f766e", background: "#f0fdfa", fontWeight: 800 }} type="number" value={crevoForm.precnik} onChange={(e) => setCrevoForm((f) => ({ ...f, precnik: e.target.value }))} placeholder="npr. 320" /></label>
                     )}
-                    {crevoForm.nacinUnosa !== "kg" && <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>}
+                    {(crevoForm.nacinUnosa !== "kg" && crevoForm.nacinUnosa !== "metri") && <label><span style={lbl}>Hilzna</span><select style={input} value={crevoForm.hilzna} onChange={(e) => setCrevoForm((f) => ({ ...f, hilzna: e.target.value }))}><option value="FI76">FI 76</option><option value="FI152">FI 152</option></select></label>}
                     <label><span style={lbl}>⭐ Oblik namotaja</span><select style={{ ...input, borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 900 }} value={crevoForm.oblik} onChange={(e) => setCrevoForm((f) => ({ ...f, oblik: e.target.value }))}><option value="ravna">Ravna folija (×1)</option><option value="crevo">Polu-crevo / crevo (×2)</option><option value="custom">Custom faktor…</option></select></label>
                     {crevoForm.oblik === "custom" && <label><span style={lbl}>Custom faktor</span><input style={input} type="number" value={crevoForm.kCustom} onChange={(e) => setCrevoForm((f) => ({ ...f, kCustom: e.target.value }))} /></label>}
                 </div>
@@ -3488,7 +3528,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                             {napomenaText(r) && <div style={{ marginTop: 2 }}>📝 {napomenaText(r)}</div>}
                                             {r.rezervisao && <div style={{ marginTop: 2 }}>👤 Rezervisao: {r.rezervisao}</div>}
                                         </div>
-                                    ) : (napomenaText(r) && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>📝 {napomenaText(r)}</div>)}
+                                    ) : (napomenaText(r) && <div style={{ fontSize: 12, color: "#475569", marginTop: 6, background: "#f8fafc", borderRadius: 8, padding: "6px 8px", whiteSpace: "pre-line", lineHeight: 1.5 }}>📝 {napomenaText(r)}</div>)}
                                     <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                                         <button onClick={() => setLabelRoll(r)} style={{ ...btn, background: "#dbeafe", color: "#1d4ed8", flex: 1 }}>QR / Etiketa</button>
                                         <button onClick={() => reserveForMaster(r)} style={{ ...btn, background: "#fef3c7", color: "#92400e", flex: 1 }}>🔒 Rezerviši</button>
@@ -4044,7 +4084,12 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                             <thead>
-                                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum ulaza", "Datum proiz.", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Napomena", "Akcije"].map(h => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{h}</th>)}</tr>
+                                <tr style={{ background: "#f8fafc" }}>{["", "QR", "Datum ulaza", "Datum proiz.", "Vrsta", "Pod vrsta", "Oznaka", "Proizvođač", "Deb.", "Širina", "m", "kg", "Lot", "Lokacija", "Status", "Napomena", "Akcije"].map(h => {
+                                    const sortKljuc = { "Deb.": "debljina", "Širina": "sirina", "m": "duzina", "kg": "kg" }[h];
+                                    const aktivan = sortKljuc && sortCfg.key === sortKljuc && sortCfg.dir;
+                                    const strelica = aktivan ? (sortCfg.dir === "asc" ? " ▲" : " ▼") : (sortKljuc ? " ⇅" : "");
+                                    return <th key={h} onClick={sortKljuc ? () => toggleSort(sortKljuc) : undefined} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #e2e8f0", cursor: sortKljuc ? "pointer" : "default", userSelect: "none", color: aktivan ? "#2563eb" : "#334155", whiteSpace: "nowrap" }} title={sortKljuc ? "Klikni za sortiranje" : undefined}>{h}<span style={{ fontSize: 10, opacity: aktivan ? 1 : .4 }}>{strelica}</span></th>;
+                                })}</tr>
                                 <tr style={{ background: "#fff" }}>
                                     <th style={filterTh}></th><th style={filterTh}></th>
                                     <th style={filterTh}><input style={smallInput} value={columnFilters.datum} onChange={(e) => setColFilter("datum", e.target.value)} placeholder="Datum" /></th>
@@ -4294,6 +4339,7 @@ function PopisTab({ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, p
                     <label><span style={lbl}>Stvarno metara</span><input style={input} type="number" value={popisForm.duzina} onChange={(e) => { const m = e.target.value; setPopisForm({ ...popisForm, duzina: m, kg: Number(m) > 0 ? estimateKgForMeters(popisRoll, Number(m)) : "" }); }} /></label>
                     <label><span style={lbl}>Stvarno kg</span><input style={input} type="number" value={popisForm.kg} onChange={(e) => setPopisForm({ ...popisForm, kg: e.target.value })} /></label>
                     <label><span style={lbl}>Aktuelna lokacija rolne</span><input style={input} value={popisForm.lokacija || ""} onChange={(e) => setPopisForm({ ...popisForm, lokacija: e.target.value })} placeholder="npr. B-01-C-04" /></label>
+                    <label><span style={lbl}>Napomena (opciono)</span><input style={input} value={popisForm.napomena || ""} onChange={(e) => setPopisForm({ ...popisForm, napomena: e.target.value })} placeholder="npr. oštećena ivica, vlaga..." /></label>
                 </div>
                 {onOpenLocationScanner && <div style={{ marginTop: 10, padding: 10, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12 }}><div style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 900, marginBottom: 6 }}>QR lokacija: {locationProgressLabel(locationParts)}</div><button onClick={onOpenLocationScanner} style={{ ...btn, background: "#2563eb", color: "#fff", width: "100%" }}>📍 Skeniraj lokaciju rolne</button></div>}
                 <button onClick={confirmInventoryCount} style={{ ...btn, background: "#059669", color: "#fff", marginTop: 12 }}>Potvrdi popis i ažuriraj stanje</button>

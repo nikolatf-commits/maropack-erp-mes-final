@@ -51,6 +51,11 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 if (jePovrat || dM > 0) vraceno = Math.abs(dM);
                 else if (jePotrosnja || dM < 0) potroseno = Math.abs(dM);
 
+                // kg po metru ove rolne (za preračun potrošenih kg iz potrošenih metara)
+                const specKg = num0(izvor.kg_neto ?? izvor.kg ?? izvor.kg_bruto);
+                const specM = num0(izvor.metraza_ost ?? izvor.metraza);
+                const kgPoM = (specKg > 0 && specM > 0) ? (specKg / specM) : 0;
+
                 return {
                     nalog_ref: h.nalog_ponbr || nv.dodeljeno_nalogu || nv.za_nalog || sv.dodeljeno_nalogu || (h.nalog_id != null ? String(h.nalog_id) : null),
                     vrsta: izvor.vrsta || null,
@@ -59,7 +64,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     debljina: izvor.deb ?? izvor.debljina ?? null,
                     dobavljac: izvor.dobavljac || izvor.proizvodjac || null,
                     idealna_sirina: izvor.sirina ?? null,
-                    kg_alocirano: num0(izvor.kg_neto ?? izvor.kg ?? izvor.kg_bruto),
+                    kgPoM,
                     lot: izvor.lot || null,
                     potroseno, vraceno,
                     akcija,
@@ -83,13 +88,16 @@ export default function AnalizaMaterijalStavke({ msg }) {
             if (!m[k]) m[k] = { nalog: k, izdato: 0, vraceno: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
             m[k].izdato += num(r.potroseno);   // skinuto sa stanja
             m[k].vraceno += num(r.vraceno);    // vraćeno u magacin
-            m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
+            // kg = STVARNO potrošeni metri (skinuto − vraćeno po ovom događaju) × kg/m
+            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
+            m[k].kg += netoM * num(r.kgPoM);
+            m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
         });
         return Object.values(m).map((x) => ({
             ...x,
-            plan: x.izdato,                          // za sortiranje/bar
-            utroseno: Math.max(0, x.izdato - x.vraceno),  // STVARNA potrošnja
+            plan: x.izdato,
+            utroseno: Math.max(0, x.izdato - x.vraceno),
             otpad: 0,
             iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.vraceno) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.utroseno - a.utroseno);
@@ -98,11 +106,13 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const poMaterijalu = useMemo(() => {
         const m = {};
         rows.forEach((r) => {
-            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac].map((x) => x || "").join("|");
-            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
-            // neto potrošnja materijala = skinuto − vraćeno
-            m[k].potroseno += Math.max(0, num(r.potroseno) - num(r.vraceno));
-            m[k].kg += num(r.kg_alocirano); m[k].rolni += 1;
+            const sir = r.idealna_sirina || "";
+            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, sir, r.dobavljac].map((x) => x || "").join("|");
+            if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: sir, dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
+            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
+            m[k].potroseno += netoM;
+            m[k].kg += netoM * num(r.kgPoM);   // kg iz stварно potrošenih metara
+            m[k].rolni += 1;
         });
         return Object.values(m).filter((x) => x.potroseno > 0).sort((a, b) => b.potroseno - a.potroseno);
     }, [rows]);
@@ -110,11 +120,15 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const kpi = useMemo(() => {
         const izdato = rows.reduce((s, r) => s + num(r.potroseno), 0);
         const vraceno = rows.reduce((s, r) => s + num(r.vraceno), 0);
+        const kgNeto = rows.reduce((s, r) => {
+            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
+            return s + netoM * num(r.kgPoM);
+        }, 0);
         return {
             plan: izdato,
-            izdato: Math.max(0, izdato - vraceno),  // STVARNA potrošnja (neto)
+            izdato: Math.max(0, izdato - vraceno),  // STVARNA potrošnja (neto metri)
             otpad: 0,
-            kg: rows.reduce((s, r) => s + num(r.kg_alocirano), 0),
+            kg: kgNeto,                             // STVARNO potrošeni kg
             nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
         };
     }, [rows]);
@@ -196,7 +210,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Dobavljač", "Potrošeno", "kg", "Događaja"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                                <thead><tr>{["Vrsta", "Pod-vrsta", "Oznaka", "Deb.", "Širina", "Dobavljač", "Potrošeno", "kg", "Događaja"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                                 <tbody>
                                     {filtMat.map((x, i) => (
                                         <tr key={i}>
@@ -204,6 +218,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                                             <td style={td}>{x.pod_vrsta || "—"}</td>
                                             <td style={td}>{x.oznaka || "—"}</td>
                                             <td style={td}>{x.debljina ? x.debljina + "µ" : "—"}</td>
+                                            <td style={td}>{x.sirina ? fmt(x.sirina, 0) + " mm" : "—"}</td>
                                             <td style={td}>{x.dobavljac || "—"}</td>
                                             <td style={td}>
                                                 <div style={{ fontWeight: 800 }}>{fmt(x.potroseno)} m</div>
