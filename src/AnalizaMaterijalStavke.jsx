@@ -17,70 +17,41 @@ export default function AnalizaMaterijalStavke({ msg }) {
     async function load() {
         setLoading(true);
         try {
-            // STVARNA POTROŠNJA čita se iz magacin_istorija (svaka promena rolne:
-            // potrošnja, povrat, rezervacija...), jer se materijal skida ručno kroz
-            // promene stanja rolni, a ne uvek kroz naloge/materijal_stavke.
-            let query = supabase.from("magacin_istorija").select("*").order("created_at", { ascending: false });
-            if (period !== "sve") {
-                const d = new Date(); d.setDate(d.getDate() - Number(period));
-                query = query.gte("created_at", d.toISOString());
-            }
-            const { data, error } = await query.limit(10000);
+            // Da se POKLAPA sa magacinom "Iskorišćeno": čitamo rolne iz tabele `magacin`
+            // koje su iskorišćene (status potrosena/Iskorišćeno) i uzimamo NJIHOV PUN kg
+            // (kao magacin), grupisano po nalogu i materijalu.
+            let query = supabase.from("magacin").select("*").limit(20000);
+            const { data, error } = await query;
             if (error) throw error;
 
-            // Pretvori svaki događaj istorije u "red" pogodan za grupisanje.
-            // Uzimamo spec rolne iz nova_vrednost/stara_vrednost (jsonb).
             const num0 = (v) => (v != null && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : 0);
-            const transf = (data || []).map(function (h) {
-                const nv = (h.nova_vrednost && typeof h.nova_vrednost === "object") ? h.nova_vrednost : {};
-                const sv = (h.stara_vrednost && typeof h.stara_vrednost === "object") ? h.stara_vrednost : {};
-                const izvor = Object.keys(nv).length ? nv : sv;
-                const akcija = String(h.akcija || h.tip_promene || "").toLowerCase();
-
-                // promena metara: promena_m (može biti negativna = skinuto, pozitivna = vraćeno)
-                let dM = h.promena_m != null ? Number(h.promena_m) : null;
-                if (dM == null && h.metraza_pre != null && h.metraza_posle != null) {
-                    dM = Number(h.metraza_posle) - Number(h.metraza_pre);
+            const jeIskoriscena = (st) => {
+                const s = String(st || "").toLowerCase();
+                return s.includes("iskor") || s.includes("potro") || s === "used";
+            };
+            const transf = (data || []).filter((r) => jeIskoriscena(r.status)).map(function (r) {
+                const deb = num0(r.debljina ?? r.deb);
+                const sir = num0(r.sirina ?? r.sirina_mm);
+                const m = num0(r.metraza ?? r.metraza_ost ?? r.duzina);
+                // PUN kg rolne (kao magacin): kg_neto → kg_bruto → kg → iz m×sir×gsm
+                let kg = num0(r.kg_neto) || num0(r.kg_bruto) || num0(r.kg);
+                if (!kg) {
+                    const gsm = num0(r.gsm) || num0(calculateGm2(r.vrsta, deb));
+                    if (gsm && sir && m) kg = (m * sir * gsm) / 1000000;
                 }
-                dM = Number.isFinite(dM) ? dM : 0;
-
-                // potrošeno = koliko je skinuto sa stanja (negativna promena, ili akcija potrošnja/rezervacija)
-                // vraćeno = koliko je vraćeno (pozitivna promena, ili akcija povrat)
-                let potroseno = 0, vraceno = 0;
-                const jePotrosnja = akcija.includes("potro") || akcija.includes("rezerv") || akcija.includes("izdat") || akcija.includes("iskor");
-                const jePovrat = akcija.includes("povrat") || akcija.includes("vra");
-                if (jePovrat || dM > 0) vraceno = Math.abs(dM);
-                else if (jePotrosnja || dM < 0) potroseno = Math.abs(dM);
-
-                // kg po metru ove rolne — primarno iz istorije (kg / metraža),
-                // a ako toga nema, iz širine × g/m² sa TAČNIM koeficijentom materijala
-                // (BOPP 0.91, PET 1.40, ALU 2.71, PAPIR gramatura...) iz baze materijala.
-                const specKg = num0(izvor.kg_neto ?? izvor.kg ?? izvor.kg_bruto);
-                const specM = num0(izvor.metraza_ost ?? izvor.metraza);
-                const sir = num0(izvor.sirina);
-                const deb = num0(izvor.deb ?? izvor.debljina);
-                const gsm = num0(calculateGm2(izvor.vrsta, deb));  // pravi g/m² po vrsti materijala
-                let kgPoM = (specKg > 0 && specM > 0) ? (specKg / specM) : 0;
-                if (!kgPoM && sir > 0 && gsm > 0) kgPoM = (sir * gsm) / 1000000;  // kg/m = širina(mm) × g/m² / 1e6
-
                 return {
-                    nalog_ref: h.nalog_ponbr || nv.dodeljeno_nalogu || nv.za_nalog || sv.dodeljeno_nalogu || (h.nalog_id != null ? String(h.nalog_id) : null),
-                    vrsta: izvor.vrsta || null,
-                    pod_vrsta: izvor.pod_vrsta || null,
-                    oznaka: izvor.oznaka_materijala || izvor.oznaka || null,
-                    debljina: izvor.deb ?? izvor.debljina ?? null,
-                    dobavljac: izvor.dobavljac || izvor.proizvodjac || null,
-                    idealna_sirina: izvor.sirina ?? null,
-                    kgPoM,
-                    lot: izvor.lot || null,
-                    potroseno, vraceno,
-                    akcija,
+                    nalog_ref: r.nalog_ponbr || r.dodeljeno_nalogu || r.za_nalog || (r.nalog_id != null ? String(r.nalog_id) : null),
+                    vrsta: r.vrsta || null,
+                    pod_vrsta: r.pod_vrsta || null,
+                    oznaka: r.oznaka_materijala || r.oznaka || null,
+                    debljina: deb || null,
+                    dobavljac: r.dobavljac || r.proizvodjac || null,
+                    idealna_sirina: sir || null,
+                    potroseno: m,      // metri te rolne (cela je iskorišćena)
+                    vraceno: 0,
+                    kg: kg,            // PUN kg rolne
                 };
-            }).filter(function (r) {
-                // zadrži samo redove koji nose potrošnju ili povrat (stварnu promenu materijala)
-                return (r.potroseno > 0 || r.vraceno > 0);
             });
-
             setRows(transf);
         } catch (e) {
             msg && msg("Greška pri učitavanju analize: " + (e.message || e), "err");
@@ -93,11 +64,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
         rows.forEach((r) => {
             const k = r.nalog_ref || "— bez naloga";
             if (!m[k]) m[k] = { nalog: k, izdato: 0, vraceno: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
-            m[k].izdato += num(r.potroseno);   // skinuto sa stanja
-            m[k].vraceno += num(r.vraceno);    // vraćeno u magacin
-            // kg = STVARNO potrošeni metri (skinuto − vraćeno po ovom događaju) × kg/m
-            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
-            m[k].kg += netoM * num(r.kgPoM);
+            m[k].izdato += num(r.potroseno);
+            m[k].vraceno += num(r.vraceno);
+            m[k].kg += num(r.kg);           // pun kg rolne (kao magacin)
             m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
         });
@@ -116,26 +85,22 @@ export default function AnalizaMaterijalStavke({ msg }) {
             const sir = r.idealna_sirina || "";
             const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, sir, r.dobavljac].map((x) => x || "").join("|");
             if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: sir, dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
-            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
-            m[k].potroseno += netoM;
-            m[k].kg += netoM * num(r.kgPoM);   // kg iz stварно potrošenih metara
+            m[k].potroseno += Math.max(0, num(r.potroseno) - num(r.vraceno));
+            m[k].kg += num(r.kg);           // pun kg rolne
             m[k].rolni += 1;
         });
-        return Object.values(m).filter((x) => x.potroseno > 0).sort((a, b) => b.potroseno - a.potroseno);
+        return Object.values(m).filter((x) => x.potroseno > 0 || x.kg > 0).sort((a, b) => b.potroseno - a.potroseno);
     }, [rows]);
 
     const kpi = useMemo(() => {
         const izdato = rows.reduce((s, r) => s + num(r.potroseno), 0);
         const vraceno = rows.reduce((s, r) => s + num(r.vraceno), 0);
-        const kgNeto = rows.reduce((s, r) => {
-            const netoM = Math.max(0, num(r.potroseno) - num(r.vraceno));
-            return s + netoM * num(r.kgPoM);
-        }, 0);
+        const kgUk = rows.reduce((s, r) => s + num(r.kg), 0);
         return {
             plan: izdato,
-            izdato: Math.max(0, izdato - vraceno),  // STVARNA potrošnja (neto metri)
+            izdato: Math.max(0, izdato - vraceno),
             otpad: 0,
-            kg: kgNeto,                             // STVARNO potrošeni kg
+            kg: kgUk,                        // ukupno kg = zbir punih kg (kao magacin Iskorišćeno)
             nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
         };
     }, [rows]);
