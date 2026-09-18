@@ -2252,6 +2252,7 @@ function MainAppContent() {
                                             var grGotov = gr.length > 0 && zav === gr.length;
                                             // datum završetka = najkasniji stop_ts / vreme završene operacije
                                             var grGotovDatum = "";
+                                            var grGotovKasnio = null; // null=nema roka, <=0 na vreme, >0 broj dana kašnjenja
                                             if (grGotov) {
                                                 var maxTs = 0;
                                                 gr.forEach(function (n) {
@@ -2260,6 +2261,11 @@ function MainAppContent() {
                                                     if (ms && ms > maxTs) maxTs = ms;
                                                 });
                                                 grGotovDatum = maxTs ? new Date(maxTs).toLocaleDateString("sr-RS", { day: "numeric", month: "numeric", year: "numeric" }) : "";
+                                                // da li je završen na vreme ili kasno (poredi završetak sa rokom)
+                                                if (maxTs && grRokRaw && !isNaN(new Date(grRokRaw).getTime())) {
+                                                    var rokMs = new Date(grRokRaw).setHours(23, 59, 59, 0);
+                                                    grGotovKasnio = Math.ceil((maxTs - rokMs) / 86400000); // >0 kasnio, <=0 na vreme
+                                                }
                                             }
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
                                             return (
@@ -2271,9 +2277,15 @@ function MainAppContent() {
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grProizvod}</span>
                                                         {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {grKreirao}</span> : null}
                                                         {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
-                                                        {grGotov ? (
+                                                        {grGotov ? (<>
                                                             <span style={{ fontWeight: 900, fontSize: 16, color: "#fff", background: "linear-gradient(135deg,#16a34a,#15803d)", borderRadius: 999, padding: "4px 14px" }}>✅ GOTOVO{grGotovDatum ? " · " + grGotovDatum : ""}</span>
-                                                        ) : (<>
+                                                            {grGotovKasnio !== null ? (
+                                                                grGotovKasnio > 0
+                                                                    ? <span style={{ fontWeight: 900, fontSize: 14, color: "#fff", background: "#dc2626", borderRadius: 999, padding: "4px 12px" }}>⏱️ kasnio {grGotovKasnio}d</span>
+                                                                    : <span style={{ fontWeight: 900, fontSize: 14, color: "#fff", background: "#0f766e", borderRadius: 999, padding: "4px 12px" }}>⏱️ na vreme</span>
+                                                            ) : null}
+                                                            {grRok ? <span style={{ fontWeight: 700, fontSize: 13, color: "#94a3b8" }}>rok bio: {grRok}</span> : null}
+                                                        </>) : (<>
                                                             {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
                                                             {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
                                                         </>)}
