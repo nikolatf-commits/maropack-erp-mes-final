@@ -17,23 +17,29 @@ export default function AnalizaMaterijalStavke({ msg }) {
     async function load() {
         setLoading(true);
         try {
-            // Da se POKLAPA sa magacinom "Iskorišćeno": čitamo rolne iz tabele `magacin`
-            // koje su iskorišćene (status potrosena/Iskorišćeno) i uzimamo NJIHOV PUN kg
-            // (kao magacin), grupisano po nalogu i materijalu.
-            let query = supabase.from("magacin").select("*").limit(20000);
-            const { data, error } = await query;
-            if (error) throw error;
-
+            // Da se POKLAPA sa magacinom "Iskorišćeno": čitamo SVE rolne iz tabele `magacin`
+            // (Supabase seče na 1000 redova, pa moramo paginacijom), filtriramo iskorišćene
+            // i uzimamo NJIHOV PUN kg. Grupisano po nalogu i materijalu.
             const num0 = (v) => (v != null && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : 0);
             const jeIskoriscena = (st) => {
                 const s = String(st || "").toLowerCase();
-                return s.includes("iskor") || s.includes("potro") || s === "used";
+                return ["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(s) || s.includes("iskor") || s.includes("potro");
             };
-            const transf = (data || []).filter((r) => jeIskoriscena(r.status)).map(function (r) {
+            // paginacija: učitavaj po 1000 dok ima
+            let sve = [];
+            const PAGE = 1000;
+            for (let od = 0; od < 50000; od += PAGE) {
+                const { data, error } = await supabase.from("magacin").select("*").neq("status", "obrisano").range(od, od + PAGE - 1);
+                if (error) throw error;
+                if (!data || !data.length) break;
+                sve = sve.concat(data);
+                if (data.length < PAGE) break;
+            }
+
+            const transf = sve.filter((r) => jeIskoriscena(r.status)).map(function (r) {
                 const deb = num0(r.debljina ?? r.deb);
                 const sir = num0(r.sirina ?? r.sirina_mm);
                 const m = num0(r.metraza ?? r.metraza_ost ?? r.duzina);
-                // PUN kg rolne (kao magacin): kg_neto → kg_bruto → kg → iz m×sir×gsm
                 let kg = num0(r.kg_neto) || num0(r.kg_bruto) || num0(r.kg);
                 if (!kg) {
                     const gsm = num0(r.gsm) || num0(calculateGm2(r.vrsta, deb));
@@ -47,9 +53,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     debljina: deb || null,
                     dobavljac: r.dobavljac || r.proizvodjac || null,
                     idealna_sirina: sir || null,
-                    potroseno: m,      // metri te rolne (cela je iskorišćena)
+                    potroseno: m,
                     vraceno: 0,
-                    kg: kg,            // PUN kg rolne
+                    kg: kg,
                 };
             });
             setRows(transf);
