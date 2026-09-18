@@ -75,9 +75,9 @@ function OrderCard({ order, onDragStart, compact = false }) {
             </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
-            <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>{order.brojTraka > 1 ? 'matična rolna' : 'količina'}</span></div>
+            <div><b>{order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '—'}</b><br /><span style={{ color: '#64748b' }}>{order.brojTraka > 1 ? 'matična rolna' : 'količina'}</span></div>
             <div><b>{order.width} mm</b><br /><span style={{ color: '#64748b' }}>širina</span></div>
-            <div><b>{order.rok ? new Date(order.rok).toLocaleDateString('sr-RS') : '\u2014'}</b><br /><span style={{ color: '#64748b' }}>rok</span></div>
+            <div><b>{order.rok ? new Date(order.rok).toLocaleDateString('sr-RS') : '—'}</b><br /><span style={{ color: '#64748b' }}>rok</span></div>
         </div>
         {/* v52.1: dodatni podaci — da planer vidi sve bitno bez otvaranja naloga */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
@@ -87,7 +87,7 @@ function OrderCard({ order, onDragStart, compact = false }) {
             {order.tipProizvoda && <Badge color="#334155">{order.tipProizvoda}</Badge>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 11.5, color: '#64748b' }}>
-            <span>👤 {order.customer || '\u2014'}</span>
+            <span>👤 {order.customer || '—'}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 900, color: order.priority === 'hitno' ? '#dc2626' : order.priority === 'visok' ? '#ea580c' : '#16a34a' }}>
                 {order.priority === 'hitno' ? '🔴' : order.priority === 'visok' ? '🟠' : '🟢'} {order.priority}
             </span>
@@ -151,15 +151,15 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const izvor = (Array.isArray(naloziZivi) && naloziZivi.length) ? naloziZivi : (Array.isArray(db.nalozi) && db.nalozi.length ? db.nalozi : (db.master_nalozi || []));
         const tipOperacije = (n) => {
             const t = String(n.tip_naloga || n.vrsta || n.naziv || "").toLowerCase();
-            if (t.includes("\u0161tamp") || t.includes("stamp")) return { k: "stampa", l: "\u0160TAMPA", ikona: "\uD83D\uDDA8\uFE0F" };
-            if (t.includes("lak")) return { k: "lakiranje", l: "LAKIRANJE", ikona: "\u2728" };
-            if (t.includes("ka\u0161") || t.includes("kas")) return { k: "kasiranje", l: "KA\u0160IRANJE", ikona: "\uD83D\uDCDA" };
-            if (t.includes("perf") || t.includes("rez")) return { k: "rezanje", l: "REZANJE", ikona: "\u2702\uFE0F" };
-            if (t.includes("format")) return { k: "formatiranje", l: "FORMATIRANJE", ikona: "\uD83D\uDCD0" };
-            if (t.includes("kes")) return { k: "kese", l: "KESE", ikona: "\uD83D\uDECD\uFE0F" };
-            if (t.includes("\u0161pul") || t.includes("spul")) return { k: "spulne", l: "\u0160PULNE", ikona: "\uD83E\uDDF5" };
-            if (t.includes("mater")) return { k: "materijal", l: "MATERIJAL", ikona: "\uD83D\uDCE6" };
-            return { k: "ostalo", l: "OPERACIJA", ikona: "\u2699\uFE0F" };
+            if (t.includes("štamp") || t.includes("stamp")) return { k: "stampa", l: "ŠTAMPA", ikona: "🖨️" };
+            if (t.includes("lak")) return { k: "lakiranje", l: "LAKIRANJE", ikona: "✨" };
+            if (t.includes("kaš") || t.includes("kas")) return { k: "kasiranje", l: "KAŠIRANJE", ikona: "📚" };
+            if (t.includes("perf") || t.includes("rez")) return { k: "rezanje", l: "REZANJE", ikona: "✂️" };
+            if (t.includes("format")) return { k: "formatiranje", l: "FORMATIRANJE", ikona: "📐" };
+            if (t.includes("kes")) return { k: "kese", l: "KESE", ikona: "🛍️" };
+            if (t.includes("špul") || t.includes("spul")) return { k: "spulne", l: "ŠPULNE", ikona: "🧵" };
+            if (t.includes("mater")) return { k: "materijal", l: "MATERIJAL", ikona: "📦" };
+            return { k: "ostalo", l: "OPERACIJA", ikona: "⚙️" };
         };
         const out = [];
         (izvor || []).forEach((n) => {
@@ -182,7 +182,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 opTip: op.k, opLabel: op.l, opIkona: op.ikona, type: op.k,
                 title: n.proizvod || n.naziv || n.prod || "Nalog",
                 customer: n.kupac || "",
-                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || ex.sirina || "\u2014",
+                width: Number(n.sir || n.sirina || n.idealnaSirinaMaterijala || 0) || ex.sirina || "—",
                 metri,
                 kolicinaUkupno: ex.kolicina, brojTraka: ex.brojTraka, kom: ex.kom, brojBoja: ex.brojBoja, tipProizvoda: ex.tipProizvoda,
                 rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || ex.rok || "",
@@ -218,7 +218,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
     const orderMap = useMemo(() => Object.fromEntries(orders.map(o => [o.id, o])), [orders]);
     const plannedIds = useMemo(() => new Set(Object.values(plan).flat()), [plan]);
-    const unplanned = orders.filter(o => !plannedIds.has(o.id));
+    // FIX: iz "Nalozi za raspored" izbaci i ZAVRŠENE naloge (ne samo one koji su na mašini) —
+    // završena operacija se više ne raspoređuje, pa ne treba da visi u bazenu.
+    const unplanned = orders.filter(o => !plannedIds.has(o.id) && o.status !== 'zavrseno');
     const shownMachines = machines.filter(m => filter === 'sve' || m.type === filter);
     const totals = useMemo(() => {
         const poId = Object.fromEntries(machines.map(m => [m.id, m]));
@@ -275,13 +277,13 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
-                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>2 štamparije (Milinković, Topolastika) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaširka · drag/drop plan.</p></div>
+                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>2 štamparije (Milinković, Topolastika) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaширka · drag/drop plan.</p></div>
                 <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
             </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginTop: 16 }}>
-            <KPI label="Mašina ukupno" value={totals.machines} sub="2 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaširka" />
+            <KPI label="Mašina ukupno" value={totals.machines} sub="2 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaширка" />
             <KPI label="Aktivno" value={totals.active} sub="spremno za planiranje" />
             <KPI label="Planirano naloga" value={totals.planned} sub="drag/drop raspored" />
             <KPI label="Planirano vreme" value={`${Math.round(totals.minutes / 60)} h`} sub={`${totals.minutes} minuta ukupno`} />
@@ -318,7 +320,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
                 <div>
                     <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaširanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaширanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
                         <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>Klikni karticu mašine za unos karakteristika.</div>
                     </div>
 
@@ -362,7 +364,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                                 <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
-                                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '\u2014' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
+                                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '—' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
                                                 </div>
                                                 <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
