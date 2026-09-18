@@ -2284,7 +2284,7 @@ function MainAppContent() {
                                                                     ? <span style={{ fontWeight: 900, fontSize: 14, color: "#fff", background: "#dc2626", borderRadius: 999, padding: "4px 12px" }}>⏱️ kasnio {grGotovKasnio}d</span>
                                                                     : <span style={{ fontWeight: 900, fontSize: 14, color: "#fff", background: "#0f766e", borderRadius: 999, padding: "4px 12px" }}>⏱️ na vreme</span>
                                                             ) : null}
-                                                            {grRok ? <span style={{ fontWeight: 700, fontSize: 13, color: "#94a3b8" }}>rok bio: {grRok}</span> : null}
+                                                            {grRok ? <span style={{ fontWeight: 900, fontSize: 14, color: "#475569", background: "#e2e8f0", borderRadius: 999, padding: "4px 12px" }}>📅 rok bio: {grRok}</span> : null}
                                                         </>) : (<>
                                                             {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
                                                             {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
