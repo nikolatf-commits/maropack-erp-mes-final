@@ -2248,6 +2248,19 @@ function MainAppContent() {
                                             var grZavProbija = (grZav && grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? (grZav > new Date(new Date(grRokRaw).setHours(23, 59, 59, 0))) : false;
                                             var zav = gr.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") === 0 || s === "zavrseno" || s.indexOf("stiglo") >= 0; }).length;
                                             var pct = gr.length > 0 ? (zav / gr.length) * 100 : 0;
+                                            // NALOG JE GOTOV kad su SVE operacije završene
+                                            var grGotov = gr.length > 0 && zav === gr.length;
+                                            // datum završetka = najkasniji stop_ts / vreme završene operacije
+                                            var grGotovDatum = "";
+                                            if (grGotov) {
+                                                var maxTs = 0;
+                                                gr.forEach(function (n) {
+                                                    var t = n.stop_ts || n.zavrseno_ts || n.updated_at || n.completed_at;
+                                                    var ms = t ? new Date(t).getTime() : 0;
+                                                    if (ms && ms > maxTs) maxTs = ms;
+                                                });
+                                                grGotovDatum = maxTs ? new Date(maxTs).toLocaleDateString("sr-RS", { day: "numeric", month: "numeric", year: "numeric" }) : "";
+                                            }
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
                                             return (
                                                 <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 })}>
@@ -2258,8 +2271,12 @@ function MainAppContent() {
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grProizvod}</span>
                                                         {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {grKreirao}</span> : null}
                                                         {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
-                                                        {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
-                                                        {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
+                                                        {grGotov ? (
+                                                            <span style={{ fontWeight: 900, fontSize: 16, color: "#fff", background: "linear-gradient(135deg,#16a34a,#15803d)", borderRadius: 999, padding: "4px 14px" }}>✅ GOTOVO{grGotovDatum ? " · " + grGotovDatum : ""}</span>
+                                                        ) : (<>
+                                                            {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
+                                                            {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
+                                                        </>)}
                                                         <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>{zav}/{gr.length} završeno</span>
                                                         <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
                                                             <div style={{ height: "100%", background: "#10b981", borderRadius: 3, width: pct + "%" }} />
@@ -2271,7 +2288,11 @@ function MainAppContent() {
                                                                 <div key={n.id} onClick={function () { setPregNalog(n); }} style={{ background: statusStil(n.status).bg, border: "1px solid #e2e8f0", borderLeft: "6px solid " + statusStil(n.status).traka, borderRadius: 14, padding: "16px 18px", cursor: "pointer" }}>
                                                                     <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
                                                                         <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
-                                                                        <span style={{ fontWeight: 800, fontSize: 15, color: statusStil(n.status).traka }}>{n.naziv}</span>
+                                                                        <span style={{ fontWeight: 800, fontSize: 15, color: statusStil(n.status).traka }}>{(function () {
+                                                                            var OP = { stampa: "Štampa", lakiranje: "Lakiranje", kasiranje: "Kaširanje", perforacija_rezanje: "Perforacija i rezanje", rezanje: "Rezanje", perforacija: "Perforacija", materijal: "Potreba materijala", kesa: "Kesa", formatiranje: "Formatiranje", spulna: "Špulna", master: "Glavni nalog" };
+                                                                            var t = String(n.tip_naloga || n.vrsta || n.operacija || "").toLowerCase();
+                                                                            return OP[t] || n.operacija || n.naziv || "Operacija";
+                                                                        })()}</span>
                                                                     </div>
                                                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                                                         <span style={{ background: statusStil(n.status).grad, color: "#fff", borderRadius: 999, padding: "5px 11px 5px 9px", fontWeight: 900, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5, boxShadow: "0 2px 5px rgba(0,0,0,.12)" }}>
