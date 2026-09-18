@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase.js";
+import { calculateGm2 } from "./data/materialMaster.js";
 
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -51,10 +52,16 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 if (jePovrat || dM > 0) vraceno = Math.abs(dM);
                 else if (jePotrosnja || dM < 0) potroseno = Math.abs(dM);
 
-                // kg po metru ove rolne (za preračun potrošenih kg iz potrošenih metara)
+                // kg po metru ove rolne — primarno iz istorije (kg / metraža),
+                // a ako toga nema, iz širine × g/m² sa TAČNIM koeficijentom materijala
+                // (BOPP 0.91, PET 1.40, ALU 2.71, PAPIR gramatura...) iz baze materijala.
                 const specKg = num0(izvor.kg_neto ?? izvor.kg ?? izvor.kg_bruto);
                 const specM = num0(izvor.metraza_ost ?? izvor.metraza);
-                const kgPoM = (specKg > 0 && specM > 0) ? (specKg / specM) : 0;
+                const sir = num0(izvor.sirina);
+                const deb = num0(izvor.deb ?? izvor.debljina);
+                const gsm = num0(calculateGm2(izvor.vrsta, deb));  // pravi g/m² po vrsti materijala
+                let kgPoM = (specKg > 0 && specM > 0) ? (specKg / specM) : 0;
+                if (!kgPoM && sir > 0 && gsm > 0) kgPoM = (sir * gsm) / 1000000;  // kg/m = širina(mm) × g/m² / 1e6
 
                 return {
                     nalog_ref: h.nalog_ponbr || nv.dodeljeno_nalogu || nv.za_nalog || sv.dodeljeno_nalogu || (h.nalog_id != null ? String(h.nalog_id) : null),
