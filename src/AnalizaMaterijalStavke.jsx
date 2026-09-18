@@ -21,10 +21,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
             // (Supabase seče na 1000 redova, pa moramo paginacijom), filtriramo iskorišćene
             // i uzimamo NJIHOV PUN kg. Grupisano po nalogu i materijalu.
             const num0 = (v) => (v != null && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : 0);
-            const jeIskoriscena = (st) => {
-                const s = String(st || "").toLowerCase();
-                return ["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"].includes(s) || s.includes("iskor") || s.includes("potro");
-            };
+            // IDENTIČNO kao magacin: status je tačno jedan od ovih (bez šireg "includes")
+            const POTROSENA = ["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"];
+            const jeIskoriscena = (st) => POTROSENA.includes(String(st || "").trim().toLowerCase());
             // paginacija: učitavaj po 1000 dok ima
             let sve = [];
             const PAGE = 1000;
@@ -38,11 +37,15 @@ export default function AnalizaMaterijalStavke({ msg }) {
 
             const transf = sve.filter((r) => jeIskoriscena(r.status)).map(function (r) {
                 const deb = num0(r.debljina ?? r.deb);
-                const sir = num0(r.sirina ?? r.sirina_mm);
-                const m = num0(r.metraza ?? r.metraza_ost ?? r.duzina);
-                let kg = num0(r.kg_neto) || num0(r.kg_bruto) || num0(r.kg);
+                const sir = num0(r.sirina);
+                const m = num0(r.metraza ?? r.metraza_ost);
+                // IDENTIČNO kao magacin: kg_neto → kg_bruto → kg → (m × sir × gsm)/1e6,
+                // ali gsm SAMO iz upisanog r.gsm (kao magacin), ne iz koeficijenta —
+                // da bi se zbir tačno poklopio sa magacinskim "Iskorišćeno".
+                let kg = num0(r.kg_neto);
+                if (!kg) kg = num0(r.kg_bruto) || num0(r.kg);
                 if (!kg) {
-                    const gsm = num0(r.gsm) || num0(calculateGm2(r.vrsta, deb));
+                    const gsm = num0(r.gsm);
                     if (gsm && sir && m) kg = (m * sir * gsm) / 1000000;
                 }
                 return {
@@ -52,7 +55,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     oznaka: r.oznaka_materijala || r.oznaka || null,
                     debljina: deb || null,
                     dobavljac: r.dobavljac || r.proizvodjac || null,
-                    idealna_sirina: sir || null,
+                    idealna_sirina: num0(r.sirina ?? r.sirina_mm) || null,
                     potroseno: m,
                     vraceno: 0,
                     kg: kg,
