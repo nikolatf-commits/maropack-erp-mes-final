@@ -1110,6 +1110,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const [calcMode, setCalcMode] = useState("m_to_kg");
     const [precnikForm, setPrecnikForm] = useState({ spoljniPrecnik: "", hilzna: "FI76" });
     const [crevoForm, setCrevoForm] = useState({ vrsta: "", pod_vrsta: "", oznaka: "", debljina: "", sirina: "", precnik: "", hilzna: "FI76", oblik: "crevo", kCustom: "2", dobavljac: "", cenaKg: "", lot: "", lokacija: "Magacin", datum_proizvodnje: "", napomena: "", nacinUnosa: "precnik", kgUnos: "", mUnos: "" });
+
+    // ── RASECANJE MATIČNE ROLNE ──
+    // Skeniraš matičnu (npr. 1500×5000, LOT X), uneseš rasečene formate (svaki: širina + mera),
+    // svaki dobija nov QR + LOT matične/N. Ostatak matične: umanji automatski ili vrati po povratu.
+    const [rasecQr, setRasecQr] = useState("");
+    const [rasecRoll, setRasecRoll] = useState(null); // matična rolna
+    const [rasecFormati, setRasecFormati] = useState([]); // [{sirina, nacin, precnik, metri, kg, lokacija}]
+    const [rasecOstatak, setRasecOstatak] = useState("umanji"); // "umanji" | "povrat"
     const [rezPopup, setRezPopup] = useState(null);
     const [rezForm, setRezForm] = useState(null);
     const [oslForm, setOslForm] = useState(null);
@@ -2405,6 +2413,90 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         return Math.round((sirina * meters * gsm / 1000000) * 100) / 100;
     }
 
+    // Nađi matičnu rolnu po QR
+    async function findRasecRoll() {
+        const q = String(rasecQr || "").trim();
+        if (!q) { msg?.("Skeniraj ili unesi QR matične rolne", "err"); return; }
+        const found = await resolveRollByQr(q);
+        if (!found) { msg?.("Matična rolna nije pronađena", "err"); return; }
+        setRasecRoll(found);
+        setRasecFormati([]);
+        msg?.(`Matična: ${found.qr} · ${found.vrsta} ${found.oznaka_materijala || ""} · ${fmt(number(found.sirina), 0)} mm · ${fmt(rolnaUkupnoM(found), 0)} m`);
+    }
+    // Dodaj prazan format (novu rolnu koja nastaje)
+    function dodajRasecFormat() {
+        setRasecFormati((a) => [...a, { sirina: "", nacin: "metri", precnik: "", metri: "", kg: "", lokacija: rasecRoll?.lokacija || "Magacin" }]);
+    }
+    function updRasecFormat(i, patch) {
+        setRasecFormati((a) => a.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+    }
+    function ukloniRasecFormat(i) {
+        setRasecFormati((a) => a.filter((_, idx) => idx !== i));
+    }
+    // Izračunaj metre/kg za jedan format na osnovu izabranog načina
+    function rasecMetriKg(f) {
+        const deb = number(rasecRoll?.debljina || rasecRoll?.deb || 0);
+        const sir = number(f.sirina) || number(rasecRoll?.sirina) || 0;
+        const gsm = number(rasecRoll?.gsm) || deb * 0.91;
+        let metri = 0, kg = 0;
+        if (f.nacin === "metri") { metri = number(f.metri) || 0; kg = Math.round((sir * metri * gsm / 1000000) * 100) / 100; }
+        else if (f.nacin === "kg") { kg = number(f.kg) || 0; metri = gsm > 0 && sir > 0 ? Math.round(kg * 1000000 / (sir * gsm)) : 0; }
+        else { metri = estimateMetersFromDiameter({ debljina: deb }, f.precnik, rasecRoll?.hilzna || "FI76"); kg = Math.round((sir * metri * gsm / 1000000) * 100) / 100; }
+        return { metri, kg };
+    }
+    // Sačuvaj rasecanje: kreira nove rolne + reši ostatak matične
+    async function confirmRasecanje() {
+        if (!rasecRoll) { msg?.("Prvo pronađi matičnu rolnu", "err"); return; }
+        const validni = rasecFormati.filter((f) => number(f.sirina) > 0 && rasecMetriKg(f).metri > 0);
+        if (!validni.length) { msg?.("Dodaj bar jednu rolnu sa širinom i merom", "err"); return; }
+
+        const matLot = rasecRoll.lot || rasecRoll.qr || "MAT";
+        let potrosenoM = 0;
+        try {
+            for (let i = 0; i < validni.length; i++) {
+                const f = validni[i];
+                const { metri, kg } = rasecMetriKg(f);
+                potrosenoM += metri;
+                const noviQr = await uniqueBrRolne();
+                const noviLot = `${matLot}/${i + 1}`;
+                const { data, error } = await supabase.from("magacin").insert({
+                    br_rolne: noviQr, qr_code: noviQr,
+                    tip: rasecRoll.vrsta, vrsta: rasecRoll.vrsta,
+                    oznaka_materijala: rasecRoll.oznaka_materijala || null, pod_vrsta: rasecRoll.pod_vrsta || null,
+                    deb: number(rasecRoll.debljina || rasecRoll.deb), sirina: number(f.sirina),
+                    metraza: metri, metraza_ost: metri, kg_bruto: kg, kg_neto: kg,
+                    lot: noviLot, dobavljac: rasecRoll.dobavljac || null,
+                    cena_kg: rasecRoll.cena_kg || null,
+                    datum: new Date().toISOString().slice(0, 10), datum_prijema: new Date().toISOString().slice(0, 10),
+                    status: "Na stanju", lokacija: f.lokacija || rasecRoll.lokacija || null,
+                    napomena: dodajNapomenu(null, `Rasečeno iz matične ${rasecRoll.qr} (LOT ${matLot})`, "Rasecanje"),
+                }).select("*").single();
+                if (error) throw error;
+                await logHistory({ qr: noviQr, event: "ULAZ U MAGACIN (RASECANJE)", opis: `Iz matične ${rasecRoll.qr} · ${number(f.sirina)} mm · ${fmt(metri, 0)} m / ${fmt(kg, 2)} kg · LOT ${noviLot}`, stanje: "Na stanju" });
+            }
+
+            // Ostatak matične
+            const ukupnoMat = rolnaUkupnoM(rasecRoll);
+            const ostatakM = Math.max(0, ukupnoMat - potrosenoM);
+            if (rasecOstatak === "umanji") {
+                // automatski umanji matičnu za potrošeno
+                const ostatakKg = estimateKgForMeters(rasecRoll, ostatakM);
+                await persistRollState(rasecRoll, {
+                    meters: ostatakM, kg: ostatakKg,
+                    napomena: `Rasečeno ${validni.length} rolni · potrošeno ${fmt(potrosenoM, 0)} m`,
+                    napomenaAkcija: "Rasecanje",
+                });
+                msg?.(`✓ Kreirano ${validni.length} rolni · matična umanjena na ${fmt(ostatakM, 0)} m`);
+            } else {
+                // "povrat" — samo obeleži, korisnik vraća ostatak ručno preko Povrat taba
+                await logHistory({ qr: rasecRoll.qr, event: "RASECANJE — OSTATAK ZA POVRAT", opis: `Potrošeno ${fmt(potrosenoM, 0)} m u ${validni.length} rolni · ostatak ${fmt(ostatakM, 0)} m vratiti preko Povrat`, stanje: rasecRoll.status });
+                msg?.(`✓ Kreirano ${validni.length} rolni · ostatak ${fmt(ostatakM, 0)} m vrati preko „Povrat u magacin"`);
+            }
+            await reload();
+            setRasecRoll(null); setRasecFormati([]); setRasecQr("");
+        } catch (e) { msg?.("Rasecanje nije uspelo: " + (e.message || e), "err"); }
+    }
+
     async function findPovratRoll() {
         const q = String(povratQr || "").trim();
         if (!q) { msg?.("Skeniraj ili unesi QR broj rolne", "err"); return; }
@@ -3076,6 +3168,18 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 } else {
                     msg?.(`Rolna nije pronađena u magacinu: ${qr}`, "err");
                 }
+            } else if (scannerMode === "rasecanje") {
+                setActiveTab("rasecanje");
+                setRasecQr(qr);
+                if (found) {
+                    setRasecRoll(found);
+                    setRasecFormati([]);
+                    msg?.(`Skenirana matična za rasecanje: ${qr}`);
+                } else {
+                    msg?.(`Rolna nije pronađena: ${qr}`, "err");
+                }
+                setScannerMode(null);
+                return;
             } else if (scannerMode === "posalji_stamp") {
                 setScannerMode(null);
                 if (found) { await posaljiStampariju(found); }
@@ -3194,6 +3298,69 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const crevoGT = { fontSize: 11, fontWeight: 900, color: "#7c3aed", textTransform: "uppercase", letterSpacing: .5, marginBottom: 9, display: "flex", alignItems: "center", gap: 7 };
     const crevoDot = { width: 6, height: 6, borderRadius: "50%", background: "#7c3aed", display: "inline-block" };
     const crevoGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11 };
+    const rasecView = (
+        <div style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{ fontWeight: 950, fontSize: 17 }}>✂️ Rasecanje matične rolne</div>
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Skeniraj matičnu rolnu, dodaj rasečene formate (širina + mera). Svaki dobija nov QR i LOT matične/1, /2… Ostatak matične umanji ili vrati preko Povrata.</div>
+
+            {/* 1 · Skeniraj matičnu */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <input style={{ ...input, flex: 1, minWidth: 160 }} value={rasecQr} onChange={(e) => setRasecQr(e.target.value)} placeholder="QR / broj matične rolne" />
+                <button onClick={() => openMobileScanner("rasecanje")} style={{ ...btn, background: "#eef2ff", color: "#4338ca" }}>📷 Skeniraj</button>
+                <button onClick={findRasecRoll} style={{ ...btn, background: "#0f766e", color: "#fff" }}>Pronađi</button>
+            </div>
+
+            {rasecRoll && (<>
+                <div style={{ background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 12, padding: 12, marginBottom: 14 }}>
+                    <div style={{ fontWeight: 900 }}>Matična: {rasecRoll.qr} · LOT {rasecRoll.lot || "—"}</div>
+                    <div style={{ fontSize: 13, color: "#334155", marginTop: 3 }}>{rasecRoll.vrsta} {rasecRoll.oznaka_materijala || ""} · {number(rasecRoll.debljina || rasecRoll.deb)}µ · {fmt(number(rasecRoll.sirina), 0)} mm · <b>{fmt(rolnaUkupnoM(rasecRoll), 0)} m</b></div>
+                </div>
+
+                {/* 2 · Rasečeni formati */}
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>Rasečene rolne (nastale):</div>
+                {rasecFormati.map((f, i) => {
+                    const mk = rasecMetriKg(f);
+                    return (
+                        <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                                <b style={{ color: "#0f766e" }}>Rolna #{i + 1} · LOT {(rasecRoll.lot || rasecRoll.qr)}/{i + 1}</b>
+                                <button onClick={() => ukloniRasecFormat(i)} style={{ ...btn, background: "#fee2e2", color: "#dc2626", padding: "4px 10px" }}>Ukloni</button>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 }}>
+                                <label><span style={lbl}>Širina (mm)</span><input style={input} type="number" value={f.sirina} onChange={(e) => updRasecFormat(i, { sirina: e.target.value })} placeholder="npr. 1000" /></label>
+                                <label><span style={lbl}>Način</span><select style={input} value={f.nacin} onChange={(e) => updRasecFormat(i, { nacin: e.target.value })}><option value="metri">📐 Metri</option><option value="precnik">📏 Prečnik</option><option value="kg">⚖️ Kg</option></select></label>
+                                {f.nacin === "metri" && <label><span style={lbl}>Metri</span><input style={input} type="number" value={f.metri} onChange={(e) => updRasecFormat(i, { metri: e.target.value })} placeholder="npr. 1000" /></label>}
+                                {f.nacin === "precnik" && <label><span style={lbl}>Prečnik (mm)</span><input style={input} type="number" value={f.precnik} onChange={(e) => updRasecFormat(i, { precnik: e.target.value })} placeholder="npr. 320" /></label>}
+                                {f.nacin === "kg" && <label><span style={lbl}>Kg</span><input style={input} type="number" value={f.kg} onChange={(e) => updRasecFormat(i, { kg: e.target.value })} placeholder="npr. 80" /></label>}
+                                <label><span style={lbl}>Lokacija</span><input style={input} value={f.lokacija} onChange={(e) => updRasecFormat(i, { lokacija: e.target.value })} /></label>
+                            </div>
+                            <div style={{ fontSize: 12, color: "#0f766e", fontWeight: 800, marginTop: 6 }}>≈ {fmt(mk.metri, 0)} m · {fmt(mk.kg, 2)} kg</div>
+                        </div>
+                    );
+                })}
+                <button onClick={dodajRasecFormat} style={{ ...btn, background: "#dcfce7", color: "#15803d", width: "100%", marginBottom: 12 }}>+ Dodaj rolnu</button>
+
+                {/* 3 · Ostatak */}
+                <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>Ostatak matične:</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button onClick={() => setRasecOstatak("umanji")} style={{ flex: 1, minWidth: 140, padding: 9, borderRadius: 9, fontWeight: 800, cursor: "pointer", border: rasecOstatak === "umanji" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: rasecOstatak === "umanji" ? "#f0fdfa" : "#fff", color: rasecOstatak === "umanji" ? "#0f766e" : "#64748b" }}>Umanji automatski</button>
+                        <button onClick={() => setRasecOstatak("povrat")} style={{ flex: 1, minWidth: 140, padding: 9, borderRadius: 9, fontWeight: 800, cursor: "pointer", border: rasecOstatak === "povrat" ? "2px solid #0f766e" : "1px solid #cbd5e1", background: rasecOstatak === "povrat" ? "#f0fdfa" : "#fff", color: rasecOstatak === "povrat" ? "#0f766e" : "#64748b" }}>Vratim po povratu</button>
+                    </div>
+                    {(() => {
+                        const pot = rasecFormati.reduce((s, f) => s + rasecMetriKg(f).metri, 0);
+                        const ost = Math.max(0, rolnaUkupnoM(rasecRoll) - pot);
+                        return <div style={{ fontSize: 12.5, color: "#334155", marginTop: 8 }}>Potrošeno: <b>{fmt(pot, 0)} m</b> · Ostatak matične: <b>{fmt(ost, 0)} m</b></div>;
+                    })()}
+                </div>
+
+                <button onClick={confirmRasecanje} style={{ ...btn, background: "#0f766e", color: "#fff", width: "100%", fontSize: 15, padding: 13 }}>✂️ Sačuvaj rasecanje</button>
+            </>)}
+        </div>
+    );
+
     const crevoView = (
         <div style={card}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -3414,6 +3581,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             mobileActionBtn("vrati_stamp", "🔄", "Vraćeno iz štamparije", "Skeniraj + prečnik"),
             mobileActionBtn("unos", "➕", "Unos rolne", "Ručni unos"),
             mobileActionBtn("creva", "🧵", "Polu-rolne / creva", "Merenje prečnika"),
+            mobileActionBtn("rasecanje", "✂️", "Rasecanje matične", "QR + formati /1 /2"),
             mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
             mobileActionBtn("istorija", "🕘", "Istorija", "Ko je šta radio"),
             mobileActionBtn("istorija_povrata", "↩️", "Istorija povrata", "Vraćene rolne"),
@@ -3546,6 +3714,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 )}
 
                 {activeTab === "creva" && crevoView}
+                {activeTab === "rasecanje" && rasecView}
 
                 {activeTab === "istorija" && (
                     <div style={card}>
@@ -3835,6 +4004,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <button onClick={() => setActiveTab("rolne")} style={tabBtn("rolne")}>🎞️ Stanje rolni</button>
                 <button onClick={() => setActiveTab("unos")} style={tabBtn("unos")}>➕ Unos rolni</button>
                 <button onClick={() => setActiveTab("creva")} style={tabBtn("creva")}>🧵 Polu-rolne / creva</button>
+                <button onClick={() => setActiveTab("rasecanje")} style={tabBtn("rasecanje")}>✂️ Rasecanje matične</button>
                 <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
                 {isAdmin && <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>}
                 <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
@@ -4125,6 +4295,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
             {activeTab === "predlog" && <PredlogTab {...{ card, input, btn, lbl, req, setReq, createReservationRequest, suggestedRolls, reserveForMaster }} />}
             {activeTab === "creva" && crevoView}
+                {activeTab === "rasecanje" && rasecView}
 
             {activeTab === "istorija" && <div style={card}><div style={{ fontWeight: 900, marginBottom: 10 }}>Istorija rolni</div>{history.length === 0 ? <div style={{ color: "#64748b" }}>Još nema istorije.</div> : <>{pagedHistory.map((h, i) => <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "9px 0", fontSize: 13 }}><b>{h.vreme}</b> · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span> · <b>{h.qr}</b> · {h.event} · {h.opis}</div>)}<Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} /></>}</div>}
 
