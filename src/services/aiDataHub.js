@@ -6,12 +6,12 @@ import { supabase } from '../supabase.js';
 
 const TABLES = [
     // --- Proizvodi / templejti / materijali (AI uči odavde) ---
-    { key: 'proizvodi', label: 'Baza proizvoda (templejti)', table: 'proizvodi', limit: 120, order: 'created_at', fallback: 'product_templates' },
+    { key: 'proizvodi', label: 'Baza proizvoda (templejti)', table: 'proizvodi', limit: 2000, order: 'created_at', fallback: 'product_templates' },
     { key: 'material_master', label: 'Baza materijala', table: 'material_master', limit: 200, order: 'created_at', fallback: 'materijali' },
     { key: 'material_cene', label: 'Cene materijala', table: 'material_cene', limit: 200, order: 'created_at' },
     { key: 'material_vrste', label: 'Vrste materijala', table: 'material_vrste', limit: 100, order: 'created_at' },
     // --- Magacin ---
-    { key: 'magacin', label: 'Magacin rolni', table: 'magacin', limit: 5000, order: 'created_at', fallback: 'rolne' },
+    { key: 'magacin', label: 'Magacin rolni', table: 'magacin', limit: 20000, order: 'created_at', fallback: 'rolne' },
     { key: 'magacin_gotovi', label: 'Magacin gotovih proizvoda', table: 'magacin_gotovi_proizvodi', limit: 200, order: 'created_at' },
     { key: 'istorija_lokacija', label: 'Istorija lokacija rolni', table: 'istorija_lokacija_rolni', limit: 150, order: 'created_at' },
     { key: 'materijal_stavke', label: 'Knjiga stavki materijala (rezervacije/izdavanja po nalogu)', table: 'materijal_stavke', limit: 400, order: 'created_at' },
@@ -51,6 +51,34 @@ function compactRow(row) {
 
 async function fetchTable(def) {
     try {
+        // Velike tabele (limit > 1000): učitaj paginacijom, jer Supabase seče na 1000 redova.
+        if (def.limit && def.limit > 1000) {
+            let sve = [];
+            const PAGE = 1000;
+            const maxOd = def.limit;
+            for (let od = 0; od < maxOd; od += PAGE) {
+                let pq = supabase.from(def.table).select('*');
+                if (def.order) pq = pq.order(def.order, { ascending: false });
+                const { data, error } = await pq.range(od, od + PAGE - 1);
+                if (error) {
+                    // ako order kolona ne postoji, probaj bez sortiranja
+                    if (def.order) {
+                        const r2 = await supabase.from(def.table).select('*').range(od, od + PAGE - 1);
+                        if (r2.error) { if (def.fallback) return fetchTable({ ...def, table: def.fallback, fallback: null, order: null }); break; }
+                        if (!r2.data || !r2.data.length) break;
+                        sve = sve.concat(r2.data);
+                        if (r2.data.length < PAGE) break;
+                        continue;
+                    }
+                    if (def.fallback) return fetchTable({ ...def, table: def.fallback, fallback: null, order: null });
+                    break;
+                }
+                if (!data || !data.length) break;
+                sve = sve.concat(data);
+                if (data.length < PAGE) break;
+            }
+            return { key: def.key, label: def.label, table: def.table, data: safeArray(sve).map(compactRow), error: null };
+        }
         let q = supabase.from(def.table).select('*');
         if (def.order) q = q.order(def.order, { ascending: false });
         if (def.limit && typeof q.limit === 'function') q = q.limit(def.limit);
@@ -120,7 +148,77 @@ export function buildBusinessSummary(ctx, tableStatus = []) {
         byMaterial[mat].kg += Number(r.kg_neto || r.kg_bruto || r.kg || r.neto_kg || r.tezina || 0) || 0;
     }
 
+    // POTROŠNJA po materijalu: iskorišćene rolne (kao ekran "Analiza materijala").
+    // Grupisano detaljno (vrsta·oznaka·debljina·širina) + ukupno, metri i kg.
+    const POTROSENE_ST = ['iskorišćeno', 'iskorisceno', 'potrošena', 'potrosena', 'potroseno', 'potrošeno', 'used'];
+    const svePotrosene = [...safeArray(ctx.rolne), ...safeArray(ctx.magacin)].filter(r => POTROSENE_ST.includes(String(r?.status || '').trim().toLowerCase()));
+    const potrosnjaPoMat = {};
+    let potrUkM = 0, potrUkKg = 0;
+    // pomoć za period: koliko je potrošeno u zadnjih 30 / 90 dana (po datumu promene statusa)
+    const now = Date.now();
+    const per = { d30: { m: 0, kg: 0 }, d90: { m: 0, kg: 0 }, ukupno: { m: 0, kg: 0 } };
+    for (const r of svePotrosene) {
+        const vrsta = String(r.vrsta || r.tip || 'NEPOZNATO').toUpperCase();
+        const podVrsta = r.pod_vrsta || r.podvrsta || '';
+        const oznaka = r.oznaka_materijala || r.oznaka || '';
+        const deb = Number(r.debljina || r.deb || 0);
+        const sir = Number(r.sirina || 0);
+        const proizvodjac = r.dobavljac || r.proizvodjac || r.proizvođač || '';
+        const kljuc = [vrsta, podVrsta, oznaka, deb ? deb + 'µ' : '', sir ? sir + 'mm' : '', proizvodjac].filter(Boolean).join(' · ');
+        const m = Number(r.metraza || r.metraza_ost || 0) || 0;
+        const kg = Number(r.kg_neto || r.kg_bruto || r.kg || 0) || 0;
+        potrosnjaPoMat[kljuc] = potrosnjaPoMat[kljuc] || { vrsta, pod_vrsta: podVrsta, oznaka, debljina: deb, sirina: sir, proizvodjac, rolni: 0, metara: 0, kg: 0 };
+        potrosnjaPoMat[kljuc].rolni += 1;
+        potrosnjaPoMat[kljuc].metara += m;
+        potrosnjaPoMat[kljuc].kg += kg;
+        potrUkM += m; potrUkKg += kg;
+        // period
+        const ts = new Date(r.updated_at || r.datum_promene || r.datum || r.created_at || 0).getTime();
+        per.ukupno.m += m; per.ukupno.kg += kg;
+        if (ts) {
+            const dana = (now - ts) / 86400000;
+            if (dana <= 30) { per.d30.m += m; per.d30.kg += kg; }
+            if (dana <= 90) { per.d90.m += m; per.d90.kg += kg; }
+        }
+    }
+    // zaokruži
+    Object.values(potrosnjaPoMat).forEach(x => { x.metara = Math.round(x.metara); x.kg = Math.round(x.kg * 10) / 10; });
+    ['d30', 'd90', 'ukupno'].forEach(k => { per[k].m = Math.round(per[k].m); per[k].kg = Math.round(per[k].kg * 10) / 10; });
+
     const activeOrders = nalozi.filter(n => !['zavrseno', 'zatvoreno', 'otkazano', 'isporuceno'].includes(String(n.status || '').toLowerCase()));
+
+    // PROIZVODI PO SVRSI: za AI upite "treba mi folija/materijal za X" (posuda PE, duplex za sir...).
+    // Izvlači svrhu iz templejta + sastav slojeva (duplex/triplex po broju slojeva).
+    const proizvodiSvrha = [];
+    for (const p of proizvodi) {
+        const t = p.res?.template || p.data || p.template || p || {};
+        const svrha = t.svrha || p.svrha || '';
+        const tip = p.tip || t.type || '';
+        // slojevi (za sastav i duplex/triplex/kvadriplex)
+        const sek = t[tip] || t.folija || t.kesa || t.spulna || {};
+        const layers = sek.layers || t.layers || [];
+        const brSlojeva = Array.isArray(layers) ? layers.length : 0;
+        const laminat = brSlojeva >= 4 ? 'kvadriplex' : brSlojeva === 3 ? 'triplex' : brSlojeva === 2 ? 'duplex' : brSlojeva === 1 ? 'monofilm' : '';
+        const sastav = (Array.isArray(layers) ? layers : []).map(l => {
+            const v = l.vrsta || l.material || '';
+            const o = l.oznaka_materijala || l.oznaka || '';
+            const d = l.debljina || l.deb || '';
+            return [v, o, d ? d + 'µ' : ''].filter(Boolean).join(' ');
+        }).filter(Boolean);
+        if (svrha || sastav.length) {
+            proizvodiSvrha.push({
+                naziv: p.naziv || t.naziv || '',
+                kupac: p.kupac || '',
+                tip,
+                svrha,
+                laminat,             // duplex/triplex/kvadriplex/monofilm
+                broj_slojeva: brSlojeva,
+                sastav,              // niz slojeva ["BOPP FXC 20µ", "PET 12µ"...]
+                idealna_sirina: p.sir || t.idealnaSirinaMaterijala || null,
+            });
+        }
+    }
+
     const connectedTables = tableStatus.filter(t => !t.error && t.count > 0).length;
     const missingTables = tableStatus.filter(t => t.error).map(t => `${t.table}: ${t.error}`);
 
@@ -135,7 +233,13 @@ export function buildBusinessSummary(ctx, tableStatus = []) {
         ukupno_metara_magacin: Math.round(sum(rolne, ['metraza_ost', 'metraza', 'metara', 'duzina', 'ostatak_m', 'ostalo_m'])),
         ukupno_kg_magacin: Math.round(sum(rolne, ['kg_neto', 'kg_bruto', 'kg', 'neto_kg', 'tezina'])),
         zapisa_potrosnje: potrosnja.length,
-        magacin_po_materijalu: byMaterial
+        magacin_po_materijalu: byMaterial,
+        // POTROŠNJA (iskorišćene rolne) — AI koristi za "koliko je potrošeno"
+        potrosnja_po_materijalu: potrosnjaPoMat,
+        potrosnja_ukupno: { metara: Math.round(potrUkM), kg: Math.round(potrUkKg * 10) / 10, rolni: svePotrosene.length },
+        potrosnja_period: per,   // {d30:{m,kg}, d90:{m,kg}, ukupno:{m,kg}}
+        // PROIZVODI PO SVRSI — AI koristi za "treba mi materijal/folija za X"
+        proizvodi_po_svrsi: proizvodiSvrha
     };
 }
 
@@ -154,6 +258,8 @@ Kada daješ predlog za proizvodnju, rezanje ili nabavku, objasni logiku: materij
 Ne menjaj bazu samostalno. Za akcije reci šta treba kliknuti ili šta sistem treba da uradi.
 Vreme naloga na mašini = setup + metri ÷ brzina mašine; mašina provlači matičnu rolnu (metri ÷ broj traka).
 U materijal_stavke isti nalog ume da postoji pod MP brojem i pod nazivom kupca — računaj jednom (prednost MP broju).
+POTROŠNJA MATERIJALA: u summary imaš "potrosnja_po_materijalu" (iskorišćene rolne grupisane po vrsti · pod-vrsti · oznaci · debljini · širini · proizvođaču, sa metrima i kg), "potrosnja_ukupno" (ukupno metara/kg/rolni) i "potrosnja_period" (d30 = zadnjih 30 dana, d90 = 90 dana, ukupno). Kad te pitaju koliko je nekog materijala potrošeno — ukupno ili za period — odgovori iz ovih polja, i u metrima i u kg. Materijal filtriraj po bilo kom atributu (vrsta, pod-vrsta, oznaka, debljina, širina, proizvođač) prema pitanju.
+PROIZVOD ZA ODREĐENU SVRHU: u summary imaš "proizvodi_po_svrsi" (svaki proizvod sa poljem "svrha" = za šta se koristi, "laminat" = duplex/triplex/kvadriplex/monofilm po broju slojeva, "sastav" = niz slojeva sa materijalima, "idealna_sirina"). Kad te pitaju "koji materijal/folija za X" (npr. "folija za posudu PE", "materijal za kafu", "duplex za sir") — pretraži "svrha" i "sastav" po ključnim rečima iz pitanja i vrati odgovarajući proizvod: njegov sastav (koji materijali, koliko slojeva, duplex/triplex), svrhu i širinu. Ako više proizvoda odgovara, nabroji ih.
 
 PITANJE KORISNIKA:
 ${userQuestion}

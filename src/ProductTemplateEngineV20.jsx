@@ -3,19 +3,11 @@ import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoefic
 import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
-import { QRCodeSVG } from "qrcode.react";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
-// Jedinstveni QR token proizvoda (UUID → nikad se ne poklopi).
-function noviQrToken() { try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { } return 'P-' + Date.now() + '-' + Math.random().toString(36).slice(2); }
-function qrScanUrl(token) { const base = (typeof window !== 'undefined' && window.location) ? (window.location.origin) : 'https://maropack-erp-mes-final.vercel.app'; return base + '/?p=' + encodeURIComponent(token || ''); }
-
 import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import { KESA_OPCIJE, FOOD_TEXT, POS_LBL, toCrtezKesa, KESA_GRUPE, KESA_TIP_PRESET } from "./kesaOpcije.js";
 import { KUTIJE, KUTIJA_LBL, proveriKutiju, predloziKutiju, kutijaPoKljucu, poPaletiZa } from "./kutije.js";
 import { useLang } from "./LanguageProvider.jsx";
-// Lokalni "Pitaj AI" sa BOGATIM kontekstom templejta (globalni iz App.jsx se
-// automatski skloni dok je ovaj montiran — registar instanci u AIPomoc-u).
-import AIPomoc from "./modules/AIPomoc.jsx";
 
 // =====================================================================
 //  Živo učitavanje materijala iz material_master + proizvođača iz magacin
@@ -296,6 +288,7 @@ const defaultForm = {
     naziv: "",
     kupac: "",
     sifra: "",
+    svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
     napomena: "",
     porucenaKolicina: "",
     jedinicaUnosa: "m",          // "m" = metri gotove trake | "kom" | "kg"
@@ -392,7 +385,7 @@ const defaultForm = {
         // narudžbina
         kolicina: "",
         jedinicaUnosa: "m2",        // m2 | kom (špulni) | kg | m (trake)
-        skart: "10",
+        skart: "0",
         // materijal / strane
         sideA: "Silikon",
         sideB: "Papir",
@@ -423,10 +416,6 @@ function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 //   156 špulni × 20.000 m = 3.120.000 m  →  × 0,020 m (W) = 62.400 m²
 //   62.400 m² × 60 g/m² = 3.744 kg   ·   480 ÷ 20 = 24 trake  →  matična 130.000 m
 // ─────────────────────────────────────────────────────────────────────────────
-// PRAVILO FIRME: poručena količina se za rad UVEK uvećava 10% (folija, kesa i špulna).
-// Ako operater u polje unese drugi procenat (>0), on ima prednost; prazno/0 = 10%.
-const UVECANJE_KOLICINE_PCT = 10;
-
 function spulnaObracun(form) {
     const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const p = form.spulna || {};
@@ -434,7 +423,7 @@ function spulnaObracun(form) {
     const sirMat = N_(p.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
     const maxM = N_(p.maxMetara);
     const gm2 = (p.layers || []).reduce((a, l) => a + (N_(l.gm2) || N_(l.debljina) * N_(l.koeficijent)), 0);
-    const skart = N_(p.skart) || UVECANJE_KOLICINE_PCT;
+    const skart = N_(p.skart);
     const jed = p.jedinicaUnosa || "m2";
     const v = N_(p.kolicina);
     const greske = [];
@@ -480,29 +469,23 @@ function spulnaObracun(form) {
         greske,
     };
 }
-// Metraža materijala za nalog: uvek poručena količina + 10% (UVECANJE_KOLICINE_PCT); uneti % ima prednost.
+// Metraža materijala za nalog: kesa = kom × (dužina+klapna+falta) × (1+škart%); folija/špulna = poručena (m) × 1.05
 function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
-        const smer = f.smerMaterijala || "duzina";
-        const dkMm = n(k.duzina) + n(k.klapna) + n(k.falta);   // korak po dužini kese
-        const skMm = n(k.sirina);                               // širina kese
-        // Smer: šta ide UZDUŽ materijala (troši metražu) vs POPREČNO (staje po širini materijala).
-        const uzduznoMm = smer === "duzina" ? dkMm : skMm;
-        const poprecnoMm = smer === "duzina" ? skMm : dkMm;
-        const duzM = uzduznoMm / 1000;                          // korak, m
-        const kom = n(k.kolicina), skart = n(k.skart) || UVECANJE_KOLICINE_PCT;
-        // BAN = broj traka po sirini. Maticna rolna je BAN puta KRACA.
+        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;   // korak, m
+        const kom = n(k.kolicina), skart = n(k.skart);
+        // BAN = broj traka po sirini. Rezanje NE skracuje duzinu - multiplicira je po traci,
+        // pa je maticna rolna BAN puta KRACA. Ranije se nije delilo -> trazilo se BAN x vise materijala.
         const ban = Math.max(1, n(k.ban) || 1);
         const mTrake = kom * duzM;            // metri gotove trake
-        const mMat = mTrake / ban;            // metri maticne rolne
+        const mMat = mTrake / ban;            // metri maticne rolne  <-- ispravka
         return {
             kol: Math.round(mMat),
             kolPlus: Math.ceil(mMat * (1 + skart / 100)),
             kom, duzM, ban,
             mTrake: Math.round(mTrake),
-            smer, poprecnoMm, uzduznoMm,
         };
     }
     if (f.type === "folija") {
@@ -528,7 +511,7 @@ function orderMetraze(f) {
         };
     }
     const kol = n(f.porucenaKolicina);
-    return { kol, kolPlus: Math.ceil(kol * (1 + UVECANJE_KOLICINE_PCT / 100)), kom: 0, duzM: 0 };
+    return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -539,7 +522,7 @@ function orderMetraze(f) {
 //   m²                  = metri matične × ulazna širina
 //   kg                  = m² × g/m²
 // ─────────────────────────────────────────────────────────────────────────────
-function folijaObracun(form, skartPct = UVECANJE_KOLICINE_PCT) {
+function folijaObracun(form, skartPct = 5) {
     const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const layers = (form.folija?.layers || []).filter(l => N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) > 0 || (N_(l.debljina) && N_(l.koeficijent)));
     const rez = form.folija?.rezanje || {};
@@ -1530,7 +1513,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     function setType(t) {
         // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
         // pa se ne prelivaju iz jednog templejta u drugi.
-        const SHARED = ["sifra", "kupac", "naziv", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        const SHARED = ["sifra", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
         setForm(prev => {
             if (t === prev.type) return prev;
             const next = clone(prev);
@@ -1671,11 +1654,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
     //   kaširanje → samo ako ima više od jednog sloja
     // (Primer iz baze: MP-2026-0007 = materijal · stampa · perforacija_rezanje — bez kaširanja.)
     function operacijeZa(form) {
-        const Lraw = (form.type === "folija" ? form.folija?.layers
+        const L = (form.type === "folija" ? form.folija?.layers
             : form.type === "kesa" ? form.kesa?.layers
                 : form.spulna?.layers) || [];
-        // SAMO popunjeni slojevi — prazni redovi ne smeju da "izmisle" kaширanje/štampu.
-        const L = Lraw.filter(l => l && (l.vrsta || l.materijal || l.oznaka || l.oznaka_materijala || Number(l.tezina) || Number(l.gm2) || Number(l.debljina)));
         // Stampa se prepoznaje i kad cekboks "Š" na sloju NIJE stikliran, a
         // parametri stampe postoje (brojBoja / lista boja). Ranije se gledao samo
         // cekboks, pa je nalog za stampu izostajao iako su boje unete.
@@ -1811,7 +1792,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
     async function potvrdiNalogMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-        const { kol, kolPlus, ban, mTrake } = orderMetraze(form);
+        const { kol, kolPlus } = orderMetraze(form);
 
         // ── TVRDA PROVERA — nalog se NE pravi ako rolne nisu izabrane i potrebe pokrivene.
         //    Ranije je ovde stajao window.confirm koji je dozvoljavao da se nepokriven
@@ -1850,26 +1831,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const obr = form.type === "spulna" ? spulnaObracun(form)
                 : form.type === "folija" ? folijaObracun(form) : null;
 
-            // Ko kreira nalog (prijavljeni korisnik) — da se u Glavnim nalozima vidi autor.
-            let kreiraoIme = "", kreiraoId = null;
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    kreiraoId = user.id;
-                    kreiraoIme = user.email || "";
-                    try { const { data: prof } = await supabase.from("users").select("ime").eq("id", user.id).single(); if (prof && prof.ime) kreiraoIme = prof.ime; } catch (e) { }
-                }
-            } catch (e) { }
-
             const zajednicko = {
                 broj_naloga: broj,
                 tip_proizvoda: form.type,
                 kupac: form.kupac || "",
                 naziv: proizvod,
                 proizvod: proizvod,
-                kreirao_ime: kreiraoIme,
-                kreirao_user_id: kreiraoId,
-                rok_isporuke: form.rokIsporuke || null,
             };
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
@@ -1896,10 +1863,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 tip_naloga: op,
                 status: op === "materijal" ? "ceka_magacin" : "ceka",
                 redosled: i + 1,
-                // metraza_maticne: METRI MATIČNE ROLNE (sa škartom) — izračunato kroz obračun,
-                // pa je tačno i kad je porudžbina uneta u KOM ili KG (planer/MES/AI čitaju
-                // prvo ovo polje umesto da pogađaju iz sirove porucenaKolicina).
-                parametri: { sifra: form.sifra || "", template: form, metraza_maticne: kolPlus || 0, metraza_bez_skarta: kol || 0, broj_traka: ban || 1, metri_trake: mTrake || 0 },
+                parametri: { sifra: form.sifra || "", template: form },
             }));
             const { data: opIns, error: oErr } = await supabase
                 .from("operativni_nalozi").insert(ops).select("id, tip_naloga");
@@ -2115,7 +2079,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 return {
                     id: r.id,
                     db_id: r.id,
-                    qr_token: r.qr_token || null,
                     product_master_id: r.product_master_id || ('PROD-' + r.id),
                     template_id: r.template_id || ('TPL-' + r.id),
                     naziv: r.naziv || rec.naziv || "",
@@ -2186,14 +2149,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     record: { ...record, product_master_id: productMasterId, template_id: templateId },
                 },
                 datum: new Date().toLocaleDateString("sr-RS"),
-                qr_token: record.qr_token || noviQrToken(),
             };
 
             // "new" → uvek insert (nov templejt, original ostaje).
             // "update" ili auto → update ako imamo db_id postojećeg, inače insert.
             const existingDbId = (mode === "new") ? null : (record.db_id || (typeof record.id === 'number' ? record.id : null));
             const payloadZaUpis = (mode === "new")
-                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId, qr_token: noviQrToken() }
+                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
                 : payload;
             const query = existingDbId
                 ? supabase.from("proizvodi").update(payloadZaUpis).eq("id", existingDbId).select()
@@ -2229,13 +2191,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 }
                 if (dodato) msg && msg(`Dodato u listu materijala: ${dodato} nov(ih)`, "ok");
             } catch (e) { /* nije kritično za čuvanje templejta */ }
-            if (setDb) setDb(prev => {
-                const red = data?.[0];
-                if (!red) return prev;
-                // update postojećeg je ranije PREPEND-ovao red → isti templejt dvaput u listi
-                const bezStarog = (prev?.proizvodi || []).filter(pz => pz.id !== red.id);
-                return { ...prev, proizvodi: [red, ...bezStarog] };
-            });
+            if (setDb) setDb(prev => ({ ...prev, proizvodi: data?.[0] ? [data[0], ...(prev?.proizvodi || [])] : (prev?.proizvodi || []) }));
             msg && msg("Template sačuvan u Product Master bazu (proizvodi)");
         } catch (e) {
             msg && msg("Template nije sačuvan u Product Master bazu: " + (e?.message || e), "err");
@@ -2378,7 +2334,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>⚡ Kreiraj naloge</button>
                 <button onClick={() => saveTemplate(form.db_id ? "update" : "new")} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>💾 {form.db_id ? "Sačuvaj izmene" : "Sačuvaj templejt"}</button>
                 {form.db_id ? <button onClick={() => saveTemplate("new")} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>➕ Sačuvaj kao novi</button> : null}
-
+                <button onClick={createOfferDraft} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>📄 {t("tmpl.ponuda_iz_template")}</button>
                 <button onClick={aiPrompt} style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 900, cursor: "pointer" }}>🤖 {t("tmpl.ai_workflow")}</button>
             </div>
         </div>
@@ -2396,6 +2352,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 <Input label={t("tmpl.kupac")} value={form.kupac} onChange={v => update("kupac", v)} placeholder="npr. Medomix" />
                 <Input label={t("tmpl.naziv")} value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
                 <Select label={t("tmpl.tip_proizvoda")} value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
+            </div>
+            {/* Svrha proizvoda — za šta se koristi (AI i ručna pretraga) */}
+            <div style={{ marginBottom: 12 }}>
+                <Input label="🎯 Svrha proizvoda (za šta se koristi)" value={form.svrha} onChange={v => update("svrha", v)} placeholder="npr. folija za posudu PE · duplex za sir · kesa za kafu doypack · triplex za paštetu" />
             </div>
             {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
             {form.type !== "kesa" && (
@@ -2447,57 +2407,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
-
-            {/* KESA — smer materijala (prema širini/dužini kese) */}
-            {form.type === "kesa" && (
-                <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: "#334155" }}>Materijal ide prema:</span>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        <input type="radio" name="smerMat" checked={(form.smerMaterijala || "duzina") === "duzina"} onChange={() => { update("smerMaterijala", "duzina"); const k = form.kesa || {}; const ban = Math.max(1, Number(k.ban) || 1); const pop = Number(k.sirina) || 0; if (pop) update("idealnaSirinaMaterijala", String(ban * pop)); }} /> dužini kese
-                    </label>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        <input type="radio" name="smerMat" checked={form.smerMaterijala === "sirina"} onChange={() => { update("smerMaterijala", "sirina"); const k = form.kesa || {}; const ban = Math.max(1, Number(k.ban) || 1); const pop = (Number(k.duzina) || 0) + (Number(k.klapna) || 0) + (Number(k.falta) || 0); if (pop) update("idealnaSirinaMaterijala", String(ban * pop)); }} /> širini kese
-                    </label>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>(predlaže idealnu širinu = ban × {(form.smerMaterijala === "sirina") ? "dužina kese" : "širina kese"}; možeš i ručno)</span>
-                </div>
-            )}
-
-            {/* KESA — potreban materijal prema smeru (širina/dužina) */}
-            {form.type === "kesa" && (() => {
-                const sK = Number(form.dimenzijaSirina || 0);      // širina kese (mm)
-                const dK = Number(form.dimenzijaDuzina || 0);      // dužina kese (mm)
-                const sMat = Number(form.idealnaSirinaMaterijala || 0); // širina materijala (mm)
-                const brojKesa = Number(form.porucenaKolicina || 0);    // poručeno (kom)
-                const falta = Number(form.kesa?.falta || 0);
-                const flach = String(form.kesa?.tipKese || "").toLowerCase() === "flach";
-                if (!sK || !dK || !sMat || !brojKesa) return null;
-                const premaDuzini = (form.smerMaterijala || "duzina") === "duzina";
-                // popreko trake ide jedna dimenzija (koliko kesa stane po širini materijala),
-                // uz dužinu trake druga dimenzija (+ falta na dnu). Flach = crevo → ×2.
-                const poprecno = premaDuzini ? sK : dK;            // dimenzija koja se "reda" po širini materijala
-                const uzduzno = (premaDuzini ? dK : sK) + falta;   // dimenzija koja troši dužinu trake
-                const kesaPoRedu = Math.floor(sMat / poprecno) || 0;
-                if (kesaPoRedu < 1) {
-                    return <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 12.5, color: "#b91c1c", fontWeight: 700 }}>
-                        Kesa ({poprecno} mm) je šira od materijala ({sMat} mm) — proveri smer ili širinu materijala.
-                    </div>;
-                }
-                const redova = Math.ceil(brojKesa / kesaPoRedu);
-                const metriMat = (redova * uzduzno * (flach ? 2 : 1)) / 1000;   // m materijala
-                const metriSaRadom = metriMat * 1.05;
-                return (
-                    <div style={{ background: "#eff6ff", border: "1px solid #2446b8", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
-                        <div style={{ fontWeight: 950, color: "#2446b8", fontSize: 13, marginBottom: 8 }}>📐 Potreban materijal — prema {premaDuzini ? "dužini" : "širini"} kese{flach ? " (flach ×2)" : ""}</div>
-                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 13 }}>
-                            <span>Kesa po širini materijala: <b>{kesaPoRedu}</b></span>
-                            <span>Redova: <b>{redova.toLocaleString("sr-RS")}</b></span>
-                            <span>Po redu troši: <b>{uzduzno} mm</b>{falta ? " (+" + falta + " falta)" : ""}</span>
-                            <span style={{ color: "#059669", fontWeight: 900 }}>Potrebno materijala: {metriMat.toLocaleString("sr-RS", { maximumFractionDigits: 0 })} m</span>
-                            <span style={{ color: "#2446b8", fontWeight: 900 }}>+5% za rad: {metriSaRadom.toLocaleString("sr-RS", { maximumFractionDigits: 0 })} m</span>
-                        </div>
-                    </div>
-                );
-            })()}
             {/* AUTO KALKULACIJA — FOLIJA (poštuje broj traka, radi za kom/kg/m) */}
             {form.type === "folija" && (() => {
                 const ob = folijaObracun(form);
@@ -2641,17 +2550,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         <div style={{ gridColumn: "span 3" }}>
                             <Input label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
                         </div>
-                        <div style={{ gridColumn: "span 3", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 4, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
-                            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 750, color: "#0f172a", cursor: "pointer" }}>
-                                <input type="checkbox" checked={!!form.folija.lakiranje?.eksterno} onChange={e => update("folija.lakiranje.eksterno", e.target.checked)} style={{ width: 17, height: 17, accentColor: "#2563eb", cursor: "pointer" }} />
-                                Eksterno lakiranje (u štampariji)
-                            </label>
-                            {form.folija.lakiranje?.eksterno
-                                ? <div style={{ flex: "1 1 240px", minWidth: 200 }}><Input label="Štamparija (lakiranje)" value={form.folija.lakiranje?.stamparija || ""} onChange={v => update("folija.lakiranje.stamparija", v)} /></div>
-                                : <span style={{ fontSize: 12, color: "#64748b" }}>Nečekirano = in-house lakiranje (dovoljno „Završeno", bez čekanja na povratak iz štamparije).</span>}
-                        </div>
                     </Grid>
-                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak kao <b>boja u štampi</b> (red „Lak" u listi boja) radi se u <b>istom prolazu sa štampom</b> — nema zasebne operacije. Zasebno lakiranje nastaje <b>samo kad je na SLOJU čekirana kolona „L"</b>; tada gore biraš in-house ili eksterno.</div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" ili boja tipa „Lak". Ovi podaci idu na nalog za lakiranje.</div>
                 </Section>
 
                 <Section title={t("tmpl.kasiranje")} color={BLUE}>
@@ -2702,15 +2602,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <label style={labelStyle()}>{t("tmpl.precnik_rolne")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.precnikRolne || ""}
                                 onChange={e => update("folija.rezanje.precnikRolne", e.target.value)} placeholder="npr. 400" />
-                        </div>
-                        <div>
-                            <label style={labelStyle()}>Hilzna finalne rolne Ø (mm)</label>
-                            {/* Ide u finalRoll.hilzna → štampani nalog REZANJE je prikazuje u "Plan rezanja"
-                                i na prilogu finalne rolne. Prazno = preuzima hilznu štampe (pa 152). */}
-                            <input style={{ ...fieldStyle(), background: form.folija.finalRoll?.hilzna ? "#fff" : "#eff6ff", color: "#2446b8", fontWeight: 900 }}
-                                value={form.folija.finalRoll?.hilzna || ""}
-                                onChange={e => update("folija.finalRoll.hilzna", e.target.value)}
-                                placeholder={"auto: " + (form.folija.stampa?.precnikHilzne || 152)} />
                         </div>
                         <div>
                             <label style={labelStyle()}>{t("tmpl.dorada")}</label>
@@ -2765,7 +2656,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.smer === "duzina" ? "dužina+klapna+falta" : "širina kese"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
                             &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
@@ -3049,11 +2940,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                         </div>
                         <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>ID: {t.product_master_id || t.id} · verzija: {t.template_version || "V26"} · sačuvano: {t.created_at ? new Date(t.created_at).toLocaleDateString("sr-RS") : "—"}</div>
                     </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {t.qr_token ? <a href={qrScanUrl(t.qr_token)} target="_blank" rel="noreferrer" title="Otvori / skeniraj proizvod" style={{ display: "inline-block", background: "#fff", padding: 4, border: "1px solid #e2e8f0", borderRadius: 8 }}><QRCodeSVG value={qrScanUrl(t.qr_token)} size={64} level="M" /></a> : <span style={{ fontSize: 11, color: "#94a3b8" }}>QR posle čuvanja</span>}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
-
+                        <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
                         <button onClick={async () => {
                             const next = saved.filter(x => x.id !== t.id);
                             setSaved(next);   // trenutno ukloni iz prikaza
@@ -3075,7 +2965,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         {/* ════ MODAL ZA NALOG MATERIJALA ════ */}
         {nalogModal && (() => {
             const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
-            const { kol, kolPlus, ban, mTrake } = orderMetraze(form);
+            const { kol, kolPlus } = orderMetraze(form);
             const sir = Number(form.idealnaSirinaMaterijala) || 0;
             const sirinaM = sir / 1000;
             const COLORS_M = ["#2446b8", "#059669", "#d97706", "#7c3aed", "#dc2626"];
@@ -3349,32 +3239,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             );
         })()}
 
-        {/* 🤖 Pitaj AI — vidi TRENUTNI templejt: tip, kupca, slojeve, širinu, boje...
-            pa može da odgovori na "koji materijal fali", "koliko traka staje u 655 mm",
-            "predloži rolne za ovaj nalog" bez prepričavanja ekrana. */}
-        <AIPomoc
-            ekran={"Templejt proizvoda (" + String(form.type || "folija").toUpperCase() + ")"}
-            kontekst={() => {
-                const sekcija = form[form.type] || {};
-                const slojevi = (sekcija.layers || [])
-                    .map((l, i) => (i + 1) + ". " + [l.vrsta, l.pod_vrsta, l.oznaka_materijala, l.debljina ? l.debljina + "\u00b5" : "", l.proizvodjac].filter(Boolean).join(" "))
-                    .filter((x) => x.length > 3);
-                const stampa = sekcija.stampa || {};
-                return {
-                    naziv: form.naziv || "novi templejt (nije sa\u010duvan)",
-                    kupac: form.kupac,
-                    tip: form.type,
-                    sifra: form.sifra,
-                    sirina: form.idealnaSirinaMaterijala,
-                    porucenaKolicina: form.porucenaKolicina,
-                    dimenzije: [form.dimenzijaSirina, form.dimenzijaDuzina].filter(Boolean).join(" \u00d7 "),
-                    slojevi,
-                    brojBoja: (Array.isArray(stampa.boje) ? stampa.boje.length : 0) || stampa.brojBoja || undefined,
-                    broj_naloga: nalogBroj || undefined,
-                    napomena: form.napomena || undefined,
-                };
-            }}
-        />
     </div>;
 }
 
