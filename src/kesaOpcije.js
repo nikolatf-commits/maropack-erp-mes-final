@@ -57,7 +57,7 @@ export const KESA_OPCIJE = [
     {
         k: "eurozumba", l: "Eurozumba", tip: "lista",
         vals: ["MALA(30x10x5)", "SREDNJA(32x10x5)", "VELIKA(35x12x5)", "SPECIJALNA"],
-        pos: ["odVrha", "levo"], crtez: "eurozumba"
+        pos: ["odVrha", "odDna", "levo"], crtez: "eurozumba"
     },
 
     { k: "utor", l: "UTOR", tip: "lista", vals: ["205"], crtez: "utor" },
@@ -107,6 +107,11 @@ export const KESA_OPCIJE = [
         k: "tolerancija_kol", l: "Tolerancija količine", tip: "lista",
         vals: ["Mora tačna količina", "Bez + tolerancije", "Bez – tolerancije", "+/- 10%"]
     },
+
+    {
+        k: "tolerancija_dim", l: "Tolerancija u širini i dužini", tip: "lista",
+        vals: ["±1 mm", "±2 mm", "±3 mm", "±5 mm", "Po dogovoru"]
+    },
 ];
 
 // Podrazumevane opcije po tipu kese (kad se izabere tip, ove se same čekiraju)
@@ -132,7 +137,7 @@ export const POS_LBL = {
 
 // Grupisanje opcija po celinama (za templejt i nalog)
 export const KESA_GRUPE = [
-    { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol"] },
+    { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
     { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
     { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "poprecni_var"] },
     { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati"] },
@@ -188,6 +193,7 @@ export function opcijaNaloga(op, sel, pos) {
     if (pos) {
         if (pos.odstojanje) parts.push(pos.odstojanje);
         if (pos.odVrha) parts.push(pos.odVrha + " mm od vrha");
+        if (pos.odDna) parts.push(pos.odDna + " mm od dna");
         if (pos.levo) parts.push(pos.levo + " mm levo");
         if (pos.sirina && pos.visina) parts.push(pos.sirina + "×" + pos.visina + " mm");
     }

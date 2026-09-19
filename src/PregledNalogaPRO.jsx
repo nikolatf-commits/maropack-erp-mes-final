@@ -45,10 +45,25 @@ const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FO
 function skiniSufiks(b) { return String(b || "").trim().replace(OP_SUFIKS, ""); }
 
 export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose }) {
-    const [nalozi, setNalozi] = useState(naloziProp);
+    const [nalozi, setNalozi] = useState([]);
     const [loading, setLoading] = useState(false);
     const [statusBusy, setStatusBusy] = useState(false);
     const [finish, setFinish] = useState(null); // { radnik, uradjeno, skart } dijalog za ručni završetak
+
+    // ── IZOLACIJA NALOGA (ključno protiv mešanja prikaza) ─────────────────────────
+    // naloziProp je CEO db.nalozi (sve operacije svih naloga). Ovaj pregled sme da
+    // prikaže SAMO operacije OVOG naloga, pa uvek filtriramo STROGO:
+    //  1) po glavni_nalog_id (najpouzdanije — sve operacije istog naloga dele isti id),
+    //  2) ako njega nema — po TAČNOM master broju (bez labavog prefiks-poklapanja koje
+    //     je znalo da uvuče operacije drugog naloga).
+    const safeBrojKljuc = skiniSufiks(String(brojNaloga || "").replace(/[,()]/g, "").trim());
+    const masterKljuc = (osnovniNalog && (osnovniNalog.glavni_nalog_id || osnovniNalog.master_nalog_id || (osnovniNalog.master_nalog && osnovniNalog.master_nalog.id))) || null;
+    function pripadaNalogu(n) {
+        if (!n) return false;
+        if (masterKljuc && (n.glavni_nalog_id === masterKljuc || (n.master_nalog && n.master_nalog.id === masterKljuc))) return true;
+        const b = skiniSufiks(String(n.broj_naloga || n.broj || "").replace(/[,()]/g, "").trim());
+        return !!safeBrojKljuc && b === safeBrojKljuc;
+    }
 
     // Osnovni upis statusa + vremenskih pečata (da i RUČNI tok puni Manager Dashboard).
     async function upisiStatus(noviStatus, extra = {}) {
@@ -95,8 +110,9 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const [rezRolne, setRezRolne] = useState([]);
 
     useEffect(() => {
-        setNalozi((naloziProp || []).map(enrichNalogForPrint));
-    }, [naloziProp]);
+        // Filtriraj na SAMO ovaj nalog — nikad ne postavljaj ceo spisak (to je pravilo mešanje).
+        setNalozi((naloziProp || []).filter(pripadaNalogu).map(enrichNalogForPrint));
+    }, [naloziProp, safeBrojKljuc, masterKljuc]);
 
     const [refreshTick, setRefreshTick] = useState(0);
 
@@ -154,10 +170,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             // Ako su nalozi za ovaj broj VEĆ prosleđeni kroz props (db) — koristi ih ODMAH.
             // Podaci (uklj. parametri.template) su tu od kreiranja; nema potrebe za mrežnim
             // dovlačenjem koje pravi "Učitavam" i sporost pri prelasku kroz kartice.
-            const vecImam = (naloziProp || []).filter(function (n) {
-                const b = skiniSufiks(String(n.broj_naloga || n.broj || "").replace(/[,()]/g, "").trim());
-                return b === safeBroj || b.indexOf(safeBroj) === 0 || safeBroj.indexOf(b) === 0;
-            });
+            const vecImam = (naloziProp || []).filter(pripadaNalogu);
             if (vecImam.length) {
                 setNalozi(vecImam.map(enrichNalogForPrint));
                 return;   // imamo sve — bez dovlačenja, bez "Učitavam"
