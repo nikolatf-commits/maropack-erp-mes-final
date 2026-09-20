@@ -734,11 +734,63 @@ function citajRolne(nalog) {
         });
 }
 
+/* ---------- FORMATIRANJE ---------- */
+// Podaci dolaze iz operativnog naloga: parametri.formatiranje = niz planova po sloju
+// (ulazna/ciljna širina, broj traka, ostatak, kuda ide ostatak, koliko se skida, izlaz).
+function pFormat(D, nalog) {
+    const c = '#7c3aed';
+    const par = safeJson(nalog.parametri, {}) || {};
+    const parOp = safeJson(nalog.parametri_operacije, {}) || {};
+    let plan = Array.isArray(par.formatiranje) ? par.formatiranje
+        : Array.isArray(parOp.formatiranje) ? parOp.formatiranje
+            : (Array.isArray(nalog.formatiranje) ? nalog.formatiranje : []);
+    const p0 = plan[0] || {};
+    const w = Number(p0.ulazna_sirina) || 0, id = Number(p0.ciljna_sirina) || 0;
+    const tr = Math.max(1, Number(p0.broj_traka) || 1), ost = Number(p0.ostatak_mm) || 0;
+
+    const statBlok = '<div class="stats">' +
+        stat('Ulazna širina', p0.ulazna_sirina || '—', 'mm', '#2563eb') +
+        stat('Ciljna širina', p0.ciljna_sirina || '—', 'mm', '#16a34a') +
+        stat('Broj traka', tr, tr >= 2 ? 'trake' : 'suženje', c) +
+        stat('Bočni ostatak', ost || '0', 'mm', ost ? '#dc2626' : '#16a34a') + '</div>';
+
+    // vizuelni prikaz reza
+    let lanes = '';
+    for (let k = 0; k < tr; k++) lanes += '<div style="flex:' + (id || 1) + ';background:#ede9fe;border-right:1.5px solid #7c3aed;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:900;color:#6d28d9;font-size:12px">' + (k + 1) + '<span style="font-size:9px;color:#334155">' + (id || '—') + ' mm</span></div>';
+    if (ost > 0) lanes += '<div style="flex:' + ost + ';background:#fee2e2;color:#b91c1c;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:10px">ostatak ' + ost + ' mm</div>';
+    const bar = plan.length
+        ? '<div style="display:flex;height:54px;border:1.5px solid #5b21b6;border-radius:6px;overflow:hidden">' + lanes + '</div><div style="text-align:center;font-size:10px;color:#6d28d9;font-weight:800;margin-top:6px">ulazna širina ' + (w || '—') + ' mm</div>'
+        : '<div style="color:#94a3b8;font-weight:800;text-align:center;padding:14px">Nalog nema upisan plan formatiranja.</div>';
+
+    const redovi = plan.map(function (f, i) {
+        return '<tr><td>' + (f.sloj || (i + 1)) + '</td>' +
+            '<td>' + esc([f.materijal, f.oznaka, f.debljina ? f.debljina + 'µ' : ''].filter(Boolean).join(' ')) + '</td>' +
+            '<td class="n">' + (f.ulazna_sirina || '—') + ' mm</td>' +
+            '<td class="n">' + (f.ciljna_sirina || '—') + ' mm</td>' +
+            '<td class="n">' + (Math.max(1, Number(f.broj_traka) || 1)) + '</td>' +
+            '<td class="n">' + (f.ostatak_mm != null ? f.ostatak_mm + ' mm' : '—') + '</td>' +
+            '<td>' + (Number(f.ostatak_mm) > 0 ? (f.ostatak_na_stanje ? '↩ na stanje (nova rolna)' : '🗑 otpad') : '—') + '</td>' +
+            '<td class="n">' + fmtN(f.skida_m) + ' m</td>' +
+            '<td class="n">' + fmtN(f.izlaz_m) + ' m</td></tr>';
+    }).join('');
+    const tabela = plan.length ? '<table>' + th(['Sloj', 'Materijal', { t: 'Ulazna', n: 1 }, { t: 'Ciljna', n: 1 }, { t: 'Traka', n: 1 }, { t: 'Ostatak', n: 1 }, 'Ostatak →', { t: 'Skida se', n: 1 }, { t: 'Izlaz', n: 1 }], c) + '<tbody>' + redovi + '</tbody></table>' : '';
+
+    return pageWrap(D, hd(D, '🎞️', 'NALOG ZA FORMATIRANJE', c, 'formatiranje') + '<div class="body">' +
+        statBlok +
+        '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) +
+        infoC('Materijal', [p0.materijal, p0.oznaka, p0.debljina ? p0.debljina + 'µ' : ''].filter(Boolean).join(' ') || '—') + infoC('Rok', D.rok) + '</div>' +
+        '<div class="sec">' + secH(1, c, 'Plan reza (formatiranje)', 'iz naloga') + '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#faf5ff">' + bar + '</div></div>' +
+        (plan.length ? '<div class="sec">' + secH(2, c, 'Plan po sloju', '') + tabela + '</div>' : '') +
+        (ost > 0 ? '<div class="ulaz">Bočni ostatak <b>' + ost + ' mm</b>: ' + (p0.ostatak_na_stanje ? 'vraća se na stanje kao nova rolna (širina ' + ost + ' mm) — za drugi nalog.' : 'ide na otpad (škart).') + '</div>' : '') +
+        foot('Operater formatirke', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formatiranje');
+}
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
+    if (vrsta === "formatiranje") return pFormat(D, nalog);
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).

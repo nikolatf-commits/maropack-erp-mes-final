@@ -44,7 +44,7 @@ function productTabs(tipProizvoda) {
 const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
 function skiniSufiks(b) { return String(b || "").trim().replace(OP_SUFIKS, ""); }
 
-export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose }) {
+export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose, onObrisan }) {
     const [nalozi, setNalozi] = useState([]);
     const [loading, setLoading] = useState(false);
     const [statusBusy, setStatusBusy] = useState(false);
@@ -402,6 +402,11 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     async function obrisiNalog() {
         const masterBroj = masterBrojOf(naslovBroj);
         if (!confirm("Obrisati CEO nalog " + masterBroj + " (sve operacije za ovaj proizvod)? Ovo se ne može vratiti.")) return;
+        // OPTIMISTIČNO: odmah skloni nalog iz liste i zatvori pregled (trenutan UX).
+        // Brisanje u bazi ide u pozadini; ako baza odbije, lista se osveži (nalog se vrati).
+        try { onObrisan && onObrisan(masterBroj); } catch (e) { }
+        if (closeFn) closeFn();
+        const reload = () => { try { window.dispatchEvent(new CustomEvent("maropack:nalozi-changed")); } catch (e) { } };
         try {
             // 1) Nađi master id (iz učitanih naloga, pa iz baze po broju, pa preko operacije)
             let masterId = masterIdGuess;
@@ -418,21 +423,40 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             await del(supabase.from("operativni_nalozi").delete().eq("broj_naloga", String(naslovBroj).trim()));
             if (ids.length) await del(supabase.from("operativni_nalozi").delete().in("id", ids));
 
-            // 3) Oslobodi rezervisane rolne tog naloga
-            try { await supabase.from("magacin").update({ dodeljeno_nalogu: null, rezervisano: false }).ilike("dodeljeno_nalogu", "%" + masterBroj + "%"); } catch (e) { }
-
             // 4) Obriši master
             if (masterId) await del(supabase.from("radni_nalozi").delete().eq("id", masterId));
             else await del(supabase.from("radni_nalozi").delete().eq("broj_naloga", masterBroj));
 
-            if (err) { alert("Brisanje nije uspelo: " + (err.message || err)); return; }
+            if (err) { reload(); alert("Brisanje nije uspelo: " + (err.message || err)); return; }
             if (deleted === 0) {
+                reload();   // baza nije obrisala (RLS) → vrati nalog u listu
                 alert("Ništa nije obrisano. Najverovatnije baza ne dozvoljava brisanje (RLS politika). Treba dodati DELETE dozvolu u Supabase za tabele radni_nalozi i operativni_nalozi. Reci mi pa ti dam tačan SQL.");
                 return;
             }
-            alert("Nalog " + masterBroj + " je obrisan (" + deleted + " stavki).");
-            if (closeFn) closeFn();
-        } catch (e) { alert("Greška pri brisanju: " + (e.message || e)); }
+            // 5) USPEH → oslobodi rezervisane rolne SAMO ovog naloga (ne diraj druge naloge
+            //    na istoj rolni), vrati rolnu na „Na stanju" ako je više niko ne drži, i
+            //    obriši stavke iz ledgera (materijal_stavke). Tako ne moraš ručno da oslobađaš.
+            try {
+                let stavke = [];
+                try { const { data } = await supabase.from("materijal_stavke").select("rolna_id, alocirano_m").eq("nalog_ref", masterBroj); stavke = data || []; } catch (e) { }
+                const drziPoRolni = {};
+                stavke.forEach(s => { if (s.rolna_id) drziPoRolni[s.rolna_id] = (drziPoRolni[s.rolna_id] || 0) + (Number(s.alocirano_m) || 0); });
+
+                const { data: rolne } = await supabase.from("magacin").select("id, dodeljeno_nalogu, rezervisano").ilike("dodeljeno_nalogu", "%" + masterBroj + "%");
+                const tokenBroj = (t) => masterBrojOf(String(t).split("·")[0]);   // "MP-2026-0008 · NAZIV" → "MP-2026-0008"
+                await Promise.all((rolne || []).map(r => {
+                    const tokens = String(r.dodeljeno_nalogu || "").split(",").map(x => x.trim()).filter(Boolean);
+                    const ostali = tokens.filter(t => tokenBroj(t) !== masterBroj);   // zadrži druge naloge
+                    const patch = { dodeljeno_nalogu: ostali.join(", ") || null };
+                    if (!ostali.length) { patch.status = "Na stanju"; patch.rezervisano = null; }   // niko više ne drži rolnu
+                    else { const skini = drziPoRolni[r.id] || 0; patch.rezervisano = (Math.max(0, (Number(r.rezervisano) || 0) - skini)) || null; }
+                    return supabase.from("magacin").update(patch).eq("id", r.id);
+                }));
+                try { await supabase.from("materijal_stavke").delete().eq("nalog_ref", masterBroj); } catch (e) { }
+            } catch (e) { console.warn("Oslobađanje rolni pri brisanju:", e?.message || e); }
+
+            reload();   // javi ostalim ekranima (brojači, magacin) da usklade stanje
+        } catch (e) { reload(); alert("Greška pri brisanju: " + (e.message || e)); }
     }
     const [stampajSve, setStampajSve] = useState(false);
     function stampaj() { setStampajSve(false); if (typeof window !== "undefined") setTimeout(() => window.print(), 30); }

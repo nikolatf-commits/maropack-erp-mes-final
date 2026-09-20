@@ -2220,6 +2220,7 @@ function MainAppContent() {
                                     naloziProp={db.nalozi}
                                     nalozi={db.nalozi}
                                     onBack={function () { setPregNalog(null); }}
+                                    onObrisan={function (mb) { setDb(function (d) { return Object.assign({}, d, { nalozi: (d.nalozi || []).filter(function (n) { return canonRef(n.broj_naloga || n.broj || "") !== mb; }) }); }); }}
                                 />
                             ) : db.nalozi.length === 0 ? (
                                 <div style={Object.assign({}, card, { textAlign: "center", padding: 50, color: "#94a3b8" })}>
