@@ -237,7 +237,9 @@ function alocirajRolne(rolne, layer, opts = {}) {
     let zbir = 0;
     for (const r of redosled) {
         izabrane.push(r);
-        zbir += rolnaMetraza(r);
+        // EFEKTIVNO: šira rolna daje N traka idealne širine (formatiranje), pa 1 m = N m.
+        // Bez množioca je Auto uzimao 4× više rolni nego što treba (6 umesto 2).
+        zbir += rolnaMetraza(r) * formatMultiplier(r.sirina, ideal);
         if (!potrebnoM) break;          // bez poznate potrebe — samo predloži prvu
         if (zbir >= potrebnoM) break;   // pokrivena potreba
     }
