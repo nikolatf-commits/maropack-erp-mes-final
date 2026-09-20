@@ -104,7 +104,10 @@ function buildSvgPro(c, u, lang = "sr") {
     const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
     const legend = (c.legend || []).filter((l) => l && l.n);
-    const W = 1000, H = 720;
+    // viewBox suzen na širinu crteža (pre je desno bio tekst panel) — tako se crtež
+    // pri prikazu (width 100%) razvuče na celu širinu strane i bude veći. Tekst (tip,
+    // dimenzije, pozicije) ide u traku NA DNU (H povećan da ima mesta).
+    const W = 520, H = 1040;
     const s = Math.min(150 / sirina, 300 / duzina);
     const bw = sirina * s, bh = duzina * s;
     const kl = vrh === "klapna" ? Math.min(klMm * s, 64) : (vrh === "header" ? Math.min(extraMm * s, 52) : 0);
@@ -117,7 +120,7 @@ function buildSvgPro(c, u, lang = "sr") {
     const euroPath = (ecx, ecy, WW) => { const HH = Math.max(WW * 0.34, 5), Rb = Math.max(WW * 0.16, 3), r = Math.min(HH / 2, 4), left = ecx - WW / 2, right = ecx + WW / 2, top = ecy - HH / 2, bot = ecy + HH / 2; return `<path d="M ${q(left)} ${q(top + r)} Q ${q(left)} ${q(top)} ${q(left + r)} ${q(top)} L ${q(ecx - Rb)} ${q(top)} A ${q(Rb)} ${q(Rb)} 0 0 1 ${q(ecx + Rb)} ${q(top)} L ${q(right - r)} ${q(top)} Q ${q(right)} ${q(top)} ${q(right)} ${q(top + r)} L ${q(right)} ${q(bot - r)} Q ${q(right)} ${q(bot)} ${q(right - r)} ${q(bot)} L ${q(left + r)} ${q(bot)} Q ${q(left)} ${q(bot)} ${q(left)} ${q(bot - r)} Z" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`; };
 
     let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern>`;
-    let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="640" height="${H}" fill="url(#grid${u})"/><line x1="640" y1="0" x2="640" y2="${H}" stroke="#111827" stroke-width="1"/>`;
+    let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="${W}" height="740" fill="url(#grid${u})"/>`;
     g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter">${T("crtez.prednji")}</text>`;
     g += `<ellipse cx="${cx}" cy="${q(y1 + 11)}" rx="${q(bw * 0.5)}" ry="7" fill="${INK}" opacity=".1"/>`;
     const body = `M ${q(x0)} ${q(y0)} C ${q(x0 - bulge)} ${q(y0 + bh * .3)} ${q(x0 - bulge)} ${q(y0 + bh * .7)} ${q(x0)} ${q(y1)} L ${q(x1)} ${q(y1)} C ${q(x1 + bulge)} ${q(y0 + bh * .7)} ${q(x1 + bulge)} ${q(y0 + bh * .3)} ${q(x1)} ${q(y0)} Z`;
@@ -226,20 +229,32 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     g += ext(bx, bY + bDp, bx, bY + bDp + 28) + ext(bx + bW, bY + bDp, bx + bW, bY + bDp + 28) + dH(bx, bx + bW, bY + bDp + 22, `${sirina}`);
     if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, `${extraMm}`);
-    // ===== LEGENDA DESNO =====
-    const LX = 670;
-    g += `<text x="${LX}" y="70" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text><text x="${LX}" y="92" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
+    // ===== INFO PANEL — DOLE (puna širina, da crtež gore bude veći) =====
+    const PADX = 30, RXX = W - 30, BTY = 758;
+    g += `<line x1="${PADX}" y1="${BTY}" x2="${RXX}" y2="${BTY}" stroke="#111827" stroke-width="1"/>`;
+    g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text>`;
+    g += `<text x="${PADX}" y="${BTY + 44}" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
     const tn = (TIPOVI[c.tip] && TIPOVI[c.tip].n) || "Kesa";
     const meta = [["Tip", tn], ["Dimenzije", sirina + " × " + duzina + " mm"], [vrh === "klapna" ? "Klapna" : "Vrh", vrh === "klapna" ? (klMm + " mm" + (klTip === "schrag" ? " (kosa)" : "")) : vrh], ["Dno", dno === "faltna" ? ("Faltna " + extraMm + " mm") : (dno === "naht" ? "Var na dnu" : (dno === "kreuz" ? "Ukršteno" : "Ravno"))]];
-    let my = 116; meta.forEach((m) => { g += `<text x="${LX}" y="${my}" font-size="11" fill="${SUB}" font-family="Inter">${m[0]}</text><text x="${W - 30}" y="${my}" font-size="11" fill="${INK}" text-anchor="end" font-weight="700" font-family="ui-monospace,Menlo">${m[1]}</text><line x1="${LX}" y1="${my + 6}" x2="${W - 30}" y2="${my + 6}" stroke="#eef2f7" stroke-width="1"/>`; my += 23; });
-    g += `<text x="${LX}" y="${my + 18}" font-size="11" fill="${SUB}" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.pozicije")}</text>`;
-    let ly = my + 42;
-    if (!legend.length) g += `<text x="${LX}" y="${ly}" font-size="11" fill="${LINE}" font-family="Inter">— nema dodatnih opcija —</text>`;
-    legend.forEach((it, i) => {
-        const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba"].includes(it.key) ? ACC : SUB)));
-        g += `<circle cx="${LX + 9}" cy="${ly - 4}" r="9" fill="#fff" stroke="${col}" stroke-width="1.5"/><text x="${LX + 9}" y="${ly - 0.3}" font-size="10.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text><text x="${LX + 26}" y="${ly - 6}" font-size="12" fill="${INK}" font-weight="800" font-family="Inter">${String(it.n).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text><text x="${LX + 26}" y="${ly + 8}" font-size="10.5" fill="${SUB}" font-family="Inter">${String(it.v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text><line x1="${LX}" y1="${ly + 16}" x2="${W - 30}" y2="${ly + 16}" stroke="#eef2f7" stroke-width="1"/>`;
-        ly += 33;
+    const colW = (RXX - PADX) / meta.length, mY = BTY + 76;
+    meta.forEach((m, i) => {
+        const mx = PADX + colW * i;
+        g += `<text x="${q(mx)}" y="${q(mY)}" font-size="10" fill="${SUB}" font-family="Inter">${m[0]}</text><text x="${q(mx)}" y="${q(mY + 18)}" font-size="13" fill="${INK}" font-weight="800" font-family="ui-monospace,Menlo">${m[1]}</text>`;
     });
+    g += `<line x1="${PADX}" y1="${q(mY + 32)}" x2="${RXX}" y2="${q(mY + 32)}" stroke="#eef2f7" stroke-width="1"/>`;
+    g += `<text x="${PADX}" y="${q(mY + 56)}" font-size="11" fill="${SUB}" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.pozicije")}</text>`;
+    if (!legend.length) {
+        g += `<text x="${PADX}" y="${q(mY + 80)}" font-size="11" fill="${LINE}" font-family="Inter">— nema dodatnih opcija —</text>`;
+    } else {
+        const half = Math.ceil(legend.length / 2);
+        const colX = [PADX, PADX + (RXX - PADX) / 2 + 8];
+        legend.forEach((it, i) => {
+            const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba"].includes(it.key) ? ACC : SUB)));
+            const isR = i >= half, row = isR ? i - half : i;
+            const lx = colX[isR ? 1 : 0], ly = mY + 84 + row * 32;
+            g += `<circle cx="${q(lx + 9)}" cy="${q(ly - 4)}" r="9" fill="#fff" stroke="${col}" stroke-width="1.5"/><text x="${q(lx + 9)}" y="${q(ly - 0.3)}" font-size="10.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text><text x="${q(lx + 26)}" y="${q(ly - 6)}" font-size="12" fill="${INK}" font-weight="800" font-family="Inter">${String(it.n).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text><text x="${q(lx + 26)}" y="${q(ly + 8)}" font-size="10.5" fill="${SUB}" font-family="Inter">${String(it.v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`;
+        });
+    }
     return { inner: d + g, vbW: W, vbH: H };
 }
 
