@@ -3135,7 +3135,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 // Cilj: prvo NAJBLIŽA idealnoj širina, unutar nje potroši male reslove, pa tek onda šire trake.
                 const cur = izabraneZa(i);
                 const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
-                const mOf = (r) => slobodnoM(r);
+                const mOf = (r) => slobodnoM(r) * multRolne(r);   // EFEKTIVNO — uzima množilac formatiranja (šira rolna daje N traka)
                 const bandOf = (r) => Math.floor(Math.max(0, (Number(r.sirina) || 0) - sir) / 25);
                 // pool sortiran: širinska traka → FIFO (najstarija) → metraža (reslovi kad je isti datum)
                 let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
@@ -3159,7 +3159,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
 
             return (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-                    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 1120, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
+                    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 1320, maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
 
                         {/* Modal header */}
                         <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a8a)", padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
