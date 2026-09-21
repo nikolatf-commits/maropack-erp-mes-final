@@ -1826,9 +1826,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
         const { kol, kolPlus } = orderMetraze(form);
 
         const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
-        // AUTO formatiranje po rolni: efektivno pokriće sloja = Σ (slobodni m × broj traka).
-        // Rolna tačne širine množi ×1, šira ×N (formatira se automatski).
-        const efPokrice = (izabrane) => (izabrane || []).reduce((s, r) => s + slobodnoM(r) * formatMultiplier(r.sirina, idealnaSir0), 0);
+        // Formatiranje je OPCIJA po sloju (čekboks u modalu; nalogFormat[i].on !== false = uključeno).
+        // Uključeno → šira rolna daje N traka (množilac N). Isključeno → suzi se na rezanju (množilac 1).
+        const formatOnZa = (i) => !(nalogFormat[i] && nalogFormat[i].on === false);
+        const multZa = (r, i) => formatMultiplier(r.sirina, idealnaSir0);   // prinos (broj traka) — ne zavisi od čekboksa
+        // Efektivno pokriće sloja = Σ (slobodni m × množilac sloja).
+        const efPokrice = (izabrane, i) => (izabrane || []).reduce((s, r) => s + slobodnoM(r) * multZa(r, i), 0);
 
         // ── TVRDA PROVERA — nalog se NE pravi ako rolne nisu izabrane i potrebe pokrivene.
         //    Ranije je ovde stajao window.confirm koji je dozvoljavao da se nepokriven
@@ -1839,7 +1842,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             if (rucniUnos[i]) return;                      // ručni unos = svesna odluka operatera
             const izabrane = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
             if (!izabrane.length) { bezRolne.push(i + 1); return; }
-            const zbirEff = efPokrice(izabrane);
+            const zbirEff = efPokrice(izabrane, i);
             if (zbirEff < kolPlus - 1) nepokriveni.push({ sloj: i + 1, ima: Math.round(zbirEff), treba: Math.round(kolPlus) });
         });
 
@@ -1902,11 +1905,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 let preostalo = kolPlus;
                 izb.forEach((r) => {
                     const slob = slobodnoM(r);
-                    const mult = formatMultiplier(r.sirina, idealnaSir0);
+                    const mult = multZa(r, i);
                     const trebaRollM = kolPlus ? Math.ceil(Math.max(0, preostalo) / mult) : 0;
                     const aloc = kolPlus ? Math.round(Math.min(slob, trebaRollM)) : slob;
                     preostalo = Math.max(0, preostalo - aloc * mult);
-                    if (mult >= 2 && aloc > 0) {
+                    // Zaseban nalog za formatiranje se pravi SAMO ako je čekboks uključen za taj sloj.
+                    // Isključeno → ista rezervacija/prinos, ali bez zasebnog naloga (suzi se na rezanju).
+                    if (mult >= 2 && aloc > 0 && formatOnZa(i)) {
                         const fp = formatPlan(r.sirina, idealnaSir0);
                         formatInfo.push({
                             sloj: i + 1,
@@ -1974,7 +1979,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     const ukupno = Number(r.metraza_ost ?? r.metraza) || 0;
                     const rezPre = Number(r.rezervisano) || 0;
                     const slob = Math.max(0, ukupno - rezPre);           // slobodni metri rolne
-                    const mult = formatMultiplier(r.sirina, idealnaSir0);// 1 = tačna širina, ≥2 = formatira se
+                    const mult = multZa(r, i);                           // 1 = tačna širina; ≥2 = šira rolna daje N traka (isto sa/bez zasebnog formatiranja)
                     const trebaRollM = kolPlus ? Math.ceil(Math.max(0, preostalo) / mult) : 0;
                     const alocirano = kolPlus ? Math.round(Math.min(slob, trebaRollM)) : slob;
                     preostalo = Math.max(0, preostalo - alocirano * mult);
@@ -3115,10 +3120,18 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             function skupljenoZa(i) {
                 return izabraneZa(i).reduce((s, r) => s + slobodnoM(r), 0);
             }
-            // AUTO formatiranje po rolni: efektivno pokriće = Σ (slobodni m × broj traka rolne).
-            function multRolne(r) { return formatMultiplier(r.sirina, sir); }
-            function pokrivaEff(i) { return izabraneZa(i).reduce((s, r) => s + slobodnoM(r) * multRolne(r), 0); }
-            function imaFormatiranje(i) { return izabraneZa(i).some(r => multRolne(r) >= 2); }
+            // Formatiranje po rolni je OPCIJA (čekboks) po sloju. Uključeno (default) → šira rolna
+            // se seče na trake idealne širine (množilac N). Isključeno → šira rolna se NE formatira
+            // nego se suzi na rezanju/perforaciji u istom prolazu (množilac 1, bez zasebnog naloga).
+            function formatOn(i) { return !(nalogFormat[i] && nalogFormat[i].on === false); }        // default: uključeno
+            function imaSiruRolnu(i) { return izabraneZa(i).some(r => formatMultiplier(r.sirina, sir) >= 2); } // sirovo — ne zavisi od čekboksa
+            // VAŽNO: množilac (broj traka po rolni) NE zavisi od čekboksa. Prinos je isti bilo da
+            // rolnu formatiraš zasebno ili je suziš na rezanju u istom prolazu (broj traka i idealna
+            // širina su iz templejta). Čekboks bira SAMO da li se pravi zaseban nalog za formatiranje.
+            // Zato uključivanje/isključivanje NIKAD ne menja koliko materijala treba.
+            function multRolne(r, i) { return formatMultiplier(r.sirina, sir); }
+            function pokrivaEff(i) { return izabraneZa(i).reduce((s, r) => s + slobodnoM(r) * multRolne(r, i), 0); }
+            function imaFormatiranje(i) { return formatOn(i) && izabraneZa(i).some(r => formatMultiplier(r.sirina, sir) >= 2); }
             function ostatakNaStanjeZa(i) { return !!(nalogFormat[i] && nalogFormat[i].ostatakNaStanje); }
             function dodajRolnu(i, r) {
                 setNalogIzbor(p => {
@@ -3137,7 +3150,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 // Cilj: prvo NAJBLIŽA idealnoj širina, unutar nje potroši male reslove, pa tek onda šire trake.
                 const cur = izabraneZa(i);
                 const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
-                const mOf = (r) => slobodnoM(r) * multRolne(r);   // EFEKTIVNO — uzima množilac formatiranja (šira rolna daje N traka)
+                const mOf = (r) => slobodnoM(r) * multRolne(r, i);   // EFEKTIVNO — uzima množilac formatiranja (šira rolna daje N traka ako je formatiranje uključeno)
                 const bandOf = (r) => Math.floor(Math.max(0, (Number(r.sirina) || 0) - sir) / 25);
                 // pool sortiran: širinska traka → FIFO (najstarija) → metraža (reslovi kad je isti datum)
                 let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
@@ -3259,7 +3272,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                 return <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
                                                                     {izabrane.map((r, k) => {
                                                                         const m = slobodnoM(r);
-                                                                        const mult = multRolne(r);
+                                                                        const mult = multRolne(r, i);
                                                                         const trebaRoll = kolPlus ? Math.ceil(Math.max(0, preostalo) / mult) : 0;
                                                                         const aloc = kolPlus ? Math.min(m, trebaRoll) : m;
                                                                         preostalo = Math.max(0, preostalo - aloc * mult);
@@ -3268,8 +3281,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                                 <div style={{ flex: 1, fontSize: 12, fontWeight: 800, color: "#0f172a", minWidth: 0 }}>
                                                                                     {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {(r.deb || r.debljina) ? (r.deb || r.debljina) + "µ · " : ""}{r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
                                                                                     {mult >= 2
-                                                                                        ? <div style={{ marginTop: 4 }}><span style={{ background: "#ede9fe", color: "#6d28d9", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>🎞️ formatira se {r.sirina}→{sir} mm · {mult} trake · izlaz {fmt(Math.round(aloc * mult))} m</span></div>
-                                                                                        : (Number(r.sirina) <= sir + 1 ? <div style={{ marginTop: 4 }}><span style={{ background: "#d1fae5", color: "#065f46", border: "1px solid #a7f3d0", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>tačna širina — direktno</span></div> : null)}
+                                                                                        ? (formatOn(i)
+                                                                                            ? <div style={{ marginTop: 4 }}><span style={{ background: "#ede9fe", color: "#6d28d9", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>🎞️ formatira se {r.sirina}→{sir} mm · {mult} trake · izlaz {fmt(Math.round(aloc * mult))} m</span></div>
+                                                                                            : <div style={{ marginTop: 4 }}><span style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>✂️ suzi se na rezanju {r.sirina}→{sir} mm · {mult} trake · izlaz {fmt(Math.round(aloc * mult))} m · bez zasebnog naloga</span></div>)
+                                                                                        : (Number(r.sirina) <= sir + 1
+                                                                                            ? <div style={{ marginTop: 4 }}><span style={{ background: "#d1fae5", color: "#065f46", border: "1px solid #a7f3d0", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>tačna širina — direktno</span></div>
+                                                                                            : null)}
                                                                                 </div>
                                                                                 <div style={{ fontSize: 12, fontWeight: 900, color: "#2446b8", whiteSpace: "nowrap" }}>{fmt(Math.round(aloc))} / {fmt(m)} m</div>
                                                                                 <button onClick={() => ukloniRolnu(i, r)} style={{ width: 28, height: 28, border: "1px solid #fecaca", color: "#dc2626", background: "#fff", borderRadius: 7, fontWeight: 900, cursor: "pointer", flexShrink: 0 }}>×</button>
@@ -3278,6 +3295,28 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                                     })}
                                                                 </div>;
                                                             })() : null}
+
+                                                            {/* ČEKBOKS: formatiranje po sloju — samo kad postoji šira rolna.
+                                                                Uključeno (default) = seci na rezaču (N traka). Isključeno = suzi na rezanju u istom prolazu. */}
+                                                            {imaSiruRolnu(i) && (() => {
+                                                                const on = formatOn(i);
+                                                                return (
+                                                                    <div style={{ border: `1.5px solid ${on ? "#ddd6fe" : "#e2e8f0"}`, background: on ? "#faf5ff" : "#f8fafc", borderRadius: 10, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                                                                        <button type="button" onClick={() => setNalogFormat(p => ({ ...p, [i]: { ...(p[i] || {}), on: !on } }))}
+                                                                            style={{ width: 42, height: 24, borderRadius: 999, border: "none", background: on ? "#7c3aed" : "#cbd5e1", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background .15s" }}>
+                                                                            <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                                                                        </button>
+                                                                        <div style={{ flex: 1 }}>
+                                                                            <div style={{ fontSize: 12, fontWeight: 900, color: on ? "#6d28d9" : "#475569" }}>🎞️ Formatiranje na rezaču {on ? "— UKLJUČENO" : "— isključeno"}</div>
+                                                                            <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 2 }}>
+                                                                                {on
+                                                                                    ? "Šira rolna se seče na trake idealne širine kao ZASEBAN nalog za formatiranje (ide na rezač) pre glavne operacije."
+                                                                                    : "Isti prinos i ista rezervacija materijala — ali BEZ zasebnog naloga: širu rolnu suziš na rezanju/perforaciji u istom prolazu."}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
 
                                                             {/* Zbir: skupljeno / potrebno + progres */}
                                                             <div style={{ background: pokriveno ? "#f0fdf4" : "#fef2f2", border: `1px solid ${pokriveno ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
@@ -3297,7 +3336,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                                             {/* AUTO formatiranje: kad neka izabrana rolna ima bočni ostatak — biraš otpad / na stanje */}
                                                             {(() => {
                                                                 if (!imaFormatiranje(i)) return null;
-                                                                const imaOstatak = izabrane.some(r => multRolne(r) >= 2 && formatPlan(r.sirina, sir).ostatak > 0);
+                                                                const imaOstatak = izabrane.some(r => multRolne(r, i) >= 2 && formatPlan(r.sirina, sir).ostatak > 0);
                                                                 if (!imaOstatak) return null;
                                                                 const naStanje = ostatakNaStanjeZa(i);
                                                                 return (

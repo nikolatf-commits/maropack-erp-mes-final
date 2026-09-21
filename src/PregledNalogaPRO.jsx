@@ -437,33 +437,70 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
             //    na istoj rolni), vrati rolnu na „Na stanju" ako je više niko ne drži, i
             //    obriši stavke iz ledgera (materijal_stavke). Tako ne moraš ručno da oslobađaš.
             try {
-                // Ledger: tačno koliko je i na kojoj rolni rezervisano za ovaj nalog.
+                // ČIST BROJ NALOGA. Rezervacija se čuva kao goli broj ("MP-2026-0008") i u
+                // magacin.dodeljeno_nalogu ("MP-2026-0008 · NAZIV") i u materijal_stavke.nalog_ref.
+                // masterBroj je nekad nosio i naziv proizvoda ("MP-2026-0008 SPANAC") → tada
+                // ilike "%...SPANAC%" ne bi pogodio ništa i rolna bi tiho ostala rezervisana.
+                // Zato izvučemo SAMO šifru naloga i po njoj tražimo.
+                const kod = ((String(masterBroj).match(/[A-Za-zČĆŽŠĐ]*-?\d{3,4}-\d{2,6}/) || [])[0]
+                    || String(masterBroj).split(/[·,(]/)[0].trim().split(/\s+/)[0]
+                    || masterBroj).trim();
+
+                // Ledger: koliko je i na kojoj rolni rezervisano za ovaj nalog.
                 let stavke = [];
-                try { const { data } = await supabase.from("materijal_stavke").select("rolna_id, alocirano_m").eq("nalog_ref", masterBroj); stavke = data || []; } catch (e) { }
+                try { const { data } = await supabase.from("materijal_stavke").select("rolna_id, alocirano_m").eq("nalog_ref", kod); stavke = data || []; } catch (e) { }
+                if (!stavke.length) { try { const { data } = await supabase.from("materijal_stavke").select("rolna_id, alocirano_m").ilike("nalog_ref", "%" + kod + "%"); stavke = data || []; } catch (e) { } }
                 const drziPoRolni = {};
                 stavke.forEach(s => { if (s.rolna_id) drziPoRolni[s.rolna_id] = (drziPoRolni[s.rolna_id] || 0) + (Number(s.alocirano_m) || 0); });
 
-                // Rolne za oslobađanje: (a) sve gde dodeljeno_nalogu sadrži broj naloga,
-                //                       (b) i sve rolne iz ledgera (za slučaj da tekst ne pogodi).
+                // Rolne za oslobađanje — tri nezavisna izvora (belt & suspenders):
+                //   (a) magacin gde dodeljeno_nalogu sadrži šifru naloga,
+                //   (b) rolne iz ledgera (materijal_stavke),
+                //   (c) rolne iz izabranih rolni u samim operacijama (parametri.izabrane_rolne).
                 const map = {};
-                try { const { data } = await supabase.from("magacin").select("id, dodeljeno_nalogu, rezervisano").ilike("dodeljeno_nalogu", "%" + masterBroj + "%"); (data || []).forEach(r => { map[r.id] = r; }); } catch (e) { }
-                const ledgerIds = Object.keys(drziPoRolni).filter(id => !map[id]);
-                if (ledgerIds.length) { try { const { data } = await supabase.from("magacin").select("id, dodeljeno_nalogu, rezervisano").in("id", ledgerIds); (data || []).forEach(r => { map[r.id] = r; }); } catch (e) { } }
+                try { const { data } = await supabase.from("magacin").select("id, dodeljeno_nalogu, rezervisano").ilike("dodeljeno_nalogu", "%" + kod + "%"); (data || []).forEach(r => { map[r.id] = r; }); } catch (e) { }
 
+                const rolnaIds = {};
+                Object.keys(drziPoRolni).forEach(id => { rolnaIds[id] = 1; });
+                (nalozi || []).forEach(n => {
+                    let p = n && n.parametri; if (typeof p === "string") { try { p = JSON.parse(p); } catch (e) { p = null; } }
+                    const arr = (p && (p.izabrane_rolne || p.rezervisane_rolne)) || [];
+                    (Array.isArray(arr) ? arr : []).forEach(x => { if (x && x.rolna_id) rolnaIds[x.rolna_id] = 1; });
+                });
+                const nedostaju = Object.keys(rolnaIds).filter(id => !map[id]);
+                if (nedostaju.length) { try { const { data } = await supabase.from("magacin").select("id, dodeljeno_nalogu, rezervisano").in("id", nedostaju); (data || []).forEach(r => { map[r.id] = r; }); } catch (e) { } }
+
+                const rolne = Object.values(map);
                 let greska = null;
-                const rezultati = await Promise.all(Object.values(map).map(r => {
-                    // token pripada ovom nalogu ako sadrži njegov broj (npr. "MP-2026-0008 · SPANAC")
+                await Promise.all(rolne.map(r => {
+                    // token pripada ovom nalogu ako sadrži njegovu šifru (npr. "MP-2026-0008 · SPANAC")
                     const tokens = String(r.dodeljeno_nalogu || "").split(",").map(x => x.trim()).filter(Boolean);
-                    const ostali = tokens.filter(t => !t.includes(masterBroj));   // zadrži druge naloge
+                    const ostali = tokens.filter(t => !t.includes(kod));   // zadrži druge naloge na rolni
                     const patch = { dodeljeno_nalogu: ostali.join(", ") || null };
                     if (!ostali.length) { patch.status = "Na stanju"; patch.rezervisano = null; }   // niko više ne drži rolnu
                     else { const skini = drziPoRolni[r.id] || 0; patch.rezervisano = (Math.max(0, (Number(r.rezervisano) || 0) - skini)) || null; }
                     return supabase.from("magacin").update(patch).eq("id", r.id).then(({ error }) => { if (error && !greska) greska = error; });
                 }));
-                let { error: sErr } = await supabase.from("materijal_stavke").delete().eq("nalog_ref", masterBroj);
-                if ((greska || sErr) && Object.keys(map).length) {
-                    alert("Nalog je obrisan, ali rolna NIJE oslobođena — baza ne dozvoljava izmenu magacina (RLS). Pokreni SQL za dozvole na tabelama magacin i materijal_stavke (imaš ga od ranije), pa će oslobađanje raditi. Detalj: " + ((greska || sErr).message || (greska || sErr)));
+                await supabase.from("materijal_stavke").delete().eq("nalog_ref", kod);
+
+                // VERIFIKACIJA: pročitaj iste rolne i proveri da li ijedna JOŠ drži šifru naloga.
+                // Ako da (a nije bilo greške), RLS je tiho odbio UPDATE (USING/WITH CHECK).
+                let jos = 0;
+                if (rolne.length) {
+                    try {
+                        const { data } = await supabase.from("magacin").select("id, dodeljeno_nalogu").in("id", rolne.map(r => r.id));
+                        (data || []).forEach(r => { if (String(r.dodeljeno_nalogu || "").includes(kod)) jos += 1; });
+                    } catch (e) { }
                 }
+
+                if (greska) {
+                    alert("Nalog je obrisan, ali rolna NIJE oslobođena — baza je vratila grešku pri izmeni magacina (najčešće RLS). Pokreni SQL za UPDATE/DELETE dozvole na tabeli magacin, pa će oslobađanje raditi.\n\nDetalj: " + (greska.message || greska));
+                } else if (rolne.length === 0) {
+                    alert("Nalog „" + kod + "\" je obrisan, ali nije nađena NIJEDNA rezervisana rolna za oslobađanje.\n\nTraženo je po: dodeljeno_nalogu koje sadrži „" + kod + "\", po ledgeru (materijal_stavke) i po izabranim rolnama iz operacija — sve prazno.\n\nAko rolna i dalje stoji rezervisana, pošalji mi tačan tekst iz njene kolone „dodeljeno_nalogu\" da uskladim ključ.");
+                } else if (jos > 0) {
+                    alert("Nalog je obrisan i pronađeno je " + rolne.length + " rezervisanih rolni, ali baza NIJE primenila izmenu (rolna posle upisa i dalje drži šifru naloga). To je tiho odbijanje RLS UPDATE politike na tabeli magacin — treba dodati/ispraviti UPDATE policy (USING true, WITH CHECK true). Reci mi da ti dam tačan SQL.");
+                }
+                // potpun uspeh → bez poruke (rolna je oslobođena)
             } catch (e) { console.warn("Oslobađanje rolni pri brisanju:", e?.message || e); }
 
             reload();   // javi ostalim ekranima (brojači, magacin) da usklade stanje
