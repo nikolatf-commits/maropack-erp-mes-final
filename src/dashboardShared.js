@@ -101,6 +101,23 @@ async function ucitajSveRolne() {
     return sve;
 }
 
+// Glavni nalozi se učitavaju SVI (paginirano) — „Ukupno naloga" i „Završeno" su UKUPNI
+// brojači, ne smeju da zavise od 30-dnevnog prozora. Period se primenjuje samo na grafik
+// (prepareNaloziPoDanima sam prozorira dane) i na aktivnosti/rad/zastoje.
+async function ucitajSveNaloge() {
+    const PAGE = 1000;
+    let od = 0, sve = [];
+    for (let i = 0; i < 50; i++) {
+        const { data, error } = await supabase.from("radni_nalozi").select("*").order("created_at", { ascending: false }).range(od, od + PAGE - 1);
+        if (error) throw error;
+        const deo = data || [];
+        sve = sve.concat(deo);
+        if (deo.length < PAGE) break;
+        od += PAGE;
+    }
+    return sve;
+}
+
 async function ucitajOperacije(masterIds) {
     if (!masterIds.length) return [];
     const CH = 200;
@@ -118,18 +135,18 @@ export async function loadDashboardData(timeRange = 30) {
     const days = rangeToDays(timeRange);
     const cutoffDate = dateDaysAgo(days);
 
-    // GLAVNI nalozi = radni_nalozi (tabela "nalozi" ne postoji u ovom sistemu)
-    const [naloziRes, magZbirRes, rolne, aktivnostiRes] = await Promise.all([
-        supabase.from("radni_nalozi").select("*").gte("created_at", cutoffDate.toISOString()).order("created_at", { ascending: false }),
+    // GLAVNI nalozi = radni_nalozi (tabela "nalozi" ne postoji u ovom sistemu).
+    // Učitavaju se SVI (ne filtrirani po datumu) da bi „Ukupno naloga"/„Završeno" bili tačni.
+    const [sviMasteriRaw, magZbirRes, rolne, aktivnostiRes] = await Promise.all([
+        ucitajSveNaloge(),
         supabase.from("v_magacin_zbir").select("*").maybeSingle(),   // agregat magacina — 1 red (brzo)
         ucitajSveRolne(),                                            // slim kolone, za per-tip prikaz
         supabase.from("nalog_aktivnosti").select("*").gte("created_at", cutoffDate.toISOString()).order("created_at", { ascending: false })
     ]);
 
-    if (naloziRes.error) throw naloziRes.error;
     if (aktivnostiRes.error) throw aktivnostiRes.error;
 
-    const sviMasteri = naloziRes.data || [];
+    const sviMasteri = sviMasteriRaw || [];
     const operacije = await ucitajOperacije(sviMasteri.map((n) => n.id).filter(Boolean));
 
     // Nalog je STVARAN samo ako ima svoje operacije. Glavni nalog bez ijedne operacije
