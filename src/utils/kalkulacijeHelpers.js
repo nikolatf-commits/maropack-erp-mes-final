@@ -122,8 +122,18 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
 
         const template = extractTemplate(kalkulacija);
         const tip = normalizeTip(kalkulacija.tip || template?.tip);
-        const kolicina = kalkulacija.kolicina || kalkulacija.kol || (Number(kalkulacija.nalog || 0) * 1000) || template?.data?.porucenaKolicina || 0;
-        const cena = kalkulacija.konacnaCena || kalkulacija.konacna_cena || kalkulacija.rezultat?.k1 || kalkulacija.res?.k1 || kalkulacija.c1 || 0;
+        // VAŽNO: sačuvano polje je "rezultati" (množina). Ranije se čitalo "rezultat"/"res" → cena je bila 0.
+        const rez = kalkulacija.rezultati || kalkulacija.rezultat || kalkulacija.res || {};
+        // Količina: folija = broj (×1000m), kesa = komada, špulna = špulni.
+        const kolicina = Number(kalkulacija.kolicina ?? kalkulacija.kol ?? rez.kolicina ?? kalkulacija.nalog ?? template?.data?.porucenaKolicina ?? 0) || 0;
+        // Cena po JEDINICI (folija: /1000m, kesa: /kom, špulna: /špulni).
+        const cena = Number(
+            kalkulacija.konacna_cena ?? kalkulacija.konacnaCena ??
+            rez.konacnaCena ?? rez.saMarza ?? rez.saMarzom ?? rez.cena1000 ?? rez.cenaSaMarzom ??
+            kalkulacija.cena_kg ?? 0
+        ) || 0;
+        // Ukupno = sačuvani total ako postoji, inače cena × količina (BEZ /1000 — to je bila greška za kese/špulne).
+        const ukupno = Number(rez.ukupnoNalog ?? kalkulacija.ukupno_nalog ?? (cena * kolicina)) || 0;
 
         const ponuda = {
             broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
@@ -134,7 +144,7 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             tip,
             kol: kolicina,
             c1: cena,
-            uk: Number(cena || 0) * Number(kolicina || 0) / 1000,
+            uk: ukupno,
             mats: kalkulacija.materijali || kalkulacija.mats || template?.data?.[tip]?.layers || template?.data?.layers || [],
             kalkulacija_id: kalkulacija.id || kalkulacija.kalkulacija_id || null,
             template_id: template?.id || kalkulacija.template_id || kalkulacija.product_template_id || null,
@@ -170,6 +180,10 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
         // Lokalni fallback za template/dev režim kada Supabase/RLS tabela nije spremna
         const fallbackTemplate = extractTemplate(kalkulacija);
         const fallbackTip = normalizeTip(kalkulacija.tip || fallbackTemplate?.tip);
+        const rezF = kalkulacija.rezultati || kalkulacija.rezultat || kalkulacija.res || {};
+        const kolF = Number(kalkulacija.kolicina ?? kalkulacija.kol ?? rezF.kolicina ?? kalkulacija.nalog ?? fallbackTemplate?.data?.porucenaKolicina ?? 0) || 0;
+        const cenaF = Number(kalkulacija.konacna_cena ?? kalkulacija.konacnaCena ?? rezF.konacnaCena ?? rezF.saMarza ?? rezF.cena1000 ?? kalkulacija.cena_kg ?? 0) || 0;
+        const ukF = Number(rezF.ukupnoNalog ?? kalkulacija.ukupno_nalog ?? (cenaF * kolF)) || 0;
         const fallbackPonuda = {
             id: 'PON-KAL-' + Date.now(),
             broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
@@ -177,9 +191,9 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             kupac: kalkulacija.kupac || kalkulacija.klijent || fallbackTemplate?.kupac || '',
             naziv: kalkulacija.naziv || fallbackTemplate?.naziv,
             tip: fallbackTip,
-            kol: kalkulacija.kolicina || kalkulacija.kol || fallbackTemplate?.data?.porucenaKolicina || 0,
-            c1: kalkulacija.konacna_cena || kalkulacija.konacnaCena || kalkulacija.c1 || 0,
-            uk: kalkulacija.konacna_cena || kalkulacija.konacnaCena || 0,
+            kol: kolF,
+            c1: cenaF,
+            uk: ukF,
             mats: kalkulacija.materijali || kalkulacija.mats || fallbackTemplate?.data?.[fallbackTip]?.layers || [],
             kalkulacija_id: kalkulacija.id || null,
             template_id: fallbackTemplate?.id || kalkulacija.template_id || null,
