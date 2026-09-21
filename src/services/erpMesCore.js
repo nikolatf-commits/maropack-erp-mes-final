@@ -60,7 +60,7 @@ export const DEFAULT_MACHINES = [
         core: '76 / 152 mm',
         speed: 280 + i * 10,
         setupMin: 25,
-        capabilities: ['rezanje', 'premotavanje', 'kontrola metraže'],
+        capabilities: ['rezanje', 'formatiranje', 'premotavanje', 'kontrola metraže'],
         note: 'Upisati tačne karakteristike mašine.'
     })),
     ...Array.from({ length: 15 }, (_, i) => ({
@@ -244,10 +244,22 @@ export function machineGroup(type) {
     return 'Ostalo';
 }
 
+// Koje TIPove operacija sme da radi koja mašina. Rezač (type "rezanje") radi i FORMATIRANJE —
+// slitovanje (sečenje šire rolne na trake idealne širine) je fizički isti posao na rezaču.
+// Ako neki tip nije u mapi, važi stroga jednakost (mašina radi samo svoj tip).
+export const MASINA_OPERACIJE = {
+    stampa: ['stampa'],
+    rezanje: ['rezanje', 'formatiranje'],
+    kese: ['kese'],
+    spulne: ['spulne'],
+    kasiranje: ['kasiranje'],
+};
+
 export function canMachineRun(machine, order) {
     if (!machine || !order) return { ok: false, reason: 'Nedostaje mašina ili nalog' };
     if (machine.status !== 'aktivna') return { ok: false, reason: 'Mašina nije aktivna' };
-    if (machine.type !== order.type) return { ok: false, reason: `Nalog je za ${order.type}, mašina je ${machine.type}` };
+    const dozvoljene = MASINA_OPERACIJE[machine.type] || [machine.type];
+    if (!dozvoljene.includes(order.type)) return { ok: false, reason: `Nalog je za ${order.type}, mašina radi ${dozvoljene.join('/')}` };
     if (Number(order.width) > Number(machine.maxWidth || 0)) return { ok: false, reason: 'Širina naloga prelazi max širinu mašine' };
     if (Number(order.width) < Number(machine.minWidth || 0)) return { ok: false, reason: 'Širina naloga je ispod min širine mašine' };
     return { ok: true, reason: 'Kompatibilno' };

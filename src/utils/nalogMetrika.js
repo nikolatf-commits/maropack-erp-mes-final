@@ -141,10 +141,13 @@ export function stvarnoMin(n) {
 // ── REDOSLED OPERACIJA ───────────────────────────────────────────────────────
 // Jedinstven redosled pokriva sve tipove proizvoda (operacije koje proizvod nema
 // jednostavno ne postoje u mapi pa se preskaču):
-//   folija:  materijal → štampa → lakiranje → kaširanje → perforacija/rezanje
-//   kesa:    materijal → kaширanje → kesa
-//   špulna:  materijal → formatiranje → špulna
-export const REDOSLED_OPERACIJA = ["materijal", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "formatiranje", "kesa", "spulna"];
+//   folija:  materijal → (formatiranje) → štampa → lakiranje → kaširanje → perforacija/rezanje
+//   kesa:    materijal → (formatiranje) → kaширanje → kesa
+//   špulna:  materijal → (formatiranje) → špulna
+// FORMATIRANJE ide ODMAH posle materijala (slitovanje matične rolne na trake idealne širine),
+// PRE svih mašinskih operacija — tako blokada „čeka prethodnu" pravilno veže: formatiranje čeka
+// samo materijal, a štampa/rezanje/kesa/špulna čekaju formatiranje kad ga nalog ima.
+export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "kesa", "spulna"];
 export const jeGotov = (status) => /^zavr/i.test(String(status || ""));
 
 // Operacije koje ODLAZE u štampariju i moraju da se VRATE ("stiglo iz štamparije").
