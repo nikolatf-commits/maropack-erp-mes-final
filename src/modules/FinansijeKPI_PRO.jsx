@@ -70,8 +70,29 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
         return () => { ziv = false; };
     }, []);
 
+    // Prikazuju se SAMO nalozi koji stvarno postoje = imaju bar jednu operaciju (isto kao
+    // „Glavni nalozi"). Master bez ijedne operacije je siroče od nepotpunog brisanja i ne sme
+    // da se prikazuje ni da se broji u KPI/prihod/rizične. db.nalozi = operacije (glavni_nalog_id).
+    const canonBroj = (s) => String(s || '').replace(/\s*[-–]\s*(MATERIJAL|MATERIAL|ŠTAMPA|STAMPA|KAŠIRANJE|KASIRANJE|LAMINIRANJE|PERFORACIJA[_ -]?REZANJE|PERFORACIJA|REZANJE|FORMATIRANJE|KESA|SPULNA|ŠPULNA)\b.*$/i, '').trim();
+    const parent = useMemo(() => {
+        const ids = new Set(), brojevi = new Set();
+        (nalozi || []).forEach((o) => {
+            const gid = o.glavni_nalog_id ?? o.master_nalog_id;
+            if (gid != null && gid !== '') ids.add(String(gid));
+            const b = o.broj_naloga || o.broj;
+            if (b) brojevi.add(canonBroj(b));
+        });
+        return { ids, brojevi };
+    }, [nalozi]);
+    const imaOperacije = (m) => {
+        // Ako operacije još nisu učitane, ne prazni ekran (izbegni trku pri prvom renderu).
+        if (!parent.ids.size && !parent.brojevi.size) return true;
+        if (m && m.id != null && parent.ids.has(String(m.id))) return true;
+        return parent.brojevi.has(canonBroj(m.broj_naloga || m.broj || m.ponBr));
+    };
+
     const rows = useMemo(() => {
-        const base = masterNalozi.length ? masterNalozi : nalozi;
+        const base = (masterNalozi.length ? masterNalozi : nalozi).filter(imaOperacije);
         return base.map((x, i) => {
             const res = x.res || x.rezultat || x.kalkulacija || {};
             // PORUČENA količina: PRVO iz naloga (merodavna), pa iz kalkulacije. NE uvećavati za škart.
@@ -130,7 +151,7 @@ export default function FinansijeKPI_PRO({ db = {}, msg }) {
                 prihod, materijal, proizvodnja, ostalo, trosak, profit, marza, skart,
             };
         });
-    }, [masterNalozi, nalozi, kalkMap, kalkByName]);
+    }, [masterNalozi, nalozi, kalkMap, kalkByName, parent]);
 
     const kpi = useMemo(() => {
         const prihod = rows.reduce((s, r) => s + r.prihod, 0);
