@@ -214,7 +214,7 @@ const COLm = '#d97706', COLs = '#2563eb', COLk = '#4338ca', COLp = '#7c3aed';
 function infoC(l, v) { return '<div class="c"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v || '—') + '</div></div>'; }
 function stat(l, v, u, c) { return '<div class="stat"><div class="bar" style="background:' + c + '"></div><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + ' <span class="u">' + esc(u) + '</span></div></div>'; }
 function statRow(D) { return '<div class="stats">' + stat(T("nalog.kolicina"), fmtN(D.kolicina), 'm', COLm) + stat('Ukupna debljina', D.TOTu, 'µm', '#0ea5e9') + stat('Slojeva', D.LAY.length, D.LAY.length === 4 ? 'kvadripleks' : (D.LAY.length === 3 ? 'tripleks' : (D.LAY.length === 2 ? 'dupleks' : 'sloj')), '#14b8a6') + stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp) + '</div>'; }
-function infoBlock(D) { return '<div class="info">' + infoC(T("nalog.kupac", "Kupac"), D.kupac) + infoC(T("nalog.proizvod"), D.proizvod) + infoC('Šifra', D.sifra) + infoC('Tip', D.tipLabel) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', D.sirinaMat + ' mm') + infoC('Rok', D.rok) + '</div>'; }
+function infoBlock(D) { return '<div class="info">' + infoC(T("nalog.kupac", "Kupac"), D.kupac) + infoC('Tip', D.tipLabel) + infoC(T("nalog.proizvod"), D.proizvod) + infoC('Šifra', D.sifra) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', D.sirinaMat + ' mm') + infoC('Rok', D.rok) + '</div>'; }
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
@@ -311,7 +311,12 @@ KESA_OPCIJE.forEach(function (o) { OPT_BY_KEY[o.k] = o; });
 function kesaD(nalog) {
     const { od, t, kesa } = getData(nalog);
     const k = kesa || {};
-    const W = num(k.sirina), H = num(k.duzina), KL = num(k.klapna), FA = num(k.falta);
+    const W = num(k.sirina), H = num(k.duzina);
+    // Klapna/falta — hvataj i alternativne nazive iz templejta (klapnaMm, flap, iz t.kesa…),
+    // da povuče vrednost i kad nije upisana baš pod "klapna"/"falta".
+    const tk = (t && t.kesa) || {};
+    const KL = num(k.klapna) || num(k.klapnaMm) || num(k.klapna_mm) || num(k.flap) || num(k.flap_mm) || num(tk.klapna) || num(tk.klapnaMm);
+    const FA = num(k.falta) || num(k.faltaMm) || num(k.falta_mm) || num(k.gusset) || num(k.dno) || num(tk.falta) || num(tk.faltaMm);
     const ban = Math.max(1, num(k.ban) || 1);
     const skart = num(k.skart) || 5;
     // Smer materijala (čekira se u templejtu): šta ide UZDUŽ materijala vs POPREČNO (po širini).
@@ -347,8 +352,8 @@ function kesaStat(D, K) {
         stat('Slojeva', D.LAY.length, D.LAY.length === 1 ? 'mono' : (D.LAY.length === 2 ? 'dupleks' : 'tripleks'), COLp) + '</div>';
 }
 function kesaInfo(D, K) {
-    return '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Proizvod', D.proizvod) + infoC('Šifra', D.sifra) +
-        infoC('Tip kese', kesaTipLabel(K.tip)) + infoC('Širina × visina', K.W + ' × ' + K.H + ' mm') +
+    return '<div class="info">' + infoC('Kupac', D.kupac) + infoC('Tip kese', kesaTipLabel(K.tip)) + infoC('Proizvod', D.proizvod) +
+        infoC('Šifra', D.sifra) + infoC('Širina × visina', K.W + ' × ' + K.H + ' mm') +
         infoC('Klapna', K.KL + ' mm') + infoC('Falta', K.FA + ' mm') + infoC('Rok', D.rok) + '</div>';
 }
 function kesaObracun(K) {
