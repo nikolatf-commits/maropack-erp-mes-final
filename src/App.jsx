@@ -2081,18 +2081,13 @@ function MainAppContent() {
                         <ListaKalkulacija
                             setPage={setPage}
                             onOtvoriKalkulaciju={(kal) => {
-                                // Otvori odgovarajuću stranicu zavisno od tipa
-                                if (kal.tip === 'folija') {
-                                    setPage('kalk_folija');
-                                    // Sačuvaj kalkulaciju u localStorage za učitavanje
-                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                                } else if (kal.tip === 'kesa') {
-                                    setPage('kalk_kesa');
-                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                                } else if (kal.tip === 'spulna') {
-                                    setPage('kalk_spulna');
-                                    localStorage.setItem('editKalkulacija', JSON.stringify(kal));
-                                }
+                                // VAŽNO: prvo upiši u localStorage (ceo zapis + tačan tip), pa TEK ONDA
+                                // navigiraj — da forma pri montiranju sigurno pročita baš ovu kalkulaciju
+                                // i da se ništa ne pomeša.
+                                const tip = (kal.tip || 'folija');
+                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : 'kalk_folija';
+                                localStorage.setItem('editKalkulacija', JSON.stringify({ ...kal, tip }));
+                                setPage(strana);
                             }}
                             onKreirajPonudu={async (kal) => {
                                 console.log('🚀 Kreiram ponudu iz:', kal);
@@ -2132,34 +2127,11 @@ function MainAppContent() {
                             onPrihvati={kreirajNalogeIzPonude}
 
                             onOtvoriKalkulaciju={(kal) => {
-
-                                if (kal.tip === 'folija') {
-
-                                    setPage('kalk_folija');
-
-                                    localStorage.setItem(
-                                        'editKalkulacija',
-                                        JSON.stringify(kal)
-                                    );
-
-                                } else if (kal.tip === 'kesa') {
-
-                                    setPage('kalk_kesa');
-
-                                    localStorage.setItem(
-                                        'editKalkulacija',
-                                        JSON.stringify(kal)
-                                    );
-
-                                } else if (kal.tip === 'spulna') {
-
-                                    setPage('kalk_spulna');
-
-                                    localStorage.setItem(
-                                        'editKalkulacija',
-                                        JSON.stringify(kal)
-                                    );
-                                }
+                                // Prvo upiši (ceo zapis + tačan tip), pa navigiraj — bez mešanja.
+                                const tip = (kal.tip || 'folija');
+                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : 'kalk_folija';
+                                localStorage.setItem('editKalkulacija', JSON.stringify({ ...kal, tip }));
+                                setPage(strana);
                             }}
                         />
                     )}

@@ -295,6 +295,10 @@ export default function KalkulacijaFolijeSmart() {
     // V28: UČITAJ KALKULACIJU DIREKTNO IZ PRODUCT TEMPLATE ENGINE-A
     // ========================================================================
     useEffect(() => {
+        // PRIORITET: ako korisnik otvara SAČUVANU kalkulaciju (klik iz liste), template prefill
+        // NE sme da je pregazi. Inače bi stari, nikad-obrisani template hijack-ovao izbor i
+        // izgledalo bi kao da se „otvara druga kalkulacija".
+        if (localStorage.getItem("editKalkulacija")) return;
         const tpl = readPendingTemplateCalculation("folija");
         if (!tpl) return;
         try {
@@ -384,22 +388,31 @@ export default function KalkulacijaFolijeSmart() {
                 console.log('📝 Učitavam kalkulaciju za izmenu:', kal);
                 if (kal.id) setEditId(kal.id); // postojeća kalkulacija → omogući "Sačuvaj izmene"
 
-                // Popuni sve podatke - KONVERTUJ U BROJEVE!
+                // Otvaranje sačuvane kalkulacije je merodavno: očisti eventualni stari template
+                // prefill da ne hijack-uje ovaj ili sledeći izbor.
+                localStorage.removeItem("maropack_pending_template_calculation");
+
+                // Popuni sve podatke - KONVERTUJ U BROJEVE! Širina se učitava BEZUSLOVNO
+                // (i kad je 0) da ne zadrži vrednost prethodno otvorene kalkulacije.
                 if (kal.naziv) setNaziv(kal.naziv);
                 if (kal.kupac) setKupac(kal.kupac);
-                if (kal.sirina) setSirina(Number(kal.sirina));
+                setSirina(Number(kal.sirina ?? kal.rezanje?.sirinaMaterijala ?? 0) || 0);
                 // metraza ostaje 1000 (baza) — ne učitava se iz sačuvane kalkulacije
                 if (kal.nalog) setNalog(Number(kal.nalog));
                 if (kal.skart !== undefined) setSkart(Number(kal.skart));
                 if (kal.marza !== undefined) setMarza(Number(kal.marza));
                 if (kal.napomena !== undefined) setNapomena(kal.napomena || "");
 
-                // Materijali - KONVERTUJ BROJEVE!
-                if (kal.materijali && Array.isArray(kal.materijali)) {
-                    console.log('📦 RAW Materijali:', kal.materijali);
+                // Materijali - KONVERTUJ BROJEVE! Uzmi iz kal.materijali, a ako toga nema (stariji
+                // zapis), iz materijali_struktura — i UVEK postavi (i praznu listu) da se ne bi
+                // zadržali slojevi/debljine iz prethodno otvorene kalkulacije (mešanje).
+                {
+                    const _matArr = Array.isArray(kal.materijali) ? kal.materijali
+                        : (Array.isArray(kal.materijali_struktura) ? kal.materijali_struktura : []);
+                    console.log('📦 RAW Materijali:', _matArr);
 
                     // Konvertuj sve brojeve u materijalima + uskladi nazive polja (koef/koeficijent, gm2/gsm/tezina, vrsta/tip)
-                    const materijaliFix = kal.materijali.map(m => {
+                    const materijaliFix = _matArr.map(m => {
                         const koef = m.koef ?? m.koeficijent ?? "";
                         const gm2 = m.gm2 ?? m.gsm ?? m.tezina ?? "";
                         const vrsta = m.vrsta || m.tip || m.materijal || "";

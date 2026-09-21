@@ -116,6 +116,9 @@ export default function KalkulacijaKese({ setPage }) {
     const [napomena, setNapomena] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
     const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
+    // Zastavica: kad korisnik otvori sačuvanu kalkulaciju, template prefill NE sme da je pregazi.
+    // (edit-efekat obriše editKalkulacija pre template-efekta, pa ne može preko localStorage-a.)
+    const editLoaded = useRef(false);
 
     // Učitaj postojeću kalkulaciju iz liste (App stavi u localStorage['editKalkulacija'])
     useEffect(() => {
@@ -124,6 +127,8 @@ export default function KalkulacijaKese({ setPage }) {
         try {
             const kal = JSON.parse(raw);
             if ((kal.tip || '').toLowerCase() !== 'kesa') return; // samo kese ovde
+            editLoaded.current = true;
+            localStorage.removeItem('maropack_pending_template_calculation'); // ne dozvoli hijack
             if (kal.id) setEditId(kal.id);
             if (kal.naziv) setNaziv(kal.naziv);
             if (kal.kupac) setKupac(kal.kupac);
@@ -154,6 +159,7 @@ export default function KalkulacijaKese({ setPage }) {
     // ✅ V26: Template → Kalkulacija realno mapiranje za kese.
     // Više ne otvara default OPP ako template ima druge slojeve/opcije.
     useEffect(() => {
+        if (editLoaded.current) return; // otvorena je sačuvana kalkulacija → ne diraj je template-om
         const tpl = readPendingTemplateCalculation('kesa');
         if (!tpl) return;
         try {

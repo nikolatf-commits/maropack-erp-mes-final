@@ -290,9 +290,9 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
             {/* LISTA */}
             {!loading && filtrirane.length > 0 && (
                 <div style={{ display: 'grid', gap: 12 }}>
-                    {filtrirane.map(kal => (
+                    {filtrirane.map((kal, i) => (
                         <div
-                            key={kal.id}
+                            key={(kal.iz_template ? 'tpl-' : '') + (kal.tip || 'x') + '-' + (kal.id ?? i)}
                             style={{
                                 background: 'white',
                                 border: '1px solid #e2e8f0',

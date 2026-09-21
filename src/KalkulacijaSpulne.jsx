@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AIPomoc from "./modules/AIPomoc.jsx";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
@@ -39,6 +39,8 @@ export default function KalkulacijaSpulne() {
     const [datumIsporuke, setDatumIsporuke] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
     const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
+    // Zastavica: otvorena sačuvana kalkulacija ima prioritet nad template prefill-om.
+    const editLoaded = useRef(false);
 
     // Učitaj postojeću kalkulaciju iz liste (App stavi u localStorage['editKalkulacija'])
     useEffect(() => {
@@ -47,6 +49,8 @@ export default function KalkulacijaSpulne() {
         try {
             const kal = JSON.parse(raw);
             if ((kal.tip || '').toLowerCase() !== 'spulna') return; // samo špulne ovde
+            editLoaded.current = true;
+            localStorage.removeItem('maropack_pending_template_calculation'); // ne dozvoli hijack
             if (kal.id) setEditId(kal.id);
             if (kal.naziv) setNaziv(kal.naziv);
             if (kal.kupac) setKupac(kal.kupac);
@@ -86,6 +90,7 @@ export default function KalkulacijaSpulne() {
 
     // ✅ V26: Template → Kalkulacija realno mapiranje za špulne.
     useEffect(() => {
+        if (editLoaded.current) return; // otvorena je sačuvana kalkulacija → ne diraj je template-om
         const tpl = readPendingTemplateCalculation('spulna');
         if (!tpl) return;
         try {
