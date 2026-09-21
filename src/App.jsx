@@ -2074,7 +2074,10 @@ function MainAppContent() {
                     {(page === "dash" || page === "dashboard") && <DashboardPRO setPage={setPage} />}
 
                     {/* KALKULATORI */}
-                    {page === "kalk_folija" && <KalkulacijaFolije />}
+                    {page === "kalk_folija" && (<div>
+                        <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
+                        <KalkulacijaFolije />
+                    </div>)}
 
                     {/* LISTA KALKULACIJA */}
                     {page === "kalkulacije_lista" && (
@@ -2112,11 +2115,17 @@ function MainAppContent() {
 
                     {/* KALKULACIJA KESE */}
                     {page === "kalk_kesa" && (
-                        <KalkulacijaKese setPage={setPage} />
+                        <div>
+                            <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
+                            <KalkulacijaKese setPage={setPage} />
+                        </div>
                     )}
                     {/* KALKULACIJA ŠPULNE */}
                     {page === "kalk_spulna" && (
-                        <KalkulacijaSpulne setPage={setPage} />
+                        <div>
+                            <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
+                            <KalkulacijaSpulne setPage={setPage} />
+                        </div>
                     )}
 
                     {/* PONUDE - ZAMENJENO: render PonudePRO sa handlerima */}
@@ -2307,7 +2316,10 @@ function MainAppContent() {
                     {/* BAZA / TEMPLATE MODULI */}
                     {page === "baza_proizvoda_pro" && (<ProductMasterPRO db={db} setDb={setDb} setPage={setPage} msg={msg} />)}
                     {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
-                    {page === "template_engine" && (<ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />)}
+                    {page === "template_engine" && (<div>
+                        <NazadDugme setPage={setPage} to="baza_proizvoda_pro" label="Bazu proizvoda PRO" />
+                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />
+                    </div>)}
                     {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 
                     {/* ✅ NOVO: AUDIT LOG */}
@@ -2484,5 +2496,19 @@ function AppContent() {
         <ProtectedRoute>
             <MainAppContent />
         </ProtectedRoute>
+    );
+}
+
+// Malo dugme „← Nazad" iznad ekrana (Template Engine, kalkulacije). setPage(to) vraća na
+// zadatu stranicu (baza_proizvoda_pro / kalkulacije_lista).
+function NazadDugme({ setPage, to, label }) {
+    return (
+        <button
+            type="button"
+            onClick={() => setPage && setPage(to)}
+            style={{ margin: "0 0 12px", padding: "10px 16px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 800, fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}
+        >
+            ← Nazad na {label}
+        </button>
     );
 }
