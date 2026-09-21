@@ -1,17 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase.js";
 import {
-    buildWorkersFromActivities,
+    buildWorkersFromRad,
     calculateDashboardKPIs,
+    finalnoUradjeno,
     formatNumber,
     getOrderNumber,
     getProductName,
+    grupisiOperacije,
+    kolicinaNaloga,
     loadDashboardData,
     prepareMagacinPoTipu,
     prepareNaloziPoDanima,
     prepareProizvodnjaPoDanima,
     prepareTopProizvodi,
-    safeNumber
+    safeNumber,
+    statusNaloga
 } from "./dashboardShared.js";
 import {
     Area,
@@ -82,10 +86,13 @@ export default function DashboardPRO({ setPage }) {
 
     const kpi = useMemo(() => calculateDashboardKPIs(data), [data]);
     const naloziPoDanima = useMemo(() => prepareNaloziPoDanima(data.nalozi, timeRange), [data.nalozi, timeRange]);
-    const proizvodnjaPoDanima = useMemo(() => prepareProizvodnjaPoDanima(data.aktivnosti), [data.aktivnosti]);
+    // Stvaran rad je u operativni_nalozi (data.rad), ne u nalog_aktivnosti (obično prazno) —
+    // isto kao Manager Dashboard. Zato radnici i proizvodnja po danima idu iz data.rad.
+    const proizvodnjaPoDanima = useMemo(() => prepareProizvodnjaPoDanima(data.rad), [data.rad]);
     const topProizvodi = useMemo(() => prepareTopProizvodi(data.nalozi), [data.nalozi]);
     const magacinPoTipu = useMemo(() => prepareMagacinPoTipu(data.rolne), [data.rolne]);
-    const workers = useMemo(() => buildWorkersFromActivities(data.aktivnosti), [data.aktivnosti]);
+    const workers = useMemo(() => buildWorkersFromRad(data), [data]);
+    const opMap = useMemo(() => grupisiOperacije(data.operacije || []), [data.operacije]);
 
     const statusDistribucija = [
         { name: "Aktivni", value: kpi.aktivniNalozi, color: COLORS.blue },
@@ -203,7 +210,12 @@ export default function DashboardPRO({ setPage }) {
                         <div style={{ overflowX: "auto" }}>
                             <table style={styles.table}>
                                 <thead><tr><th>Broj</th><th>Proizvod</th><th>Količina</th><th>Urađeno</th><th>Status</th></tr></thead>
-                                <tbody>{data.nalozi.slice(0, 12).map(n => <tr key={n.id}><td><b>{getOrderNumber(n)}</b></td><td>{getProductName(n)}</td><td>{formatNumber(n.kol || n.kolicina, "m")}</td><td>{formatNumber(n.uradjeno || n.proizvedeno, "m")}</td><td><StatusBadge status={n.status} /></td></tr>)}</tbody>
+                                <tbody>{data.nalozi.slice(0, 12).map(n => {
+                                    const ops = opMap.get(n.id) || [];
+                                    const st = statusNaloga(n, ops);
+                                    const stLabel = st === "zavrsen" ? "Završen" : st === "otkazan" ? "Otkazan" : "Aktivan";
+                                    return <tr key={n.id}><td><b>{getOrderNumber(n)}</b></td><td>{getProductName(n)}</td><td>{formatNumber(kolicinaNaloga(n), "m")}</td><td>{formatNumber(finalnoUradjeno(ops) || n.uradjeno || n.proizvedeno, "m")}</td><td><StatusBadge status={stLabel} /></td></tr>;
+                                })}</tbody>
                             </table>
                         </div>
                     </ChartCard>
@@ -229,8 +241,8 @@ export default function DashboardPRO({ setPage }) {
 
             {selectedView === "analytics" && (
                 <div style={styles.twoCols}>
-                    <ChartCard title="👥 Radnici" subtitle="Iz nalog_aktivnosti">
-                        <div style={styles.workerMiniList}>{workers.map(w => <div key={w.ime} style={styles.workerMini}><b>{w.ime}</b><span>{w.aktivnosti} aktivnosti · {formatNumber(w.kolicina)}</span></div>)}</div>
+                    <ChartCard title="👥 Radnici" subtitle="Iz operativni_nalozi (završene operacije)">
+                        <div style={styles.workerMiniList}>{workers.length === 0 ? <div style={{ color: "#64748b", fontWeight: 700 }}>Nema završenih operacija u periodu.</div> : workers.map(w => <div key={w.ime} style={styles.workerMini}><b>{w.ime}</b><span>{w.zavrseno} završeno · {formatNumber(w.kolicina)}</span></div>)}</div>
                     </ChartCard>
                     <ChartCard title="🎯 KPI" subtitle="Isti KPI engine kao Manager">
                         <Metric label="Stopa izvršenja" value={`${kpi.stopaIzvrsenja}%`} />

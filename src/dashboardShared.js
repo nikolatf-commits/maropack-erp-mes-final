@@ -222,6 +222,23 @@ export function getProductName(n) {
     return n?.prod || n?.proizvod || n?.naziv || n?.naziv_proizvoda || "Ostalo";
 }
 
+// Poručena količina naloga — pravi izvor je parametri.porucena_kolicina (direktna polja su rezerva).
+export function kolicinaNaloga(n) {
+    return safeNumber(n?.kol ?? n?.kolicina ?? n?.metraza ?? n?.parametri?.porucena_kolicina ?? n?.parametri?.kolicina_za_rad);
+}
+
+// „Proizvedeno" za nalog = izlaz POSLEDNJE operacije (po redosledu), NE zbir svih operacija —
+// inače se ista količina broji više puta (nalog sa 4 operacije bi dao 300–400%).
+export function finalnoUradjeno(ops = []) {
+    if (!ops.length) return 0;
+    const s = [...ops].sort((a, b) => safeNumber(a.redosled) - safeNumber(b.redosled));
+    for (let i = s.length - 1; i >= 0; i--) {
+        const u = safeNumber(s[i].uradjeno);
+        if (u > 0) return u;
+    }
+    return 0;
+}
+
 export function calculateDashboardKPIs(data = {}) {
     const nalozi = data.nalozi || [];
     const rolne = data.rolne || [];
@@ -242,11 +259,12 @@ export function calculateDashboardKPIs(data = {}) {
         return (Date.now() - dt.getTime()) / 86400000 > 7;
     }).length;
 
-    const kolNaloga = (n) => safeNumber(n.kol ?? n.kolicina ?? n?.parametri?.porucena_kolicina ?? n?.parametri?.kolicina_za_rad);
+    const kolNaloga = (n) => kolicinaNaloga(n);
     const ukupnaKolicina = nalozi.reduce((s, n) => s + kolNaloga(n), 0);
+    // Proizvedeno = izlaz POSLEDNJE operacije po nalogu (ne zbir svih operacija — inače >100%).
     const proizvedenoIzNaloga = nalozi.reduce((s, n) => {
         const ops = opMap.get(n.id) || [];
-        return s + (ops.length ? ops.reduce((a, o) => a + safeNumber(o.uradjeno), 0) : safeNumber(n.uradjeno || n.proizvedeno));
+        return s + (ops.length ? finalnoUradjeno(ops) : safeNumber(n.uradjeno || n.proizvedeno));
     }, 0);
     const proizvedenoIzAktivnosti = aktivnosti.reduce((s, a) => s + safeNumber(a.kolicina || a.uradjeno || a.proizvedeno), 0);
     const proizvedeno = proizvedenoIzNaloga || proizvedenoIzAktivnosti;
@@ -286,7 +304,7 @@ export function calculateDashboardKPIs(data = {}) {
         return s.includes("zastoj") || s.includes("kvar") || s.includes("pauza");
     }).length;
 
-    const stopaIzvrsenja = ukupnaKolicina > 0 ? ((proizvedeno / ukupnaKolicina) * 100).toFixed(1) : 0;
+    const stopaIzvrsenja = ukupnaKolicina > 0 ? Math.min(100, (proizvedeno / ukupnaKolicina) * 100).toFixed(1) : 0;
     const iskoriscenjeMagacina = ukupnoRolni > 0 ? ((rolneNaStanju / ukupnoRolni) * 100).toFixed(1) : 0;
     const prosecnaVrednost = ukupnoNaloga > 0 ? (vrednostNaloga / ukupnoNaloga).toFixed(0) : 0;
 
