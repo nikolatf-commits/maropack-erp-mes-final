@@ -111,8 +111,13 @@ export default function MaterialSelectorPRO({ value = {}, onChange, compact = fa
     }, [vrsta]);
 
     useEffect(() => {
-        const available = getDebljineZaMaterijal(vrsta, oznaka);
-        if (available.length && !available.includes(Number(debljina))) setDebljina(available.includes(20) ? 20 : available[0]);
+        // NE menjamo unetu/učitanu debljinu — ona mora da ostane tačno kako je snimljena.
+        // Master-lista je samo predlog (datalist). Default se ponudi SAMO ako je polje prazno,
+        // da promena vrste/oznake (ili čekiranje Štampa/Lak) nikad ne pomeri postojeću debljinu.
+        if (!debljina || Number(debljina) <= 0) {
+            const available = getDebljineZaMaterijal(vrsta, oznaka);
+            if (available.length) setDebljina(available.includes(20) ? 20 : available[0]);
+        }
     }, [vrsta, oznaka]);
 
     useEffect(() => {
