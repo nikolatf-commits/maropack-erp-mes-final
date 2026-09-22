@@ -383,9 +383,18 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     useEffect(() => {
         const editData = localStorage.getItem('editKalkulacija');
-        if (editData) {
+        if (!editData) return;
+        (async () => {
             try {
-                const kal = JSON.parse(editData);
+                let kal = JSON.parse(editData);
+                // Uvek povuci SVEŽ red iz baze po id-u — lista može biti keširana i
+                // vraćati stare vrednosti (pa bi izmena "nestala" pri ponovnom otvaranju).
+                if (kal && kal.id) {
+                    try {
+                        const { data } = await supabase.from('kalkulacije_folije').select('*').eq('id', kal.id).maybeSingle();
+                        if (data) kal = { ...kal, ...data };
+                    } catch (e) { /* fetch pao → koristi kopiju iz liste */ }
+                }
                 console.log('📝 Učitavam kalkulaciju za izmenu:', kal);
                 if (kal.id) setEditId(kal.id); // postojeća kalkulacija → omogući "Sačuvaj izmene"
 
@@ -502,7 +511,7 @@ export default function KalkulacijaFolijeSmart() {
             } catch (err) {
                 console.error('❌ Greška pri učitavanju kalkulacije:', err);
             }
-        }
+        })();
     }, []);
 
     // ========================================================================
@@ -557,7 +566,9 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     // KALKULACIJA
     // ========================================================================
-    const izracunaj = () => {
+    // Čist obračun: VRAĆA rezultat (ne diramo state ovde). Tako i "Sačuvaj" može da
+    // uzme SVEŽ rezultat bez čekanja na debounce (inače bi marža/cena zaostajale za 1 izmenu).
+    const computeRez = () => {
         // DIJAGNOSTIKA: ako neki materijal nema težinu, ispiši njegova polja u konzolu
         try {
             const _dbg = materijali.map(m => ({
@@ -674,7 +685,7 @@ export default function KalkulacijaFolijeSmart() {
         const cenaPoKgSaMarza = ukupnoKg > 0 ? konacnaCena / ukupnoKg : 0;
         const ukupnoKgNalog = ukupnoKg * nalog;
 
-        setRezultati({
+        return {
             osnovnaCena,
             osnovnaNalog,
             cenaSaSkartom,
@@ -701,8 +712,11 @@ export default function KalkulacijaFolijeSmart() {
                 return (skartW * metraza * mat.tezina * mat.cena) / 1000000;
             }),
             skartNestandardnihNalog: skartNestandardnih * nalog
-        });
+        };
     };
+
+    // Živi prikaz: samo upiše rezultat u state (koristi isti čist obračun).
+    const izracunaj = () => setRezultati(computeRez());
 
     // LIVE UPDATE
     useEffect(() => {
@@ -722,6 +736,8 @@ export default function KalkulacijaFolijeSmart() {
 
         try {
             const materijali_struktura = buildMaterijaliStruktura(materijali, sirina);
+            // SVEŽ obračun u trenutku čuvanja (ne oslanjamo se na debounce-ovani `rezultati`).
+            const rez = computeRez();
             localStorage.setItem("maropack_pending_nalog", JSON.stringify({
                 tip: "folija",
                 type: "folija",
@@ -737,7 +753,7 @@ export default function KalkulacijaFolijeSmart() {
                 },
                 materijali,
                 materijali_struktura,
-                rezultati,
+                rezultati: rez,
                 source_chain: 'template → kalkulacija → ponuda → nalog',
                 product_master_id: sourceLink?.product_master_id || null,
                 template_id: sourceLink?.template_id || null,
@@ -750,8 +766,9 @@ export default function KalkulacijaFolijeSmart() {
             const zapis = {
                 naziv, kupac, oznaka_upita: oznakaUpita, sirina, metraza, nalog, skart,
                 kolicina: Number(nalog) || 0,
-                cena_kg: rezultati?.cenaPoKgSaMarza || 0,
-                marza: rezultati?.izracunataMarza,
+                cena_kg: rez?.cenaPoKgSaMarza || 0,
+                // Maржu čuvamo iz UNOSA u normalnom modu (u obrnutom je izračunata).
+                marza: mod === "normal" ? Number(marza) : (rez?.izracunataMarza ?? Number(marza)),
                 materijali,
                 materijali_struktura,
                 lepak, lak, kasiranje,
@@ -759,7 +776,7 @@ export default function KalkulacijaFolijeSmart() {
                 lakiranje_cena: lakiranjeCena,
                 transport, pakovanje, dorada,
                 napomena,
-                rezultati,
+                rezultati: rez,
                 kreirao_user_id: user?.id
             };
             let error, savedId = editId;
