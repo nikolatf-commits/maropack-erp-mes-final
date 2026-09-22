@@ -503,6 +503,24 @@ export default function KalkulacijaFolijeSmart() {
                 if (kal.rezultati) {
                     setRezultati(kal.rezultati);
                 }
+                // AUTORITATIVNO: vrati ulaze iz snapshot-a u rezultati (preživljava i ako neka
+                // zasebna kolona — npr. kaширanje — ne round-trip-uje kroz bazu).
+                {
+                    let _rz = kal.rezultati;
+                    if (typeof _rz === 'string') { try { _rz = JSON.parse(_rz); } catch (e) { _rz = null; } }
+                    const _ul = _rz && _rz._ulaz;
+                    if (_ul) {
+                        const S = (setter, v) => { if (v !== undefined && v !== null) setter(Number(v)); };
+                        if (_ul.kasiranje) setKasiranje({ cena: Number(_ul.kasiranje.cena) || 0 });
+                        if (Array.isArray(_ul.lepak)) setLepak(_ul.lepak.map((l, i) => normalizeExcelLepakRow(l, i)));
+                        if (_ul.lak && typeof _ul.lak === 'object') setLak({ potrosnja: Number(_ul.lak.potrosnja) || 0, utrosak: Number(_ul.lak.utrosak) || 0, prolazi: Number(_ul.lak.prolazi) || 0, cena: Number(_ul.lak.cena) || 0 });
+                        S(setStampaCena, _ul.stampaCena); S(setLakiranjeCena, _ul.lakiranjeCena);
+                        S(setTransport, _ul.transport); S(setPakovanje, _ul.pakovanje); S(setDorada, _ul.dorada);
+                        S(setSkart, _ul.skart); S(setMarza, _ul.marza); S(setNalog, _ul.nalog);
+                        if (_ul.sirina != null) setSirina(Number(_ul.sirina) || 0);
+                        if (_ul.oznaka_upita != null) setOznakaUpita(_ul.oznaka_upita);
+                    }
+                }
 
                 // Obriši iz localStorage
                 localStorage.removeItem('editKalkulacija');
@@ -776,7 +794,15 @@ export default function KalkulacijaFolijeSmart() {
                 lakiranje_cena: lakiranjeCena,
                 transport, pakovanje, dorada,
                 napomena,
-                rezultati: rez,
+                // Rezultati + SNAPSHOT ulaza — da izmene prežive i ako neka zasebna kolona ne postoji u bazi.
+                rezultati: {
+                    ...rez,
+                    _ulaz: {
+                        sirina, skart, marza, nalog, oznaka_upita: oznakaUpita,
+                        kasiranje, lepak, lak,
+                        stampaCena, lakiranjeCena, transport, pakovanje, dorada
+                    }
+                },
                 kreirao_user_id: user?.id
             };
             let error, savedId = editId;

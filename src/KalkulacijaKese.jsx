@@ -111,6 +111,11 @@ export default function KalkulacijaKese({ setPage }) {
     const [odCena, setOdCena] = useState(2.0);
     const [fdCena, setFdCena] = useState(1.5);
     const [vdCena, setVdCena] = useState(1.0);
+    // Opcije koje ranije nisu imale cenu — sad se i one mogu menjati (default 0).
+    const [utorCena, setUtorCena] = useState(0);
+    const [potkCena, setPotkCena] = useState(0);     // perf. otkidanje
+    const [pperfCena, setPperfCena] = useState(0);   // poprečna perf.
+    const [phranaCena, setPhranaCena] = useState(0); // pakovanje za hranu
 
     const [trCena, setTrCena] = useState(0.35);
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
@@ -153,6 +158,22 @@ export default function KalkulacijaKese({ setPage }) {
             }
             if (kal.eurozumba || kal.duplofan || kal.anleger || kal.perforacija || kal.utor) {
                 setOpts(o => ({ ...o, eurozumba: !!kal.eurozumba, duplofan: !!kal.duplofan, anleger: !!kal.anleger, perforacija: !!kal.perforacija, utor: !!kal.utor }));
+            }
+            // Vrati SVE opcije i njihove (izmenjene) cene iz snapshot-a ulaza.
+            let _rez = kal.rezultati;
+            if (typeof _rez === 'string') { try { _rez = JSON.parse(_rez); } catch (e) { _rez = null; } }
+            const _ul = _rez && _rez._ulaz;
+            if (_ul) {
+                if (_ul.opts) setOpts(_ul.opts);
+                const c = _ul.cene || {};
+                const S = (setter, v) => { if (v !== undefined && v !== null) setter(Number(v)); };
+                S(setDupCena, c.dupCena); S(setEzCena, c.ezCena); S(setOzCena, c.ozCena); S(setKkCena, c.kkCena);
+                S(setAnCena, c.anCena); S(setStCena, c.stCena); S(setKvCena, c.kvCena); S(setPpvCena, c.ppvCena);
+                S(setFdCena, c.fdCena); S(setVdCena, c.vdCena); S(setOdCena, c.odCena); S(setBuCena, c.buCena);
+                S(setAdhCena, c.adhCena); S(setAdhOds, c.adhOds); S(setOjCena, c.ojCena); S(setOjSir, c.ojSir); S(setOjDeb, c.ojDeb);
+                S(setKlCena, c.klCena); S(setKlBr, c.klBr); S(setPvCena, c.pvCena);
+                S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setPhranaCena, c.phranaCena);
+                S(setTrCena, c.trCena);
             }
             localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
@@ -297,7 +318,11 @@ export default function KalkulacijaKese({ setPage }) {
             (opts.poprecniVar ? ppvCena : 0) +
             (opts.otvorDno ? odCena : 0) +
             (opts.faltaDno ? fdCena : 0) +
-            (opts.varDno ? vdCena : 0);
+            (opts.varDno ? vdCena : 0) +
+            (opts.utor ? utorCena : 0) +
+            (opts.perfOtk ? potkCena : 0) +
+            (opts.poprecnaPerf ? pperfCena : 0) +
+            (opts.pakHrana ? phranaCena : 0);
 
         const trTr = trCena * tezKg1000;
 
@@ -335,7 +360,7 @@ export default function KalkulacijaKese({ setPage }) {
     }, [sirina, duzina, klapna, falta, kolicina, skart, marza, setupMasina, materijali, opts,
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
-        odCena, fdCena, vdCena, trCena, zeljCena]);
+        odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena]);
 
     const NAMES = {
         duplofan: 'Duplofan', eurozumba: 'Eurozumba', okruglaZumba: 'Ok.zumba',
@@ -396,7 +421,7 @@ export default function KalkulacijaKese({ setPage }) {
         </div>
     );
 
-    const Opt = ({ k, label, cena, badge }) => (
+    const Opt = ({ k, label, cena, setCena, badge }) => (
         <div
             style={{
                 display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 10px',
@@ -409,7 +434,15 @@ export default function KalkulacijaKese({ setPage }) {
             <input type="checkbox" checked={!!opts[k]} readOnly style={{ accentColor: '#059669', width: '14px', height: '14px' }} />
             <span style={{ fontSize: '11px', color: opts[k] ? '#047857' : '#475569', fontWeight: opts[k] ? 700 : 500, flex: 1 }}>{label}</span>
             {badge && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#e0e7ff', color: '#4338ca' }}>{badge}</span>}
-            {cena && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{cena}€</span>}
+            {setCena ? (
+                // Cena je EDITABILNA direktno na kartici (svaka opcija se može menjati).
+                <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="number" step="0.1" value={cena} onChange={e => setCena(parseFloat(e.target.value) || 0)}
+                        title="Cena €/1000kom — možeš je menjati"
+                        style={{ width: '46px', fontSize: '10px', fontWeight: 800, textAlign: 'right', padding: '2px 4px', border: '1px solid #86efac', borderRadius: '6px', background: '#f0fdf4', color: '#166534' }} />
+                    <span style={{ fontSize: '9px', color: '#166534', fontWeight: 800 }}>€</span>
+                </span>
+            ) : (cena != null && cena !== '' && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{cena}€</span>)}
         </div>
     );
 
@@ -485,8 +518,18 @@ export default function KalkulacijaKese({ setPage }) {
                 cena_stampa: opts.stampa ? Number(stCena) : 0,
                 transport: Number(trCena),
 
-                // Rezultati
-                rezultati: rez,
+                // Rezultati + SNAPSHOT ulaza (opcije i sve njihove cene) — da se vrate pri otvaranju
+                rezultati: {
+                    ...rez,
+                    _ulaz: {
+                        opts,
+                        cene: {
+                            dupCena, ezCena, ozCena, kkCena, anCena, stCena, kvCena, ppvCena,
+                            fdCena, vdCena, odCena, buCena, adhCena, adhOds, ojCena, ojSir, ojDeb,
+                            klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena
+                        }
+                    }
+                },
                 osnovna_cena: rez.osnovna || 0,
                 konacna_cena: rez.konacna || 0,
 
@@ -611,26 +654,26 @@ export default function KalkulacijaKese({ setPage }) {
                         <div style={s.sec}>
                             <div style={s.secT}>⚙️ Tehničke opcije kese</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
-                                <Opt k="duplofan" label="Duplofan traka" cena={dupCena} />
-                                <Opt k="eurozumba" label="Eurozumba" cena={ezCena} />
-                                <Opt k="okruglaZumba" label="Okrugla zumba" cena={ozCena} />
-                                <Opt k="kosaKlapna" label="Ukošena klapna" cena={kkCena} />
-                                <Opt k="anleger" label="Anleger" cena={anCena} />
-                                <Opt k="utor" label="Utor" />
-                                <Opt k="stampa" label="Štampa" cena={stCena} />
-                                <Opt k="perfOtk" label="Perf. otkidanje" />
-                                <Opt k="poprecnaPerf" label="Poprečna perf." />
-                                <Opt k="kontVar" label="Kontinentalni var" cena={kvCena} />
-                                <Opt k="poprecniVar" label="Poprečni var" cena={ppvCena} />
-                                <Opt k="faltaDno" label="Falta na dnu" cena={fdCena} />
-                                <Opt k="varDno" label="Var na dnu" cena={vdCena} />
-                                <Opt k="otvorDno" label="Otvor na dnu" cena={odCena} />
-                                <Opt k="pakHrana" label="Pakovanje za hranu" />
-                                <Opt k="busenje" label="Bušenje rupe" cena={buCena} />
-                                <Opt k="adhTraka" label="ADH traka" cena={adhCena} />
-                                <Opt k="ojacanje" label="Ojačanje" />
-                                <Opt k="klise" label="Trošak klišea" />
-                                <Opt k="perfVrucim" label="Perf. vrućim iglama" cena={pvCena} />
+                                <Opt k="duplofan" label="Duplofan traka" cena={dupCena} setCena={setDupCena} />
+                                <Opt k="eurozumba" label="Eurozumba" cena={ezCena} setCena={setEzCena} />
+                                <Opt k="okruglaZumba" label="Okrugla zumba" cena={ozCena} setCena={setOzCena} />
+                                <Opt k="kosaKlapna" label="Ukošena klapna" cena={kkCena} setCena={setKkCena} />
+                                <Opt k="anleger" label="Anleger" cena={anCena} setCena={setAnCena} />
+                                <Opt k="utor" label="Utor" cena={utorCena} setCena={setUtorCena} />
+                                <Opt k="stampa" label="Štampa" cena={stCena} setCena={setStCena} />
+                                <Opt k="perfOtk" label="Perf. otkidanje" cena={potkCena} setCena={setPotkCena} />
+                                <Opt k="poprecnaPerf" label="Poprečna perf." cena={pperfCena} setCena={setPperfCena} />
+                                <Opt k="kontVar" label="Kontinentalni var" cena={kvCena} setCena={setKvCena} />
+                                <Opt k="poprecniVar" label="Poprečni var" cena={ppvCena} setCena={setPpvCena} />
+                                <Opt k="faltaDno" label="Falta na dnu" cena={fdCena} setCena={setFdCena} />
+                                <Opt k="varDno" label="Var na dnu" cena={vdCena} setCena={setVdCena} />
+                                <Opt k="otvorDno" label="Otvor na dnu" cena={odCena} setCena={setOdCena} />
+                                <Opt k="pakHrana" label="Pakovanje za hranu" cena={phranaCena} setCena={setPhranaCena} />
+                                <Opt k="busenje" label="Bušenje rupe" cena={buCena} setCena={setBuCena} />
+                                <Opt k="adhTraka" label="ADH traka" cena={adhCena} setCena={setAdhCena} />
+                                <Opt k="ojacanje" label="Ojačanje" cena={ojCena} setCena={setOjCena} />
+                                <Opt k="klise" label="Trošak klišea" cena={klCena} setCena={setKlCena} />
+                                <Opt k="perfVrucim" label="Perf. vrućim iglama" cena={pvCena} setCena={setPvCena} />
                             </div>
 
                             {/* PANELI ZA OPCIJE - prikazuju se kad je opcija aktivna */}
