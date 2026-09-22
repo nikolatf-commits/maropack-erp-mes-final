@@ -53,6 +53,7 @@ export function extraktNalog(n) {
     const t = Object.keys(tData).length ? tData : tpl;
     const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
     const kesa = n.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
+    const spulnaC = n.spulna || od.spulna || t.spulna || (t.data && t.data.spulna) || {};
     const rzn = folija.rezanje || {};
     const st = folija.stampa || {};
     const sirina = num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0;
@@ -68,19 +69,45 @@ export function extraktNalog(n) {
     if (direktnaMaticna > 0) {
         metriMasine = Math.round(direktnaMaticna);
     } else {
-        // 2) Stariji nalozi: poštuj JEDINICU UNOSA — porucenaKolicina u KOM nisu metri!
-        const jed = String(t.jedinicaUnosa || "m").toLowerCase();
+        // 2) Stariji nalozi (bez metraza_maticne): poštuj JEDINICU UNOSA.
+        //    VAŽNO: količina i jedinica često NISU na vrhu templejta nego UNUTAR kontejnera
+        //    (folija/kesa/spulna). Zato čitamo i ugnežđeno — inače špulna/kesa vrate 0.
+        const tipStr = String(n.tip_proizvoda || n.tip || "").toLowerCase();
+        const jeSpulna = /spul|špul/.test(tipStr) || (!folija.layers && !kesa.layers && (num2(spulnaC.W) || (Array.isArray(spulnaC.layers) && spulnaC.layers.length)));
+        const jeKesa = !jeSpulna && (/kes/.test(tipStr) || (Array.isArray(kesa.layers) && kesa.layers.length) || num2(kesa.kolicina) > 0);
+        const grana = jeSpulna ? spulnaC : jeKesa ? kesa : folija;
+        const jed = String(t.jedinicaUnosa || grana.jedinicaUnosa || (jeSpulna ? "m2" : jeKesa ? "kom" : "m")).toLowerCase();
         const trake = Math.max(1, brojTraka);
-        if (jed === "kom" && kolicina > 0) {
-            const korakM = num2(t.dimenzijaDuzina) / 1000;               // dužina komada duž trake
-            metriMasine = korakM > 0 ? Math.round((kolicina * korakM) / trake) : 0;
-        } else if (jed === "kg" && kolicina > 0) {
-            const slojevi = (folija.layers || []);
+        // količina: vrh templejta → kontejner → poručena u komadima
+        const kol = kolicina || num2(grana.kolicina || t.porucenaKolicinaKom || grana.porucenaKolicinaKom || od.kom || n.kom);
+
+        if (jeSpulna) {
+            // ISTA formula kao štampani nalog (NalogLayoutPRO.spulnaD): m² → ukupno m → matična ÷ traka.
+            const W = num2(spulnaC.W) || 20;
+            const sirMat = num2(spulnaC.sirinaMaterijala) || sirina || 480;
+            const maxM = num2(spulnaC.maxMetara) || 20000;
+            const skartSp = num2(spulnaC.skart) || 0;
+            const layersSp = Array.isArray(spulnaC.layers) ? spulnaC.layers : [];
+            const gm2Sp = layersSp.reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
+            let m2;
+            if (jed === "kom") m2 = kol * maxM * (W / 1000);
+            else if (jed === "kg") m2 = gm2Sp > 0 ? (kol * 1000) / gm2Sp : 0;
+            else if (jed === "m") m2 = kol * (W / 1000);
+            else m2 = kol;                                              // m²
+            const m2Rad = m2 * (1 + skartSp / 100);
+            const ukupnoM = W > 0 ? m2Rad / (W / 1000) : 0;
+            const Nsp = W > 0 ? Math.max(1, Math.floor(sirMat / W)) : 1;
+            metriMasine = Math.round(Nsp > 0 ? ukupnoM / Nsp : ukupnoM);
+        } else if (jed === "kom" && kol > 0) {
+            const korakM = num2(grana.dimenzijaDuzina || t.dimenzijaDuzina) / 1000;   // dužina komada duž trake
+            metriMasine = korakM > 0 ? Math.round((kol * korakM) / trake) : 0;
+        } else if (jed === "kg" && kol > 0) {
+            const slojevi = (Array.isArray(folija.layers) && folija.layers.length ? folija.layers : (grana.layers || []));
             const gm2 = slojevi.reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
-            const m2 = gm2 > 0 ? (kolicina * 1000) / gm2 : 0;
+            const m2 = gm2 > 0 ? (kol * 1000) / gm2 : 0;
             metriMasine = (m2 > 0 && sirina > 0) ? Math.round(m2 / (sirina / 1000) / trake) : 0;
         } else {
-            metriMasine = kolicina > 0 ? Math.round(kolicina / trake) : 0; // "m" — kao i do sada
+            metriMasine = kol > 0 ? Math.round(kol / trake) : 0;       // "m" — kao i do sada
         }
     }
     return {

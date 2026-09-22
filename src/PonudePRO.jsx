@@ -16,6 +16,10 @@ function readLocalPonude() {
 export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvoriKalkulaciju = () => { } }) {
     const [filter, setFilter] = useState("");
     const [ponudeData, setPonudeData] = useState([]);
+    // Po ponudi: jezik PDF-a (sr/en/de) i važenje (1/7/15/30 dana).
+    const [pdfOpt, setPdfOpt] = useState({});
+    const optOf = (id) => pdfOpt[id] || { lang: "sr", vaziDana: 30 };
+    const setOptOf = (id, patch) => setPdfOpt((o) => ({ ...o, [id]: { ...(o[id] || { lang: "sr", vaziDana: 30 }), ...patch } }));
 
     // Učitaj ponude iz Supabase ako nisu prosleđene
     useEffect(() => {
@@ -127,12 +131,24 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                 </div>
                             </div>
 
-                            {/* Dugmad */}
-                            <div style={{ display: "flex", gap: 8, padding: "0 16px 14px", flexWrap: "wrap" }}>
-                                <button onClick={() => napraviPDFPonuda(p)} style={btn("#dc2626")}>📄 PDF ponuda</button>
-                                {kal && <button onClick={() => onOtvoriKalkulaciju(kal)} style={btn("#3b82f6")}>📊 Otvori kalkulaciju</button>}
-                                {!["prihvaceno", "Odobrena", "odobrena"].includes(p?.status) && <button onClick={() => onPrihvati(p)} style={btn("#059669")}>✅ Prihvati ponudu</button>}
-                            </div>
+                            {/* Dugmad + izbor jezika/važenja PDF-a */}
+                            {(() => {
+                                const oid = p.id || p.broj;
+                                const opt = optOf(oid);
+                                return (
+                                    <div style={{ display: "flex", gap: 8, padding: "0 16px 14px", flexWrap: "wrap", alignItems: "center" }}>
+                                        <select value={opt.lang} onChange={(e) => setOptOf(oid, { lang: e.target.value })} style={sel} title="Jezik PDF-a">
+                                            <option value="sr">🇷🇸 SR</option><option value="en">🇬🇧 EN</option><option value="de">🇩🇪 DE</option>
+                                        </select>
+                                        <select value={opt.vaziDana} onChange={(e) => setOptOf(oid, { vaziDana: Number(e.target.value) })} style={sel} title="Važenje ponude">
+                                            <option value={1}>Važi 1 dan</option><option value={7}>Važi 7 dana</option><option value={15}>Važi 15 dana</option><option value={30}>Važi 30 dana</option>
+                                        </select>
+                                        <button onClick={() => napraviPDFPonuda(p, { lang: opt.lang, vaziDana: opt.vaziDana })} style={btn("#dc2626")}>📄 PDF ponuda</button>
+                                        {kal && <button onClick={() => onOtvoriKalkulaciju(kal)} style={btn("#3b82f6")}>📊 Otvori kalkulaciju</button>}
+                                        {!["prihvaceno", "Odobrena", "odobrena"].includes(p?.status) && <button onClick={() => onPrihvati(p)} style={btn("#059669")}>✅ Prihvati ponudu</button>}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })}
@@ -188,6 +204,7 @@ function statBoja(status) {
     return ok ? { bg: "#d1fae5", c: "#065f46" } : { bg: "#fef3c7", c: "#92400e" };
 }
 
+const sel = { padding: "9px 10px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 800, fontSize: 12, cursor: "pointer" };
 const thL = { textAlign: "left", padding: "8px 12px", color: "#64748b", fontSize: 11, fontWeight: 900, textTransform: "uppercase", borderBottom: "1px solid #e2e8f0" };
 const thR = { ...thL, textAlign: "right" };
 const tdL = { textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #f1f5f9" };

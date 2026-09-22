@@ -188,6 +188,25 @@ function _nadjiMasinu(masine, ime) {
         || masine.find((m) => BEZKV(m.name).includes(u) || u.includes(BEZKV(m.name)));
 }
 
+// Datum iz raznih formata: ISO (2026-09-18), dd.mm.yyyy, dd/mm/yyyy, ili Date. null ako ne ume.
+function parseDatum(v) {
+    if (!v) return null;
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+    const s = String(v).trim();
+    let m;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return new Date(+m[1], +m[2] - 1, +m[3]);
+    if ((m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/))) return new Date(+m[3], +m[2] - 1, +m[1]);
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// YYYY-MM-DD iz LOKALNIH komponenti (toISOString bi lokalnu ponoć pomerio za dan).
+function isoLokalno(d) {
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+
 export const ALATI = {
 
     // ── ČITANJE ──────────────────────────────────────────────────────────────
@@ -520,6 +539,110 @@ export const ALATI = {
             return {
                 period_dana: N(dana) || 30, zapisa: redovi.length, ukupno_utroseno_m: Math.round(utroseno),
                 po_nalogu: Object.entries(poNalogu).map(([nalog, m]) => ({ nalog, metara: Math.round(m) })).sort((a, b) => b.metara - a.metara).slice(0, 15),
+            };
+        },
+    },
+
+    potrosnja_materijala: {
+        cita: true,
+        opis: "Koliko je POTROŠENO tačno određenog materijala (vrsta / oznaka / debljina / širina) u nekom periodu — iz istorije magacina. Vraća ukupno potrošenih metara i (procena) kg, razbijeno po nalogu i po mesecu, plus otpad/škart. Koristi kad korisnik pita „koliko sam potrošio BOPP FXCB 25mic 500mm“ ili „koliko tog materijala je otišlo ovog meseca“.",
+        ulaz: {
+            vrsta: { type: "string", description: "Vrsta materijala, npr. BOPP" },
+            oznaka: { type: "string", description: "Oznaka materijala, npr. FXCB" },
+            debljina: { type: "number", description: "Debljina u µ, npr. 25" },
+            sirina_mm: { type: "number", description: "Opciono: tačna širina rolne u mm, npr. 500" },
+            pod_vrsta: { type: "string", description: "Opciono: pod vrsta / kvalitet, npr. transparent" },
+            dana: { type: "number", description: "Koliko dana unazad (podrazumevano 90). Ignoriše se ako su dati od/do." },
+            od: { type: "string", description: "Datum OD (YYYY-MM-DD), opciono" },
+            do: { type: "string", description: "Datum DO (YYYY-MM-DD), opciono" },
+        },
+        async izvrsi(a) {
+            // ── period ──────────────────────────────────────────────────────────
+            let odDate, doDate = null;
+            if (T(a.od)) odDate = new Date(a.od + "T00:00:00");
+            else { odDate = new Date(); odDate.setDate(odDate.getDate() - (N(a.dana) || 90)); }
+            if (T(a.do)) doDate = new Date(a.do + "T23:59:59");
+
+            let q = supabase.from("magacin_istorija").select("*").gte("created_at", odDate.toISOString());
+            if (doDate) q = q.lte("created_at", doDate.toISOString());
+            const { data, error } = await q.order("created_at", { ascending: false }).limit(5000);
+            if (error) return { greska: "magacin_istorija: " + error.message };
+            const redovi = data || [];
+
+            const period = { od: odDate.toISOString().slice(0, 10), do: (doDate || new Date()).toISOString().slice(0, 10) };
+            const opis_mat = [T(a.vrsta), T(a.pod_vrsta), T(a.oznaka), N(a.debljina) ? N(a.debljina) + "µ" : "", N(a.sirina_mm) ? N(a.sirina_mm) + "mm" : ""].filter(Boolean).join(" · ") || "svi materijali";
+            if (!redovi.length) return { materijal: opis_mat, period, zapisa: 0, ukupno_potroseno_m: 0, napomena: "Nema zapisa u istoriji magacina za taj period." };
+
+            // ── spoj istorije sa magacinom po broju rolne / id (za materijal) ─────
+            const mapRolne = {};
+            try {
+                const mag = await sve("magacin");
+                mag.forEach((r) => { if (r.br_rolne) mapRolne[String(r.br_rolne)] = r; if (r.id != null) mapRolne["id:" + r.id] = r; });
+            } catch (e) { /* ako ne uspe, ide bez detalja materijala */ }
+
+            const ULAZ = /ULAZ|PRIJEM|POVRAT NA STANJE|VRA[ĆC]ENO IZ [ŠS]TAMPAR/i;
+            const IZLAZ = /UTRO[ŠS]|IZLAZ|REZAN|SE[ČC]EN|FORMATIR|ISPORU|POTRO[ŠS]|PRODAT|POSLATO U [ŠS]TAMPAR|OTPIS|[ŠS]KART|OTPAD/i;
+            const OTPAD = /[ŠS]KART|OTPAD/i;
+
+            const rolnaOdg = (rol) => {
+                if (!rol) return false;
+                if (T(a.vrsta) && !UP(rol.vrsta).includes(UP(a.vrsta))) return false;
+                if (T(a.pod_vrsta) && T(rol.pod_vrsta) && !UP(rol.pod_vrsta).includes(UP(a.pod_vrsta))) return false;
+                if (T(a.oznaka) && !UP(rol.oznaka_materijala || rol.oznaka).includes(UP(a.oznaka))) return false;
+                if (N(a.debljina) && Math.abs(N(rol.deb ?? rol.debljina) - N(a.debljina)) > 1) return false;
+                if (N(a.sirina_mm) && Math.abs(N(rol.sirina) - N(a.sirina_mm)) > 2) return false;
+                return true;
+            };
+            // procena kg po metru: prvo iz odnosa kg/m same rolne, pa iz gustina × debljina × širina
+            const kgPoM = (rol) => {
+                if (!rol) return 0;
+                const kg = N(rol.kg_neto ?? rol.kg_bruto ?? rol.kg), m = N(rol.metraza ?? rol.metraza_ost);
+                if (kg && m) return kg / m;
+                const deb = N(rol.deb ?? rol.debljina), sir = N(rol.sirina);
+                if (deb && sir) { const g = GUSTINE[UP(rol.vrsta)] || 0.91; return (sir / 1000) * (deb * g) / 1000; }
+                return 0;
+            };
+
+            let uk_m = 0, uk_kg = 0, otpad_m = 0, zapisa = 0, bez_rolne = 0;
+            const poNalogu = {}, poMesecu = {};
+            const rolneSet = new Set();
+            redovi.forEach((r) => {
+                const tekst = UP(r.akcija) + " " + UP(r.tip_promene) + " " + UP(r.napomena);
+                if (ULAZ.test(tekst)) return;                      // ulazi i povrati nisu potrošnja
+                const promena = N(r.promena_m);
+                const jeIzlaz = promena < 0 || IZLAZ.test(tekst);   // izlaz = negativna promena ili tekst kaže utrošak/rez/isporuka/škart
+                if (!jeIzlaz) return;
+                const rol = mapRolne[String(r.br_rolne)] || mapRolne["id:" + r.rolna_id];
+                // rolna više nije u magacinu (potpuno potrošena/obrisana) → ne možemo potvrditi materijal.
+                // Ako je zadat filter materijala, samo prijavimo koliko takvih izlaza ima; ne ubrajamo ih.
+                if (!rol) { if (T(a.vrsta) || T(a.oznaka) || N(a.debljina) || N(a.sirina_mm)) bez_rolne++; return; }
+                if (!rolnaOdg(rol)) return;
+                const m = Math.abs(promena);
+                if (!m) return;
+                uk_m += m; zapisa++;
+                if (rol.br_rolne) rolneSet.add(String(rol.br_rolne));
+                const kg = m * kgPoM(rol); uk_kg += kg;
+                if (OTPAD.test(tekst)) otpad_m += m;
+                const nk = T(r.nalog_ponbr) || "bez naloga";
+                poNalogu[nk] = poNalogu[nk] || { nalog: nk, m: 0, kg: 0 };
+                poNalogu[nk].m += m; poNalogu[nk].kg += kg;
+                const mes = String(r.created_at || "").slice(0, 7);
+                poMesecu[mes] = poMesecu[mes] || { mesec: mes, m: 0, kg: 0 };
+                poMesecu[mes].m += m; poMesecu[mes].kg += kg;
+            });
+
+            return {
+                materijal: opis_mat,
+                period,
+                zapisa,
+                razlicitih_rolni: rolneSet.size,
+                ukupno_potroseno_m: Math.round(uk_m),
+                ukupno_potroseno_kg_procena: Math.round(uk_kg),
+                otpad_skart_m: Math.round(otpad_m),
+                po_nalogu: Object.values(poNalogu).map((x) => ({ nalog: x.nalog, metara: Math.round(x.m), kg_procena: Math.round(x.kg) })).sort((p, q) => q.metara - p.metara).slice(0, 20),
+                po_mesecu: Object.values(poMesecu).map((x) => ({ mesec: x.mesec, metara: Math.round(x.m), kg_procena: Math.round(x.kg) })).sort((p, q) => (p.mesec < q.mesec ? 1 : -1)),
+                napomena: (zapisa ? "kg je PROCENA (iz odnosa kg/m rolne, ili gustina × debljina × širina)." : "Nema potrošnje tog materijala u periodu — proveri oznaku/debljinu ili produži period (parametar „dana“).") +
+                    (bez_rolne ? ` Napomena: ${bez_rolne} izlaza je sa rolni koje više NISU u magacinu (potpuno potrošene/obrisane), pa se za njih materijal ne može potvrditi i nisu ubrojani.` : ""),
             };
         },
     },
@@ -1505,6 +1628,203 @@ export const ALATI = {
         },
     },
 
+    dnevni_pregled: {
+        cita: true,
+        opis: "Jutarnji/dnevni presek fabrike na jednom mestu: nalozi za DANAS i oni koji KASNE, materijal kog ima malo (alarm zaliha), mašine koje SAD stoje prazne, i rolne predugo u štampariji. Koristi kad korisnik kaže „jutarnji pregled“, „šta danas“, „daj mi presek“, „ima li nešto hitno“.",
+        ulaz: {
+            prag_zaliha_m: { type: "number", description: "Ispod koliko slobodnih metara materijal ulazi u alarm (podrazumevano 800)" },
+            dana_stamparija: { type: "number", description: "Koliko dana u štampariji se smatra predugim (podrazumevano 10)" },
+        },
+        async izvrsi(a) {
+            const danas = new Date(); danas.setHours(0, 0, 0, 0);
+            const kraj = new Date(danas); kraj.setHours(23, 59, 59, 999);
+            const rezultat = { datum: isoLokalno(danas) };
+
+            // 1) Nalozi — kasne / danas / uskoro (≤2 dana)
+            try {
+                const [master, ops] = await Promise.all([sve("radni_nalozi"), sve("operativni_nalozi")]);
+                const opPo = {}; ops.forEach((o) => { const k = canonRef(o.broj_naloga || o.broj); (opPo[k] = opPo[k] || []).push(o); });
+                const zavrsen = (s) => /^zavr/i.test(T(s));
+                const kasne = [], zaDanas = [], uskoro = [];
+                master.forEach((m) => {
+                    const mine = opPo[canonRef(m.broj_naloga)] || [];
+                    if (!mine.length || mine.every((o) => zavrsen(o.status))) return;
+                    const rok = parseDatum(extraktNalog(m).rok || m.rok || m.rok_isporuke);
+                    if (!rok) return;
+                    const red = { broj: m.broj_naloga, proizvod: T(m.proizvod || m.naziv), kupac: T(m.kupac), rok: isoLokalno(rok), preostalo_op: mine.filter((o) => !zavrsen(o.status)).length };
+                    if (rok < danas) kasne.push({ ...red, kasni_dana: Math.round((danas - rok) / 86400000) });
+                    else if (rok <= kraj) zaDanas.push(red);
+                    else if ((rok - danas) / 86400000 <= 2) uskoro.push(red);
+                });
+                kasne.sort((x, y) => y.kasni_dana - x.kasni_dana);
+                rezultat.nalozi = { kasne, danas: zaDanas, uskoro };
+            } catch (e) { rezultat.nalozi = { greska: e.message || String(e) }; }
+
+            // 2) Alarm zaliha — materijal ispod praga ili poslednja rolna
+            try {
+                const prag = N(a && a.prag_zaliha_m) || 800;
+                const rolne = (await sve("magacin")).filter(naStanju);
+                const g = {};
+                rolne.forEach((r) => {
+                    const k = [T(r.vrsta), T(r.pod_vrsta), T(r.oznaka_materijala), N(r.deb) ? N(r.deb) + "µ" : ""].filter(Boolean).join(" · ") || "NEPOZNATO";
+                    g[k] = g[k] || { materijal: k, rolni: 0, slobodno_m: 0 };
+                    g[k].rolni++; g[k].slobodno_m += slobodno(r);
+                });
+                const nisko = Object.values(g).map((x) => ({ ...x, slobodno_m: Math.round(x.slobodno_m) }))
+                    .filter((x) => x.slobodno_m <= prag || x.rolni <= 1).sort((p, q) => p.slobodno_m - q.slobodno_m).slice(0, 20);
+                rezultat.alarm_zaliha = { prag_m: prag, materijala: nisko.length, lista: nisko };
+            } catch (e) { rezultat.alarm_zaliha = { greska: e.message || String(e) }; }
+
+            // 3) Mašine koje sad stoje prazne (aktivne, prazan red)
+            try {
+                const [masine, plan] = await Promise.all([loadMachines(), loadProductionPlan()]);
+                const ops = await sve("operativni_nalozi");
+                const poBroju = {}; ops.forEach((o) => { const k = T(o.broj_naloga || o.broj || o.id); if (k) poBroju[k] = o; });
+                const zavrsen = (o) => /^zavr/i.test(T(o && o.status));
+                const prazne = (Array.isArray(masine) ? masine : []).filter((m) => T(m.status) === "aktivna").map((m) => {
+                    const red = ((plan && plan[m.id]) || []).map((id) => poBroju[id]).filter((o) => o && !zavrsen(o));
+                    return { masina: m.name, u_redu: red.length };
+                }).filter((x) => x.u_redu === 0);
+                rezultat.prazne_masine = { broj: prazne.length, masine: prazne };
+            } catch (e) { rezultat.prazne_masine = { greska: e.message || String(e) }; }
+
+            // 4) Rolne predugo u štampariji
+            try {
+                const danaS = N(a && a.dana_stamparija) || 10;
+                const rolne = await sve("magacin");
+                const uStampi = rolne.filter((r) => /[šs]tampar/i.test(T(r.status))).map((r) => {
+                    const d = parseDatum(r.datum_stamparija || r.datum_izmene || r.updated_at || r.datum);
+                    return { br_rolne: r.br_rolne, materijal: [T(r.vrsta), T(r.oznaka_materijala)].filter(Boolean).join(" "), stamparija: T(r.stamparija) || null, od_datuma: isoLokalno(d), dana: d ? Math.round((danas - d) / 86400000) : null };
+                }).filter((x) => x.dana == null || x.dana >= danaS).sort((p, q) => (q.dana || 0) - (p.dana || 0));
+                rezultat.stamparija_predugo = { prag_dana: danaS, rolni: uStampi.length, lista: uStampi.slice(0, 30) };
+            } catch (e) { rezultat.stamparija_predugo = { greska: e.message || String(e) }; }
+
+            rezultat.napomena = "Presek trenutnog stanja u bazi. Rokovi se svrstavaju samo za naloge koji imaju upisan rok isporuke.";
+            return rezultat;
+        },
+    },
+
+    lista_za_nabavku: {
+        cita: true,
+        opis: "Prolazi kroz SVE aktivne naloge, sabere potreban ulazni materijal po sloju (metri matične rolne × 1+rezerva), uporedi sa fizičkim stanjem magacina i da spisak ŠTA I KOLIKO treba naručiti i za koje naloge. Koristi kad korisnik pita „šta moram da naručim“, „ima li dovoljno materijala za sve naloge“, „napravi listu za nabavku“.",
+        ulaz: { rezerva_pct: { type: "number", description: "Dodatak na potrebu za škart/rezervu u % (podrazumevano 10)" } },
+        async izvrsi(a) {
+            const rez = (N(a && a.rezerva_pct) || 10) / 100;
+            const [master, ops] = await Promise.all([sve("radni_nalozi"), sve("operativni_nalozi")]);
+            const opPo = {}; ops.forEach((o) => { const k = canonRef(o.broj_naloga || o.broj); (opPo[k] = opPo[k] || []).push(o); });
+            const zavrsen = (s) => /^zavr/i.test(T(s));
+
+            const layersIz = (m) => {
+                let par = m.parametri; if (typeof par === "string") { try { par = JSON.parse(par); } catch (e) { par = {}; } } par = par || {};
+                const tpl = par.template || {};
+                const tip = (T(m.tip_proizvoda) || "").toLowerCase() || (tpl.folija ? "folija" : tpl.kesa ? "kesa" : tpl.spulna ? "spulna" : "folija");
+                const grana = tpl[tip] || tpl.folija || tpl.kesa || tpl.spulna || {};
+                const L = grana.layers || tpl.layers || [];
+                return Array.isArray(L) ? L : [];
+            };
+
+            const potraznja = {}; const naloziBezMat = []; let aktivnih = 0;
+            master.forEach((m) => {
+                const mine = opPo[canonRef(m.broj_naloga)] || [];
+                if (!mine.length || mine.every((o) => zavrsen(o.status))) return;
+                aktivnih++;
+                const metriMat = metriMasineNaloga(m);
+                const L = layersIz(m);
+                if (!metriMat || !L.length) { naloziBezMat.push({ broj: m.broj_naloga, razlog: !L.length ? "nema slojeve u templejtu" : "nema metražu (proveri količinu/jedinicu unosa)" }); return; }
+                const potreba = Math.round(metriMat * (1 + rez));
+                L.forEach((l) => {
+                    const vrsta = T(l.vrsta); if (!vrsta) return;
+                    const oznaka = T(l.oznaka || l.oznaka_materijala || l.komercijalnaOznaka);
+                    const deb = N(l.debljina || l.deb);
+                    const k = [UP(vrsta), UP(oznaka), deb || ""].join("|");
+                    const g = potraznja[k] = potraznja[k] || { materijal: [vrsta, oznaka, deb ? deb + "µ" : ""].filter(Boolean).join(" · "), vrsta: UP(vrsta), oznaka: UP(oznaka), debljina: deb, treba_m: 0, nalozi: [] };
+                    g.treba_m += potreba; g.nalozi.push(m.broj_naloga);
+                });
+            });
+
+            const rolne = (await sve("magacin")).filter(naStanju);
+            const stanjeZa = (g) => {
+                let m = 0, rolni = 0;
+                rolne.forEach((r) => {
+                    if (UP(r.vrsta) !== g.vrsta) return;
+                    if (g.oznaka && T(r.oznaka_materijala) && !UP(r.oznaka_materijala).includes(g.oznaka)) return;
+                    if (g.debljina && N(r.deb ?? r.debljina) && Math.abs(N(r.deb ?? r.debljina) - g.debljina) > 1) return;
+                    m += N(r.metraza_ost ?? r.metraza); rolni++;
+                });
+                return { m: Math.round(m), rolni };
+            };
+
+            const stavke = Object.values(potraznja).map((g) => {
+                const s = stanjeZa(g);
+                const fali = Math.max(0, Math.round(g.treba_m - s.m));
+                return { materijal: g.materijal, treba_m: Math.round(g.treba_m), na_stanju_m: s.m, rolni_na_stanju: s.rolni, fali_m: fali, broj_naloga: [...new Set(g.nalozi)].slice(0, 12), pokriveno: fali === 0 };
+            }).sort((x, y) => y.fali_m - x.fali_m);
+
+            return {
+                aktivnih_naloga: aktivnih,
+                rezerva_pct: Math.round(rez * 100),
+                za_narucivanje: stavke.filter((x) => x.fali_m > 0),
+                pokriveno: stavke.filter((x) => x.fali_m === 0),
+                nalozi_bez_podataka: naloziBezMat,
+                napomena: "Potreba = metri matične rolne × (1 + rezerva), po svakom sloju. „Na stanju“ je FIZIČKO stanje tog materijala (sve širine, uključujući rezervisano). Širina se ovde NE proverava — za konkretan nalog i tačnu širinu koristi provera_materijala. Nalozi bez slojeva/metraže su izdvojeni u „nalozi_bez_podataka“.",
+            };
+        },
+    },
+
+    rokovi_naloga: {
+        cita: true,
+        opis: "Pregled ROKOVA i kašnjenja za sve aktivne naloge — ISTI proračun kao vizuelni Plan proizvodnje (2 smene/dan, subota 1 smena, čekanje prethodne operacije, povratak iz štamparije). Vraća naloge koji PROBIJAJU rok, planirani završetak svih aktivnih i one koji nisu ni na planu. Koristi za „šta kasni“, „hoću li stići“, „koji rokovi su u riziku“.",
+        ulaz: {},
+        async izvrsi() {
+            const [masine, plan] = await Promise.all([loadMachines(), loadProductionPlan()]);
+            const ops = await sve("operativni_nalozi");
+            const norm = (st) => { const x = T(st).toLowerCase(); if (/^zavr/.test(x)) return "zavrseno"; if (/radi|toku|proizvodnj/.test(x)) return "u_radu"; return x || "ceka"; };
+            const orderMap = {};
+            ops.forEach((o) => {
+                const id = T(o.broj_naloga || o.broj); if (!id) return;
+                orderMap[id] = {
+                    id, opTip: opKljuc(o), metri: metriZaMasinu(o, opKljuc(o)),
+                    trajanjeRucno: N(o.trajanje_min), durationMin: N(o.durationMin),
+                    status: norm(o.status), statusRaw: T(o.status),
+                    start_ts: o.start_ts || o.pocetak_ts || null,
+                    rok: extraktNalog(o).rok || o.rok || null,
+                    title: T(o.proizvod || o.naziv), customer: T(o.kupac || o.klijent),
+                };
+            });
+            const opStatusi = mapaOperacija(ops);
+            const sidro = radnoSada();
+            const raspored = izracunajRaspored({ machines: Array.isArray(masine) ? masine : [], plan: plan || {}, orderMap, opStatusi, sidro });
+            const fmt = (d) => (d instanceof Date && !Number.isNaN(d.getTime())) ? d.toLocaleString("sr-RS", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+
+            const po = {};
+            raspored.forEach((s) => {
+                const mk = canonRef(s.o.id);
+                const g = po[mk] = po[mk] || { master: mk, title: s.o.title, customer: s.o.customer, rok: null, end: null, probija: false, kasniDana: 0 };
+                if (s.o.rok && !g.rok) g.rok = s.o.rok;
+                if (!g.end || s.end > g.end) g.end = s.end;
+                if (s.probija) { g.probija = true; g.kasniDana = Math.max(g.kasniDana, N(s.kasniDana)); }
+                if (!g.title && s.o.title) g.title = s.o.title;
+                if (!g.customer && s.o.customer) g.customer = s.o.customer;
+            });
+
+            const svi = Object.values(po);
+            const probijaju = svi.filter((g) => g.probija).map((g) => ({ nalog: g.master, proizvod: g.title, kupac: g.customer, rok: g.rok || null, zavrsetak_po_planu: fmt(g.end), kasni_dana: g.kasniDana })).sort((x, y) => y.kasni_dana - x.kasni_dana);
+            const zavrseci = svi.map((g) => ({ nalog: g.master, proizvod: g.title, kupac: g.customer, rok: g.rok || null, zavrsetak_po_planu: fmt(g.end), rizik: g.probija })).sort((x, y) => (x.end || 0) - (y.end || 0)).slice(0, 40);
+
+            const naPlanu = new Set(Object.keys(po));
+            const opPo = {}; ops.forEach((o) => { const k = canonRef(o.broj_naloga || o.broj); (opPo[k] = opPo[k] || []).push(o); });
+            const vanPlana = Object.keys(opPo).filter((k) => !naPlanu.has(k) && !opPo[k].every((o) => /^zavr/i.test(T(o.status))))
+                .map((k) => ({ nalog: k, proizvod: T((opPo[k][0] || {}).proizvod || (opPo[k][0] || {}).naziv), kupac: T((opPo[k][0] || {}).kupac), preostalo_op: opPo[k].filter((o) => !/^zavr/i.test(T(o.status))).length })).slice(0, 30);
+
+            return {
+                probijaju_rok: probijaju,
+                zavrsetak_po_planu: zavrseci,
+                nisu_na_planu: vanPlana,
+                napomena: "Rok se procenjuje samo kad je upisan na nalogu. „Probija rok“ računa isti planer kao Gantt. Nalozi „nisu na planu“ nemaju nijednu operaciju na mašini — raspored ih ne vidi dok ih ne staviš u plan.",
+            };
+        },
+    },
+
     plan_zavrsetak_naloga: {
         cita: true,
         opis: "Kalendarski raspored naloga po SADAŠNJEM planu proizvodnje: kad svaka operacija (štampa/kaширanje/rezanje...) počinje i završava i kad je ceo nalog gotov. Koristi ISTI proračun kao vizuelni Plan proizvodnje (Gantt): 2 smene/dan, subota 1 smena, vikend stoji, čekanje prethodne operacije i povratak iz štamparije. NE čita tabelu plan_proizvodnje (ona je prazna) — računa termine iz reda čekanja po mašinama. Koristi kad korisnik pita 'kad će nalog biti gotov po planu', 'koji je termin', 'stiže li do roka'.",
@@ -1664,6 +1984,84 @@ export const ALATI = {
             });
             if (!lista.length) return { ok: true, poruka: "Još nema završenih operacija sa START/ZAVRŠI pečatima — čim radnici završe par naloga preko QR-a, analiza se puni sama.", masine: [] };
             return { ok: true, masine: lista, napomena: "predlog_brzine = metri ÷ (stvarno − setup). Brzinu menjaš na kartici mašine (Uredi) u Planu proizvodnje." };
+        },
+    },
+
+    ucinak_radnika: {
+        cita: true,
+        opis: "Učinak radnika iz ZAVRŠENIH operacija (operativni_nalozi) + zastoja (nalog_zastoji): broj završenih faza, urađena količina (m), radno vreme (min) i efikasnost = rad/(rad+zastoji). Koristi za: ko je najviše uradio, koliko je neko završio, efikasnost po radniku.",
+        ulaz: {
+            radnik: { type: "string", description: "Opciono: samo jedan radnik (deo imena)." },
+            dana: { type: "number", description: "Opciono: period unazad u danima (npr. 30). Bez toga — sve." },
+        },
+        async izvrsi({ radnik, dana } = {}) {
+            const ops = await sve("operativni_nalozi");
+            let zastoji = [];
+            try { zastoji = await sve("nalog_zastoji"); } catch (e) { zastoji = []; }
+            const odKad = dana ? Date.now() - N(dana) * 86400000 : null;
+            const uPeriodu = (ts) => !odKad || (ts && new Date(ts).getTime() >= odKad);
+            const map = {};
+            const g0 = (ime) => (map[ime] = map[ime] || { radnik: ime, zavrseno: 0, kolicina_m: 0, radno_min: 0, zastoj_min: 0, masine: {} });
+            ops.filter((o) => /^zavr/i.test(T(o.status))).forEach((o) => {
+                if (!uPeriodu(o.stop_ts || o.start_ts || o.created_at)) return;
+                const ime = T(o.radnik) || "Ručno / bez radnika";
+                if (radnik && !BEZKV(ime).includes(BEZKV(radnik))) return;
+                const g = g0(ime);
+                g.zavrseno++; g.kolicina_m += N(o.uradjeno); g.radno_min += stvarnoMin(o);
+                if (o.masina) g.masine[T(o.masina)] = (g.masine[T(o.masina)] || 0) + 1;
+            });
+            (Array.isArray(zastoji) ? zastoji : []).forEach((z) => {
+                if (!uPeriodu(z.start_ts || z.created_at)) return;
+                const ime = T(z.radnik || z.radnik_ime); if (!ime) return;
+                if (radnik && !BEZKV(ime).includes(BEZKV(radnik))) return;
+                g0(ime).zastoj_min += N(z.trajanje_min);
+            });
+            const lista = Object.values(map).map((g) => {
+                const rad = Math.max(0, Math.round(g.radno_min - g.zastoj_min));
+                const gross = rad + Math.round(g.zastoj_min);
+                return {
+                    radnik: g.radnik, zavrseno_faza: g.zavrseno, kolicina_m: Math.round(g.kolicina_m),
+                    radno_min: Math.round(g.radno_min), zastoj_min: Math.round(g.zastoj_min),
+                    efikasnost_pct: gross > 0 ? Math.min(100, Math.round((rad / gross) * 100)) : null,
+                    masina: Object.entries(g.masine).sort((a, b) => b[1] - a[1]).map(([m]) => m)[0] || "—",
+                };
+            }).sort((a, b) => b.zavrseno_faza - a.zavrseno_faza || b.kolicina_m - a.kolicina_m);
+            if (!lista.length) return { ok: true, poruka: "Nema završenih operacija" + (dana ? " u zadnjih " + dana + " dana" : "") + " (radnici se pune čim završe operaciju preko QR START/ZAVRŠI).", radnici: [] };
+            return { ok: true, period_dana: dana || "sve", radnici: lista };
+        },
+    },
+
+    zastoji: {
+        cita: true,
+        opis: "Pregled zastoja (nalog_zastoji): ukupno zastoja i minuta, po mašini i po razlogu. Koristi za: koliko je bilo zastoja, koja mašina najviše stoji, glavni razlozi.",
+        ulaz: {
+            dana: { type: "number", description: "Opciono: period unazad u danima." },
+            masina: { type: "string", description: "Opciono: samo jedna mašina (deo imena)." },
+        },
+        async izvrsi({ dana, masina } = {}) {
+            let z = [];
+            try { z = await sve("nalog_zastoji"); } catch (e) { return { ok: true, poruka: "Tabela nalog_zastoji nije dostupna ili je prazna.", zastoji: [] }; }
+            const odKad = dana ? Date.now() - N(dana) * 86400000 : null;
+            const filt = (Array.isArray(z) ? z : []).filter((x) => {
+                const kada = x.start_ts || x.created_at;
+                if (odKad && !(kada && new Date(kada).getTime() >= odKad)) return false;
+                if (masina && !BEZKV(T(x.masina || x.masina_naziv)).includes(BEZKV(masina))) return false;
+                return true;
+            });
+            const poMasini = {}, poRazlogu = {}; let ukMin = 0;
+            filt.forEach((x) => {
+                const m = T(x.masina || x.masina_naziv) || "—";
+                const r = T(x.razlog || x.kategorija || x.opis) || "Nepoznato";
+                const min = N(x.trajanje_min); ukMin += min;
+                (poMasini[m] = poMasini[m] || { masina: m, broj: 0, min: 0 }); poMasini[m].broj++; poMasini[m].min += min;
+                (poRazlogu[r] = poRazlogu[r] || { razlog: r, broj: 0, min: 0 }); poRazlogu[r].broj++; poRazlogu[r].min += min;
+            });
+            const srt = (o) => Object.values(o).map((x) => ({ ...x, min: Math.round(x.min) })).sort((a, b) => b.min - a.min);
+            return {
+                ok: true, period_dana: dana || "sve",
+                ukupno_zastoja: filt.length, ukupno_min: Math.round(ukMin),
+                po_masini: srt(poMasini).slice(0, 15), po_razlogu: srt(poRazlogu).slice(0, 15),
+            };
         },
     },
 

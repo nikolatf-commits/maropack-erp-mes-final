@@ -134,7 +134,7 @@ function buildD(nalog) {
         kupac: nalog.kupac || od.kupac || t.kupac || "—",
         proizvod: nalog.proizvod || nalog.naziv || (od.proizvod && od.proizvod.naziv) || t.naziv || "—",
         sifra: nalog.sifra || od.sifra || t.sifra || "—",
-        tipLabel: "Folija" + (LAY.length ? " · " + LAY.length + " sloja" : ""),
+        tipLabel: (jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
         dimenzije: (num(t.dimenzijaSirina) || "?") + " × " + (num(t.dimenzijaDuzina) || "?") + " mm",
         kom: od.kom || t.porucenaKolicinaKom || nalog.kom || "—",
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
