@@ -735,8 +735,9 @@ export const ALATI = {
 
     procitaj_kalkulacije: {
         cita: true,
-        opis: "Čita SAČUVANE kalkulacije (folija, kesa, špulna) — koja je marža i škart korišćen, koja je bila cena, za kog kupca i kada. Koristi kad korisnik pita „koja je bila marža za X” ili „šta smo računali za tog kupca”.",
+        opis: "Čita SAČUVANE kalkulacije (folija, kesa, špulna) — koja je marža i škart korišćen, koja je bila cena, za kog kupca i kada, i po BROJU/OZNACI UPITA. Koristi kad korisnik pita „koja je bila marža za X”, „šta smo računali za tog kupca” ili „daj mi kalkulaciju po upitu UP-2026-014”.",
         ulaz: {
+            oznaka: { type: "string", description: "Broj/oznaka upita, npr. UP-2026-014 — kad korisnik traži kalkulaciju po toj oznaci" },
             naziv: { type: "string", description: "Deo naziva proizvoda" },
             kupac: { type: "string", description: "Deo naziva kupca" },
             tip: { type: "string", description: "folija | kesa | spulna — ako se traži samo jedna vrsta" },
@@ -760,6 +761,7 @@ export const ALATI = {
             }
             if (!sve.length) return { nadjeno: 0, napomena: greske.length ? "Ne mogu da čitam: " + greske.join("; ") : "Nema sačuvanih kalkulacija." };
 
+            if (T(a.oznaka)) sve = sve.filter((r) => BEZKV(r.oznaka_upita || r.broj_upita || "").includes(BEZKV(a.oznaka)));
             if (T(a.naziv)) sve = sve.filter((r) => sadrziSveReci(r.naziv || "", a.naziv));
             if (T(a.kupac)) sve = sve.filter((r) => sadrziSveReci(r.kupac || "", a.kupac));
             sve.sort((x, y) => String(y.created_at || "").localeCompare(String(x.created_at || "")));
@@ -771,6 +773,7 @@ export const ALATI = {
                     const rez = (typeof r.rezultati === "string" ? (() => { try { return JSON.parse(r.rezultati); } catch (e) { return {}; } })() : r.rezultati) || {};
                     return {
                         id: r.id, tip: r._tip, naziv: r.naziv, kupac: r.kupac,
+                        oznaka_upita: r.oznaka_upita || r.broj_upita || null,
                         datum: r.created_at,
                         marza_pct: N(r.marza), skart_pct: N(r.skart),
                         sirina: N(r.sirina) || null, duzina: N(r.duzina) || null,
@@ -1366,6 +1369,7 @@ export const ALATI = {
             tip: { type: "string", description: "folija | kesa | spulna" },
             naziv: { type: "string", description: "Naziv proizvoda" },
             kupac: { type: "string", description: "Kupac" },
+            oznaka: { type: "string", description: "Opciono: broj/oznaka upita (npr. UP-2026-014) — da se kalkulacija kasnije nađe po toj oznaci" },
             ulaz: { type: "object", description: "Isti ulazni podaci kao za alat kalkulacija_* (širina, materijali, marža…)" },
         },
         opisPlana: (a) => `Sačuvaj kalkulaciju (${a.tip || "?"}) „${a.naziv || "bez naziva"}"${a.kupac ? " — kupac " + a.kupac : ""}`,
@@ -1403,6 +1407,7 @@ export const ALATI = {
                     rezultati: rez, izvor: "AI agent",
                 };
             }
+            if (T(a.oznaka)) red.oznaka_upita = T(a.oznaka);
 
             const { data: upisana, error } = await supabase.from(tabela).insert([red]).select("id");
             if (error) return { ok: false, poruka: "Upis u " + tabela + " nije uspeo: " + error.message };

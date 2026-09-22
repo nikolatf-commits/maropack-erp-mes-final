@@ -34,6 +34,7 @@ export default function KalkulacijaSpulne() {
     // Osnovni podaci
     const [naziv, setNaziv] = useState('');
     const [kupac, setKupac] = useState('');
+    const [oznakaUpita, setOznakaUpita] = useState(''); // broj/oznaka upita — za pretragu u listi i AI
     const [brPorudzbine, setBrPorudzbine] = useState('');
     const [datumPorudzbine, setDatumPorudzbine] = useState('');
     const [datumIsporuke, setDatumIsporuke] = useState('');
@@ -54,6 +55,7 @@ export default function KalkulacijaSpulne() {
             if (kal.id) setEditId(kal.id);
             if (kal.naziv) setNaziv(kal.naziv);
             if (kal.kupac) setKupac(kal.kupac);
+            if (kal.oznaka_upita != null) setOznakaUpita(kal.oznaka_upita);
             if (kal.materijal) setMaterijal(kal.materijal);
             if (kal.tezina_gm2 !== undefined) setTezinaGM2(Number(kal.tezina_gm2) || 0);
             if (kal.cena_kg !== undefined) setCenaM2(Number(kal.cena_kg) || 0);
@@ -215,6 +217,7 @@ export default function KalkulacijaSpulne() {
                 type: 'spulna',
                 naziv,
                 kupac,
+                oznaka_upita: oznakaUpita,
                 spulna: {
                     naziv,
                     materijal,
@@ -239,6 +242,7 @@ export default function KalkulacijaSpulne() {
             const zapis = {
                 naziv,
                 kupac,
+                oznaka_upita: oznakaUpita,
                 materijal,
                 sirina: Number(sirina),
                 duzina: Number(duzina),
@@ -276,7 +280,7 @@ export default function KalkulacijaSpulne() {
 
     return (
         <div style={{ padding: '16px', background: '#f1f5f9', minHeight: '100vh' }}>
-            <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, rezultat: rez })} />
+            <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, rezultat: rez })} />
 {/* Header */}
             <div style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '24px', borderRadius: '12px', color: 'white', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                 <div>
@@ -298,6 +302,10 @@ export default function KalkulacijaSpulne() {
 
                         {/* Osnovni podaci */}
                         <Section title="📋 Osnovni podaci">
+                            <div style={{ marginBottom: 10 }}>
+                                <label style={{ fontSize: 11, fontWeight: 800, color: '#b45309', display: 'block', marginBottom: 4 }}>🔖 Broj / oznaka upita</label>
+                                <input type="text" value={oznakaUpita} onChange={e => setOznakaUpita(e.target.value)} placeholder="npr. UP-2026-014" style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #f59e0b', borderRadius: 6, fontSize: 13, fontWeight: 700, background: '#fffbeb' }} />
+                            </div>
                             <FormRow>
                                 <FormField label="Naziv proizvoda" value={naziv} onChange={setNaziv} />
                                 <FormField label="Kupac" value={kupac} onChange={setKupac} />

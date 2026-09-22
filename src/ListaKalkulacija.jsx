@@ -117,7 +117,7 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
     // Filter po tekstu
     if (filter) {
         filtrirane = filtrirane.filter(k =>
-            [k.naziv, k.klijent, k.tip].join(' ').toLowerCase().includes(filter.toLowerCase())
+            [k.naziv, k.klijent, k.kupac, k.oznaka_upita, k.tip].join(' ').toLowerCase().includes(filter.toLowerCase())
         );
     }
 
@@ -210,7 +210,7 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                     {/* Pretraga */}
                     <input
                         type="text"
-                        placeholder="🔍 Pretraži po nazivu, klijentu..."
+                        placeholder="🔍 Pretraži po nazivu, klijentu, oznaci upita..."
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         style={{
@@ -318,8 +318,13 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                             {kal.tip === 'folija' ? '🧮' : kal.tip === 'kesa' ? '🛍️' : '🎞️'}
                                         </span>
                                         <div>
-                                            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b' }}>
-                                                {kal.naziv || 'Bez naziva'}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b' }}>
+                                                    {kal.naziv || 'Bez naziva'}
+                                                </div>
+                                                {kal.oznaka_upita ? (
+                                                    <span style={{ fontSize: 12, fontWeight: 800, color: '#b45309', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6, padding: '2px 8px' }}>🔖 {kal.oznaka_upita}</span>
+                                                ) : null}
                                             </div>
                                             <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
                                                 {kal.kupac || kal.klijent ? `Klijent: ${kal.kupac || kal.klijent}` : 'Bez klijenta'}

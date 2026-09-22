@@ -48,6 +48,7 @@ export default function KalkulacijaKese({ setPage }) {
     // Osnovni podaci
     const [naziv, setNaziv] = useState('');
     const [kupac, setKupac] = useState('');
+    const [oznakaUpita, setOznakaUpita] = useState(''); // broj/oznaka upita — za pretragu u listi i AI
     const [kolicina, setKolicina] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(30);
@@ -132,6 +133,7 @@ export default function KalkulacijaKese({ setPage }) {
             if (kal.id) setEditId(kal.id);
             if (kal.naziv) setNaziv(kal.naziv);
             if (kal.kupac) setKupac(kal.kupac);
+            if (kal.oznaka_upita != null) setOznakaUpita(kal.oznaka_upita);
             if (kal.kolicina !== undefined) setKolicina(Number(kal.kolicina) || 0);
             if (kal.skart !== undefined) setSkart(Number(kal.skart));
             if (kal.marza !== undefined) setMarza(Number(kal.marza));
@@ -430,6 +432,7 @@ export default function KalkulacijaKese({ setPage }) {
                 type: 'kesa',
                 naziv,
                 kupac,
+                oznaka_upita: oznakaUpita,
                 kesa: {
                     naziv,
                     kolicina,
@@ -460,6 +463,7 @@ export default function KalkulacijaKese({ setPage }) {
                 // Osnovni podaci
                 naziv,
                 kupac,
+                oznaka_upita: oznakaUpita,
                 kolicina: Number(kolicina),
                 skart: Number(skart),
                 marza: Number(marza),
@@ -519,7 +523,7 @@ export default function KalkulacijaKese({ setPage }) {
 
     return (
         <div style={s.wrap}>
-            <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
+            <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
             {/* HEADER */}
             <div style={{ background: 'linear-gradient(135deg, #0d9488 0%, #115e59 100%)', padding: 40, borderRadius: 16, color: 'white', marginBottom: 20, position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 40, right: 40, display: 'flex', gap: 8, background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 50 }}>
@@ -544,6 +548,10 @@ export default function KalkulacijaKese({ setPage }) {
                         {/* OSNOVNI PODACI */}
                         <div style={s.sec}>
                             <div style={s.secT}>📋 Osnovni podaci</div>
+                            <div style={{ marginBottom: 10 }}>
+                                <label style={{ fontSize: 11, fontWeight: 800, color: '#b45309', display: 'block', marginBottom: 4 }}>🔖 Broj / oznaka upita</label>
+                                <input type="text" value={oznakaUpita} onChange={e => setOznakaUpita(e.target.value)} placeholder="npr. UP-2026-014" style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #f59e0b', borderRadius: 6, fontSize: 13, fontWeight: 700, background: '#fffbeb' }} />
+                            </div>
                             <div style={s.grid3}>
                                 <Field label="Naziv kese" value={naziv} onChange={setNaziv} />
                                 <Field label="Kupac" value={kupac} onChange={setKupac} />

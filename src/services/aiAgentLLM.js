@@ -184,6 +184,9 @@ KALKULACIJE:
 - Ako korisnik ne zada škart i maržu, koristi uobičajeno (škart 10%, marža 27% za foliju) i JASNO napiši da si to pretpostavio.
 - Uvek prikaži razrađen račun (polje "koraci") da korisnik vidi kako si došao do cene, pa tek onda konačnu cenu.
 - Za foliju su cene na 1000 m, za kesu na 1000 komada, za špulnu po špulni — uvek napiši jedinicu.
+- Svaka kalkulacija ima BROJ/OZNAKU UPITA (polje oznaka_upita, npr. UP-2026-014). Kad korisnik traži
+  „kalkulaciju po upitu X" ili pomene tu oznaku → pozovi procitaj_kalkulacije sa parametrom oznaka.
+  Kad praviš i čuvaš novu kalkulaciju, a korisnik je dao oznaku upita, prosledi je u sacuvaj_kalkulaciju (oznaka).
 - Kad korisnik pita ŠTA JE BILO ranije („koja je bila marža za X", „šta smo računali za tog kupca"),
   pozovi procitaj_kalkulacije. Tamo je i polje ulaz_za_ponavljanje — prosledi ga alatu kalkulacija_*
   sa novom maržom da PONOVIŠ istu kalkulaciju i uporediš cene. Uvek pokaži staru i novu jedno pored drugog

@@ -248,6 +248,7 @@ export default function KalkulacijaFolijeSmart() {
     // OSNOVNI PODACI
     const [naziv, setNaziv] = useState("");
     const [kupac, setKupac] = useState("");
+    const [oznakaUpita, setOznakaUpita] = useState(""); // broj/oznaka upita — za pretragu u listi i AI
     const [sirina, setSirina] = useState(0);
     const [metraza, setMetraza] = useState(1000); // BAZA = 1000 m (fiksno). NE sme biti 0 — množi se sa kg materijala.
     const [nalog, setNalog] = useState(0);
@@ -396,6 +397,7 @@ export default function KalkulacijaFolijeSmart() {
                 // (i kad je 0) da ne zadrži vrednost prethodno otvorene kalkulacije.
                 if (kal.naziv) setNaziv(kal.naziv);
                 if (kal.kupac) setKupac(kal.kupac);
+                if (kal.oznaka_upita != null) setOznakaUpita(kal.oznaka_upita);
                 setSirina(Number(kal.sirina ?? kal.rezanje?.sirinaMaterijala ?? 0) || 0);
                 // metraza ostaje 1000 (baza) — ne učitava se iz sačuvane kalkulacije
                 if (kal.nalog) setNalog(Number(kal.nalog));
@@ -725,6 +727,7 @@ export default function KalkulacijaFolijeSmart() {
                 type: "folija",
                 naziv,
                 kupac,
+                oznaka_upita: oznakaUpita,
                 folija: {
                     layers: materijali,
                     rezanje: { sirinaMaterijala: sirina, duzinaRolne: metraza, sirineTraka: String(sirina || "") },
@@ -745,7 +748,7 @@ export default function KalkulacijaFolijeSmart() {
                 created_at: new Date().toISOString()
             }));
             const zapis = {
-                naziv, kupac, sirina, metraza, nalog, skart,
+                naziv, kupac, oznaka_upita: oznakaUpita, sirina, metraza, nalog, skart,
                 kolicina: Number(nalog) || 0,
                 cena_kg: rezultati?.cenaPoKgSaMarza || 0,
                 marza: rezultati?.izracunataMarza,
@@ -782,7 +785,7 @@ export default function KalkulacijaFolijeSmart() {
     // ========================================================================
     return (
         <div style={{ background: "#f1f5f9", minHeight: "100vh", padding: 20 }}>
-            <AIPomoc ekran="Kalkulacija folije" kontekst={() => ({ naziv, kupac, sirina, metraza, nalog, skart, marza, materijali, lepak, lak, kasiranje, stampaCena, lakiranjeCena, transport, pakovanje, dorada, rezultati })} />
+            <AIPomoc ekran="Kalkulacija folije" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, sirina, metraza, nalog, skart, marza, materijali, lepak, lak, kasiranje, stampaCena, lakiranjeCena, transport, pakovanje, dorada, rezultati })} />
             {/* HEADER */}
             <div style={{ background: "linear-gradient(135deg, #0d9488 0%, #115e59 100%)", padding: 40, borderRadius: 16, color: "white", marginBottom: 20, position: "relative" }}>
                 <div style={{ position: "absolute", top: 40, right: 40, display: "flex", gap: 8, background: "rgba(255,255,255,0.2)", padding: 6, borderRadius: 50 }}>
@@ -804,6 +807,10 @@ export default function KalkulacijaFolijeSmart() {
                     {/* ===== OSNOVNI PODACI ===== */}
                     <div style={{ background: "#fafafa", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16 }}>
                         <h3 style={{ fontSize: 12, fontWeight: 800, color: "#0d9488", marginBottom: 12, textTransform: "uppercase" }}>📋 OSNOVNI PODACI</h3>
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ fontSize: 11, fontWeight: 800, color: "#b45309", display: "block", marginBottom: 4 }}>🔖 Broj / oznaka upita</label>
+                            <input type="text" value={oznakaUpita} onChange={e => setOznakaUpita(e.target.value)} placeholder="npr. UP-2026-014" style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #f59e0b", borderRadius: 6, fontSize: 13, fontWeight: 700, background: "#fffbeb" }} />
+                        </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                             <div>
                                 <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Naziv</label>
