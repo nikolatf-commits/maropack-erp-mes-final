@@ -1802,11 +1802,19 @@ function MainAppContent() {
         userProfile?.pun_meni === true ||
         RADNICI_VIDE_KARTICE.includes(String(user?.email || "").trim().toLowerCase());
     const samoMagacinRola = userProfile?.uloga === "radnik" && !radnikVidiKartice;
+    // Kartice koje radnik (i kad vidi meni) NE sme da vidi — AI asistent i Sistem (admin/sistem).
+    const SAKRIJ_ZA_RADNIKA = /ai|asisten|agent|sistem|system|pode[šs]|settings|admin/i;
+    const jeRadnik = userProfile?.uloga === "radnik";
     const navGroups = samoMagacinRola
+        // običan radnik → SAMO Magacin
         ? navGroupsAll
             .map(function (g) { return { ...g, items: (g.items || []).filter(function (it) { return it.k === "rolne_engine"; }) }; })
             .filter(function (g) { return (g.items || []).length > 0; })
-        : navGroupsAll;
+        : (jeRadnik && radnikVidiKartice)
+            // radnik sa karticama (npr. Milan) → sve OSIM AI asistent i Sistem
+            ? navGroupsAll.filter(function (g) { return !SAKRIJ_ZA_RADNIKA.test(String(g.label || "") + " " + String(g.key || "")); })
+            // svi ostali (admin/manager/…) → pun meni
+            : navGroupsAll;
     const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
     // Puna aplikacija NA TELEFONU je privilegija: admin i manager uvek, ostalima je
     // admin uključuje kolonom telefon_pun_pristup (boolean) u profilu korisnika.
