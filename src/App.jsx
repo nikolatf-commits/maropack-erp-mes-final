@@ -1791,7 +1791,17 @@ function MainAppContent() {
     function bojaGrupe(g) { return "#3b82f6"; } // jedinstven akcenat — bez šarenila
 
     // Magacioneri sa ulogom "radnik" (magacin2, magacin3) vide SAMO Magacin modul.
-    const samoMagacinRola = userProfile?.uloga === "radnik";
+    // IZUZETAK po korisniku: radnik koji sme da vidi KARTICE (pun meni). Uključuje se
+    // na dva načina (dovoljan je jedan):
+    //   1) zastavicom u profilu:  vidi_kartice = true  (ili  pun_meni = true)
+    //   2) email-om ovde ispod (radi odmah, bez izmene baze).
+    // Ostali radnici i dalje vide SAMO Magacin.
+    const RADNICI_VIDE_KARTICE = ["milan@maropack.rs"]; // dodaj još email-ova po potrebi
+    const radnikVidiKartice =
+        userProfile?.vidi_kartice === true ||
+        userProfile?.pun_meni === true ||
+        RADNICI_VIDE_KARTICE.includes(String(user?.email || "").trim().toLowerCase());
+    const samoMagacinRola = userProfile?.uloga === "radnik" && !radnikVidiKartice;
     const navGroups = samoMagacinRola
         ? navGroupsAll
             .map(function (g) { return { ...g, items: (g.items || []).filter(function (it) { return it.k === "rolne_engine"; }) }; })
