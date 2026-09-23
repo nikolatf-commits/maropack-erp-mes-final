@@ -65,6 +65,36 @@ export default function KalkulacijaSpulne() {
             if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
             if (kal.skart !== undefined) setSkart(Number(kal.skart));
             if (kal.napomena !== undefined) setNapomena(kal.napomena || '');
+
+            // AUTORITATIVNA obnova iz snapshot-a (rezultati._ulaz) — vraća TAČNO ono što je sačuvano,
+            // uključujući troškove, kutiju, hilznu, transport, kaширanje i lak koji nemaju svoje kolone.
+            const u = kal.rezultati && kal.rezultati._ulaz;
+            if (u && typeof u === 'object') {
+                if (u.naziv !== undefined) setNaziv(u.naziv || '');
+                if (u.kupac !== undefined) setKupac(u.kupac || '');
+                if (u.oznakaUpita !== undefined) setOznakaUpita(u.oznakaUpita || '');
+                if (u.brPorudzbine !== undefined) setBrPorudzbine(u.brPorudzbine || '');
+                if (u.datumIsporuke !== undefined) setDatumIsporuke(u.datumIsporuke || '');
+                if (u.materijal !== undefined) setMaterijal(u.materijal || '');
+                if (u.tezinaGM2 !== undefined) setTezinaGM2(Number(u.tezinaGM2) || 0);
+                if (u.cenaM2 !== undefined) setCenaM2(Number(u.cenaM2) || 0);
+                if (u.troskoviM2 !== undefined) setTroskoviM2(Number(u.troskoviM2) || 0);
+                if (u.sirina !== undefined) setSirina(Number(u.sirina) || 0);
+                if (u.duzina !== undefined) setDuzina(Number(u.duzina) || 0);
+                if (u.cenaKutije !== undefined) setCenaKutije(Number(u.cenaKutije) || 0);
+                if (u.cenaHilzne !== undefined) setCenaHilzne(Number(u.cenaHilzne) || 0);
+                if (u.transport !== undefined) setTransport(Number(u.transport) || 0);
+                if (u.skart !== undefined) setSkart(Number(u.skart) || 0);
+                if (u.marza !== undefined) setMarza(Number(u.marza) || 0);
+                if (u.kolicina !== undefined) setKolicina(Number(u.kolicina) || 0);
+                if (u.napomena !== undefined) setNapomena(u.napomena || '');
+                if (u.brSlojeva !== undefined) setBrSlojeva(Number(u.brSlojeva) || 1);
+                if (u.kasCena !== undefined) setKasCena(Number(u.kasCena) || 0);
+                if (u.lakOn !== undefined) setLakOn(!!u.lakOn);
+                if (u.lakCena !== undefined) setLakCena(Number(u.lakCena) || 0);
+                if (u.lakProlazi !== undefined) setLakProlazi(Number(u.lakProlazi) || 0);
+            }
+
             localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
     }, []);
@@ -84,6 +114,13 @@ export default function KalkulacijaSpulne() {
     const [cenaHilzne, setCenaHilzne] = useState(1);
     const [transport, setTransport] = useState(2);
     const [skart, setSkart] = useState(2);
+
+    // Kaширanje i lak (duplex / triplex / kvadriplex špulne)
+    const [brSlojeva, setBrSlojeva] = useState(1);      // 1=mono, 2=duplex, 3=triplex, 4=kvadriplex
+    const [kasCena, setKasCena] = useState(0.02);       // €/m²
+    const [lakOn, setLakOn] = useState(false);
+    const [lakCena, setLakCena] = useState(0.02);       // €/m²
+    const [lakProlazi, setLakProlazi] = useState(1);
 
     // Finalno
     const [marza, setMarza] = useState(40);
@@ -162,8 +199,17 @@ export default function KalkulacijaSpulne() {
         // Excel: iznos troškova = površina po špulni × trošak €/m²
         const troskoviSpulna = povrsina * trosakPoM2;
 
-        // Excel A15: materijal + kutija + hilzna + troškovi + transport po špulni
-        const osnovna = cenaMatSpulna + kutija + hilzna + troskoviSpulna + transportPoSpulni;
+        // Kaширanje i lak — cene €/m² × površina po špulni
+        const kasProlaziN = Math.max(0, (Number(brSlojeva) || 1) - 1);      // broj prolaza kaширanja = slojevi − 1
+        const kasCenaN = Number(kasCena) || 0;
+        const lakCenaN = Number(lakCena) || 0;
+        const lakProlaziN = Number(lakProlazi) || 0;
+        const kasTr = kasCenaN * povrsina * kasProlaziN;
+        const lakTr = lakOn ? lakCenaN * povrsina * lakProlaziN : 0;
+        const kasLakSpulna = kasTr + lakTr;
+
+        // Excel A15: materijal + kutija + hilzna + troškovi + transport + kaширanje + lak po špulni
+        const osnovna = cenaMatSpulna + kutija + hilzna + troskoviSpulna + transportPoSpulni + kasLakSpulna;
 
         // Excel K15/O15: prvo škart, pa marža
         const proizvodna = osnovna * (1 + skartPct / 100);
@@ -179,7 +225,7 @@ export default function KalkulacijaSpulne() {
 
         // Obrnuta kalkulacija: iz ciljane finalne cene /1000m vraćamo maksimalnu osnovnu cenu po špulni
         const reverseMaxOsnovna = (target1000 / ((1 + skartPct / 100) * (1 + marzaPct / 100))) * (lengthM / 1000);
-        const reverseFixedCosts = kutija + hilzna + troskoviSpulna + transportPoSpulni;
+        const reverseFixedCosts = kutija + hilzna + troskoviSpulna + transportPoSpulni + kasLakSpulna;
         const reverseMaxCenaM2 = povrsina > 0 ? Math.max(0, (reverseMaxOsnovna - reverseFixedCosts) / povrsina) : 0;
         const reverseProfitPoSpulni = (target1000 * lengthM / 1000) - proizvodna;
 
@@ -191,6 +237,10 @@ export default function KalkulacijaSpulne() {
             cenaMat1000,
             cenaMatSpulna,
             troskoviSpulna,
+            kasTr,
+            lakTr,
+            kasLakSpulna,
+            kasProlazi: kasProlaziN,
             osnovna,
             proizvodna,
             saSkartom,
@@ -202,7 +252,7 @@ export default function KalkulacijaSpulne() {
             reverseMaxCenaM2,
             reverseProfitPoSpulni
         });
-    }, [sirina, duzina, tezinaGM2, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, targetCena1000]);
+    }, [sirina, duzina, tezinaGM2, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, targetCena1000, brSlojeva, kasCena, lakOn, lakCena, lakProlazi]);
 
     const f0 = (v) => (v || 0).toFixed(0);
     const f2 = (v) => (v || 0).toFixed(2);
@@ -212,6 +262,16 @@ export default function KalkulacijaSpulne() {
     async function sacuvajKalkulaciju(mode = 'new') {
         try {
             const materijali_struktura = buildMaterijaliStruktura([{ material: materijal, vrsta: materijal, gsm: tezinaGM2, sirina, idealna_sirina: sirina, cena: cenaM2, metara: duzina }], sirina);
+            // Snapshot SVIH ulaza — da se pri ponovnom otvaranju ništa ne vrati na default
+            const _ulaz = {
+                naziv, kupac, oznakaUpita, brPorudzbine, datumIsporuke,
+                materijal, tezinaGM2, cenaM2, troskoviM2,
+                sirina, duzina,
+                cenaKutije, cenaHilzne, transport, skart,
+                marza, kolicina, napomena,
+                brSlojeva, kasCena, lakOn, lakCena, lakProlazi
+            };
+            const rezSaUlaz = { ...rez, _ulaz };
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
                 tip: 'spulna',
                 type: 'spulna',
@@ -229,7 +289,7 @@ export default function KalkulacijaSpulne() {
                 },
                 materijali: materijali_struktura,
                 materijali_struktura,
-                rezultati: rez,
+                rezultati: rezSaUlaz,
                 source_chain: 'template → kalkulacija → ponuda → nalog',
                 product_master_id: sourceLink?.product_master_id || null,
                 template_id: sourceLink?.template_id || null,
@@ -251,7 +311,7 @@ export default function KalkulacijaSpulne() {
                 cena_kg: Number(cenaM2),
                 marza: Number(marza),
                 kolicina: Number(kolicina),
-                rezultati: rez,
+                rezultati: rezSaUlaz,
                 materijali_struktura,
                 tip_jezgra: '',
                 precnik_jezgra: 0,
@@ -280,7 +340,7 @@ export default function KalkulacijaSpulne() {
 
     return (
         <div style={{ padding: '16px', background: '#f1f5f9', minHeight: '100vh' }}>
-            <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, rezultat: rez })} />
+            <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, brSlojeva, kasCena, lakOn, lakCena, lakProlazi, rezultat: rez })} />
 {/* Header */}
             <div style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '24px', borderRadius: '12px', color: 'white', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                 <div>
@@ -345,6 +405,38 @@ export default function KalkulacijaSpulne() {
                             </FormRow>
                         </Section>
 
+                        {/* Kaширanje i lak */}
+                        <Section title="🧪 Kaширanje i lak (duplex / triplex / kvadriplex)">
+                            <FormRow>
+                                <FormField label="Broj slojeva (1=mono, 2=duplex, 3=triplex)" value={brSlojeva} onChange={setBrSlojeva} type="number" step="1" />
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Kaширanje prolaza (AUTO = slojevi − 1)</label>
+                                    <input type="number" value={Math.max(0, (Number(brSlojeva) || 1) - 1)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
+                                </div>
+                            </FormRow>
+                            <FormRow>
+                                <FormField label="Kaширanje cena (€/m²)" value={kasCena} onChange={setKasCena} type="number" step="0.001" />
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Kaширanje / špulni (AUTO)</label>
+                                    <input type="number" value={f2(rez.kasTr)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
+                                </div>
+                            </FormRow>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr', gap: 12, alignItems: 'end', marginBottom: 12 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: '#047857', paddingBottom: 10, cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={lakOn} onChange={e => setLakOn(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#059669' }} /> Lakiranje
+                                </label>
+                                <FormField label="Lak cena (€/m²)" value={lakCena} onChange={setLakCena} type="number" step="0.001" />
+                                <FormField label="Lak prolaza" value={lakProlazi} onChange={setLakProlazi} type="number" step="1" />
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Lak / špulni (AUTO)</label>
+                                    <input type="number" value={f2(rez.lakTr)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
+                                </div>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                Broj prolaza kaширanja = broj slojeva − 1 (auto). Cene su €/m² i množe se površinom špulne ({f2(rez.povrsina)} m²). Mono špulna (1 sloj) → nema kaширanja.
+                            </div>
+                        </Section>
+
                         {/* Troškovi */}
                         <Section title="💰 Dodatni troškovi">
                             <FormRow>
@@ -399,6 +491,7 @@ export default function KalkulacijaSpulne() {
                                 <ResultItem label="Cena materijala / špulni:" value={f2(rez.cenaMatSpulna) + ' €'} />
                                 <ResultItem label="Troškovi / špulni:" value={f2(rez.troskoviSpulna) + ' €'} />
                                 <ResultItem label="Kutija + hilzna:" value={f2(Number(cenaKutije || 0) + Number(cenaHilzne || 0)) + ' €'} />
+                                {(rez.kasLakSpulna > 0) && <ResultItem label="Kaширanje + lak / špulni:" value={f2(rez.kasLakSpulna) + ' €'} />}
                                 <ResultItem label="Transport:" value={f2(transport) + ' €'} />
                             </div>
 

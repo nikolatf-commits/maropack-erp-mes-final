@@ -1749,6 +1749,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const ob = folijaObracun(form);
             if (!(ob.metriMatPlus > 0)) { msg && msg(`Unesi poručenu količinu (${form.jedinicaUnosa || "m"}) i dimenzije!`, "err"); return; }
             if (ob.greske.length) { msg && msg(ob.greske[0], "err"); return; }
+        } else if (form.type === "spulna") {
+            const ob = spulnaObracun(form);
+            if (!(ob.m2Rad > 0)) { msg && msg("Unesi poručenu količinu špulne (m²/kom/kg/m)!", "err"); return; }
+            if (ob.greske.length) { msg && msg(ob.greske[0], "err"); return; }
         } else if (!(Number(form.porucenaKolicina) > 0)) { msg && msg("Unesi poručenu količinu (m)!", "err"); return; }
         // Svaki sloj mora imati vrstu, oznaku i debljinu
         const nepotpun = layers.findIndex(l =>
@@ -2478,8 +2482,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             <div style={{ marginBottom: 12 }}>
                 <Input label="🎯 Svrha proizvoda (za šta se koristi)" value={form.svrha} onChange={v => update("svrha", v)} placeholder="npr. folija za posudu PE · duplex za sir · kesa za kafu doypack · triplex za paštetu" />
             </div>
-            {/* Red 2 — Količina + dimenzije (sakriveno za kesu — kesa ima svoju Količinu/Širinu/Dužinu dole) */}
-            {form.type !== "kesa" && (
+            {/* Red 2 — Količina + dimenzije: SAMO folija. Kesa i špulna imaju svoju „Poručenu količinu" dole
+                (kesa → kesa.kolicina, špulna → spulna.kolicina u m²/kom/kg/m koja jedina računa materijal). */}
+            {form.type === "folija" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
                     <div>
                         <label style={labelStyle()}>{t("tmpl.porucena_kolicina")}</label>
@@ -2575,8 +2580,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 );
             })()}
 
-            {/* AUTO KALKULACIJA — kesa / špulna (stara logika, nedirnuta) */}
-            {form.type !== "folija" && (() => {
+            {/* AUTO KALKULACIJA — SAMO kesa (stara logika). Špulna ima svoju 🧵 auto-kalkulaciju dole
+                koja čita spulna.kolicina; ovaj blok je čitao porucenaKolicina i pravio duplu kalkulaciju. */}
+            {form.type === "kesa" && (() => {
                 const kol = Math.ceil(Number(form.porucenaKolicina || 0) * 1.05);
                 const layers = form.type === "kesa" ? (form.kesa?.layers || []) : (form.spulna?.layers || []);
                 const validLayers = layers.filter(l => Number(l.gm2 || l.tezina || l.tezinaGm2 || 0) > 0);

@@ -116,6 +116,10 @@ export default function KalkulacijaKese({ setPage }) {
     const [potkCena, setPotkCena] = useState(0);     // perf. otkidanje
     const [pperfCena, setPperfCena] = useState(0);   // poprečna perf.
     const [phranaCena, setPhranaCena] = useState(0); // pakovanje za hranu
+    // KAŠIRANJE I LAK — kese ume da budu duplex/triplex/kvadriplex (više slojeva se kaшira).
+    const [kasCena, setKasCena] = useState(0.02);        // kaширanje €/m²
+    const [lakKesaCena, setLakKesaCena] = useState(0.02); // lakiranje €/m²
+    const [lakKesaProlazi, setLakKesaProlazi] = useState(1);
 
     const [trCena, setTrCena] = useState(0.35);
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
@@ -174,6 +178,7 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setKlCena, c.klCena); S(setKlBr, c.klBr); S(setPvCena, c.pvCena);
                 S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setPhranaCena, c.phranaCena);
                 S(setTrCena, c.trCena);
+                S(setKasCena, c.kasCena); S(setLakKesaCena, c.lakKesaCena); S(setLakKesaProlazi, c.lakKesaProlazi);
             }
             localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
@@ -326,9 +331,16 @@ export default function KalkulacijaKese({ setPage }) {
 
         const trTr = trCena * tezKg1000;
 
-        // Trošak podešavanja mašine: FIKSNO €/1000 kom. NE ulazi u maržu — dodaje se posle.
+        // KAŠIRANJE (spajanje slojeva) + LAK — kao kod folije. Broj prolaza kaширanja = slojevi − 1
+        // (duplex=1, triplex=2, kvadriplex=3). Površina po 1000 kom u m².
+        const m2Po1000 = (sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000;
+        const kasProlazi = Math.max(0, matBr - 1);
+        const kasTr = kasCena * m2Po1000 * kasProlazi;
+        const lakTr = opts.lakiranje ? (lakKesaCena * m2Po1000 * (Number(lakKesaProlazi) || 0)) : 0;
+
+        // Trošak podešavanja mašine: FIKSNO €/1000 kom. NE ulazi u maржu — dodaje se posle.
         const setupPer1000 = Number(setupMasina) || 0;
-        const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr;
+        const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr;
         const konacna = osnovna * (1 + marza / 100) + setupPer1000;
 
         const valFak = kolicina / 1000;
@@ -346,8 +358,11 @@ export default function KalkulacijaKese({ setPage }) {
             ostaleOpcije,
             transport: trTr,
             klise: kliseTr,
+            kasiranje: kasTr,
+            lakiranje: lakTr,
+            kasProlazi,
             osnovna,
-            saSkartom: cenaMatKom * (1 + skart / 100) + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr,
+            saSkartom: cenaMatKom * (1 + skart / 100) + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr,
             konacna,
             vrednostOsn,
             vrednostKon,
@@ -360,7 +375,8 @@ export default function KalkulacijaKese({ setPage }) {
     }, [sirina, duzina, klapna, falta, kolicina, skart, marza, setupMasina, materijali, opts,
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
-        odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena]);
+        odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena,
+        kasCena, lakKesaCena, lakKesaProlazi]);
 
     const NAMES = {
         duplofan: 'Duplofan', eurozumba: 'Eurozumba', okruglaZumba: 'Ok.zumba',
@@ -526,7 +542,8 @@ export default function KalkulacijaKese({ setPage }) {
                         cene: {
                             dupCena, ezCena, ozCena, kkCena, anCena, stCena, kvCena, ppvCena,
                             fdCena, vdCena, odCena, buCena, adhCena, adhOds, ojCena, ojSir, ojDeb,
-                            klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena
+                            klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena,
+                            kasCena, lakKesaCena, lakKesaProlazi
                         }
                     }
                 },
@@ -649,6 +666,26 @@ export default function KalkulacijaKese({ setPage }) {
                             onAdd={(row) => dodajMat ? setMaterijali([...materijali, row]) : setMaterijali([...materijali, row])}
                             onRemove={(idx) => ukloniMat(idx)}
                         />
+
+                        {/* KAŠIRANJE I LAK (duplex/triplex/kvadriplex) */}
+                        <div style={s.sec}>
+                            <div style={s.secT}>🧪 Kaширanje i lak (duplex / triplex / kvadriplex)</div>
+                            <div style={s.grid4}>
+                                <Field label="Broj slojeva" value={materijali.filter(m => Number(m.tezina) > 0).length} onChange={() => { }} type="number" readOnly auto />
+                                <Field label="Kaширanje prolaza" value={rez.kasProlazi || 0} onChange={() => { }} type="number" readOnly auto />
+                                <Field label="Kaширanje cena €/m²" value={kasCena} onChange={setKasCena} type="number" />
+                                <Field label="Kaширanje €/1000kom" value={(rez.kasiranje || 0).toFixed(2)} onChange={() => { }} type="number" readOnly auto />
+                            </div>
+                            <div style={{ ...s.grid4, marginTop: '9px', alignItems: 'end' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: opts.lakiranje ? '#047857' : '#64748b', paddingBottom: '8px', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={!!opts.lakiranje} onChange={() => toggle('lakiranje')} style={{ accentColor: '#059669', width: '15px', height: '15px' }} /> Lakiranje
+                                </label>
+                                <Field label="Lak cena €/m²" value={lakKesaCena} onChange={setLakKesaCena} type="number" />
+                                <Field label="Lak prolaza" value={lakKesaProlazi} onChange={setLakKesaProlazi} type="number" />
+                                <Field label="Lak €/1000kom" value={(rez.lakiranje || 0).toFixed(2)} onChange={() => { }} type="number" readOnly auto />
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '8px' }}>Broj prolaza kaширanja = broj slojeva − 1 (auto). Cene su €/m² i množe se površinom kese.</div>
+                        </div>
 
                         {/* OPCIJE */}
                         <div style={s.sec}>
