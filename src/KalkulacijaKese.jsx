@@ -39,6 +39,81 @@ function mapTemplateLayerToKesaMaterial(layer) {
     };
 }
 
+// ===================== STILOVI (module-scope, statični) =====================
+const s = {
+    wrap: { padding: '16px', background: '#f1f5f9', minHeight: '100vh' },
+    hdr: { background: 'linear-gradient(135deg,#059669,#047857)', padding: '22px 26px', borderRadius: '12px', color: 'white', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    sec: { background: 'white', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '14px', marginBottom: '12px' },
+    secT: { fontSize: '10px', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '12px' },
+    input: { width: '100%', padding: '7px 9px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' },
+    label: { fontSize: '10px', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px', textTransform: 'uppercase' },
+    btn: { padding: '8px 14px', background: 'rgba(255,255,255,.2)', color: 'white', border: '1px solid rgba(255,255,255,.4)', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '11px' },
+    grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+    grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' },
+    grid4: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }
+};
+
+// ===================== KOMPONENTE (module-scope — da input NE gubi fokus) =====================
+// VAŽNO: ove komponente su izvučene IZVAN KalkulacijaKese. Kad su bile unutra, React ih je
+// pravio iznova na svaki render pa je input gubio fokus posle svakog slova (moralo se klikati).
+function Field({ label, value, onChange, type = 'text', readOnly = false, auto = false }) {
+    return (
+        <div>
+            <label style={s.label}>
+                {label} {auto && <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '8px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>AUTO</span>}
+            </label>
+            <input
+                style={{ ...s.input, ...(auto ? { background: '#fef3c7', color: '#92400e', fontWeight: 700, borderColor: '#fbbf24' } : {}) }}
+                type={type}
+                value={value}
+                onChange={(e) => !readOnly && onChange(type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value)}
+                readOnly={readOnly}
+            />
+        </div>
+    );
+}
+
+function Sel({ label, value, onChange, children, auto = false }) {
+    return (
+        <div>
+            <label style={s.label}>
+                {label} {auto && <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '8px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>AUTO</span>}
+            </label>
+            <select style={s.input} value={value} onChange={(e) => onChange(e.target.value)}>
+                {children}
+            </select>
+        </div>
+    );
+}
+
+// Tehnička opcija kese: čekboks + naziv + JASNA ĆELIJA za cenu sa labelom „€/1000 kom".
+function Opt({ label, active, onToggle, cena, setCena, badge }) {
+    return (
+        <div
+            style={{
+                display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 10px',
+                background: active ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${active ? '#10b981' : '#e5e7eb'}`,
+                borderRadius: '7px', marginBottom: '5px'
+            }}
+        >
+            <input type="checkbox" checked={!!active} onChange={onToggle}
+                style={{ accentColor: '#059669', width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
+            <span onClick={onToggle} style={{ fontSize: '11px', color: active ? '#047857' : '#475569', fontWeight: active ? 700 : 500, flex: 1, cursor: 'pointer' }}>{label}</span>
+            {badge && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#e0e7ff', color: '#4338ca' }}>{badge}</span>}
+            {setCena ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                    <input type="number" step="0.1" value={cena}
+                        onChange={e => setCena(parseFloat(e.target.value) || 0)}
+                        title="Cena €/1000 kom — možeš je menjati"
+                        style={{ width: '54px', fontSize: '11px', fontWeight: 800, textAlign: 'right', padding: '4px 6px', border: '1px solid #86efac', borderRadius: '6px', background: '#f0fdf4', color: '#166534' }} />
+                    <span style={{ fontSize: '8px', color: '#64748b', fontWeight: 700, lineHeight: 1.05, whiteSpace: 'nowrap' }}>Cena<br />€/1000kom</span>
+                </span>
+            ) : (cena != null && cena !== '' && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{cena}€</span>)}
+        </div>
+    );
+}
+
 export default function KalkulacijaKese({ setPage }) {
     // ===================== STATE =====================
     const [currentTab, setCurrentTab] = useState('kalk');
@@ -171,6 +246,7 @@ export default function KalkulacijaKese({ setPage }) {
                 if (_ul.opts) setOpts(_ul.opts);
                 const c = _ul.cene || {};
                 const S = (setter, v) => { if (v !== undefined && v !== null) setter(Number(v)); };
+                const T = (setter, v) => { if (v !== undefined && v !== null) setter(v); };
                 S(setDupCena, c.dupCena); S(setEzCena, c.ezCena); S(setOzCena, c.ozCena); S(setKkCena, c.kkCena);
                 S(setAnCena, c.anCena); S(setStCena, c.stCena); S(setKvCena, c.kvCena); S(setPpvCena, c.ppvCena);
                 S(setFdCena, c.fdCena); S(setVdCena, c.vdCena); S(setOdCena, c.odCena); S(setBuCena, c.buCena);
@@ -179,6 +255,19 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setPhranaCena, c.phranaCena);
                 S(setTrCena, c.trCena);
                 S(setKasCena, c.kasCena); S(setLakKesaCena, c.lakKesaCena); S(setLakKesaProlazi, c.lakKesaProlazi);
+                // AUTORITATIVNO vrati SVA ostala polja — ništa ne sme na default
+                const p = _ul.polja || {};
+                T(setMod, p.mod); T(setNaziv, p.naziv); T(setKupac, p.kupac); T(setOznakaUpita, p.oznakaUpita);
+                S(setKolicina, p.kolicina); S(setSkart, p.skart); S(setMarza, p.marza); S(setSetupMasina, p.setupMasina);
+                T(setDatumIsp, p.datumIsp); S(setZeljCena, p.zeljCena);
+                S(setSirina, p.sirina); S(setDuzina, p.duzina); S(setKlapna, p.klapna); S(setFalta, p.falta);
+                S(setTakta, p.takta); S(setBan, p.ban); T(setTolerancija, p.tolerancija); T(setGrafika, p.grafika);
+                T(setPakovanje, p.pakovanje); T(setNapomena, p.napomena);
+                const pr = _ul.params || {};
+                T(setDupTip, pr.dupTip); T(setDupPoz, pr.dupPoz); T(setEzVel, pr.ezVel); S(setEzDist, pr.ezDist);
+                S(setOzD, pr.ozD); T(setOzPoz, pr.ozPoz); T(setAnTip, pr.anTip);
+                T(setStTip, pr.stTip); T(setStPov, pr.stPov); T(setStMotiv, pr.stMotiv); T(setStPoz, pr.stPoz);
+                if (Array.isArray(_ul.materijali) && _ul.materijali.length) setMaterijali(_ul.materijali);
             }
             localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
@@ -339,7 +428,9 @@ export default function KalkulacijaKese({ setPage }) {
         const lakTr = opts.lakiranje ? (lakKesaCena * m2Po1000 * (Number(lakKesaProlazi) || 0)) : 0;
 
         // Trošak podešavanja mašine: FIKSNO €/1000 kom. NE ulazi u maржu — dodaje se posle.
-        const setupPer1000 = Number(setupMasina) || 0;
+        // UKUPAN jednokratni iznos za ceo nalog; deli se na količinu → po 1000 kom.
+        const setupUkupno = Number(setupMasina) || 0;
+        const setupPer1000 = kolicina > 0 ? (setupUkupno * 1000 / kolicina) : 0;
         const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr;
         const konacna = osnovna * (1 + marza / 100) + setupPer1000;
 
@@ -361,6 +452,8 @@ export default function KalkulacijaKese({ setPage }) {
             kasiranje: kasTr,
             lakiranje: lakTr,
             kasProlazi,
+            setup1000: setupPer1000,
+            setupUkupno,
             osnovna,
             saSkartom: cenaMatKom * (1 + skart / 100) + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr,
             konacna,
@@ -392,75 +485,6 @@ export default function KalkulacijaKese({ setPage }) {
 
     const f2 = (v) => (v || 0).toFixed(2) + ' €';
     const today = new Date().toLocaleDateString('sr-RS');
-
-    // ===================== STILOVI =====================
-    const s = {
-        wrap: { padding: '16px', background: '#f1f5f9', minHeight: '100vh' },
-        hdr: { background: 'linear-gradient(135deg,#059669,#047857)', padding: '22px 26px', borderRadius: '12px', color: 'white', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-        sec: { background: 'white', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '14px', marginBottom: '12px' },
-        secT: { fontSize: '10px', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '12px' },
-        input: { width: '100%', padding: '7px 9px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '12px' },
-        label: { fontSize: '10px', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px', textTransform: 'uppercase' },
-        btn: { padding: '8px 14px', background: 'rgba(255,255,255,.2)', color: 'white', border: '1px solid rgba(255,255,255,.4)', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '11px' },
-        grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
-        grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' },
-        grid4: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }
-    };
-
-    // ===================== KOMPONENTE =====================
-    const Field = ({ label, value, onChange, type = 'text', readOnly = false, auto = false }) => (
-        <div>
-            <label style={s.label}>
-                {label} {auto && <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '8px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>AUTO</span>}
-            </label>
-            <input
-                style={{
-                    ...s.input,
-                    ...(auto ? { background: '#fef3c7', color: '#92400e', fontWeight: 700, borderColor: '#fbbf24' } : {})
-                }}
-                type={type}
-                value={value}
-                onChange={(e) => !readOnly && onChange(type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value)}
-                readOnly={readOnly}
-            />
-        </div>
-    );
-
-    const Sel = ({ label, value, onChange, children, auto = false }) => (
-        <div>
-            <label style={s.label}>
-                {label} {auto && <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '8px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>AUTO</span>}
-            </label>
-            <select style={s.input} value={value} onChange={(e) => onChange(e.target.value)}>
-                {children}
-            </select>
-        </div>
-    );
-
-    const Opt = ({ k, label, cena, setCena, badge }) => (
-        <div
-            style={{
-                display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 10px',
-                background: opts[k] ? '#f0fdf4' : '#f8fafc',
-                border: `1px solid ${opts[k] ? '#10b981' : '#e5e7eb'}`,
-                borderRadius: '7px', cursor: 'pointer', marginBottom: '5px'
-            }}
-            onClick={() => toggle(k)}
-        >
-            <input type="checkbox" checked={!!opts[k]} readOnly style={{ accentColor: '#059669', width: '14px', height: '14px' }} />
-            <span style={{ fontSize: '11px', color: opts[k] ? '#047857' : '#475569', fontWeight: opts[k] ? 700 : 500, flex: 1 }}>{label}</span>
-            {badge && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#e0e7ff', color: '#4338ca' }}>{badge}</span>}
-            {setCena ? (
-                // Cena je EDITABILNA direktno na kartici (svaka opcija se može menjati).
-                <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                    <input type="number" step="0.1" value={cena} onChange={e => setCena(parseFloat(e.target.value) || 0)}
-                        title="Cena €/1000kom — možeš je menjati"
-                        style={{ width: '46px', fontSize: '10px', fontWeight: 800, textAlign: 'right', padding: '2px 4px', border: '1px solid #86efac', borderRadius: '6px', background: '#f0fdf4', color: '#166534' }} />
-                    <span style={{ fontSize: '9px', color: '#166534', fontWeight: 800 }}>€</span>
-                </span>
-            ) : (cena != null && cena !== '' && <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '8px', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{cena}€</span>)}
-        </div>
-    );
 
     // ===================== RENDER =====================
 
@@ -544,7 +568,15 @@ export default function KalkulacijaKese({ setPage }) {
                             fdCena, vdCena, odCena, buCena, adhCena, adhOds, ojCena, ojSir, ojDeb,
                             klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena,
                             kasCena, lakKesaCena, lakKesaProlazi
-                        }
+                        },
+                        // SVA ostala polja — da se NIŠTA ne vrati na default pri ponovnom otvaranju
+                        polja: {
+                            mod, naziv, kupac, oznakaUpita, kolicina, skart, marza, setupMasina,
+                            datumIsp, zeljCena, sirina, duzina, klapna, falta, takta, ban,
+                            tolerancija, grafika, pakovanje, napomena
+                        },
+                        params: { dupTip, dupPoz, ezVel, ezDist, ozD, ozPoz, anTip, stTip, stPov, stMotiv, stPoz },
+                        materijali
                     }
                 },
                 osnovna_cena: rez.osnovna || 0,
@@ -618,8 +650,15 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Field label="Količina (kom)" value={kolicina} onChange={setKolicina} type="number" />
                                 <Field label="Škart (%)" value={skart} onChange={setSkart} type="number" />
                                 <Field label="Datum isporuke" value={datumIsp} onChange={setDatumIsp} type="date" />
-                                {mod === 'normal' && <Field label="Marža (%)" value={marza} onChange={setMarza} type="number" />}
-                                <Field label="Trošak podešavanja (€/1000kom, bez marže)" value={setupMasina} onChange={setSetupMasina} type="number" />
+                                <div>
+                                    <label style={s.label}>Trošak podešavanja mašine (€ ukupno, jednokratno)</label>
+                                    <input style={s.input} type="number" value={setupMasina} onChange={(e) => setSetupMasina(parseFloat(e.target.value) || 0)} />
+                                    <div style={{ fontSize: '9px', color: '#64748b', fontWeight: 700, marginTop: '3px' }}>
+                                        {kolicina > 0
+                                            ? `podeljeno na ${Number(kolicina).toLocaleString('sr-RS')} kom = ${(rez.setup1000 || 0).toFixed(3)} €/1000 kom`
+                                            : 'unesi količinu da se podeli po 1000 kom'}
+                                    </div>
+                                </div>
                             </div>
                             {mod === 'reverse' && (
                                 <div style={{ ...s.grid2, marginTop: '9px' }}>
@@ -667,50 +706,81 @@ export default function KalkulacijaKese({ setPage }) {
                             onRemove={(idx) => ukloniMat(idx)}
                         />
 
-                        {/* KAŠIRANJE I LAK (duplex/triplex/kvadriplex) */}
-                        <div style={s.sec}>
-                            <div style={s.secT}>🧪 Kaширanje i lak (duplex / triplex / kvadriplex)</div>
-                            <div style={s.grid4}>
-                                <Field label="Broj slojeva" value={materijali.filter(m => Number(m.tezina) > 0).length} onChange={() => { }} type="number" readOnly auto />
-                                <Field label="Kaширanje prolaza" value={rez.kasProlazi || 0} onChange={() => { }} type="number" readOnly auto />
-                                <Field label="Kaширanje cena €/m²" value={kasCena} onChange={setKasCena} type="number" />
-                                <Field label="Kaширanje €/1000kom" value={(rez.kasiranje || 0).toFixed(2)} onChange={() => { }} type="number" readOnly auto />
+                        {/* KAŠIRANJE I LAK — tabela u istom stilu kao kod folije (račun ostaje kesa: €/m² × površina × prolazi) */}
+                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 14, marginBottom: 12 }}>
+                            <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0, marginBottom: 4, textTransform: 'uppercase' }}>🧪 Kaширanje i lak</h3>
+                            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>
+                                Broj slojeva (auto): <b>{materijali.filter(m => Number(m.tezina) > 0).length}</b> · prolaza kaширanja = slojevi − 1. Cene su €/m² i množe se površinom kese.
                             </div>
-                            <div style={{ ...s.grid4, marginTop: '9px', alignItems: 'end' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: opts.lakiranje ? '#047857' : '#64748b', paddingBottom: '8px', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={!!opts.lakiranje} onChange={() => toggle('lakiranje')} style={{ accentColor: '#059669', width: '15px', height: '15px' }} /> Lakiranje
-                                </label>
-                                <Field label="Lak cena €/m²" value={lakKesaCena} onChange={setLakKesaCena} type="number" />
-                                <Field label="Lak prolaza" value={lakKesaProlazi} onChange={setLakKesaProlazi} type="number" />
-                                <Field label="Lak €/1000kom" value={(rez.lakiranje || 0).toFixed(2)} onChange={() => { }} type="number" readOnly auto />
+                            <div style={{ overflowX: 'auto', border: '1px solid #dbe3ef', borderRadius: 14 }}>
+                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 760, fontSize: 13 }}>
+                                    <thead>
+                                        <tr>
+                                            {['Tip', 'Prolazi', 'Cena €/m²', 'Ukupno €/1000 kom'].map((h, i) => (
+                                                <th key={i} style={{ textAlign: i === 0 ? 'left' : 'left', padding: '10px 12px', background: '#f8fafc', color: '#64748b', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* KAŠIRANJE */}
+                                        <tr>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#1e40af' }}>KAŠIRANJE</td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" value={rez.kasProlazi || 0} readOnly title="AUTO = broj slojeva − 1"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #fbbf24', borderRadius: 8, fontSize: 13, fontWeight: 800, background: '#fef3c7', color: '#92400e' }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="0.001" value={kasCena} onChange={e => setKasCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{(rez.kasiranje || 0).toFixed(2)} €</td>
+                                        </tr>
+                                        {/* LAK */}
+                                        <tr>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: opts.lakiranje ? '#047857' : '#94a3b8' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                                    <input type="checkbox" checked={!!opts.lakiranje} onChange={() => toggle('lakiranje')} style={{ accentColor: '#059669', width: 16, height: 16 }} /> LAK
+                                                </label>
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="1" value={lakKesaProlazi} onChange={e => setLakKesaProlazi(parseFloat(e.target.value) || 0)} placeholder="1"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="0.001" value={lakKesaCena} onChange={e => setLakKesaCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{(rez.lakiranje || 0).toFixed(2)} €</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                            <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '8px' }}>Broj prolaza kaширanja = broj slojeva − 1 (auto). Cene su €/m² i množe se površinom kese.</div>
                         </div>
 
                         {/* OPCIJE */}
                         <div style={s.sec}>
                             <div style={s.secT}>⚙️ Tehničke opcije kese</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
-                                <Opt k="duplofan" label="Duplofan traka" cena={dupCena} setCena={setDupCena} />
-                                <Opt k="eurozumba" label="Eurozumba" cena={ezCena} setCena={setEzCena} />
-                                <Opt k="okruglaZumba" label="Okrugla zumba" cena={ozCena} setCena={setOzCena} />
-                                <Opt k="kosaKlapna" label="Ukošena klapna" cena={kkCena} setCena={setKkCena} />
-                                <Opt k="anleger" label="Anleger" cena={anCena} setCena={setAnCena} />
-                                <Opt k="utor" label="Utor" cena={utorCena} setCena={setUtorCena} />
-                                <Opt k="stampa" label="Štampa" cena={stCena} setCena={setStCena} />
-                                <Opt k="perfOtk" label="Perf. otkidanje" cena={potkCena} setCena={setPotkCena} />
-                                <Opt k="poprecnaPerf" label="Poprečna perf." cena={pperfCena} setCena={setPperfCena} />
-                                <Opt k="kontVar" label="Kontinentalni var" cena={kvCena} setCena={setKvCena} />
-                                <Opt k="poprecniVar" label="Poprečni var" cena={ppvCena} setCena={setPpvCena} />
-                                <Opt k="faltaDno" label="Falta na dnu" cena={fdCena} setCena={setFdCena} />
-                                <Opt k="varDno" label="Var na dnu" cena={vdCena} setCena={setVdCena} />
-                                <Opt k="otvorDno" label="Otvor na dnu" cena={odCena} setCena={setOdCena} />
-                                <Opt k="pakHrana" label="Pakovanje za hranu" cena={phranaCena} setCena={setPhranaCena} />
-                                <Opt k="busenje" label="Bušenje rupe" cena={buCena} setCena={setBuCena} />
-                                <Opt k="adhTraka" label="ADH traka" cena={adhCena} setCena={setAdhCena} />
-                                <Opt k="ojacanje" label="Ojačanje" cena={ojCena} setCena={setOjCena} />
-                                <Opt k="klise" label="Trošak klišea" cena={klCena} setCena={setKlCena} />
-                                <Opt k="perfVrucim" label="Perf. vrućim iglama" cena={pvCena} setCena={setPvCena} />
+                                <Opt label="Duplofan traka" active={opts.duplofan} onToggle={() => toggle('duplofan')} cena={dupCena} setCena={setDupCena} />
+                                <Opt label="Eurozumba" active={opts.eurozumba} onToggle={() => toggle('eurozumba')} cena={ezCena} setCena={setEzCena} />
+                                <Opt label="Okrugla zumba" active={opts.okruglaZumba} onToggle={() => toggle('okruglaZumba')} cena={ozCena} setCena={setOzCena} />
+                                <Opt label="Ukošena klapna" active={opts.kosaKlapna} onToggle={() => toggle('kosaKlapna')} cena={kkCena} setCena={setKkCena} />
+                                <Opt label="Anleger" active={opts.anleger} onToggle={() => toggle('anleger')} cena={anCena} setCena={setAnCena} />
+                                <Opt label="Utor" active={opts.utor} onToggle={() => toggle('utor')} cena={utorCena} setCena={setUtorCena} />
+                                <Opt label="Štampa" active={opts.stampa} onToggle={() => toggle('stampa')} cena={stCena} setCena={setStCena} />
+                                <Opt label="Perf. otkidanje" active={opts.perfOtk} onToggle={() => toggle('perfOtk')} cena={potkCena} setCena={setPotkCena} />
+                                <Opt label="Poprečna perf." active={opts.poprecnaPerf} onToggle={() => toggle('poprecnaPerf')} cena={pperfCena} setCena={setPperfCena} />
+                                <Opt label="Kontinentalni var" active={opts.kontVar} onToggle={() => toggle('kontVar')} cena={kvCena} setCena={setKvCena} />
+                                <Opt label="Poprečni var" active={opts.poprecniVar} onToggle={() => toggle('poprecniVar')} cena={ppvCena} setCena={setPpvCena} />
+                                <Opt label="Falta na dnu" active={opts.faltaDno} onToggle={() => toggle('faltaDno')} cena={fdCena} setCena={setFdCena} />
+                                <Opt label="Var na dnu" active={opts.varDno} onToggle={() => toggle('varDno')} cena={vdCena} setCena={setVdCena} />
+                                <Opt label="Otvor na dnu" active={opts.otvorDno} onToggle={() => toggle('otvorDno')} cena={odCena} setCena={setOdCena} />
+                                <Opt label="Pakovanje za hranu" active={opts.pakHrana} onToggle={() => toggle('pakHrana')} cena={phranaCena} setCena={setPhranaCena} />
+                                <Opt label="Bušenje rupe" active={opts.busenje} onToggle={() => toggle('busenje')} cena={buCena} setCena={setBuCena} />
+                                <Opt label="ADH traka" active={opts.adhTraka} onToggle={() => toggle('adhTraka')} cena={adhCena} setCena={setAdhCena} />
+                                <Opt label="Ojačanje" active={opts.ojacanje} onToggle={() => toggle('ojacanje')} cena={ojCena} setCena={setOjCena} />
+                                <Opt label="Trošak klišea" active={opts.klise} onToggle={() => toggle('klise')} cena={klCena} setCena={setKlCena} />
+                                <Opt label="Perf. vrućim iglama" active={opts.perfVrucim} onToggle={() => toggle('perfVrucim')} cena={pvCena} setCena={setPvCena} />
                             </div>
 
                             {/* PANELI ZA OPCIJE - prikazuju se kad je opcija aktivna */}
@@ -829,6 +899,16 @@ export default function KalkulacijaKese({ setPage }) {
                                 </Sel>
                             </div>
                         </div>
+
+                        {/* MARŽA — zasebna, jasna ćelija (kao kod folije) */}
+                        {mod === 'normal' && (
+                            <div style={s.sec}>
+                                <div style={s.secT}>💰 Marža</div>
+                                <div style={{ maxWidth: 220 }}>
+                                    <Field label="Marža (%)" value={marza} onChange={setMarza} type="number" />
+                                </div>
+                            </div>
+                        )}
 
                         {/* NAPOMENA */}
                         <div style={s.sec}>

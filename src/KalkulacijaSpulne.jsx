@@ -93,6 +93,8 @@ export default function KalkulacijaSpulne() {
                 if (u.lakOn !== undefined) setLakOn(!!u.lakOn);
                 if (u.lakCena !== undefined) setLakCena(Number(u.lakCena) || 0);
                 if (u.lakProlazi !== undefined) setLakProlazi(Number(u.lakProlazi) || 0);
+                if (u.mode !== undefined) setMode(u.mode);
+                if (u.targetCena1000 !== undefined) setTargetCena1000(Number(u.targetCena1000) || 0);
             }
 
             localStorage.removeItem('editKalkulacija');
@@ -269,7 +271,8 @@ export default function KalkulacijaSpulne() {
                 sirina, duzina,
                 cenaKutije, cenaHilzne, transport, skart,
                 marza, kolicina, napomena,
-                brSlojeva, kasCena, lakOn, lakCena, lakProlazi
+                brSlojeva, kasCena, lakOn, lakCena, lakProlazi,
+                mode, targetCena1000
             };
             const rezSaUlaz = { ...rez, _ulaz };
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
@@ -405,37 +408,59 @@ export default function KalkulacijaSpulne() {
                             </FormRow>
                         </Section>
 
-                        {/* Kaширanje i lak */}
-                        <Section title="🧪 Kaширanje i lak (duplex / triplex / kvadriplex)">
-                            <FormRow>
-                                <FormField label="Broj slojeva (1=mono, 2=duplex, 3=triplex)" value={brSlojeva} onChange={setBrSlojeva} type="number" step="1" />
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Kaширanje prolaza (AUTO = slojevi − 1)</label>
-                                    <input type="number" value={Math.max(0, (Number(brSlojeva) || 1) - 1)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
-                                </div>
-                            </FormRow>
-                            <FormRow>
-                                <FormField label="Kaширanje cena (€/m²)" value={kasCena} onChange={setKasCena} type="number" step="0.001" />
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Kaширanje / špulni (AUTO)</label>
-                                    <input type="number" value={f2(rez.kasTr)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
-                                </div>
-                            </FormRow>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr', gap: 12, alignItems: 'end', marginBottom: 12 }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: '#047857', paddingBottom: 10, cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={lakOn} onChange={e => setLakOn(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#059669' }} /> Lakiranje
-                                </label>
-                                <FormField label="Lak cena (€/m²)" value={lakCena} onChange={setLakCena} type="number" step="0.001" />
-                                <FormField label="Lak prolaza" value={lakProlazi} onChange={setLakProlazi} type="number" step="1" />
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Lak / špulni (AUTO)</label>
-                                    <input type="number" value={f2(rez.lakTr)} readOnly style={{ padding: 10, border: '2px solid #fbbf24', borderRadius: 8, fontSize: 14, background: '#fef3c7', color: '#92400e', fontWeight: 800 }} />
-                                </div>
+                        {/* Kaширanje i lak — tabela u istom stilu kao folija i kesa (račun ostaje: €/m² × površina špulne × prolazi) */}
+                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 14, marginBottom: 24 }}>
+                            <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0, marginBottom: 8, textTransform: 'uppercase' }}>🧪 Kaширanje i lak</h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Broj slojeva (1=mono, 2=duplex, 3=triplex):</label>
+                                <input type="number" step="1" value={brSlojeva} onChange={e => setBrSlojeva(parseFloat(e.target.value) || 0)}
+                                    style={{ width: 70, height: 34, padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 800, textAlign: 'center' }} />
+                                <span style={{ fontSize: 11, color: '#94a3b8' }}>prolaza kaширanja = slojevi − 1. Cene su €/m² i množe se površinom špulne ({f2(rez.povrsina)} m²).</span>
                             </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                Broj prolaza kaширanja = broj slojeva − 1 (auto). Cene su €/m² i množe se površinom špulne ({f2(rez.povrsina)} m²). Mono špulna (1 sloj) → nema kaширanja.
+                            <div style={{ overflowX: 'auto', border: '1px solid #dbe3ef', borderRadius: 14 }}>
+                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 760, fontSize: 13 }}>
+                                    <thead>
+                                        <tr>
+                                            {['Tip', 'Prolazi', 'Cena €/m²', 'Ukupno €/špulni'].map((h, i) => (
+                                                <th key={i} style={{ textAlign: 'left', padding: '10px 12px', background: '#f8fafc', color: '#64748b', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* KAŠIRANJE */}
+                                        <tr>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#7c3aed' }}>KAŠIRANJE</td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" value={Math.max(0, (Number(brSlojeva) || 1) - 1)} readOnly title="AUTO = broj slojeva − 1"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #fbbf24', borderRadius: 8, fontSize: 13, fontWeight: 800, background: '#fef3c7', color: '#92400e', boxSizing: 'border-box' }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="0.001" value={kasCena} onChange={e => setKasCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700, boxSizing: 'border-box' }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{f2(rez.kasTr)} €</td>
+                                        </tr>
+                                        {/* LAK */}
+                                        <tr>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: lakOn ? '#047857' : '#94a3b8' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                                    <input type="checkbox" checked={lakOn} onChange={e => setLakOn(e.target.checked)} style={{ accentColor: '#059669', width: 16, height: 16 }} /> LAK
+                                                </label>
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="1" value={lakProlazi} onChange={e => setLakProlazi(parseFloat(e.target.value) || 0)} placeholder="1"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700, boxSizing: 'border-box' }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
+                                                <input type="number" step="0.001" value={lakCena} onChange={e => setLakCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
+                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700, boxSizing: 'border-box' }} />
+                                            </td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{f2(rez.lakTr)} €</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                        </Section>
+                        </div>
 
                         {/* Troškovi */}
                         <Section title="💰 Dodatni troškovi">

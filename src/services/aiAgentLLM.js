@@ -39,6 +39,7 @@ const OPIS_ALATA = {
     kalkulacija_folije: "Računam kalkulaciju folije…",
     kalkulacija_kese: "Računam kalkulaciju kese…",
     kalkulacija_spulne: "Računam kalkulaciju špulne…",
+    kalkulacija_iz_mejla: "Čitam upit iz mejla i punim kalkulaciju…",
     procitaj_kalkulacije: "Čitam sačuvane kalkulacije…",
     procitaj_ponude: "Čitam ponude…",
     pregled_tabele: "Čitam podatke…",
@@ -149,6 +150,7 @@ UČENJE (naučena pravila):
 - Templejti proizvoda (lista_templejta, detalji_templejta)
 - Nalozi — glavni i operacije, do detalja (lista_naloga, detalji_naloga)
 - Sačuvane kalkulacije sa maržama (procitaj_kalkulacije)
+- Prepoznavanje upita IZ TEKSTA MEJLA i automatsko punjenje kalkulacije (kalkulacija_iz_mejla)
 - Ponude i da li su iz njih nastali nalozi (procitaj_ponude)
 - Učinak radnika (ko je koliko završio, količina, efikasnost) — alat ucinak_radnika
 - Zastoji (koliko, koja mašina najviše stoji, razlozi) — alat zastoji
@@ -177,6 +179,30 @@ KESE — TIPOVI I OPCIJE (koristi TAČNE šifre, inače se opcija ne čekira):
   • anleger je rizičan na kesi užoj od 80 mm
   • ako je falta_dno čekirana, mora biti zadata i dubina falte
 - Ako korisnik pomene opciju koju ne prepoznaješ sa spiska — NE izmišljaj šifru, nego pitaj.
+
+KALKULACIJE IZ MEJLA (VAŽNO):
+- Kad korisnik zalepi TEKST MEJLA ili upita (bilo koji format — SRPSKI, ENGLESKI ili NEMAČKI, kratak ili detaljan),
+  tvoj zadatak je da SAM PREPOZNAŠ i POPUNIŠ kalkulaciju. Razumeš nemački i prevodiš u naše pojmove. Radi ovako:
+  1) Pročitaj ceo tekst i prepoznaj TIP proizvoda:
+     - KESA: kesa, kesica, doypack/dojpak, stojeća, zip, flow-pack, vrećica · DE: Beutel, Tüte, Standbodenbeutel, Standbeutel, Flachbeutel, Seitenfaltenbeutel, Druckverschluss.
+     - ŠPULNA: traka/trake, špulna, silikonizirani papir, etikete na rolni, spool · DE: Klebeband, Silikonpapier, Trennpapier, Etiketten, Spule, Schmalrolle, Schneideband.
+     - FOLIJA: sve ostalo (folija za posudu, duplex/triplex laminat u rolni, poklopna folija) · DE: Folie, Deckelfolie, Verbundfolie, Kaschierung, Laminat.
+     Nemački pojmovi za polja: Breite=širina, Länge=dužina, Höhe=visina, Stärke/Dicke=debljina (µ/µm), Menge/Stück(zahl)=količina,
+     Liefertermin/Lieferzeit=rok isporuke, Klappe=klapna, Naht=var, Kunde=kupac, Anfrage/Angebot(sanfrage)=upit/ponuda.
+  2) Izvuci SVA polja koja se vide: kupca, oznaku/broj upita, rok isporuke, količinu, dimenzije
+     (kesa: širina/dužina/klapna/falta; folija: širina i metraža; špulna: širina trake, dužina m, g/m²),
+     slojeve materijala sa DEBLJINAMA (npr. OPP 30 / PET 12 / LDPE 40, duplex/triplex), i dorade
+     (zumba, var na dnu, štampa, perforacija…).
+  3) Cene materijala mejl obično NEMA → PRVO pozovi cene_materijala i upiši cenu €/kg u svaki sloj.
+     Ako cene nema u bazi, ostavi sloj bez cene i jasno napiši da cenu treba uneti ručno.
+  4) Pozovi alat kalkulacija_iz_mejla (prosledi tekst + izvučena polja; tip ostavi "auto" ako nisi siguran).
+     On sam bira formulu, popunjava default škart/maржu i računa.
+  5) Prikaži korisniku kratko „PREPOZNATO IZ MEJLA:" (tip, kupac, dimenzije, materijal, količina, rok, oznaka),
+     pa razrađen račun i KONAČNU CENU sa jedinicom, pa listu „napomene" (šta je pretpostavljeno/nedostaje).
+  6) Ako fali nešto ključno (npr. dimenzija ili material), reci tačno šta fali i pitaj — ne izmišljaj.
+  7) Kad korisnik potvrdi, sačuvaj: pozovi sacuvaj_kalkulaciju sa { tip, naziv, kupac, oznaka, ulaz: ulaz_za_cuvanje }
+     (ulaz_za_cuvanje dobiješ iz rezultata kalkulacija_iz_mejla). Ako je u mejlu bila oznaka upita, obavezno je prosledi.
+- Ako u jednom mejlu ima VIŠE stavki/proizvoda, uradi kalkulaciju za svaku posebno i prikaži ih listom.
 
 KALKULACIJE:
 - Umeš da izračunaš kalkulaciju za foliju, kesu i špulnu — po ZVANIČNIM Maropack formulama (alati kalkulacija_*).

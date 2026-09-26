@@ -2189,8 +2189,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                 const std = r.standardi || {};
                 const rec = std.record || {};
                 const tip = r.tip || std.tip || rec.tip || rec.data?.type || "folija";
-                const layers = r.materijali_struktura || r.mats || rec.data?.[tip]?.layers || [];
-                const dataForm = rec.data || {
+                const layers = r.materijali_struktura || r.mats || rec.data?.[tip]?.layers || (r.res?.template?.[tip]?.layers) || [];
+                // Ceo form: prvo iz standardi.record.data, pa iz res.template (drugi nosilac), pa parcijalno.
+                const dataForm = rec.data || r.res?.template || {
                     type: tip,
                     naziv: r.naziv || "",
                     kupac: r.kupac || "",
@@ -2282,10 +2283,24 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const payloadZaUpis = (mode === "new")
                 ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
                 : payload;
-            const query = existingDbId
-                ? supabase.from("proizvodi").update(payloadZaUpis).eq("id", existingDbId).select()
-                : supabase.from("proizvodi").insert([payloadZaUpis]).select();
-            const { data, error } = await query;
+            // ROBUSTAN UPIS: ako tabela `proizvodi` nema neku kolonu, PostgREST odbije CEO upis i
+            // templejt se NE sačuva. Izbacimo kolonu koju baza prijavi kao nepoznatu i pokušamo ponovo,
+            // dok upis ne prođe. Ceo form ostaje u `res.template` i `standardi.record.data` (dva nosioca).
+            let payloadR = { ...payloadZaUpis };
+            let data = null, error = null;
+            for (let i = 0; i < 25; i++) {
+                const q = existingDbId
+                    ? supabase.from("proizvodi").update(payloadR).eq("id", existingDbId).select()
+                    : supabase.from("proizvodi").insert([payloadR]).select();
+                const res = await q;
+                error = res.error; data = res.data;
+                if (!error) break;
+                const poruka = [error.message, error.details, error.hint].filter(Boolean).join(" ");
+                const m = poruka.match(/'([^']+)' column|column "([^"]+)"|the '([^']+)' column|find the '([^']+)'/i);
+                const kol = m && (m[1] || m[2] || m[3] || m[4]);
+                if (kol && Object.prototype.hasOwnProperty.call(payloadR, kol)) { delete payloadR[kol]; continue; }
+                break;
+            }
             if (error) throw error;
             // Osveži form sa novim/ažuriranim db_id da naredni "Sačuvaj izmene" ide na pravi red.
             const noviRed = Array.isArray(data) ? data[0] : data;

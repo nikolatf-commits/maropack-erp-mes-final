@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase.js";
 import { napraviPDFPonuda } from "./utils/pdfPonuda.js";
+import { sinhronizujLokalnePonude } from "./utils/kalkulacijeHelpers.js";
 
 function fmt(v) {
     return Number(v || 0).toLocaleString("sr-RS", {
@@ -32,15 +33,19 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
 
     async function ucitajPonude() {
         try {
+            // Prvo gurni sve zaostale LOKALNE ponude u zajedničku bazu — da ih vide SVI, ne samo ovaj računar.
+            try { await sinhronizujLokalnePonude(); } catch (e) { }
             const { data, error } = await supabase
                 .from('ponude')
                 .select('*')
                 .order('id', { ascending: false });
 
             if (error) throw error;
+            // Iz baze (zajedničko za sve) + eventualni ostatak lokalnih koji još nije mogao da se sinhronizuje.
             setPonudeData([...(readLocalPonude() || []), ...(data || [])]);
         } catch (err) {
             console.error('Greška pri učitavanju ponuda:', err);
+            setPonudeData(readLocalPonude() || []);
         }
     }
 
@@ -189,10 +194,10 @@ function btn(color) {
 
 // Iznosi po jedinici — folija: €/1000m, kesa: €/kom, špulna: €/špulni.
 function iznosi(p) {
-    const tip = String(p?.tip || "").toLowerCase();
-    const kol = Number(p?.kol ?? p?.kolicina ?? 0) || 0;
-    const cena = Number(p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
-    const uk = Number(p?.uk ?? (cena * kol)) || 0;
+    const tip = String(p?.tip || p?.tip_proizvoda || "").toLowerCase();
+    const kol = Number(p?.kol ?? p?.kolicina ?? p?.podaci?.kolicina ?? 0) || 0;
+    const cena = Number(p?.c1 ?? p?.cena ?? p?.konacna_cena ?? p?.cena_ukorak ?? p?.cena_jedinicna ?? p?.podaci?.cena_jedinicna ?? 0) || 0;
+    const uk = Number(p?.uk ?? p?.cena_ukupno ?? p?.vrednost ?? p?.podaci?.vrednost ?? (cena * kol)) || 0;
     if (tip === "folija") return { kolTxt: (kol * 1000).toLocaleString("sr-RS") + " m", jed: "€ / 1000m", cena, uk };
     if (tip === "kesa") return { kolTxt: kol.toLocaleString("sr-RS") + " kom", jed: "€ / kom", cena, uk };
     if (tip === "spulna" || tip === "špulna") return { kolTxt: kol.toLocaleString("sr-RS") + " špulni", jed: "€ / špulni", cena, uk };

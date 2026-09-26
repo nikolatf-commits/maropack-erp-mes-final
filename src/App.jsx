@@ -2116,12 +2116,16 @@ function MainAppContent() {
                                     const result = await kreirajPonuduIzKalkulacije(kal);
                                     console.log('📊 Rezultat:', result);
 
-                                    if (result.success) {
-                                        msg('Ponuda kreirana iz kalkulacije!');
+                                    if (result.success && result.fallback) {
+                                        // Baza nije bila dostupna → ponuda je zasad samo lokalna (ne vide je svi).
+                                        msg(result.poruka || 'Ponuda sačuvana lokalno — biće poslata svima kad se veza vrati.', 'err');
+                                        setPage('ponude');
+                                    } else if (result.success) {
+                                        msg('Ponuda kreirana i vidljiva svima!');
                                         setPage('ponude');
                                     } else {
                                         console.error('❌ Greška:', result.error);
-                                        msg('Greška pri kreiranju ponude: ' + result.error, 'err');
+                                        msg('Greška pri kreiranju ponude: ' + (result.error?.message || result.error), 'err');
                                     }
                                 } catch (err) {
                                     console.error('💥 Exception:', err);

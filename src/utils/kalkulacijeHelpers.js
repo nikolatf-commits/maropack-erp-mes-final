@@ -116,6 +116,41 @@ export async function ucitajVerzije(kalkulacijaId) {
     }
 }
 
+// Upis u `ponude` otporan na nepostojeće kolone: PostgREST u grešci navede ime kolone koje nema
+// ("Could not find the 'X' column of 'ponude'..." ili 'column "X" ... does not exist') → izbacimo je i probamo opet.
+async function insertPonudaRobustno(red) {
+    const payload = { ...red };
+    for (let i = 0; i < 25; i++) {
+        const { data, error } = await supabase.from('ponude').insert([payload]).select().single();
+        if (!error) return { data };
+        const poruka = [error.message, error.details, error.hint].filter(Boolean).join(' ');
+        const m = poruka.match(/'([^']+)' column|column "([^"]+)"|the '([^']+)' column|find the '([^']+)'/i);
+        const kol = m && (m[1] || m[2] || m[3] || m[4]);
+        if (kol && Object.prototype.hasOwnProperty.call(payload, kol)) { delete payload[kol]; continue; }
+        return { error }; // greška nije zbog kolone → prosledi dalje
+    }
+    return { error: { message: 'Upis ponude nije uspeo ni posle izbacivanja nepoznatih kolona.' } };
+}
+
+// Gurne sve ponude koje su (zbog nedostupne baze) ostale samo lokalno u ZAJEDNIČKU bazu,
+// da ih vide SVI korisnici. Uspešno prebačene briše iz lokalnog bafera. Pozива se pri otvaranju liste.
+export async function sinhronizujLokalnePonude() {
+    let lok;
+    try { lok = JSON.parse(localStorage.getItem('maropack_local_ponude') || '[]'); } catch { lok = []; }
+    if (!Array.isArray(lok) || !lok.length) return { synced: 0, ostalo: 0 };
+    const preostale = [];
+    let synced = 0;
+    for (const p of lok) {
+        const { id, _lokalno, _needsSync, ...red } = p || {};   // lokalni id/oznake ne idu u bazu
+        try {
+            const { error } = await insertPonudaRobustno(red);
+            if (error) preostale.push(p); else synced++;
+        } catch (e) { preostale.push(p); }
+    }
+    try { localStorage.setItem('maropack_local_ponude', JSON.stringify(preostale)); } catch (e) { }
+    return { synced, ostalo: preostale.length };
+}
+
 export async function kreirajPonuduIzKalkulacije(kalkulacija) {
     try {
         console.log('🎯 Kreiram ponudu iz kalkulacije:', kalkulacija);
@@ -141,10 +176,17 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             vaz: new Date(Date.now() + 30 * 24 * 3600000).toLocaleDateString('sr-RS'),
             kupac: kalkulacija.kupac || kalkulacija.klijent || template?.kupac,
             naziv: kalkulacija.naziv || template?.naziv,
+            proizvod: kalkulacija.naziv || template?.naziv,
             tip,
+            tip_proizvoda: tip,
             kol: kolicina,
+            kolicina: kolicina,
             c1: cena,
+            cena: cena,
+            konacna_cena: cena,
+            cena_ukorak: cena,
             uk: ukupno,
+            cena_ukupno: ukupno,
             mats: kalkulacija.materijali || kalkulacija.mats || template?.data?.[tip]?.layers || template?.data?.layers || [],
             kalkulacija_id: kalkulacija.id || kalkulacija.kalkulacija_id || null,
             template_id: template?.id || kalkulacija.template_id || kalkulacija.product_template_id || null,
@@ -152,6 +194,15 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             template,
             product_template: template,
             kalkulacija_payload: kalkulacija,
+            // Rezerva: sve bitno i u jsonb 'podaci' (koji tabela skoro sigurno ima) — ako pojedine
+            // kolone gore ne postoje pa ih robustni upis izbaci, podaci ostaju sačuvani.
+            podaci: {
+                kalkulacija_id: kalkulacija.id || null,
+                template_id: template?.id || kalkulacija.template_id || null,
+                kolicina, cena_jedinicna: cena, vrednost: ukupno,
+                materijali: kalkulacija.materijali || kalkulacija.mats || [],
+                rezultati: rez, izvor: 'kalkulacija',
+            },
             status: 'Aktivna',
             jez: 'sr',
             ko: 'Admin',
@@ -160,11 +211,10 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
         };
         Object.assign(ponuda, buildOrderSourcePack({ ponuda, tipOperacije: 'ponuda', tipProizvoda: tip }));
 
-        const { data: novaPonuda, error: ponudaError } = await supabase
-            .from('ponude')
-            .insert([ponuda])
-            .select()
-            .single();
+        // ROBUSTAN UPIS: ako tabela `ponude` nema neku kolonu (npr. template, kalkulacija_payload,
+        // struktura, res, vaz, mats…), PostgREST odbije CEO upis i ponuda se ne sačuva → „nigde se ne vidi".
+        // Zato: izbacimo kolonu koju baza prijavi kao nepoznatu i pokušamo ponovo, dok upis ne prođe.
+        const { data: novaPonuda, error: ponudaError } = await insertPonudaRobustno(ponuda);
 
         if (ponudaError) {
             console.error('❌ Greška pri kreiranju ponude:', ponudaError);
@@ -206,9 +256,16 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             nap: 'Lokalna ponuda kreirana iz kalkulacije/template-a'
         };
         Object.assign(fallbackPonuda, buildOrderSourcePack({ ponuda: fallbackPonuda, tipOperacije: 'ponuda', tipProizvoda: fallbackTip }));
-        const existing = JSON.parse(localStorage.getItem('maropack_template_ponude') || '[]');
-        localStorage.setItem('maropack_template_ponude', JSON.stringify([fallbackPonuda, ...existing]));
-        return { success: true, data: fallbackPonuda, fallback: true };
+        // VAŽNO: PonudePRO čita 'maropack_local_ponude' (readLocalPonude). Ranije se pisalo u
+        // 'maropack_template_ponude' → lokalna ponuda se nije nigde videla. Sad pišemo u ISPRAVAN ključ.
+        fallbackPonuda._lokalno = true;
+        fallbackPonuda._needsSync = true;
+        const existing = JSON.parse(localStorage.getItem('maropack_local_ponude') || '[]');
+        localStorage.setItem('maropack_local_ponude', JSON.stringify([fallbackPonuda, ...existing]));
+        return {
+            success: true, data: fallbackPonuda, fallback: true,
+            poruka: 'Baza trenutno nije dostupna — ponuda je sačuvana lokalno i biće automatski poslata svima čim se veza vrati (pri sledećem otvaranju liste ponuda).',
+        };
     }
 }
 

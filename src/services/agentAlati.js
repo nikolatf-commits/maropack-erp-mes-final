@@ -935,6 +935,93 @@ export const ALATI = {
         async izvrsi(a) { return kalkulacijaSpulne(a); },
     },
 
+    kalkulacija_iz_mejla: {
+        cita: true,
+        opis: "IZ TEKSTA MEJLA/UPITA popunjava i računa kalkulaciju. TI (AI) prvo pročitaj mejl i izvuci polja (tip, dimenzije, slojevi materijala + debljine, količina, kupac, rok, dorade, oznaka upita), pa prosledi ovamo. Alat SAM prepozna tip (folija/kesa/špulna) ako nije zadat, popuni default škart/maржu i izračuna. Ako u mejlu NEMA cene materijala, PRE ovoga pozovi cene_materijala pa upiši cene u slojeve. Vraća 'prepoznato' + 'kalkulacija' + gotov 'ulaz_za_cuvanje' koji prosleđuješ alatu sacuvaj_kalkulaciju kad korisnik potvrdi.",
+        ulaz: {
+            tekst: { type: "string", description: "Ceo tekst mejla/upita — koristi se za auto-prepoznavanje tipa i kontrolu" },
+            tip: { type: "string", description: "folija | kesa | spulna | auto (podrazumevano auto)" },
+            naziv: { type: "string", description: "Naziv proizvoda ako se vidi iz mejla" },
+            kupac: { type: "string" },
+            oznaka: { type: "string", description: "Broj/oznaka upita ako postoji (npr. UP-2026-014)" },
+            rok: { type: "string", description: "Rok isporuke ako je naveden" },
+            sirina: { type: "number", description: "mm (kesa/folija/špulna traka)" },
+            duzina: { type: "number", description: "Kesa: dužina mm · Špulna: dužina m" },
+            klapna: { type: "number", description: "Kesa: klapna mm" },
+            falta: { type: "number", description: "Kesa: falta mm" },
+            metraza: { type: "number", description: "Folija: metraža za obračun (default 1000)" },
+            tezinaGM2: { type: "number", description: "Špulna: gramaža g/m²" },
+            cenaM2: { type: "number", description: "Špulna: cena materijala €/m²" },
+            kolicina: { type: "number", description: "Kesa: kom · Špulna: broj špulni · Folija: broj naloga" },
+            materijali: { type: "array", description: "Slojevi [{naziv/vrsta, debljina, tezina (g/m²), cena (€/kg), stampa, lakira}]", items: { type: "object" } },
+            skart: { type: "number", description: "Ako nije u mejlu, uzima se default po tipu" },
+            marza: { type: "number", description: "Ako nije u mejlu, uzima se default po tipu" },
+            stampaCena: { type: "number", description: "€/kg štampe ako se pominje" },
+            transport: { type: "number", description: "Transport (€/kg folija/kesa, € po špulni)" },
+            ostaleOpcijeEur: { type: "number", description: "Kesa: zbir dorada u € na 1000 kom" },
+            opcije: { type: "array", description: "Kesa: dorade po imenu (npr. eurozumba, var na dnu, štampa)", items: { type: "string" } },
+        },
+        async izvrsi(a) {
+            const tekst = T(a.tekst);
+            // 1) Auto-prepoznavanje tipa iz teksta ako nije zadat
+            let tip = T(a.tip).toLowerCase();
+            if (!tip || tip === "auto") {
+                const s = UP(tekst);
+                // Srpski + engleski + NEMAČKI ključne reči
+                if (/(KESA|KESE|KESIC|DOYPACK|DOJPAK|VREC|VREĆ|STOJE|STAND ?UP|ZIP|FLOW ?PACK|BEUTEL|TÜTE|TUTE|STANDBODEN|STANDBEUTEL|FLACHBEUTEL|SEITENFALT|DRUCKVERSCHLUSS)/.test(s)) tip = "kesa";
+                else if (/(SPULN|ŠPULN|TRAKA|TRAKE|SPOOL|SILIKON|ETIKET|ROLNIC|KLEBEBAND|SILIKONPAPIER|TRENNPAPIER|ETIKETT|SPULE|SCHMALROLLE|SCHNEIDEBAND)/.test(s)) tip = "spulna";
+                else tip = "folija";  // Folie / Deckelfolie / Verbundfolie / Kaschierung → default
+            }
+            if (tip === "špulna") tip = "spulna";
+            // 2) Default škart/marža po tipu ako nisu u mejlu
+            const skart = a.skart != null ? N(a.skart) : (tip === "kesa" ? 10 : tip === "spulna" ? 2 : 10);
+            const marza = a.marza != null ? N(a.marza) : (tip === "kesa" ? 30 : tip === "spulna" ? 40 : 27);
+            const materijali = Array.isArray(a.materijali) ? a.materijali : [];
+            const napomene = [];
+            if (a.skart == null) napomene.push(`Škart nije naveden u mejlu → default ${skart}%.`);
+            if (a.marza == null) napomene.push(`Marža nije navedena u mejlu → default ${marza}%.`);
+            const bezCene = materijali.filter((m) => !(N(m.cena) > 0));
+            if (bezCene.length) napomene.push(`${bezCene.length} sloj(a) bez cene €/kg — pozovi cene_materijala i dopuni, ili se ostavlja da se ručno unese u kalkulaciji.`);
+            if (!N(a.sirina)) napomene.push("Nedostaje širina — proveri mejl ili pitaj korisnika.");
+
+            // 3) Sastavi ulaz i izračunaj pravim jezgrom
+            let ulaz, rez;
+            if (tip === "kesa") {
+                if (!N(a.duzina)) napomene.push("Kesa bez dužine — proveri mejl.");
+                ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta), kolicina: N(a.kolicina) || 1000, materijali, skart, marza, stampaCena: N(a.stampaCena), transportCena: N(a.transport), ostaleOpcijeEur: N(a.ostaleOpcijeEur) };
+                rez = kalkulacijaKese(ulaz);
+            } else if (tip === "spulna") {
+                ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), tezinaGM2: N(a.tezinaGM2), cenaM2: N(a.cenaM2), skart, marza, kolicina: N(a.kolicina) || 1, transport: N(a.transport) };
+                rez = kalkulacijaSpulne(ulaz);
+            } else {
+                ulaz = { sirina: N(a.sirina), metraza: N(a.metraza) || 1000, materijali, skart, marza, stampaCena: N(a.stampaCena), transport: N(a.transport), nalog: N(a.kolicina) || 1 };
+                rez = kalkulacijaFolije(ulaz);
+            }
+
+            return {
+                prepoznato: {
+                    tip,
+                    kupac: T(a.kupac) || null,
+                    naziv: T(a.naziv) || null,
+                    oznaka_upita: T(a.oznaka) || null,
+                    rok: T(a.rok) || null,
+                    dimenzije: tip === "kesa"
+                        ? { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta) }
+                        : tip === "spulna"
+                            ? { sirina_trake: N(a.sirina), duzina_m: N(a.duzina), gm2: N(a.tezinaGM2) }
+                            : { sirina: N(a.sirina), metraza: N(a.metraza) || 1000 },
+                    kolicina: N(a.kolicina) || null,
+                    materijali: materijali.map((m) => ({ naziv: T(m.naziv || m.vrsta), debljina: N(m.debljina) || null, gm2: N(m.tezina) || null, cena_kg: N(m.cena) || null })),
+                    dorade: Array.isArray(a.opcije) ? a.opcije : [],
+                },
+                kalkulacija: rez,
+                ulaz_za_cuvanje: ulaz,
+                napomene,
+                sledeci_korak: "Prikaži korisniku 'prepoznato' + konačnu cenu. Ako potvrdi, pozovi sacuvaj_kalkulaciju sa { tip, naziv, kupac, oznaka, ulaz: ulaz_za_cuvanje }.",
+            };
+        },
+    },
+
     sifarnik_materijala: {
         cita: true,
         opis: "OBAVEZNO PRE UNOSA ROLNI: pokazuje kako Maropack VEĆ imenuje materijale u magacinu (postojeće kombinacije vrsta / pod vrsta / oznaka / debljina, i koji dobavljač ih šalje). Koristi da nove rolne dobiju ISTO ime kao postojeće, a ne novo.",

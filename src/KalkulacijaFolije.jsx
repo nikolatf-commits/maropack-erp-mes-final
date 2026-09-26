@@ -519,6 +519,16 @@ export default function KalkulacijaFolijeSmart() {
                         S(setSkart, _ul.skart); S(setMarza, _ul.marza); S(setNalog, _ul.nalog);
                         if (_ul.sirina != null) setSirina(Number(_ul.sirina) || 0);
                         if (_ul.oznaka_upita != null) setOznakaUpita(_ul.oznaka_upita);
+                        // AUTORITATIVNO: metraža, režim (normalni/obrnuti) i obrnuti parametri — ništa na default
+                        if (_ul.metraza != null) setMetraza(Number(_ul.metraza) || 0);
+                        if (_ul.mod != null) setMod(_ul.mod);
+                        if (_ul.zeljenaCena != null) setZeljenaCena(Number(_ul.zeljenaCena) || 0);
+                        if (_ul.zeljenaCenaKg != null) setZeljenaCenaKg(Number(_ul.zeljenaCenaKg) || 0);
+                        if (_ul.reverseBaza != null) setReverseBaza(_ul.reverseBaza);
+                        if (_ul.naziv != null) setNaziv(_ul.naziv);
+                        if (_ul.kupac != null) setKupac(_ul.kupac);
+                        if (_ul.napomena != null) setNapomena(_ul.napomena);
+                        if (Array.isArray(_ul.materijali) && _ul.materijali.length) setMaterijali(_ul.materijali);
                     }
                 }
 
@@ -800,7 +810,10 @@ export default function KalkulacijaFolijeSmart() {
                     _ulaz: {
                         sirina, skart, marza, nalog, oznaka_upita: oznakaUpita,
                         kasiranje, lepak, lak,
-                        stampaCena, lakiranjeCena, transport, pakovanje, dorada
+                        stampaCena, lakiranjeCena, transport, pakovanje, dorada,
+                        // Da se NIŠTA ne vrati na default: i metraža, režim i obrnuti parametri
+                        metraza, mod, zeljenaCena, zeljenaCenaKg, reverseBaza,
+                        naziv, kupac, napomena, materijali
                     }
                 },
                 kreirao_user_id: user?.id
