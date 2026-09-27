@@ -192,9 +192,17 @@ export default function KalkulacijaKese({ setPage }) {
     const [pperfCena, setPperfCena] = useState(0);   // poprečna perf.
     const [phranaCena, setPhranaCena] = useState(0); // pakovanje za hranu
     // KAŠIRANJE I LAK — kese ume da budu duplex/triplex/kvadriplex (više slojeva se kaшira).
-    const [kasCena, setKasCena] = useState(0.02);        // kaширanje €/m²
-    const [lakKesaCena, setLakKesaCena] = useState(0.02); // lakiranje €/m²
+    const [kasCena, setKasCena] = useState(0.02);        // USLUGE kaширanje €/m²
+    const [lakKesaCena, setLakKesaCena] = useState(0.02); // (zadržano zbog kompatibilnosti)
     const [lakKesaProlazi, setLakKesaProlazi] = useState(1);
+    // LEPAK 1/2/3 + LAK (kg-model — isto kao folija). Utrošak kg/1000kom = površina × potrošnja (auto, može ručno).
+    const [lepak, setLepak] = useState([
+        { potrosnja: 0.002, utrosak: '', prolazi: 0, cena: 6 },
+        { potrosnja: 0.002, utrosak: '', prolazi: 0, cena: 6 },
+        { potrosnja: 0.002, utrosak: '', prolazi: 0, cena: 6 },
+    ]);
+    const [lak, setLak] = useState({ potrosnja: 0.0012, utrosak: '', prolazi: 0, cena: 7.05 });
+    const [lakiranjeCena, setLakiranjeCena] = useState(1.1);   // USLUGE lakiranje €/kg
 
     const [trCena, setTrCena] = useState(0.35);
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
@@ -255,6 +263,9 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setPhranaCena, c.phranaCena);
                 S(setTrCena, c.trCena);
                 S(setKasCena, c.kasCena); S(setLakKesaCena, c.lakKesaCena); S(setLakKesaProlazi, c.lakKesaProlazi);
+                S(setLakiranjeCena, c.lakiranjeCena);
+                if (Array.isArray(_ul.lepak) && _ul.lepak.length) setLepak(_ul.lepak);
+                if (_ul.lak && typeof _ul.lak === 'object') setLak(_ul.lak);
                 // AUTORITATIVNO vrati SVA ostala polja — ništa ne sme na default
                 const p = _ul.polja || {};
                 T(setMod, p.mod); T(setNaziv, p.naziv); T(setKupac, p.kupac); T(setOznakaUpita, p.oznakaUpita);
@@ -424,14 +435,33 @@ export default function KalkulacijaKese({ setPage }) {
         // (duplex=1, triplex=2, kvadriplex=3). Površina po 1000 kom u m².
         const m2Po1000 = (sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000;
         const kasProlazi = Math.max(0, matBr - 1);
+        // Kaширanje (usluga, €/m²) — kao pre: cena × površina/1000kom × prolazi
         const kasTr = kasCena * m2Po1000 * kasProlazi;
-        const lakTr = opts.lakiranje ? (lakKesaCena * m2Po1000 * (Number(lakKesaProlazi) || 0)) : 0;
+        // LEPAK 1/2/3 + LAK (kg-model, isto kao folija) — kg po 1000 kom
+        let lepakKg = 0, lepakTrosak = 0;
+        lepak.forEach((lep) => {
+            const autoUtrosak = m2Po1000 * (Number(lep.potrosnja) || 0);
+            const utrosak = (lep.utrosak !== '' && lep.utrosak != null) ? (Number(lep.utrosak) || 0) : autoUtrosak;
+            const prolazi = Number(lep.prolazi) || 0;
+            const cena = Number(lep.cena) || 0;
+            lepakKg += utrosak * prolazi;
+            lepakTrosak += utrosak * prolazi * cena;
+        });
+        const lakAutoUtrosak = m2Po1000 * (Number(lak.potrosnja) || 0);
+        const lakUtrosak = (lak.utrosak !== '' && lak.utrosak != null) ? (Number(lak.utrosak) || 0) : lakAutoUtrosak;
+        const lakProlaziKg = Number(lak.prolazi) || 0;
+        const lakKg = lakUtrosak * lakProlaziKg;
+        lepakKg += lakKg;
+        lepakTrosak += lakUtrosak * lakProlaziKg * (Number(lak.cena) || 0);
+        // Lakiranje (usluga, €/kg) — kg iz lakiranih slojeva
+        const lakiranjeKg = materijali.reduce((acc, m) => acc + (m.lakira ? (m2Po1000 * (Number(m.tezina) || 0) / 1000) : 0), 0);
+        const lakTr = lakiranjeKg * (Number(lakiranjeCena) || 0);
 
         // Trošak podešavanja mašine: FIKSNO €/1000 kom. NE ulazi u maржu — dodaje se posle.
         // UKUPAN jednokratni iznos za ceo nalog; deli se na količinu → po 1000 kom.
         const setupUkupno = Number(setupMasina) || 0;
         const setupPer1000 = kolicina > 0 ? (setupUkupno * 1000 / kolicina) : 0;
-        const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr;
+        const osnovna = cenaMatKom + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lepakTrosak + lakTr;
         const konacna = osnovna * (1 + marza / 100) + setupPer1000;
 
         const valFak = kolicina / 1000;
@@ -451,11 +481,15 @@ export default function KalkulacijaKese({ setPage }) {
             klise: kliseTr,
             kasiranje: kasTr,
             lakiranje: lakTr,
+            lepakKg,
+            lepakTrosak,
+            lakiranjeKg,
+            lakKg,
             kasProlazi,
             setup1000: setupPer1000,
             setupUkupno,
             osnovna,
-            saSkartom: cenaMatKom * (1 + skart / 100) + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lakTr,
+            saSkartom: cenaMatKom * (1 + skart / 100) + stmTr + adhTr + ostaleOpcije + kliseTr + trTr + ojTr + kasTr + lepakTrosak + lakTr,
             konacna,
             vrednostOsn,
             vrednostKon,
@@ -469,7 +503,7 @@ export default function KalkulacijaKese({ setPage }) {
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
         odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena,
-        kasCena, lakKesaCena, lakKesaProlazi]);
+        kasCena, lakKesaCena, lakKesaProlazi, lepak, lak, lakiranjeCena]);
 
     const NAMES = {
         duplofan: 'Duplofan', eurozumba: 'Eurozumba', okruglaZumba: 'Ok.zumba',
@@ -567,7 +601,7 @@ export default function KalkulacijaKese({ setPage }) {
                             dupCena, ezCena, ozCena, kkCena, anCena, stCena, kvCena, ppvCena,
                             fdCena, vdCena, odCena, buCena, adhCena, adhOds, ojCena, ojSir, ojDeb,
                             klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena,
-                            kasCena, lakKesaCena, lakKesaProlazi
+                            kasCena, lakKesaCena, lakKesaProlazi, lakiranjeCena
                         },
                         // SVA ostala polja — da se NIŠTA ne vrati na default pri ponovnom otvaranju
                         polja: {
@@ -576,7 +610,7 @@ export default function KalkulacijaKese({ setPage }) {
                             tolerancija, grafika, pakovanje, napomena
                         },
                         params: { dupTip, dupPoz, ezVel, ezDist, ozD, ozPoz, anTip, stTip, stPov, stMotiv, stPoz },
-                        materijali
+                        materijali, lepak, lak
                     }
                 },
                 osnovna_cena: rez.osnovna || 0,
@@ -706,54 +740,69 @@ export default function KalkulacijaKese({ setPage }) {
                             onRemove={(idx) => ukloniMat(idx)}
                         />
 
-                        {/* KAŠIRANJE I LAK — tabela u istom stilu kao kod folije (račun ostaje kesa: €/m² × površina × prolazi) */}
+                        {/* LEPAK I LAK — kg-model, isto kao kod folije (po 1000 kom) */}
                         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 14, marginBottom: 12 }}>
-                            <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0, marginBottom: 4, textTransform: 'uppercase' }}>🧪 Kaширanje i lak</h3>
+                            <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0, marginBottom: 4, textTransform: 'uppercase' }}>🧪 LEPAK I LAK</h3>
                             <div style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>
-                                Broj slojeva (auto): <b>{materijali.filter(m => Number(m.tezina) > 0).length}</b> · prolaza kaширanja = slojevi − 1. Cene su €/m² i množe se površinom kese.
+                                Slojeva (auto): <b>{materijali.filter(m => Number(m.tezina) > 0).length}</b> · prolaza kaширanja = slojevi − 1. Auto utrošak = površina/1000 kom ({((sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000).toFixed(2)} m²) × potrošnja (kg/m²).
                             </div>
                             <div style={{ overflowX: 'auto', border: '1px solid #dbe3ef', borderRadius: 14 }}>
-                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 760, fontSize: 13 }}>
+                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 820, fontSize: 13 }}>
                                     <thead>
                                         <tr>
-                                            {['Tip', 'Prolazi', 'Cena €/m²', 'Ukupno €/1000 kom'].map((h, i) => (
-                                                <th key={i} style={{ textAlign: i === 0 ? 'left' : 'left', padding: '10px 12px', background: '#f8fafc', color: '#64748b', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                                            {['Tip', 'Potrošnja kg/m²', 'Utrošak kg/1000kom', 'Prolazi', 'Cena €/kg', 'Ukupno kg/1000kom'].map((h, i) => (
+                                                <th key={i} style={{ textAlign: 'left', padding: '10px 12px', background: '#f8fafc', color: '#64748b', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
                                             ))}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {/* KAŠIRANJE */}
-                                        <tr>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#1e40af' }}>KAŠIRANJE</td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
-                                                <input type="number" value={rez.kasProlazi || 0} readOnly title="AUTO = broj slojeva − 1"
-                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #fbbf24', borderRadius: 8, fontSize: 13, fontWeight: 800, background: '#fef3c7', color: '#92400e' }} />
-                                            </td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
-                                                <input type="number" step="0.001" value={kasCena} onChange={e => setKasCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
-                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
-                                            </td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{(rez.kasiranje || 0).toFixed(2)} €</td>
-                                        </tr>
+                                        {lepak.map((lep, idx) => {
+                                            const m2k = (sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000;
+                                            const auto = m2k * (Number(lep.potrosnja) || 0);
+                                            const kg = ((lep.utrosak !== '' && lep.utrosak != null) ? (Number(lep.utrosak) || 0) : auto) * (Number(lep.prolazi) || 0);
+                                            return (
+                                                <tr key={idx}>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#1e40af' }}>LEPAK {idx + 1}</td>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.0001" value={lep.potrosnja} onChange={e => { const n = [...lepak]; n[idx] = { ...n[idx], potrosnja: parseFloat(e.target.value) || 0 }; setLepak(n); }} placeholder="0.002" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.001" value={lep.utrosak ?? ''} onChange={e => { const n = [...lepak]; n[idx] = { ...n[idx], utrosak: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) }; setLepak(n); }} placeholder={auto.toFixed(3)} style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="1" value={lep.prolazi} onChange={e => { const n = [...lepak]; n[idx] = { ...n[idx], prolazi: parseFloat(e.target.value) || 0 }; setLepak(n); }} placeholder="0" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.01" value={lep.cena} onChange={e => { const n = [...lepak]; n[idx] = { ...n[idx], cena: parseFloat(e.target.value) || 0 }; setLepak(n); }} placeholder="6" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                                    <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{kg.toFixed(3)} kg</td>
+                                                </tr>
+                                            );
+                                        })}
                                         {/* LAK */}
                                         <tr>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: opts.lakiranje ? '#047857' : '#94a3b8' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                    <input type="checkbox" checked={!!opts.lakiranje} onChange={() => toggle('lakiranje')} style={{ accentColor: '#059669', width: 16, height: 16 }} /> LAK
-                                                </label>
-                                            </td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
-                                                <input type="number" step="1" value={lakKesaProlazi} onChange={e => setLakKesaProlazi(parseFloat(e.target.value) || 0)} placeholder="1"
-                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
-                                            </td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}>
-                                                <input type="number" step="0.001" value={lakKesaCena} onChange={e => setLakKesaCena(parseFloat(e.target.value) || 0)} placeholder="0.02"
-                                                    style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} />
-                                            </td>
-                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{(rez.lakiranje || 0).toFixed(2)} €</td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#047857' }}>LAK</td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.0001" value={lak.potrosnja} onChange={e => setLak({ ...lak, potrosnja: parseFloat(e.target.value) || 0 })} placeholder="0.0012" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.001" value={lak.utrosak ?? ''} onChange={e => setLak({ ...lak, utrosak: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })} placeholder={(((sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000) * (Number(lak.potrosnja) || 0)).toFixed(3)} style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="1" value={lak.prolazi} onChange={e => setLak({ ...lak, prolazi: parseFloat(e.target.value) || 0 })} placeholder="0" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7' }}><input type="number" step="0.01" value={lak.cena} onChange={e => setLak({ ...lak, cena: parseFloat(e.target.value) || 0 })} placeholder="7.05" style={{ width: '100%', height: 38, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 700 }} /></td>
+                                            <td style={{ padding: '9px 10px', borderBottom: '1px solid #edf2f7', fontWeight: 900, color: '#059669' }}>{(((lak.utrosak !== '' && lak.utrosak != null) ? (Number(lak.utrosak) || 0) : (((sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000) * (Number(lak.potrosnja) || 0))) * (Number(lak.prolazi) || 0)).toFixed(3)} kg</td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+
+                        {/* USLUGE — kaширanje (€/m²) i lakiranje (€/kg), isto kao kod folije. Štampa i transport ostaju u svojim postojećim sekcijama. */}
+                        <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                            <h3 style={{ fontSize: 13, fontWeight: 800, color: '#0d9488', marginBottom: 12, textTransform: 'uppercase' }}>⚙️ USLUGE</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                                <div>
+                                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 3 }}>Kaширanje prolazi <b style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 3, fontSize: 9, color: '#92400e' }}>AUTO</b></label>
+                                    <input type="number" value={rez.kasProlazi || 0} readOnly style={{ width: '100%', padding: '4px 6px', background: '#fef3c7', color: '#92400e', fontWeight: 700, border: '1px solid #fbbf24', borderRadius: 4, fontSize: 11, marginBottom: 6, boxSizing: 'border-box' }} />
+                                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 3 }}>Cena (€/m²)</label>
+                                    <input type="number" step="0.001" value={kasCena} onChange={e => setKasCena(parseFloat(e.target.value) || 0)} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }} />
+                                    <div style={{ fontSize: 10.5, color: '#0d9488', fontWeight: 700, marginTop: 4 }}>= {(rez.kasiranje || 0).toFixed(2)} € / 1000 kom</div>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 3 }}>Lakiranje kg <b style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 3, fontSize: 9, color: '#92400e' }}>AUTO</b></label>
+                                    <input type="number" value={(rez.lakiranjeKg || 0).toFixed(3)} readOnly style={{ width: '100%', padding: '4px 6px', background: '#fef3c7', color: '#92400e', fontWeight: 700, border: '1px solid #fbbf24', borderRadius: 4, fontSize: 11, marginBottom: 6, boxSizing: 'border-box' }} />
+                                    <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 3 }}>Cena (€/kg)</label>
+                                    <input type="number" step="0.01" value={lakiranjeCena} onChange={e => setLakiranjeCena(parseFloat(e.target.value) || 0)} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }} />
+                                    <div style={{ fontSize: 10.5, color: '#0d9488', fontWeight: 700, marginTop: 4 }}>= {(rez.lakiranje || 0).toFixed(2)} € / 1000 kom · lakiranje se uključuje čekiranjem "Lak" na sloju materijala</div>
+                                </div>
                             </div>
                         </div>
 
