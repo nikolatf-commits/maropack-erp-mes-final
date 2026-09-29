@@ -2233,11 +2233,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
             const payload = JSON.parse(raw);
             const tpl = payload?.template;
             if (!tpl || typeof tpl !== "object") return;
-            const next = { ...clone(tpl), db_id: payload.product_id || tpl.db_id || null, template_locked: true };
+            const t = clone(tpl);
+            const tip = t.type || form?.type || "folija";
+            // Spoji sekciju iz kalkulacije preko postojećih default-a (da polja koja kalkulacija ne šalje ostanu popunjena)
+            const next = {
+                ...form,
+                ...t,
+                [tip]: { ...(form?.[tip] || {}), ...(t[tip] || {}) },
+                db_id: payload.product_id || t.db_id || null,
+                template_locked: true
+            };
             setForm(next);
             setActiveTab(next.type || "folija");
             localStorage.removeItem("maropack_pending_template_edit");
-            msg && msg("Template učitan iz Product Master baze");
+            msg && msg(payload.fromCalc ? "Podaci iz kalkulacije učitani u templejt" : "Template učitan iz Product Master baze");
         } catch (e) {
             msg && msg("Template nije učitan: " + (e?.message || e), "err");
         }

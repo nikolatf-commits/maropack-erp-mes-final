@@ -192,7 +192,7 @@ export default function KalkulacijaKese({ setPage }) {
     const [pperfCena, setPperfCena] = useState(0);   // poprečna perf.
     const [phranaCena, setPhranaCena] = useState(0); // pakovanje za hranu
     // KAŠIRANJE I LAK — kese ume da budu duplex/triplex/kvadriplex (više slojeva se kaшira).
-    const [kasCena, setKasCena] = useState(0.02);        // USLUGE kaширanje €/m²
+    const [kasCena, setKasCena] = useState(0.03);        // USLUGE kaширanje €/m²
     const [lakKesaCena, setLakKesaCena] = useState(0.02); // (zadržano zbog kompatibilnosti)
     const [lakKesaProlazi, setLakKesaProlazi] = useState(1);
     // LEPAK 1/2/3 + LAK (kg-model — isto kao folija). Utrošak kg/1000kom = površina × potrošnja (auto, može ručno).
@@ -647,6 +647,50 @@ export default function KalkulacijaKese({ setPage }) {
         }
     }
 
+    // ===================== SAČUVAJ KAO TEMPLEJT (kalkulacija → templejt) =====================
+    function sacuvajKaoTemplejt() {
+        try {
+            const form = {
+                type: 'kesa',
+                naziv, kupac,
+                product_master_id: sourceLink?.product_master_id || null,
+                template_id: sourceLink?.template_id || sourceLink?.product_template_id || null,
+                template_version: sourceLink?.template_version || 'V1',
+                kesa: {
+                    naziv,
+                    kolicina: String(kolicina || ''),
+                    skart: String(skart ?? ''),
+                    marza: String(marza ?? ''),
+                    sirina: String(sirina || ''),
+                    duzina: String(duzina || ''),
+                    klapna: String(klapna ?? ''),
+                    falta: String(falta ?? ''),
+                    takt: String(takta ?? ''),
+                    ban: String(ban ?? ''),
+                    tolerancija: tolerancija || '±10%',
+                    grafika: grafika || 'Novi posao',
+                    layers: (materijali || []).map(m => ({
+                        material: m.tip || m.vrsta || 'OPP',
+                        debljina: String(m.debljina ?? ''),
+                        tezina: String(m.tezina ?? ''),
+                        cena: String(m.cena ?? '')
+                    })),
+                    options: opts || {},
+                    transportKg: String(trCena ?? ''),
+                    pakovanje: pakovanje || '',
+                    setupMasina: String(setupMasina ?? ''),
+                    datum: datumIsp || ''
+                }
+            };
+            localStorage.setItem('maropack_pending_template_edit', JSON.stringify({ template: form, product_id: sourceLink?.product_master_id || null, fromCalc: true }));
+            if (typeof setPage === 'function') { setPage('template_engine'); }
+            else { alert('✅ Podaci su spremljeni za templejt. Otvori tab „Templejt" — automatski će se učitati.'); }
+        } catch (err) {
+            console.error('Greška (templejt):', err);
+            alert('❌ Greška pri slanju u templejt: ' + err.message);
+        }
+    }
+
     return (
         <div style={s.wrap}>
             <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
@@ -997,9 +1041,21 @@ export default function KalkulacijaKese({ setPage }) {
                                 <span style={{ fontSize: '10px', color: '#64748b' }}>Transport</span>
                                 <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.transport)}</span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
                                 <span style={{ fontSize: '10px', color: '#64748b' }}>Kliše (raspoređen)</span>
                                 <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.klise)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Kaширanje (usluga)</span>
+                                <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.kasiranje)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Lepak (kg)</span>
+                                <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.lepakTrosak)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Lakiranje (usluga)</span>
+                                <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.lakiranje)}</span>
                             </div>
                         </div>
 
@@ -1046,6 +1102,7 @@ export default function KalkulacijaKese({ setPage }) {
                         </div>
 
                         <button onClick={() => setCurrentTab('nalog')} style={{ width: '100%', padding: '11px', background: '#059669', color: 'white', border: 'none', borderRadius: '9px', fontWeight: 800, fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>📋 Kreiraj nalog →</button>
+                        <button onClick={sacuvajKaoTemplejt} title="Prebaci ove podatke u Templejt (Product Template Engine)" style={{ width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0d9488, #0f766e)', color: 'white', border: 'none', borderRadius: '9px', fontWeight: 800, fontSize: '12px', cursor: 'pointer', marginTop: '6px' }}>📋 Sačuvaj kao templejt</button>
                     </div>
 
                 </div>

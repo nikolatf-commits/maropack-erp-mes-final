@@ -2094,7 +2094,7 @@ function MainAppContent() {
                     {/* KALKULATORI */}
                     {page === "kalk_folija" && (<div>
                         <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
-                        <KalkulacijaFolije />
+                        <KalkulacijaFolije setPage={setPage} />
                     </div>)}
 
                     {/* LISTA KALKULACIJA */}

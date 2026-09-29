@@ -239,7 +239,7 @@ function readPendingTemplateCalculation(expectedTip) {
 // ============================================================================
 // KOMPONENTA
 // ============================================================================
-export default function KalkulacijaFolijeSmart() {
+export default function KalkulacijaFolijeSmart({ setPage } = {}) {
     const { user } = useAuth();
 
     // MOD
@@ -836,6 +836,44 @@ export default function KalkulacijaFolijeSmart() {
         }
     };
 
+    // ===================== SAČUVAJ KAO TEMPLEJT (kalkulacija → templejt) =====================
+    function sacuvajKaoTemplejt() {
+        try {
+            const form = {
+                type: "folija",
+                naziv, kupac,
+                product_master_id: sourceLink?.product_master_id || null,
+                template_id: sourceLink?.template_id || sourceLink?.product_template_id || null,
+                template_version: sourceLink?.template_version || "V1",
+                folija: {
+                    dimenzija: "",
+                    layers: (materijali || []).map(m => ({
+                        material: [m.vrsta || m.tip || m.materijal, m.oznaka, m.debljina].filter(Boolean).join(" ") || (m.materijal || ""),
+                        debljina: String(m.debljina ?? ""),
+                        sirina: String(m.sirina ?? sirina ?? ""),
+                        kg: "",
+                        metara: String(metraza || "")
+                    })),
+                    kasiranje: {
+                        tipLepka: "", odnosLepka: "",
+                        nanosLepka: String(lepak?.[0]?.potrosnja ?? ""),
+                        brojKasiranja: String(Math.max(0, (materijali?.filter(m => Number(m.tezina) > 0).length || 1) - 1)),
+                        materijalABC: "", napomena: napomena || ""
+                    },
+                    rezanje: {
+                        sirinaMaterijala: String(sirina || ""), sirinaTrake: "", brojTraka: "",
+                        precnikRolne: "", duzinaRolne: String(metraza || ""), dorada: "", smerGP: "", sirineTraka: ""
+                    }
+                }
+            };
+            localStorage.setItem("maropack_pending_template_edit", JSON.stringify({ template: form, product_id: sourceLink?.product_master_id || null, fromCalc: true }));
+            if (typeof setPage === "function") { setPage("template_engine"); }
+            else { alert("✅ Podaci su spremljeni za templejt. Otvori tab „Templejt\" — automatski će se učitati."); }
+        } catch (e) {
+            alert("❌ Greška pri slanju u templejt: " + e.message);
+        }
+    }
+
     // ========================================================================
     // RENDER
     // ========================================================================
@@ -1216,6 +1254,9 @@ export default function KalkulacijaFolijeSmart() {
                             )}
                             <button onClick={() => sacuvaj("new")} style={{ flex: 1, minWidth: 200, padding: "14px 20px", background: editId ? "#7c3aed" : "#0d9488", color: "white", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                                 {editId ? "🆕 Sačuvaj kao NOVU" : "💾 Sačuvaj kalkulaciju"}
+                            </button>
+                            <button onClick={sacuvajKaoTemplejt} title="Prebaci ove podatke u Templejt (Product Template Engine)" style={{ flex: 1, minWidth: 200, padding: "14px 20px", background: "#0f766e", color: "white", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                                📋 Sačuvaj kao templejt
                             </button>
                         </div>
                     </div>

@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { enrichNalogForPrint } from "./utils/nalogDataLink";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 const TABOVI = [
     { tip: "materijal", naziv: "Potreba materijala", ik: "📦", boja: "#f59e0b" },
@@ -507,10 +509,61 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         } catch (e) { reload(); alert("Greška pri brisanju: " + (e.message || e)); }
     }
     const [stampajSve, setStampajSve] = useState(false);
+    const [pdfBusy, setPdfBusy] = useState(false);
+    const printRef = useRef(null);
     function stampaj() { setStampajSve(false); if (typeof window !== "undefined") setTimeout(() => window.print(), 30); }
     function stampajSveNaloge() {
         setStampajSve(true);
         if (typeof window !== "undefined") setTimeout(() => { window.print(); setStampajSve(false); }, 120);
+    }
+
+    // Sačuvaj u PDF — isti sadržaj kao štampa (jedan nalog ili svi), sa prelamanjem na A4 strane
+    async function sacuvajPDF(sve) {
+        try {
+            setPdfBusy(true);
+            setStampajSve(!!sve);
+            // sačekaj da se DOM prerenda (posebno kod "svi nalozi")
+            await new Promise(r => setTimeout(r, sve ? 350 : 150));
+            const el = printRef.current;
+            if (!el) { alert("Nema sadržaja za PDF."); setPdfBusy(false); if (sve) setStampajSve(false); return; }
+            const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: el.scrollWidth });
+            const imgData = canvas.toDataURL("image/png");
+            const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+            const pdfW = pdf.internal.pageSize.getWidth();
+            const pdfH = pdf.internal.pageSize.getHeight();
+            const imgH = (canvas.height * pdfW) / canvas.width;
+            let heightLeft = imgH;
+            let position = 0;
+            pdf.addImage(imgData, "PNG", 0, position, pdfW, imgH);
+            heightLeft -= pdfH;
+            while (heightLeft > 0) {
+                position -= pdfH;
+                pdf.addPage();
+                pdf.addImage(imgData, "PNG", 0, position, pdfW, imgH);
+                heightLeft -= pdfH;
+            }
+            // Ime fajla: BROJ_svi_nalozi_NAZIV-PROIZVODA_DATUM.pdf
+            const san = (v) => String(v || "").trim().replace(/[^\wČĆŽŠĐčćžšđ\- ]+/g, "").replace(/\s+/g, "-");
+            const baza = san(naslovBroj) || "nalog";
+            const proizvod = san(
+                nalozi[0]?.proizvod || nalozi[0]?.naziv_proizvoda || nalozi[0]?.naziv ||
+                nalozi[0]?.parametri?.proizvod || nalozi[0]?.parametri?.naziv ||
+                osnovniNalog.proizvod || osnovniNalog.naziv || aktivni?.prod || ""
+            );
+            let datum = "";
+            try {
+                const d = new Date(nalozi[0]?.created_at || osnovniNalog.created_at || nalozi[0]?.datum || osnovniNalog.datum || Date.now());
+                if (!isNaN(d)) datum = d.toISOString().slice(0, 10); // YYYY-MM-DD
+            } catch { }
+            const ime = [baza + (sve ? "_svi_nalozi" : "_" + san(tab || "")), proizvod, datum].filter(Boolean).join("_");
+            pdf.save(ime + ".pdf");
+        } catch (e) {
+            console.error("PDF greška:", e);
+            alert("Greška pri pravljenju PDF-a: " + (e?.message || e));
+        } finally {
+            setPdfBusy(false);
+            if (sve) setStampajSve(false);
+        }
     }
 
     return (
@@ -525,6 +578,8 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button onClick={stampaj} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #0f766e", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj ovaj</button>
                     <button onClick={stampajSveNaloge} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #1d4ed8", background: "#1d4ed8", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj sve ({dostupni.length})</button>
+                    <button disabled={pdfBusy} onClick={() => sacuvajPDF(false)} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #b91c1c", background: pdfBusy ? "#fca5a5" : "#b91c1c", color: "#fff", fontWeight: 900, cursor: pdfBusy ? "wait" : "pointer" }}>📄 PDF ovaj</button>
+                    <button disabled={pdfBusy} onClick={() => sacuvajPDF(true)} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #7c3aed", background: pdfBusy ? "#c4b5fd" : "#7c3aed", color: "#fff", fontWeight: 900, cursor: pdfBusy ? "wait" : "pointer" }}>{pdfBusy ? "⏳ Pravim PDF…" : `📄 PDF sve (${dostupni.length})`}</button>
                     <button onClick={obrisiNalog} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #dc2626", background: "#fff", color: "#dc2626", fontWeight: 900, cursor: "pointer" }}>🗑️ Obriši</button>
                     {closeFn && (
                         <button onClick={closeFn} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "#fff", color: "#1d4ed8", fontWeight: 900, cursor: "pointer" }}>← Nazad</button>
@@ -607,11 +662,13 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 </div>
             )}
 
-            {loading
-                ? <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>
-                : stampajSve
-                    ? dostupni.map(t => <NalogLayoutPRO key={"print::" + t.tip} nalog={gradiAktivni(t.tip)} activeTab={t.tip} />)
-                    : <NalogLayoutPRO key={skiniSufiks(brojNaloga) + "::" + tab} nalog={aktivni} activeTab={tab} />}
+            <div ref={printRef}>
+                {loading
+                    ? <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>
+                    : stampajSve
+                        ? dostupni.map(t => <NalogLayoutPRO key={"print::" + t.tip} nalog={gradiAktivni(t.tip)} activeTab={t.tip} />)
+                        : <NalogLayoutPRO key={skiniSufiks(brojNaloga) + "::" + tab} nalog={aktivni} activeTab={tab} />}
+            </div>
         </div>
     );
 }

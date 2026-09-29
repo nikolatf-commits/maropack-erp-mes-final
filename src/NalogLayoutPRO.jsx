@@ -121,9 +121,15 @@ function buildD(nalog) {
     const komUkupno = komPoTraci * N;
     const kgF = (metriMat / 1000) * (sirinaMat / 1000);   // bilo: kolicina umesto metriMat
 
-    // boje
+    // boje (stanica \u00b7 boja \u00b7 tip \u00b7 anilox \u00b7 kli\u0161e)
     const boje = (Array.isArray(st.boje) ? st.boje : []).map((b, i) => ({
-        sw: bojaHex(b), lab: (i + 1) + "\u00b7" + (b.oznaka || b.tip || "boja") + (b.klise ? "\u00b7" + b.klise : ""),
+        sw: bojaHex(b),
+        stanica: i + 1,
+        oznaka: b.oznaka || b.tip || "boja",
+        tip: b.tip || "",
+        anilox: b.aniloks || b.anilox || b.aniloks || "",
+        klise: b.klise || "",
+        lab: (i + 1) + "\u00b7" + (b.oznaka || b.tip || "boja") + (b.klise ? "\u00b7" + b.klise : ""),
     }));
     // perforacija
     const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija : {};
@@ -242,10 +248,25 @@ function pMat(D) {
 }
 
 function pStampa(D) {
-    const c = COLs; const L0 = D.LAY.find(function (l) { return l.st; }) || D.LAY[0] || { n: '', pv: '', oz: '', pr: '', u: 0, gm2: 0, c: '#3b82f6' }; const chips = (D.boje.length ? D.boje : [{ sw: '#22d3ee', lab: '1·Cyan' }, { sw: '#ec4899', lab: '2·Magenta' }, { sw: '#facc15', lab: '3·Yellow' }, { sw: '#1f2937', lab: '4·Black' }]).map(function (b) { return '<div class="chip"><span class="sw" style="background:' + b.sw + '"></span>' + esc(b.lab) + '</div>'; }).join(''); return pageWrap(D, hd(D, '🖨️', T("nalog.nalog_stampa"), c, 'štampa') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
+    const c = COLs; const L0 = D.LAY.find(function (l) { return l.st; }) || D.LAY[0] || { n: '', pv: '', oz: '', pr: '', u: 0, gm2: 0, c: '#3b82f6' };
+    const bojeList = (D.boje.length ? D.boje : [
+        { sw: '#22d3ee', stanica: 1, oznaka: 'Cyan', tip: 'Procesna', anilox: '—', klise: '—' },
+        { sw: '#ec4899', stanica: 2, oznaka: 'Magenta', tip: 'Procesna', anilox: '—', klise: '—' },
+        { sw: '#facc15', stanica: 3, oznaka: 'Yellow', tip: 'Procesna', anilox: '—', klise: '—' },
+        { sw: '#1f2937', stanica: 4, oznaka: 'Black', tip: 'Procesna', anilox: '—', klise: '—' }
+    ]);
+    const bojeRows = bojeList.map(function (b) {
+        return '<tr>'
+            + '<td class="n"><b>' + esc(b.stanica != null ? String(b.stanica) : '') + '</b></td>'
+            + '<td><span class="sw" style="display:inline-block;width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.18);vertical-align:middle;margin-right:6px;background:' + (b.sw || '#94a3b8') + '"></span>' + esc(b.oznaka || 'boja') + '</td>'
+            + '<td>' + esc(b.tip || '—') + '</td>'
+            + '<td><b>' + esc(b.anilox || '—') + '</b></td>'
+            + '<td>' + esc(b.klise || '—') + '</td>'
+            + '</tr>';
+    }).join(''); return pageWrap(D, hd(D, '🖨️', T("nalog.nalog_stampa"), c, 'štampa') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
         '<div class="sec">' + secH(1, c, 'Materijal koji se štampa', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody><tr><td><span class="dot-c" style="background:' + L0.c + '"></span>1</td><td>' + esc(L0.n) + '</td><td>' + esc(L0.pv || '—') + '</td><td>' + esc(L0.oz || '—') + '</td><td>' + esc(L0.pr || '—') + '</td><td class="n">' + L0.u + ' µm</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + kg(D, L0) + '</td></tr></tbody></table></div>' +
         '<div class="sec">' + secH(2, c, 'Parametri štampe', 'iz templejta') + '<div class="info">' + infoC('Mašina', D.stampa.masina) + infoC('Strana', D.stampa.strana) + infoC('Broj boja', D.stampa.brojBoja) + infoC('Smer', D.stampa.smer) + infoC('Kliše', D.stampa.klise) + infoC('Obim valjka', D.stampa.obimValjka) + infoC('Hilzna', D.stampa.hilzna) + infoC('Štamparija', D.stampa.stamparija) + '</div></div>' +
-        '<div class="sec">' + secH(3, c, 'Redosled boja', '') + '<div class="chips">' + chips + '</div></div>' +
+        '<div class="sec">' + secH(3, c, 'Redosled boja', 'boja · anilox') + '<table>' + th(['Stanica', 'Boja', 'Tip', 'Anilox', 'Kliše'], c) + '<tbody>' + bojeRows + '</tbody></table></div>' +
         '<div class="ulaz" style="margin-top:18px">🖼 <b>Izgled na rolni</b> je na sledećoj strani (veliki prikaz).</div>' +
         foot('Operater štampe', 'Kontrola kvaliteta', 'Predao u kaširanje') + '</div>', 'Strana · štampa');
 }

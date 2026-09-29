@@ -23,7 +23,7 @@ function readPendingTemplateCalculation(expectedTip) {
     }
 }
 
-export default function KalkulacijaSpulne() {
+export default function KalkulacijaSpulne({ setPage } = {}) {
     const [currentTab, setCurrentTab] = useState('kalk');
     const [mode, setMode] = useState('normal'); // normal | reverse
     const [targetCena1000, setTargetCena1000] = useState(95);
@@ -129,7 +129,7 @@ export default function KalkulacijaSpulne() {
 
     // Kaширanje / lepak / lak (kg-model — isto kao kod folije)
     const [brSlojeva, setBrSlojeva] = useState(1);      // 1=mono, 2=duplex, 3=triplex, 4=kvadriplex
-    const [kasCena, setKasCena] = useState(0.02);       // USLUGE kaширanje €/m²
+    const [kasCena, setKasCena] = useState(0.03);       // USLUGE kaширanje €/m²
     // LEPAK 1/2/3 + LAK (kg): utrošak (kg/špulni) = površina × potrošnja (auto, može ručno)
     const [lepak, setLepak] = useState([
         { potrosnja: 0.002, utrosak: '', prolazi: 0, cena: 6 },
@@ -169,6 +169,21 @@ export default function KalkulacijaSpulne() {
         setDuzina(Number(sp.maxMetara || sp.duzina || 0));
         setKolicina(Number(sp.kolicina || 1));
         setSkart(Number(sp.skart || 2));
+        // Mapiraj slojeve iz templejta u tabelu materijala (do 4 sloja)
+        const mappedMats = layers.map(l => ({
+            tip: l.vrsta || l.tip || l.materijal || l.material || 'BOPP',
+            vrsta: l.vrsta || l.tip || l.materijal || l.material || 'BOPP',
+            oznaka: l.oznaka || l.oznaka_materijala || '',
+            debljina: Number(l.debljina || l.deb || 0),
+            tezina: Number(l.gm2 || l.gsm || l.tezina || l.t || 0),
+            cena: Number(l.cena || l.cena_kg || 0),
+            sirina: Number(l.sirina || l.idealna_sirina || sp.W || 0),
+            stampa: !!l.stampa,
+            lakira: !!l.lakira || !!l.lak
+        })).filter(m => m.tip);
+        if (mappedMats.length) setMaterijali(mappedMats);
+        if (sp.kutija !== undefined && sp.kutija !== '' && sp.kutija != null) setCenaKutije(Number(sp.kutija) || 0);
+        if (sp.napomena) setNapomena(sp.napomena);
     }, []);
 
     // Rezultati
@@ -215,9 +230,14 @@ export default function KalkulacijaSpulne() {
         const tezina = (gm2 * widthMm * lengthM) / 1000000;
         const tezina1000 = (gm2 * widthMm * 1000) / 1000000;
 
-        // Excel: cena potrošnje materijala na 1000m = širina × cena €/m²
-        const cenaMat1000 = (widthMm * 1000 * cenaPoM2) / 1000;
-        const cenaMatSpulna = (cenaMat1000 * lengthM) / 1000;
+        // Cena materijala: primarno iz slojeva (€/kg × kg po špulni). Ako slojevi nemaju €/kg → koristi polje "Cena materijala (€/m²)".
+        const layerMatKgCost = materijali.reduce((s, m) => {
+            const kg = ((Number(m.tezina) || Number(m.gm2) || 0) * widthMm * lengthM) / 1000000;
+            return s + kg * (Number(m.cena) || 0);
+        }, 0);
+        const cenaMatSpulna = layerMatKgCost > 0 ? layerMatKgCost : (povrsina * cenaPoM2);
+        const cenaMat1000 = lengthM > 0 ? (cenaMatSpulna / lengthM) * 1000 : (widthMm * cenaPoM2);
+        const cenaMatPoM2 = povrsina > 0 ? cenaMatSpulna / povrsina : 0;   // efektivna €/m² materijala
 
         // Excel: iznos troškova = površina po špulni × trošak €/m²
         const troskoviSpulna = povrsina * trosakPoM2;
@@ -241,7 +261,9 @@ export default function KalkulacijaSpulne() {
         lepakTrosak += lakUtrosak * lakProlaziN * (Number(lak.cena) || 0);
 
         // ── USLUGE ──
-        const kasProlaziN = Math.max(0, (Number(brSlojeva) || 1) - 1);   // prolaza kaширanja = slojevi − 1
+        // Broj slojeva AUTOMATSKI iz broja materijala (slojevi sa težinom). Prolaza kaширanja = slojevi − 1.
+        const brSlojevaAuto = materijali.filter(m => (Number(m.tezina) || Number(m.gm2) || 0) > 0).length || 1;
+        const kasProlaziN = Math.max(0, brSlojevaAuto - 1);
         const kasCenaN = Number(kasCena) || 0;
         const kasiranjeTrosak = kasCenaN * povrsina * kasProlaziN;       // €/m² × površina × prolazi
         // Štampa / lakiranje kg iz flag-ova na slojevima (kg po špulni)
@@ -267,7 +289,10 @@ export default function KalkulacijaSpulne() {
         const proizvodna1000 = cena1000 * (1 + skartPct / 100);
         const final1000 = proizvodna1000 * (1 + marzaPct / 100);
 
-        const ukupno = saMarza * qty;
+        const ukupno = saMarza * qty;                 // ukupno SA maржom za sve špulne
+        const ukupnoBezMarze = proizvodna * qty;      // ukupno BEZ marže (proizvodna cena × količina)
+        const cenaPoM2Final = povrsina > 0 ? saMarza / povrsina : 0;   // finalna €/m² (sa maржom)
+        const cenaPoM2Osn = povrsina > 0 ? osnovna / povrsina : 0;     // osnovna €/m² (bez marže/škarta)
 
         // Obrnuta kalkulacija: iz ciljane finalne cene /1000m vraćamo maksimalnu osnovnu cenu po špulni
         const reverseMaxOsnovna = (target1000 / ((1 + skartPct / 100) * (1 + marzaPct / 100))) * (lengthM / 1000);
@@ -282,6 +307,10 @@ export default function KalkulacijaSpulne() {
             tezina1000,
             cenaMat1000,
             cenaMatSpulna,
+            cenaMatPoM2,
+            cenaPoM2Final,
+            cenaPoM2Osn,
+            ukupnoBezMarze,
             troskoviSpulna,
             lepakKg,
             lepakTrosak,
@@ -293,6 +322,7 @@ export default function KalkulacijaSpulne() {
             uslugeTrosak,
             lakKg,
             kasLakSpulna,
+            brSlojevaAuto,
             kasProlazi: kasProlaziN,
             osnovna,
             proizvodna,
@@ -414,6 +444,45 @@ export default function KalkulacijaSpulne() {
         }
     }
 
+    // ===================== SAČUVAJ KAO TEMPLEJT (kalkulacija → templejt) =====================
+    function sacuvajKaoTemplejt() {
+        try {
+            const matLabel = materijali.map(m => [m.vrsta || m.tip, m.oznaka, m.debljina].filter(Boolean).join(' ')).filter(Boolean).join(' / ') || materijal;
+            const form = {
+                type: 'spulna',
+                naziv, kupac,
+                product_master_id: sourceLink?.product_master_id || null,
+                template_id: sourceLink?.template_id || sourceLink?.product_template_id || null,
+                template_version: sourceLink?.template_version || 'V1',
+                spulna: {
+                    naziv,
+                    materijal: matLabel,
+                    layers: (materijali.length ? materijali : [{ vrsta: materijal, tezina: tezinaGM2 }]).map(m => ({
+                        vrsta: m.vrsta || m.tip || materijal || 'BOPP',
+                        oznaka: m.oznaka || '',
+                        debljina: String(m.debljina ?? ''),
+                        koeficijent: String(m.koeficijent ?? m.koef ?? ''),
+                        gm2: String(m.tezina ?? m.gm2 ?? ''),
+                        sirina: String(m.sirina ?? sirina ?? ''),
+                        cena: String(m.cena ?? '')
+                    })),
+                    kolicina: String(kolicina || ''),
+                    skart: String(skart ?? ''),
+                    W: String(sirina || ''),
+                    maxMetara: String(duzina || ''),
+                    kutija: String(cenaKutije ?? ''),
+                    napomena: napomena || ''
+                }
+            };
+            localStorage.setItem('maropack_pending_template_edit', JSON.stringify({ template: form, product_id: sourceLink?.product_master_id || null, fromCalc: true }));
+            if (typeof setPage === 'function') { setPage('template_engine'); }
+            else { alert('✅ Podaci su spremljeni za templejt. Otvori tab „Templejt" — automatski će se učitati.'); }
+        } catch (err) {
+            console.error('Greška (templejt):', err);
+            alert('❌ Greška pri slanju u templejt: ' + err.message);
+        }
+    }
+
     return (
         <div style={{ padding: '16px', background: '#f1f5f9', minHeight: '100vh' }}>
             <AIPomoc ekran="Kalkulacija špulne" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, materijal, tezinaGM2, sirina, duzina, cenaM2, troskoviM2, cenaKutije, cenaHilzne, transport, skart, marza, kolicina, brSlojeva, kasCena, lakOn, lakCena, lakProlazi, rezultat: rez })} />
@@ -466,7 +535,7 @@ export default function KalkulacijaSpulne() {
                                 onRemove={(idx) => setMaterijali(materijali.filter((_, i) => i !== idx))}
                             />
                             <FormRow>
-                                <FormField label="Cena materijala (€/m²)" value={cenaM2} onChange={setCenaM2} type="number" step="0.01" />
+                                <FormField label="Cena materijala €/m² (samo ako slojevi nemaju €/kg)" value={cenaM2} onChange={setCenaM2} type="number" step="0.01" />
                                 <FormField label="Troškovi (€/m²)" value={troskoviM2} onChange={setTroskoviM2} type="number" step="0.01" />
                             </FormRow>
                         </Section>
@@ -525,9 +594,9 @@ export default function KalkulacijaSpulne() {
                         <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16 }}>
                             <h3 style={{ fontSize: 13, fontWeight: 800, color: '#0d9488', marginBottom: 12, textTransform: 'uppercase' }}>⚙️ USLUGE</h3>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-                                <label style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Broj slojeva (1=mono, 2=duplex, 3=triplex):</label>
-                                <input type="number" step="1" value={brSlojeva} onChange={e => setBrSlojeva(parseFloat(e.target.value) || 0)} style={{ width: 70, height: 34, padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontWeight: 800, textAlign: 'center' }} />
-                                <span style={{ fontSize: 11, color: '#94a3b8' }}>prolaza kaширanja = slojevi − 1. Štampa/lakiranje se računa iz štampanih/lakiranih slojeva.</span>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Broj slojeva <b style={autoBadge}>AUTO</b>:</label>
+                                <input type="number" value={rez.brSlojevaAuto || 1} readOnly title="Automatski = broj materijala" style={{ width: 70, height: 34, padding: '6px 8px', border: '1px solid #fbbf24', borderRadius: 8, fontSize: 13, fontWeight: 800, textAlign: 'center', background: '#fef3c7', color: '#92400e' }} />
+                                <span style={{ fontSize: 11, color: '#94a3b8' }}>automatski iz broja materijala · prolaza kaширanja = slojevi − 1. Štampa/lakiranje iz štampanih/lakiranih slojeva.</span>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                 <div>
@@ -604,6 +673,7 @@ export default function KalkulacijaSpulne() {
 
                                 <ResultItem label="Površina po špulni (m²):" value={f2(rez.povrsina)} />
                                 <ResultItem label="Težina materijala (kg):" value={f3(rez.tezina)} />
+                                <ResultItem label="Cena materijala / m²:" value={f3(rez.cenaMatPoM2) + ' €'} />
                                 <ResultItem label="Materijal / 1000m:" value={f2(rez.cenaMat1000) + ' €'} />
                                 <ResultItem label="Cena materijala / špulni:" value={f2(rez.cenaMatSpulna) + ' €'} />
                                 <ResultItem label="Troškovi / špulni:" value={f2(rez.troskoviSpulna) + ' €'} />
@@ -612,13 +682,35 @@ export default function KalkulacijaSpulne() {
                                 <ResultItem label="Transport:" value={f2(transport) + ' €'} />
                             </div>
 
-                            <PriceBox label="OSNOVNA CENA / ŠPULNI" value={f2(rez.osnovna) + ' €'} color="#fef3c7" />
-                            <PriceBox label={`KONAČNA CENA / ŠPULNI (${marza}%)`} value={f2(rez.saMarza) + ' €'} color="#fef3c7" />
+                            {/* Cena po m² */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+                                <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 10, padding: 12, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, marginBottom: 4 }}>CENA / m² (bez marže)</div>
+                                    <div style={{ fontSize: 20, fontWeight: 900, color: '#0f172a' }}>{f3(rez.cenaPoM2Osn)} €</div>
+                                </div>
+                                <div style={{ background: '#ecfdf5', border: '2px solid #10b981', borderRadius: 10, padding: 12, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 10, color: '#065f46', fontWeight: 700, marginBottom: 4 }}>CENA / m² (sa maржom)</div>
+                                    <div style={{ fontSize: 20, fontWeight: 900, color: '#065f46' }}>{f3(rez.cenaPoM2Final)} €</div>
+                                </div>
+                            </div>
+
+                            <PriceBox label="OSNOVNA CENA / ŠPULNI (bez marže)" value={f2(rez.osnovna) + ' €'} color="#fef3c7" />
+                            <PriceBox label={`KONAČNA CENA / ŠPULNI (sa maржom ${marza}%)`} value={f2(rez.saMarza) + ' €'} color="#fef3c7" />
                             <PriceBox label="KONAČNA CENA / 1000 m" value={f2(rez.cena1000) + ' €'} color="#ffedd5" />
 
-                            <div style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', border: '3px solid #10b981', borderRadius: '12px', padding: '20px', marginTop: '16px', textAlign: 'center' }}>
+                            {/* UKUPNO za sve špulne — bez marže i sa maржom */}
+                            <div style={{ background: '#fff7ed', border: '2px solid #fb923c', borderRadius: '12px', padding: '14px', marginTop: '16px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '11px', color: '#9a3412', fontWeight: 700, marginBottom: '4px' }}>
+                                    UKUPNO ZA {kolicina} KOM — BEZ MARŽE
+                                </div>
+                                <div style={{ fontSize: '26px', fontWeight: 900, color: '#9a3412' }}>
+                                    {f2(rez.ukupnoBezMarze)} €
+                                </div>
+                            </div>
+
+                            <div style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', border: '3px solid #10b981', borderRadius: '12px', padding: '20px', marginTop: '12px', textAlign: 'center' }}>
                                 <div style={{ fontSize: '12px', color: '#065f46', fontWeight: 700, marginBottom: '8px' }}>
-                                    UKUPNO ZA {kolicina} KOM
+                                    UKUPNO ZA {kolicina} KOM — SA MARŽOM
                                 </div>
                                 <div style={{ fontSize: '42px', fontWeight: 900, color: '#065f46' }}>
                                     {f2(rez.ukupno)} €
@@ -633,6 +725,9 @@ export default function KalkulacijaSpulne() {
                                 )}
                                 <button onClick={() => sacuvajKalkulaciju('new')} style={{ flex: 1, minWidth: 160, padding: '14px', background: editId ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)' }}>
                                     {editId ? '🆕 Sačuvaj kao NOVU' : '💾 Sačuvaj kalkulaciju'}
+                                </button>
+                                <button onClick={sacuvajKaoTemplejt} title="Prebaci ove podatke u Templejt (Product Template Engine)" style={{ flex: 1, minWidth: 160, padding: '14px', background: 'linear-gradient(135deg, #0d9488, #0f766e)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(13, 148, 136, 0.4)' }}>
+                                    📋 Sačuvaj kao templejt
                                 </button>
                             </div>
 
