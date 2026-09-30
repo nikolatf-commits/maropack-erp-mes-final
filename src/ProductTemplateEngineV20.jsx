@@ -2842,10 +2842,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 style={{ width: 18, height: 18, accentColor: "#ea580c" }} />
                             Nema perforacije (ne prikazuj skicu perforacije na nalogu)
                         </label>
-                        {!(form.folija.perforacija && form.folija.perforacija.nema) && <>
-                            <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
-                            <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} onChange={v => update("folija.perforacija", v)} />
-                        </>}
+                        <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>
+                            {(form.folija.perforacija && form.folija.perforacija.nema)
+                                ? "Dizajn na finalnoj rolni"
+                                : "Crtež perforacije (kotirano) + dizajn na finalnoj rolni"}
+                        </div>
+                        <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} nema={!!(form.folija.perforacija && form.folija.perforacija.nema)} onChange={v => update("folija.perforacija", v)} />
                     </div>
                 </Section>
             </>

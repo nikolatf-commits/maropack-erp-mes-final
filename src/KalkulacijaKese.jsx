@@ -222,7 +222,11 @@ export default function KalkulacijaKese({ setPage }) {
             if ((kal.tip || '').toLowerCase() !== 'kesa') return; // samo kese ovde
             editLoaded.current = true;
             localStorage.removeItem('maropack_pending_template_calculation'); // ne dozvoli hijack
-            if (kal.id) setEditId(kal.id);
+            // Kolona `id` je INTEGER — pseudo-id iz templejta ("KAL-TPL-...") ne sme u update.
+            // Samo ceo broj kal.id → editId; string pseudo-id → NULL, pa prva izmena ide kao NOVA.
+            const toIntId = (x) => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
+            const realId = toIntId(kal?.id);
+            if (realId) setEditId(realId);
             if (kal.naziv) setNaziv(kal.naziv);
             if (kal.kupac) setKupac(kal.kupac);
             if (kal.oznaka_upita != null) setOznakaUpita(kal.oznaka_upita);

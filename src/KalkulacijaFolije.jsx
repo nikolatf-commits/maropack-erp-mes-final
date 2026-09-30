@@ -389,14 +389,23 @@ export default function KalkulacijaFolijeSmart({ setPage } = {}) {
                 let kal = JSON.parse(editData);
                 // Uvek povuci SVEŽ red iz baze po id-u — lista može biti keširana i
                 // vraćati stare vrednosti (pa bi izmena "nestala" pri ponovnom otvaranju).
-                if (kal && kal.id) {
+                // Kolona `id` u tabeli kalkulacije_folije je INTEGER. Pseudo-id iz templejta
+                // ("KAL-TPL-...") NE sme da ide u .eq('id', ...) ni u update — inače Postgres baci
+                // "invalid input syntax for type integer". Jedini validan id za OVU tabelu je
+                // ceo broj kal.id (red otvoren iz liste). Sve ostalo → tretiraj kao NOVU.
+                const toIntId = (x) => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
+                const realId = toIntId(kal?.id);
+                if (realId) {
                     try {
-                        const { data } = await supabase.from('kalkulacije_folije').select('*').eq('id', kal.id).maybeSingle();
+                        const { data } = await supabase.from('kalkulacije_folije').select('*').eq('id', realId).maybeSingle();
                         if (data) kal = { ...kal, ...data };
                     } catch (e) { /* fetch pao → koristi kopiju iz liste */ }
                 }
                 console.log('📝 Učitavam kalkulaciju za izmenu:', kal);
-                if (kal.id) setEditId(kal.id); // postojeća kalkulacija → omogući "Sačuvaj izmene"
+                // Samo integer id omogućava "Sačuvaj izmene". String pseudo-id iz templejta →
+                // editId ostaje NULL, pa se prva izmena čuva kao NOVA (insert) sa ispravnim
+                // integer id-om, a naredne izmene onda rade update bez greške.
+                if (realId) setEditId(realId);
 
                 // Otvaranje sačuvane kalkulacije je merodavno: očisti eventualni stari template
                 // prefill da ne hijack-uje ovaj ili sledeći izbor.

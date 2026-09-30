@@ -222,7 +222,9 @@ export function RolnaDizajnEditor({ value = {}, onChange }) {
 }
 
 // Editor za templejt: parametri perforacije + živi kotirani crtež
-export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
+// nema=true -> perforacije nema: sakriva se crtež perforacije i njegova polja,
+// ostaje SAMO prikaz "Dizajn na finalnoj rolni".
+export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }) {
     const v = { tip: "linija", kolone: 4, odVrha: 50, odDna: 50, odLeve: 20, odDesne: 20, sirina: 270, visina: 600, razmakRupa: 5, pozLeve: "", pozDesne: "", ...(value || {}) };
     const set = (k, val) => onChange && onChange({ ...v, [k]: val });
     const F = (label, key, type) => (
@@ -235,6 +237,39 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
         </div>
     );
     const imaPoz = String(v.pozLeve || "").trim() !== "" || String(v.pozDesne || "").trim() !== "";
+
+    // Prikaz "Dizajn na finalnoj rolni" — deljen (bez perforacije kada je nema=true)
+    const dizajnBlok = (
+        <div style={{ flex: nema ? "1 1 100%" : "1 1 280px", minWidth: 260 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8" }}>DIZAJN NA FINALNOJ ROLNI</span>
+                <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 270) % 360))}>↺</button>
+                <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 90) % 360))}>↻</button>
+            </div>
+            <RolnaDizajn dizajnUrl={dizajn && dizajn.url} w={dizajn && dizajn.w} h={dizajn && dizajn.h}
+                rotacija={v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0} zrcalo={(dizajn && dizajn.zrcalo) ?? 1}
+                sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100}
+                perfSirinaMm={(!nema && imaPoz) ? Number(v.sirina) || 0 : 0}
+                perfXmm={(!nema && imaPoz) ? [
+                    ...String(v.pozLeve || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)),
+                    ...String(v.pozDesne || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)).map((x) => (Number(v.sirina) || 0) - x),
+                ] : []}
+                maxWidth={nema ? 360 : 320} />
+            {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
+        </div>
+    );
+
+    // Nema perforacije -> prikaži samo dizajn na finalnoj rolni
+    if (nema) {
+        return (
+            <div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+                    {dizajnBlok}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 10, marginBottom: 12 }}>
@@ -255,23 +290,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn }) {
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>PERFORACIJA (kotirano){imaPoz ? " — tačne pozicije" : " — " + (Math.max(1, Math.round(Number(v.kolone) || 1))) + " kolona"}</div>
                     <PerforacijaCrtez {...v} maxWidth={320} />
                 </div>
-                <div style={{ flex: "1 1 280px", minWidth: 260 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8" }}>DIZAJN NA FINALNOJ ROLNI</span>
-                        <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 270) % 360))}>↺</button>
-                        <button type="button" style={{ ..._ebtn, padding: "3px 8px" }} onClick={() => set("dizajnRotacija", (((v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0) + 90) % 360))}>↻</button>
-                    </div>
-                    <RolnaDizajn dizajnUrl={dizajn && dizajn.url} w={dizajn && dizajn.w} h={dizajn && dizajn.h}
-                        rotacija={v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0} zrcalo={(dizajn && dizajn.zrcalo) ?? 1}
-                        sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100}
-                        perfSirinaMm={imaPoz ? Number(v.sirina) || 0 : 0}
-                        perfXmm={imaPoz ? [
-                            ...String(v.pozLeve || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)),
-                            ...String(v.pozDesne || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)).map((x) => (Number(v.sirina) || 0) - x),
-                        ] : []}
-                        maxWidth={320} />
-                    {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
-                </div>
+                {dizajnBlok}
             </div>
         </div>
     );
