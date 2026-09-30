@@ -2775,33 +2775,74 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                 value={form.folija.rezanje.brojTraka || "—"} title="Računa se: širina materijala ÷ širina trake" />
                         </div>
                         {(() => {
-                            const debljinaUk = debljinaSlojevaUm(form.folija.layers);
-                            const hilzna = form.folija.rezanje.precnikHilzne || (form.folija.finalRoll && form.folija.finalRoll.hilzna) || (form.folija.stampa && form.folija.stampa.precnikHilzne) || "";
-                            const calc = rolnaPrecnikDuzina({ precnik: form.folija.rezanje.precnikRolne, duzina: form.folija.rezanje.duzinaRolne, hilzna, debljinaUk });
+                            // Iz bilo koje od 3 vrednosti (kg / metri / prečnik) računa ostale dve.
+                            // Robusno parsiranje: "FI 76", "300 mm", "1.000" → broj.
+                            const numAny = (v) => { const m = String(v ?? "").replace(/\./g, "").replace(",", ".").match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : 0; };
+                            const numRaw = (v) => { const m = String(v ?? "").replace(",", ".").match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : 0; };
+                            const rez = form.folija.rezanje;
+                            const fr = form.folija.finalRoll || {};
+                            const st = form.folija.stampa || {};
+                            const layers = form.folija.layers || [];
+                            const gm2Tot = layers.reduce((a, l) => a + (numRaw(l.gm2) || numRaw(l.debljina) * numRaw(l.koeficijent)), 0);
+                            const debljinaUk = debljinaSlojevaUm(layers);
+                            const hilzna = numAny(rez.precnikHilzne || fr.hilzna || st.precnikHilzne || 76);
+                            const sirTrake = numAny(rez.sirinaTrake || form.dimenzijaSirina || rez.sirinaMaterijala || form.idealnaSirinaMaterijala);
+                            const r = hilzna / 2;
+                            // Fizika namotaja: dužina(m) × debljina(µm) = π(R² − r²)  [R=D/2, r=hilzna/2 u mm]
+                            const LfromD = (D) => (D > 0 && debljinaUk > 0 && hilzna > 0) ? Math.max(0, Math.PI * ((D / 2) * (D / 2) - r * r) / debljinaUk) : 0;
+                            const DfromL = (L) => (L > 0 && debljinaUk > 0 && hilzna > 0) ? 2 * Math.sqrt(r * r + (L * debljinaUk) / Math.PI) : 0;
+                            // kg = g/m² × (dužina[m] × širina[m])   →  širina[m] = širina_trake_mm / 1000
+                            const kgFromL = (L) => (L > 0 && gm2Tot > 0 && sirTrake > 0) ? gm2Tot * L * sirTrake / 1e6 : 0;
+                            const LfromKg = (kg) => (kg > 0 && gm2Tot > 0 && sirTrake > 0) ? kg * 1e6 / (gm2Tot * sirTrake) : 0;
+
+                            const unosPo = rez.rolnaUnosPo || (rez.duzinaRolne ? "m" : rez.precnikRolne ? "precnik" : rez.kgRolne ? "kg" : "");
+                            let Lm = 0;
+                            if (unosPo === "m") Lm = numRaw(rez.duzinaRolne);
+                            else if (unosPo === "precnik") Lm = LfromD(numRaw(rez.precnikRolne));
+                            else if (unosPo === "kg") Lm = LfromKg(numRaw(rez.kgRolne));
+                            const Dmm = unosPo === "precnik" ? numRaw(rez.precnikRolne) : DfromL(Lm);
+                            const kgv = unosPo === "kg" ? numRaw(rez.kgRolne) : kgFromL(Lm);
+
+                            const setMulti = (patch) => setForm(prev => { const n = clone(prev); n.folija.rezanje = { ...n.folija.rezanje, ...patch }; return n; });
+                            const onKg = (v) => { const L = LfromKg(numRaw(v)); setMulti({ kgRolne: v, rolnaUnosPo: "kg", duzinaRolne: L ? String(Math.round(L)) : "", precnikRolne: L ? String(Math.round(DfromL(L))) : "" }); };
+                            const onM = (v) => { const L = numRaw(v); setMulti({ duzinaRolne: v, rolnaUnosPo: "m", precnikRolne: L ? String(Math.round(DfromL(L))) : "", kgRolne: L ? kgFromL(L).toFixed(1) : "" }); };
+                            const onD = (v) => { const L = LfromD(numRaw(v)); setMulti({ precnikRolne: v, rolnaUnosPo: "precnik", duzinaRolne: L ? String(Math.round(L)) : "", kgRolne: L ? kgFromL(L).toFixed(1) : "" }); };
+
+                            const drv = (isDrv) => ({ ...fieldStyle(), background: isDrv ? "#fff" : "#f0fdf4", color: isDrv ? "#2446b8" : "#059669", fontWeight: isDrv ? 900 : 800 });
                             const hint = { fontSize: 11, color: "#059669", fontWeight: 800, marginTop: 3 };
+                            const nespremno = !(gm2Tot && sirTrake && debljinaUk && hilzna);
                             return <>
-                                <div>
-                                    <label style={labelStyle()}>{t("tmpl.duzina_rolne")} (m) — unesi ILI prečnik</label>
-                                    <input style={{ ...fieldStyle(), background: form.folija.rezanje.duzinaRolne ? "#fff" : "#f0fdf4", color: "#2446b8" }}
-                                        value={form.folija.rezanje.duzinaRolne || ""}
-                                        onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)}
-                                        placeholder={calc.autoL && calc.duzina ? ("auto " + calc.duzina) : "unesi metre"} />
-                                    {calc.autoL && calc.duzina ? <div style={hint}>≈ {calc.duzina} m (auto iz prečnika)</div> : null}
+                                <div style={{ gridColumn: "1 / -1", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, color: "#1e3a8a" }}>
+                                    ⓘ Unesi <b>bilo koju</b> od tri vrednosti — <b>kilažu (kg)</b>, <b>dužinu (m)</b> ili <b>prečnik (mm)</b>. Ostale dve se računaju automatski.
+                                    {nespremno ? <span style={{ color: "#b45309" }}> Za auto-računanje treba: g/m² slojeva, širina trake, debljina i prečnik hilzne.</span> : null}
                                 </div>
                                 <div>
-                                    <label style={labelStyle()}>{t("tmpl.precnik_rolne")} (mm) — unesi ILI dužinu</label>
-                                    <input style={{ ...fieldStyle(), background: form.folija.rezanje.precnikRolne ? "#fff" : "#f0fdf4" }}
-                                        value={form.folija.rezanje.precnikRolne || ""}
-                                        onChange={e => update("folija.rezanje.precnikRolne", e.target.value)}
-                                        placeholder={calc.autoD && calc.precnik ? ("auto " + calc.precnik) : "npr. 400"} />
-                                    {calc.autoD && calc.precnik ? <div style={hint}>≈ {calc.precnik} mm (auto iz dužine)</div> : null}
+                                    <label style={labelStyle()}>Kilaža rolne (kg)</label>
+                                    <input style={drv(unosPo === "kg")}
+                                        value={unosPo === "kg" ? (rez.kgRolne || "") : (kgv ? Number(kgv.toFixed(1)) : "")}
+                                        onChange={e => onKg(e.target.value)} placeholder="unesi kg" />
+                                    {unosPo !== "kg" && kgv ? <div style={hint}>≈ {Number(kgv.toFixed(1))} kg (auto)</div> : null}
+                                </div>
+                                <div>
+                                    <label style={labelStyle()}>Dužina rolne (m)</label>
+                                    <input style={drv(unosPo === "m")}
+                                        value={unosPo === "m" ? (rez.duzinaRolne || "") : (Lm ? Math.round(Lm) : "")}
+                                        onChange={e => onM(e.target.value)} placeholder="unesi metre" />
+                                    {unosPo !== "m" && Lm ? <div style={hint}>≈ {Math.round(Lm)} m (auto)</div> : null}
+                                </div>
+                                <div>
+                                    <label style={labelStyle()}>Prečnik rolne (mm)</label>
+                                    <input style={drv(unosPo === "precnik")}
+                                        value={unosPo === "precnik" ? (rez.precnikRolne || "") : (Dmm ? Math.round(Dmm) : "")}
+                                        onChange={e => onD(e.target.value)} placeholder="unesi prečnik" />
+                                    {unosPo !== "precnik" && Dmm ? <div style={hint}>≈ {Math.round(Dmm)} mm (auto)</div> : null}
                                 </div>
                                 <div>
                                     <label style={labelStyle()}>Prečnik hilzne (mm)</label>
-                                    <input style={fieldStyle()} value={form.folija.rezanje.precnikHilzne || ""}
+                                    <input style={fieldStyle()} value={rez.precnikHilzne || ""}
                                         onChange={e => update("folija.rezanje.precnikHilzne", e.target.value)}
-                                        placeholder={(form.folija.finalRoll && form.folija.finalRoll.hilzna) || (form.folija.stampa && form.folija.stampa.precnikHilzne) || "npr. 76"} />
-                                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>Debljina materijala: {debljinaUk ? debljinaUk.toFixed(0) : "—"} µm (auto)</div>
+                                        placeholder={fr.hilzna || st.precnikHilzne || "npr. 76"} />
+                                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>Debljina: {debljinaUk ? debljinaUk.toFixed(0) : "—"} µm · {gm2Tot ? gm2Tot.toFixed(1) : "—"} g/m² · širina trake {sirTrake || "—"} mm · hilzna {hilzna || "—"} mm</div>
                                 </div>
                             </>;
                         })()}
