@@ -861,6 +861,28 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
     </div>;
 }
 
+// Rolna: iz jedne ćelije (prečnik ILI dužina) izračunaj drugu.
+// Fizika: dužina_film × debljina = π(R² − r²)  [L u m, t u µm, R=D/2, r=hilzna/2 u mm]
+function rolnaPrecnikDuzina({ precnik, duzina, hilzna, debljinaUk }) {
+    const nn = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const D = nn(precnik), L = nn(duzina), h = nn(hilzna), t = nn(debljinaUk);
+    const r = h / 2;
+    let outD = D, outL = L, autoD = false, autoL = false;
+    if (t > 0 && h > 0) {
+        if (!D && L > 0) { outD = 2 * Math.sqrt(r * r + (L * t) / Math.PI); autoD = true; }
+        else if (!L && D > 0) { outL = Math.PI * ((D / 2) * (D / 2) - r * r) / t; if (outL < 0) outL = 0; autoL = true; }
+    }
+    return { precnik: outD ? Math.round(outD) : 0, duzina: outL ? Math.round(outL) : 0, autoD, autoL };
+}
+// Ukupna debljina slojeva u µm (papir: g/m² ≈ ×1.25 µm)
+function debljinaSlojevaUm(layers) {
+    return (layers || []).reduce((s, l) => {
+        const d = Number(String(l.debljina ?? l.deb ?? 0).replace(",", ".")) || 0;
+        const papir = String(l.vrsta || l.tip || "").toUpperCase() === "PAPIR";
+        return s + (papir ? d * 1.25 : d);
+    }, 0);
+}
+
 function RollPreview({ folija, idealna = "" }) {
     const { t } = useLang();
     const rez = folija.rezanje || {};
@@ -2673,14 +2695,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             Object.entries(patch).forEach(([key, value]) => updateLayer("folija", i, key, value));
                         }}
                     />
+                    <div style={{ marginTop: 10 }}>
+                        <Input label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.folija.materijalNapomena || ""} onChange={v => update("folija.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
+                    </div>
                 </Section>
 
                 <Section title={t("tmpl.stampa_param")} color={BLUE}>
                     <Grid cols={4}>
-                        {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje").map(k => (
+                        {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje" && k !== "napomena").map(k => (
                             <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
                         ))}
                     </Grid>
+                    <div style={{ marginTop: 10 }}>
+                        <Input label="📝 Napomena (štampa) — ide na nalog za štampu" value={form.folija.stampa.napomena || ""} onChange={v => update("folija.stampa.napomena", v)} placeholder="napomena za štampu..." />
+                    </div>
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                         <BojeStampeEditor value={form.folija.stampa.boje} onChange={v => update("folija.stampa.boje", v)} />
                     </div>
@@ -2717,10 +2745,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
                                 value={(form.folija.layers || []).map(l => [l.vrsta, (l.oznaka_materijala || l.oznaka), ((l.debljina ?? l.deb) ? (l.debljina ?? l.deb) + (String(l.vrsta).toUpperCase() === "PAPIR" ? " g/m²" : " µm") : "")].filter(Boolean).join(" ")).filter(Boolean).join("  +  ") || "—"} />
                         </div>
-                        {Object.keys(form.folija.kasiranje).filter(k => k !== "brojKasiranja" && k !== "materijali").map(k => (
+                        {Object.keys(form.folija.kasiranje).filter(k => k !== "brojKasiranja" && k !== "materijali" && k !== "napomena").map(k => (
                             <Input key={k} label={k} value={form.folija.kasiranje[k]} onChange={v => update(`folija.kasiranje.${k}`, v)} />
                         ))}
                         <Input label="Predlog valjka za kaširanje" value={form.folija.rezanje.predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("folija.rezanje.predlogValjkaKasiranja", v)} />
+                        <div style={{ gridColumn: "span 3" }}>
+                            <Input label="📝 Napomena (kaширanje) — ide na nalog za kaширanje" value={form.folija.kasiranje.napomena || ""} onChange={v => update("folija.kasiranje.napomena", v)} placeholder="napomena za kaширanje..." />
+                        </div>
                     </Grid>
                 </Section>
 
@@ -2743,17 +2774,37 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                             <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
                                 value={form.folija.rezanje.brojTraka || "—"} title="Računa se: širina materijala ÷ širina trake" />
                         </div>
-                        <div>
-                            <label style={labelStyle()}>{t("tmpl.duzina_rolne")}</label>
-                            <input style={{ ...fieldStyle(), background: form.folija.rezanje.duzinaRolne ? "#fff" : "#eff6ff", color: "#2446b8" }}
-                                value={form.folija.rezanje.duzinaRolne || form.porucenaKolicina || ""}
-                                onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)} placeholder={t("ph.auto_porucena")} />
-                        </div>
-                        <div>
-                            <label style={labelStyle()}>{t("tmpl.precnik_rolne")}</label>
-                            <input style={fieldStyle()} value={form.folija.rezanje.precnikRolne || ""}
-                                onChange={e => update("folija.rezanje.precnikRolne", e.target.value)} placeholder="npr. 400" />
-                        </div>
+                        {(() => {
+                            const debljinaUk = debljinaSlojevaUm(form.folija.layers);
+                            const hilzna = form.folija.rezanje.precnikHilzne || (form.folija.finalRoll && form.folija.finalRoll.hilzna) || (form.folija.stampa && form.folija.stampa.precnikHilzne) || "";
+                            const calc = rolnaPrecnikDuzina({ precnik: form.folija.rezanje.precnikRolne, duzina: form.folija.rezanje.duzinaRolne, hilzna, debljinaUk });
+                            const hint = { fontSize: 11, color: "#059669", fontWeight: 800, marginTop: 3 };
+                            return <>
+                                <div>
+                                    <label style={labelStyle()}>{t("tmpl.duzina_rolne")} (m) — unesi ILI prečnik</label>
+                                    <input style={{ ...fieldStyle(), background: form.folija.rezanje.duzinaRolne ? "#fff" : "#f0fdf4", color: "#2446b8" }}
+                                        value={form.folija.rezanje.duzinaRolne || ""}
+                                        onChange={e => update("folija.rezanje.duzinaRolne", e.target.value)}
+                                        placeholder={calc.autoL && calc.duzina ? ("auto " + calc.duzina) : "unesi metre"} />
+                                    {calc.autoL && calc.duzina ? <div style={hint}>≈ {calc.duzina} m (auto iz prečnika)</div> : null}
+                                </div>
+                                <div>
+                                    <label style={labelStyle()}>{t("tmpl.precnik_rolne")} (mm) — unesi ILI dužinu</label>
+                                    <input style={{ ...fieldStyle(), background: form.folija.rezanje.precnikRolne ? "#fff" : "#f0fdf4" }}
+                                        value={form.folija.rezanje.precnikRolne || ""}
+                                        onChange={e => update("folija.rezanje.precnikRolne", e.target.value)}
+                                        placeholder={calc.autoD && calc.precnik ? ("auto " + calc.precnik) : "npr. 400"} />
+                                    {calc.autoD && calc.precnik ? <div style={hint}>≈ {calc.precnik} mm (auto iz dužine)</div> : null}
+                                </div>
+                                <div>
+                                    <label style={labelStyle()}>Prečnik hilzne (mm)</label>
+                                    <input style={fieldStyle()} value={form.folija.rezanje.precnikHilzne || ""}
+                                        onChange={e => update("folija.rezanje.precnikHilzne", e.target.value)}
+                                        placeholder={(form.folija.finalRoll && form.folija.finalRoll.hilzna) || (form.folija.stampa && form.folija.stampa.precnikHilzne) || "npr. 76"} />
+                                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>Debljina materijala: {debljinaUk ? debljinaUk.toFixed(0) : "—"} µm (auto)</div>
+                                </div>
+                            </>;
+                        })()}
                         <div>
                             <label style={labelStyle()}>{t("tmpl.dorada")}</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.dorada || ""}
@@ -2778,12 +2829,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     <div style={{ marginTop: 4 }}>
                         <RollPreview folija={form.folija} idealna={form.idealnaSirinaMaterijala} />
                     </div>
+                    <div style={{ marginTop: 10 }}>
+                        <Input label="📝 Napomena (rezanje) — ide na nalog za rezanje" value={form.folija.rezanje.napomena || ""} onChange={v => update("folija.rezanje.napomena", v)} placeholder="napomena za rezanje/perforaciju..." />
+                    </div>
                 </Section>
 
                 <Section title={t("tmpl.kpdf")} color={ORANGE}>
                     <div>
-                        <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
-                        <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} onChange={v => update("folija.perforacija", v)} />
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontWeight: 800, color: "#9a3412", cursor: "pointer" }}>
+                            <input type="checkbox" checked={!!(form.folija.perforacija && form.folija.perforacija.nema)}
+                                onChange={e => update("folija.perforacija", { ...(form.folija.perforacija || {}), nema: e.target.checked })}
+                                style={{ width: 18, height: 18, accentColor: "#ea580c" }} />
+                            Nema perforacije (ne prikazuj skicu perforacije na nalogu)
+                        </label>
+                        {!(form.folija.perforacija && form.folija.perforacija.nema) && <>
+                            <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 8 }}>Crtež perforacije (kotirano)</div>
+                            <PerforacijaEditor value={form.folija.perforacija} dizajn={form.folija.stampa.dizajn} onChange={v => update("folija.perforacija", v)} />
+                        </>}
                     </div>
                 </Section>
             </>

@@ -21,6 +21,7 @@ const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2',
 const STAMPA_MASINE = [
     { id: 'stampa-milinkovic', code: 'ST-01', name: 'Milinković', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 150, setupMin: 45, capabilities: ['flekso štampa', 'do 8 boja'], note: '' },
     { id: 'stampa-topolastika', code: 'ST-02', name: 'Topolastika', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 120, setupMin: 45, capabilities: ['flekso štampa'], note: '' },
+    { id: 'stampa-maropack-karint', code: 'ST-03', name: 'Maropack Karint', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 150, setupMin: 45, capabilities: ['flekso štampa', 'do 8 boja'], note: '' },
 ];
 function ensureStampa(list) {
     const arr = Array.isArray(list) ? list : [];
@@ -272,18 +273,18 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const next = machines.map(x => x.id === m.id ? { ...m, maxWidth: Number(m.maxWidth), minWidth: Number(m.minWidth), maxDiameter: Number(m.maxDiameter), speed: Number(m.speed), setupMin: Number(m.setupMin) } : x);
         setMachines(next); await saveMachines(next); await logTrace('machine_updated', { machineId: m.id, machine: m.name }); setEditing(null); setTrace(getTraceLog()); msg?.('✅ Mašina sačuvana');
     };
-    const resetMachines = async () => { const next = ensureStampa(DEFAULT_MACHINES); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 2 štamparije'); };
+    const resetMachines = async () => { const next = ensureStampa(DEFAULT_MACHINES); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 3 štamparije'); };
 
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
-                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>2 štamparije (Milinković, Topolastika) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaширka · drag/drop plan.</p></div>
+                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>3 štamparije (Milinković, Topolastika, Maropack Karint) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaширka · drag/drop plan.</p></div>
                 <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
             </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginTop: 16 }}>
-            <KPI label="Mašina ukupno" value={totals.machines} sub="2 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaширка" />
+            <KPI label="Mašina ukupno" value={totals.machines} sub="3 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaширка" />
             <KPI label="Aktivno" value={totals.active} sub="spremno za planiranje" />
             <KPI label="Planirano naloga" value={totals.planned} sub="drag/drop raspored" />
             <KPI label="Planirano vreme" value={`${Math.round(totals.minutes / 60)} h`} sub={`${totals.minutes} minuta ukupno`} />
