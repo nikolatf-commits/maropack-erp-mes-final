@@ -2261,7 +2261,8 @@ function MainAppContent() {
                                             var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
                                             var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
                                             var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
-                                            var grKreirao = (master && master.kreirao_ime) || gr[0].kreirao_ime || "";
+                                            var grParam = (function () { var p = (master && master.parametri) || (gr[0] && gr[0].parametri); try { return typeof p === "string" ? JSON.parse(p) : (p || {}); } catch (e) { return {}; } })();
+                                            var grKreirao = (master && master.kreirao_ime) || (grParam && grParam.kreirao_ime) || gr[0].kreirao_ime || gr[0].radnik || "";
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
                                             var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || gr[0].rok_isporuke || "";
                                             var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";
@@ -2360,7 +2361,7 @@ function MainAppContent() {
                     {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                     {page === "template_engine" && (<div>
                         <NazadDugme setPage={setPage} to="baza_proizvoda_pro" label="Bazu proizvoda PRO" />
-                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />
+                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} kreiraoIme={userProfile?.ime || user?.email || ""} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />
                     </div>)}
                     {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 

@@ -1537,7 +1537,7 @@ function inferTemplateOperations(tpl = {}) {
     return ops;
 }
 
-function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
+function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
     const { t } = useLang();
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
@@ -1916,6 +1916,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                     porucena_kolicina: kol,
                     kolicina_za_rad: kolPlus,
                     idealna_sirina: form.idealnaSirinaMaterijala || "",
+                    kreirao_ime: kreiraoIme || "",
                     jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
                         : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
                     datum: new Date().toLocaleDateString("sr-RS"),
