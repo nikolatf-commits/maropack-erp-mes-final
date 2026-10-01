@@ -1,4 +1,4 @@
-// [build v51] btn boje, završetak smene, jače dugmad
+// [build v52] mašina po operaciji iz spiska mašina; MATERIJAL bez mašine
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 // v2: tvrdi blok redosleda operacija — rezanje ne sme da krene pre štampe istog naloga.
@@ -22,7 +22,27 @@ function ucitajRadnika() {
 function zapamtiRadnika(v) {
     try { localStorage.setItem(LS_RADNIK, String(v || "").trim()); } catch { }
 }
-const MASINE = ["Štampa 1", "Štampa 2", "Kaširanje", "Rezanje", "Kese", "Špulne", "Formatiranje"];
+// Rezerva ako spisak mašina ne može da se učita (mreža) — grupisano po operaciji.
+const MASINE_FALLBACK = {
+    stampa: ["Milinković", "Topolastika", "Maropack Karint"],
+    kasiranje: ["Kaširanje"],
+    rezanje: ["Rezanje"],
+    lakiranje: ["Lakiranje"],
+    kesa: ["Kese"],
+    spulna: ["Špulne"],
+    formatiranje: ["Formatiranje"],
+    operacija: [],
+};
+// Koje TIPOVE/grupe mašina nudi koja operacija (poklapa se sa Gantom / Mašine).
+const TIP_MASINE_ZA_OP = {
+    stampa: ["stampa", "štamp", "stamp", "štamparija", "stamparija"],
+    kasiranje: ["kasiranje", "kaš", "kas", "laminac", "laminator"],
+    rezanje: ["rezanje", "rezač", "rezac", "slitter", "perforac"],
+    lakiranje: ["lakiranje", "lak"],
+    kesa: ["kese", "kesa", "konfekc"],
+    spulna: ["spulne", "spulna", "špul", "namot"],
+    formatiranje: ["formatiranje", "format"],
+};
 
 const RAZLOZI = {
     tehnicki: { naziv: "TEHNIČKI", dot: "#60a5fa", lista: ["Kvar mašine", "Podešavanje", "Održavanje", "Struja/vazduh"] },
@@ -32,14 +52,15 @@ const RAZLOZI = {
 
 function opMeta(n) {
     const x = String(n?.tip_naloga || n?.vrsta || n?.operacija || n?.naziv || n?.broj_naloga || "").toLowerCase();
-    if (x.includes("mater")) return { key: "materijal", label: "MATERIJAL", ik: "📦", masina: "Štampa 1" };
-    if (x.includes("štamp") || x.includes("stamp")) return { key: "stampa", label: "ŠTAMPA", ik: "🖨️", masina: "Štampa 1" };
-    if (x.includes("kaš") || x.includes("kas")) return { key: "kasiranje", label: "KAŠIRANJE", ik: "🔗", masina: "Kaširanje" };
-    if (x.includes("perf") || x.includes("rez")) return { key: "rezanje", label: "PERFORACIJA / REZANJE", ik: "✂️", masina: "Rezanje" };
-    if (x.includes("kes")) return { key: "kesa", label: "KESA", ik: "🛍️", masina: "Kese" };
-    if (x.includes("format")) return { key: "formatiranje", label: "FORMATIRANJE", ik: "🎞️", masina: "Formatiranje" };
-    if (x.includes("špul") || x.includes("spul")) return { key: "spulna", label: "ŠPULNA", ik: "🧵", masina: "Špulne" };
-    return { key: "operacija", label: "OPERACIJA", ik: "🛠️", masina: "Štampa 1" };
+    if (x.includes("mater")) return { key: "materijal", label: "MATERIJAL", ik: "📦", masina: "" };
+    if (x.includes("štamp") || x.includes("stamp")) return { key: "stampa", label: "ŠTAMPA", ik: "🖨️", masina: "" };
+    if (x.includes("kaš") || x.includes("kas")) return { key: "kasiranje", label: "KAŠIRANJE", ik: "🔗", masina: "" };
+    if (x.includes("perf") || x.includes("rez")) return { key: "rezanje", label: "PERFORACIJA / REZANJE", ik: "✂️", masina: "" };
+    if (x.includes("lak")) return { key: "lakiranje", label: "LAKIRANJE", ik: "✨", masina: "" };
+    if (x.includes("kes")) return { key: "kesa", label: "KESA", ik: "🛍️", masina: "" };
+    if (x.includes("format")) return { key: "formatiranje", label: "FORMATIRANJE", ik: "🎞️", masina: "" };
+    if (x.includes("špul") || x.includes("spul")) return { key: "spulna", label: "ŠPULNA", ik: "🧵", masina: "" };
+    return { key: "operacija", label: "OPERACIJA", ik: "🛠️", masina: "" };
 }
 
 function secBetween(a, b) {
@@ -74,6 +95,8 @@ export default function RadnikOperacija({ opid }) {
     const [tick, setTick] = useState(0); // pokreće re-render svake sekunde
     // Blokada redosleda: ključ prethodne NEZAVRŠENE operacije istog naloga (npr. "stampa"), ili null.
     const [blokada, setBlokada] = useState(null);
+    // Spisak svih mašina (iz Ganta / Mašine) — za padajući izbor po operaciji.
+    const [masineList, setMasineList] = useState([]);
 
     // start-ekran izbori + završetak
     const [radnik, setRadnik] = useState(() => ucitajRadnika());
@@ -84,6 +107,27 @@ export default function RadnikOperacija({ opid }) {
     const [fin, setFin] = useState({ uradjeno: "", skart: "", napomena: "" });
 
     const meta = useMemo(() => opMeta(op), [op]);
+    // MATERIJAL (magacin) nema mašinu — radnik samo upiše ime.
+    const nemaMasinu = meta.key === "materijal";
+
+    // Mašine koje pripadaju OVOJ operaciji (po tipu/grupi), iz pravog spiska mašina.
+    const opcijeMasina = useMemo(() => {
+        if (nemaMasinu) return [];
+        const kljucevi = TIP_MASINE_ZA_OP[meta.key] || [];
+        const lista = (Array.isArray(masineList) ? masineList : [])
+            .filter((m) => {
+                const t = String(m.type || "").toLowerCase();
+                const g = String(m.group || "").toLowerCase();
+                const n = String(m.name || "").toLowerCase();
+                return kljucevi.some((k) => t.includes(k) || g.includes(k) || n.includes(k));
+            })
+            .map((m) => m.name || m.code)
+            .filter(Boolean);
+        // bez duplikata
+        const seen = {};
+        const uniq = lista.filter((x) => (seen[x] ? false : (seen[x] = true)));
+        return uniq.length ? uniq : (MASINE_FALLBACK[meta.key] || []);
+    }, [masineList, meta.key, nemaMasinu]);
 
     async function reload() {
         if (!opid) { setErr("Nedostaje opid u URL-u (…?opid=…)."); setLoading(false); return; }
@@ -100,6 +144,7 @@ export default function RadnikOperacija({ opid }) {
                 // Mašina NA KOJU JE NALOG RASPOREĐEN (iz plana proizvodnje) — da radnik ne bira iz liste.
                 try {
                     const [plan, masine] = await Promise.all([loadProductionPlan(), loadMachines()]);
+                    setMasineList(Array.isArray(masine) ? masine : []);
                     const ref = String(row.broj_naloga || row.broj || row.id || "");
                     let mId = null;
                     for (const k of Object.keys(plan || {})) {
@@ -131,8 +176,11 @@ export default function RadnikOperacija({ opid }) {
         return () => clearInterval(t);
     }, [op?.status]);
 
-    // postavi default mašinu prema tipu operacije
-    useEffect(() => { if (op && !masina) setMasina(op.masina || meta.masina); }, [op, meta, masina]);
+    // postavi default mašinu prema operaciji (prva iz liste), osim za MATERIJAL
+    useEffect(() => {
+        if (nemaMasinu) { if (masina) setMasina(""); return; }
+        if (!masina && !planMasina && opcijeMasina.length) setMasina(opcijeMasina[0]);
+    }, [nemaMasinu, opcijeMasina, masina, planMasina]);
 
     const proteklo = op?.start_ts ? secBetween(op.start_ts, op.status === "zavrseno" ? op.stop_ts : null) : 0;
     const aktivanZastoj = useMemo(() => zastoji.find((z) => !z.stop_ts), [zastoji]);
@@ -218,7 +266,8 @@ export default function RadnikOperacija({ opid }) {
         // Trazimo IME I PREZIME — inace bi u evidenciji zavrsavalo "Marko", "M.", ""
         // i ne bi se znalo ko je radio.
         if (ime.split(" ").filter(Boolean).length < 2) { setErr("Upiši ime i prezime."); return; }
-        if (!masina) { setErr("Izaberi mašinu."); return; }
+        // MATERIJAL (magacin) nema mašinu — mašina se traži samo za ostale operacije.
+        if (!nemaMasinu && !masina) { setErr("Izaberi mašinu."); return; }
         if (trebaSkenirati && !sveSkenirane) { setErr("Skeniraj sve rezervisane rolne pre početka (da ne dođe do zamene)."); return; }
         // TVRDI BLOK: sveža provera redosleda BAŠ pre starta (status prethodne se mogao promeniti)
         setBusy(true);
@@ -234,7 +283,7 @@ export default function RadnikOperacija({ opid }) {
         setRadnik(ime);
         setBusy(true); setErr("");
         const { error } = await supabase.from("operativni_nalozi")
-            .update({ status: "radi", radnik: ime, masina, start_ts: new Date().toISOString(), stop_ts: null, pauza_ts: null })
+            .update({ status: "radi", radnik: ime, masina: nemaMasinu ? (op?.masina || "") : masina, start_ts: new Date().toISOString(), stop_ts: null, pauza_ts: null })
             .eq("id", opid);
         if (error) setErr("Start nije uspeo: " + error.message);
         setBusy(false); reload();
@@ -346,9 +395,9 @@ export default function RadnikOperacija({ opid }) {
     return (
         <div style={wrap}>
             <div style={head}>
-                <div style={{ fontSize: 10, opacity: 0.85, fontWeight: 700 }}>{naziv} · Mašina</div>
+                <div style={{ fontSize: 10, opacity: 0.85, fontWeight: 700 }}>{naziv}{nemaMasinu ? " · Magacin" : " · Mašina"}</div>
                 <div style={{ fontSize: 19, fontWeight: 900, margin: "2px 0" }}>{meta.ik} {meta.label}</div>
-                <div style={{ fontSize: 12, opacity: 0.9 }}>{proizvod}{op?.radnik ? ` · Radnik ${op.radnik}` : ""}{op?.masina ? ` · ${op.masina}` : ""}</div>
+                <div style={{ fontSize: 12, opacity: 0.9 }}>{proizvod}{op?.radnik ? ` · Radnik ${op.radnik}` : ""}{(!nemaMasinu && op?.masina) ? ` · ${op.masina}` : ""}</div>
             </div>
 
             {err && <div style={{ background: "#7f1d1d22", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 12 }}>{err}</div>}
@@ -404,10 +453,16 @@ export default function RadnikOperacija({ opid }) {
                         placeholder="Ime i prezime"
                         autoComplete="name"
                     />
-                    <label style={lbl}>Mašina</label>
-                    {planMasina
-                        ? <div style={{ ...inp, display: "flex", alignItems: "center", gap: 8, background: "#f0fdf4", border: "1px solid #16a34a", fontWeight: 800, color: "#166534" }}>🏭 {planMasina} <span style={{ fontSize: 11, fontWeight: 600, color: "#15803d" }}>(iz plana)</span></div>
-                        : <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>{MASINE.map((m) => <option key={m}>{m}</option>)}</select>}
+                    {/* MATERIJAL (magacin) nema mašinu — ostale operacije biraju iz spiska po operaciji. */}
+                    {!nemaMasinu && (<>
+                        <label style={lbl}>Mašina</label>
+                        {planMasina
+                            ? <div style={{ ...inp, display: "flex", alignItems: "center", gap: 8, background: "#f0fdf4", border: "1px solid #16a34a", fontWeight: 800, color: "#166534" }}>🏭 {planMasina} <span style={{ fontSize: 11, fontWeight: 600, color: "#15803d" }}>(iz plana)</span></div>
+                            : <select style={inp} value={masina} onChange={(e) => setMasina(e.target.value)}>
+                                {!masina && <option value="">— izaberi mašinu —</option>}
+                                {opcijeMasina.map((m) => <option key={m}>{m}</option>)}
+                            </select>}
+                    </>)}
 
                     {trebaSkenirati && (
                         <div style={{ marginTop: 16, background: "#0f1622", border: "1px solid #243246", borderRadius: 12, padding: 14 }}>
