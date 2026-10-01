@@ -363,7 +363,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> Poručeno <b>' + fmtN(D.zadatoV) + ' ' + esc(D.jedinica) + '</b> &rarr; ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = ' + fmtN(D.metriMat) + ' m matične &nbsp;·&nbsp; +' + (D.skartPct || 5) + '% škart = <b>' + fmtN(D.metriMatPlus) + ' m</b> &nbsp;·&nbsp; materijal <b>' + fmtN(Math.round(D.kgPlus || 0)) + ' kg</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara rolne', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table class="rl">' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizv.', { t: 'Deb. (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
             // Sve rezervisane rolne su za neki SLOJ. Ako rolni fale snapshot podaci materijala
             // (vrsta/oznaka/debljina…), povuci ih iz odgovarajućeg sloja (r.sloj), a ako nema —
             // iz prvog sloja (kod jednoslojne folije su sve rolne isti materijal).
@@ -1053,6 +1053,10 @@ const V6_CSS = `
 .nv6 th{text-align:left;padding:6px 6px;font-size:9px;text-transform:uppercase;letter-spacing:0;font-weight:800;word-break:normal;overflow-wrap:normal;hyphens:none}
 .nv6 td{padding:6px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:normal;overflow-wrap:break-word;hyphens:none;line-height:1.35}
 .nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Uža tabela (10 kolona — rezervisane rolne): manji font i razmak da ceo red stane na A4 */
+.nv6 table.rl{font-size:9.5px}
+.nv6 table.rl th,.nv6 table.rl td{padding:4px 4px}
+.nv6 table.rl td:first-child,.nv6 table.rl th:first-child{word-break:break-all}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}
 .nv6 .dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
