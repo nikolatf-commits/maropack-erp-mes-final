@@ -415,7 +415,12 @@ function pStampa(D) {
         foot('Operater štampe', 'Kontrola kvaliteta', 'Predao u kaširanje') + '</div>', 'Strana · štampa');
 }
 
-function pRollBig(D, label, sub, pp, rollFn) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">' + esc(label) + '</div><div class="bigsub">' + esc(sub) + '</div><div class="framed">' + (rollFn || roll)(D, 500, 860) +'</div><div class="meta-strip"><div class="m"><b>Širina trake</b>' + (D.rez.sirinaTrake || '—') + ' mm</div><div class="m"><b>Hilzna</b>' + D.rez.hilzna + ' mm</div><div class="m"><b>Prečnik</b>' + D.rez.precnik + ' mm</div><div class="m"><b>Smer</b>' + esc(D.rez.smer) + '</div></div></div>', pp); }
+function pRollBig(D, label, sub, pp, rollFn, hideMeta) {
+    // hideMeta=true → bez donje trake (Širina trake/Hilzna/Prečnik/Smer). Ti podaci su za
+    // finalnu rolnu (rezanje); na slici za ŠTAMPU se ne prikazuju.
+    var meta = hideMeta ? '' : ('<div class="meta-strip"><div class="m"><b>Širina trake</b>' + (D.rez.sirinaTrake || '—') + ' mm</div><div class="m"><b>Hilzna</b>' + D.rez.hilzna + ' mm</div><div class="m"><b>Prečnik</b>' + D.rez.precnik + ' mm</div><div class="m"><b>Smer</b>' + esc(D.rez.smer) + '</div></div>');
+    return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">' + esc(label) + '</div><div class="bigsub">' + esc(sub) + '</div><div class="framed">' + (rollFn || roll)(D, 500, 860) + '</div>' + meta + '</div>', pp);
+}
 
 function passRow(lab, l) { return '<tr><td>' + lab + '</td><td><span class="dot-c" style="background:' + l.c + '"></span>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td></tr>'; }
 function passLam(lab, name, u) { return '<tr style="background:#f8fafc"><td>' + lab + '</td><td colspan="4"><i>' + esc(name) + '</i></td><td class="n">' + u + ' µm</td></tr>'; }
@@ -996,7 +1001,7 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         // Ostale operacije (štampa/perforacija/lakiranje) NE bacamo u materijal —
         // padaju na odgovarajuće stranice ispod (folija-stil), da naslov bude tačan.
     }
-    if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
+    if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni", null, true);
     if (vrsta === "kasiranje") return pKas(D);
     if (vrsta === "lakiranje") return pLak(D);
     if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna", rollFinal) + (D.imaPerforaciju ? pPerfBig(D) : "");
