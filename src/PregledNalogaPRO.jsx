@@ -517,30 +517,53 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         if (typeof window !== "undefined") setTimeout(() => { window.print(); setStampajSve(false); }, 120);
     }
 
-    // Sačuvaj u PDF — isti sadržaj kao štampa (jedan nalog ili svi), sa prelamanjem na A4 strane
+    // Sačuvaj u PDF — svaka A4 strana naloga (.a4) ide na svoju stranu u PDF-u,
+    // uklopljena da lepo stane na A4 (bez sečenja i bez razvlačenja).
     async function sacuvajPDF(sve) {
         try {
             setPdfBusy(true);
             setStampajSve(!!sve);
             // sačekaj da se DOM prerenda (posebno kod "svi nalozi")
-            await new Promise(r => setTimeout(r, sve ? 350 : 150));
-            const el = printRef.current;
-            if (!el) { alert("Nema sadržaja za PDF."); setPdfBusy(false); if (sve) setStampajSve(false); return; }
-            const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: el.scrollWidth });
-            const imgData = canvas.toDataURL("image/png");
-            const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-            const pdfW = pdf.internal.pageSize.getWidth();
-            const pdfH = pdf.internal.pageSize.getHeight();
-            const imgH = (canvas.height * pdfW) / canvas.width;
-            let heightLeft = imgH;
-            let position = 0;
-            pdf.addImage(imgData, "PNG", 0, position, pdfW, imgH);
-            heightLeft -= pdfH;
-            while (heightLeft > 0) {
-                position -= pdfH;
-                pdf.addPage();
-                pdf.addImage(imgData, "PNG", 0, position, pdfW, imgH);
-                heightLeft -= pdfH;
+            await new Promise(r => setTimeout(r, sve ? 450 : 200));
+            const root = printRef.current;
+            if (!root) { alert("Nema sadržaja za PDF."); setPdfBusy(false); if (sve) setStampajSve(false); return; }
+            // Svaki nalog je jedan (ili više) .a4 element(a) — hvatamo svaki posebno
+            const strane = Array.from(root.querySelectorAll(".a4"));
+            const nodes = strane.length ? strane : [root];
+            const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+            const pageW = pdf.internal.pageSize.getWidth();   // 210
+            const pageH = pdf.internal.pageSize.getHeight();  // 297
+            const margin = 6;                                  // mm
+            const maxW = pageW - margin * 2;
+            const maxH = pageH - margin * 2;
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                // VAŽNO: .a4 ima overflow:hidden i min-height — ako je sadržaj viši, html2canvas
+                // bi uhvatio samo vidljivi deo i "isekao pola naloga". Zato privremeno otključamo
+                // prelom i hvatamo PUNU visinu elementa (scrollHeight), pa svaka operacija ide
+                // CELA na svoju A4 stranu.
+                const prevOverflow = node.style.overflow;
+                const prevHeight = node.style.height;
+                node.style.overflow = "visible";
+                node.style.height = "auto";
+                const fullW = Math.max(node.scrollWidth, node.offsetWidth, 794);
+                const fullH = Math.max(node.scrollHeight, node.offsetHeight);
+                const canvas = await html2canvas(node, {
+                    scale: 2, useCORS: true, backgroundColor: "#ffffff",
+                    width: fullW, height: fullH, windowWidth: fullW, windowHeight: fullH,
+                    scrollX: 0, scrollY: 0, logging: false, imageTimeout: 0,
+                });
+                node.style.overflow = prevOverflow;
+                node.style.height = prevHeight;
+                const imgData = canvas.toDataURL("image/png");
+                // "contain" uklapanje: sačuvaj razmeru, stani i po širini i po visini
+                const ratio = canvas.width / canvas.height;
+                let w = maxW, h = w / ratio;
+                if (h > maxH) { h = maxH; w = h * ratio; }
+                const x = (pageW - w) / 2;
+                const y = (pageH - h) / 2;   // vertikalno centrirano na strani
+                if (i > 0) pdf.addPage();
+                pdf.addImage(imgData, "PNG", x, y, w, h, undefined, "FAST");
             }
             // Ime fajla: BROJ_svi_nalozi_NAZIV-PROIZVODA_DATUM.pdf
             const san = (v) => String(v || "").trim().replace(/[^\wČĆŽŠĐčćžšđ\- ]+/g, "").replace(/\s+/g, "-");
