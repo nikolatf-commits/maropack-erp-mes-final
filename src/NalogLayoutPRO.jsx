@@ -363,7 +363,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> Poručeno <b>' + fmtN(D.zadatoV) + ' ' + esc(D.jedinica) + '</b> &rarr; ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = ' + fmtN(D.metriMat) + ' m matične &nbsp;·&nbsp; +' + (D.skartPct || 5) + '% škart = <b>' + fmtN(D.metriMatPlus) + ' m</b> &nbsp;·&nbsp; materijal <b>' + fmtN(Math.round(D.kgPlus || 0)) + ' kg</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara rolne', n: 1 }, { t: 'Skida se (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara rolne', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
             // Sve rezervisane rolne su za neki SLOJ. Ako rolni fale snapshot podaci materijala
             // (vrsta/oznaka/debljina…), povuci ih iz odgovarajućeg sloja (r.sloj), a ako nema —
             // iz prvog sloja (kod jednoslojne folije su sve rolne isti materijal).
@@ -374,13 +374,10 @@ function pMat(D) {
             var vOZ = r.oz || Lr.oz || '';
             var vPR = r.pr || Lr.pr || '';
             var vU = r.u || Lr.u || '';
-            // Metara rolne = koliko TA rolna ima; Skida se = koliko se sa nje uzima za nalog.
-            var rolnaM = r.rolnaM || 0;
-            var skida = r.alok || 0;
-            // kg po rolni: ako je dato skidanje → po skinutim metrima, inače po metrima rolne.
-            var mRef = skida || rolnaM;
-            var vKG = (r.kg != null) ? r.kg : (Lr.gm2 && mRef ? +(Lr.gm2 * (D.sirinaMat / 1000) * mRef / 1000).toFixed(1) : null);
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (rolnaM ? fmtN(rolnaM) : '—') + '</td><td class="n">' + (skida ? fmtN(skida) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+            // Metara rolne = koliko TA rolna ima (fizička dužina / preostalo); fallback na alocirano.
+            var mNaRolni = r.rolnaM || r.alok || 0;
+            var vKG = (r.kg != null) ? r.kg : (Lr.gm2 && mNaRolni ? +(Lr.gm2 * (D.sirinaMat / 1000) * mNaRolni / 1000).toFixed(1) : null);
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (mNaRolni ? fmtN(mNaRolni) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
         napHtml(D, 'materijal') +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
