@@ -1801,11 +1801,31 @@ function MainAppContent() {
         userProfile?.vidi_kartice === true ||
         userProfile?.pun_meni === true ||
         RADNICI_VIDE_KARTICE.includes(String(user?.email || "").trim().toLowerCase());
-    const samoMagacinRola = userProfile?.uloga === "radnik" && !radnikVidiKartice;
+
+    // ============ GRANULARNI PRISTUP PO KORISNIKU (email → tačno koje kartice vidi) ============
+    // Radi ODMAH, bez izmene baze. Kontroliše se SAMO meni (kartice). Nalog za login se pravi u Supabase-u.
+    // Ovi korisnici vide TAČNO: Baza proizvoda, Proizvodnja, Magacin. Dodaj/ukloni email po potrebi.
+    const SVE_PROIZVODNJA = /baza proizvoda|proizvodnja|magacin|skladi[šs]|rolne/i;
+    const PRISTUP_PO_EMAILU = {
+        "graficki.centar@maropack.rs": SVE_PROIZVODNJA,
+        "graficki@maropack.rs": SVE_PROIZVODNJA,
+        "grafickicentar@maropack.rs": SVE_PROIZVODNJA,
+        "dunja@maropack.rs": SVE_PROIZVODNJA,
+        "jelena@maropack.rs": SVE_PROIZVODNJA,
+        "jovana@maropack.rs": SVE_PROIZVODNJA,
+        "tihana@maropack.rs": SVE_PROIZVODNJA,
+    };
+    const mojEmail = String(user?.email || "").trim().toLowerCase();
+    const dozvolaRegex = PRISTUP_PO_EMAILU[mojEmail] || null;
+
+    const samoMagacinRola = userProfile?.uloga === "radnik" && !radnikVidiKartice && !dozvolaRegex;
     // Kartice koje radnik (i kad vidi meni) NE sme da vidi — AI asistent i Sistem (admin/sistem).
     const SAKRIJ_ZA_RADNIKA = /ai|asisten|agent|sistem|system|pode[šs]|settings|admin/i;
     const jeRadnik = userProfile?.uloga === "radnik";
-    const navGroups = samoMagacinRola
+    const navGroups = dozvolaRegex
+        // granularni pristup po email-u → SAMO dozvoljene grupe (Baza proizvoda, Proizvodnja, Magacin)
+        ? navGroupsAll.filter(function (g) { return dozvolaRegex.test(String(g.label || "") + " " + String(g.key || "")); })
+        : samoMagacinRola
         // običan radnik → SAMO Magacin
         ? navGroupsAll
             .map(function (g) { return { ...g, items: (g.items || []).filter(function (it) { return it.k === "rolne_engine"; }) }; })

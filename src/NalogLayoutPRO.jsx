@@ -97,7 +97,14 @@ function buildD(nalog) {
     const jeSpulna = /spul|špul/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const LAY = buildLayers(nalog);
     const TOTu = LAY.reduce((s, l) => s + l.u, 0);
-    const kolicina = num(nalog.metraza || nalog.kol || nalog.kolicina || t.porucenaKolicina || od.kolicina) || 0;
+    // Poručena količina + JEDINICA (m / kom / kg). Konverzija u metre GOTOVE trake ide niže,
+    // kad su poznati broj traka (N), korak i g/m². Ranije se sirovih 1000 (npr. kg) uzimalo
+    // kao metri → pogrešno "1.000 m" i "15 kg". Sada: 1000 kg → prava dužina + prava kilaža.
+    const jedinica = String(t.jedinicaUnosa || nalog.jedinica_unosa || nalog.jedinicaUnosa || od.jedinica_unosa || od.jedinicaUnosa || "m").toLowerCase();
+    const zadatoV = num(t.porucenaKolicina) || num(nalog.porucena_kolicina) || num(od.porucena_kolicina) || num(od.kolicina) || 0;
+    const skartPct = num(t.folijaSkart) || num((folija.rezanje || {}).skart) || 5;
+    const metrazaDirekt = num(nalog.metraza || nalog.kol || nalog.kolicina) || 0; // ako je već u metrima trake
+    let kolicina = 0; // metri GOTOVE trake — postavlja se niže, posle broja traka
     const rz = folija.rezanje || {};
     const fr = folija.finalRoll || {};
     const st = folija.stampa || {};
@@ -116,6 +123,19 @@ function buildD(nalog) {
     // Zato je maticna rolna N puta KRACA, i po njoj se racuna kilaza.
     const N = lanes.length || num(rz.brojTraka) || 1;
     const korak = num(t.dimenzijaDuzina) || 0;
+    // --- Konverzija poručene količine u METRE GOTOVE TRAKE (isti model kao folijaObracun) ---
+    const totalGm2D = LAY.reduce((s, l) => s + (num(l.gm2) || 0), 0);
+    const sirMatM = sirinaMat / 1000, korakM = korak / 1000;
+    if (zadatoV > 0) {
+        if (jedinica === "kom") kolicina = zadatoV * korakM;                       // kom × korak = metri trake
+        else if (jedinica === "kg") {                                              // kg → m² → matična → traka
+            const m2 = totalGm2D > 0 ? (zadatoV * 1000) / totalGm2D : 0;
+            const mMat = sirMatM > 0 ? m2 / sirMatM : 0;
+            kolicina = mMat * N;
+        } else kolicina = zadatoV;                                                 // "m" = metri gotove trake
+    } else {
+        kolicina = metrazaDirekt;
+    }
     const metriMat = N > 0 ? kolicina / N : kolicina;
     const komPoTraci = korak > 0 ? Math.round(metriMat * 1000 / korak) : 0;
     const komUkupno = komPoTraci * N;
@@ -135,7 +155,9 @@ function buildD(nalog) {
     const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija : {};
     // kg (svi slojevi na matičnoj rolni) + jedinica koju je korisnik zadao + da li ima perforacije
     const kgUkupno = LAY.reduce((s, l) => s + (num(l.gm2) || 0) * kgF, 0);
-    const jedinica = String(t.jedinicaUnosa || nalog.jedinicaUnosa || od.jedinicaUnosa || "m").toLowerCase();
+    // + dodatak (škart): matična rolna i kilaža koje se stvarno skidaju iz magacina
+    const metriMatPlus = Math.ceil(metriMat * (1 + skartPct / 100));
+    const kgPlus = kgUkupno * (1 + skartPct / 100);
     const imaPerforaciju = !!pf && pf.nema !== true && (pf.enabled === true || num(pf.kolone || pf.brojKolona) > 0 || (!!pf.tip && !/nema|bez/i.test(String(pf.tip))) || !!pf.poprecna_perf || !!pf.mikroperforacija);
     // Prečnik ↔ dužina rolne: uneseš jedno, drugo se računa iz ukupne debljine (µm) + hilzne
     const nHilzna = num(rz.precnikHilzne) || num(fr.hilzna) || num(st.precnikHilzne) || 76;
@@ -162,6 +184,7 @@ function buildD(nalog) {
     const ukupnoMetara = (lanes.length || 1) * metriMat;   // zbir metraže svih traka
     return {
         kgUkupno, jedinica, imaPerforaciju, nap, ukupnoMetara,
+        zadatoV, skartPct, metriMatPlus, kgPlus,
         broj: nalog.master_broj || nalog.broj_naloga || nalog.broj || "—",
         datum: nalog.datum || new Date().toLocaleDateString("sr-RS"),
         rok: nalog.rok || od.rok || t.rok || "—",
@@ -169,11 +192,23 @@ function buildD(nalog) {
         proizvod: nalog.proizvod || nalog.naziv || (od.proizvod && od.proizvod.naziv) || t.naziv || "—",
         sifra: nalog.sifra || od.sifra || t.sifra || "—",
         tipLabel: (jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
-        dimenzije: (num(t.dimenzijaSirina) || "?") + " × " + (num(t.dimenzijaDuzina) || "?") + " mm",
-        kom: od.kom || t.porucenaKolicinaKom || nalog.kom || "—",
+        // Dimenzije: širina × dužina KOMADA (mm). Ako dužina komada nije upisana na početku
+        // templejta, prikaži METRAŽU FINALNE ROLNE (izračunatu iz prečnika ili unetu u rezanju).
+        dimenzije: num(t.dimenzijaDuzina)
+            ? ((num(t.dimenzijaSirina) || "?") + " × " + num(t.dimenzijaDuzina) + " mm")
+            : ((num(t.dimenzijaSirina) || "?") + " mm × " + (eDuzinaRolne ? (fmtN(eDuzinaRolne) + " m rolna") : "?")),
+        kom: (jedinica === "kom" && zadatoV) ? zadatoV : (od.kom || t.porucenaKolicinaKom || nalog.kom || (komUkupno || "—")),
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
         metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
+        // Dizajn NA FINALNOJ ROLNI (rezanje): ista slika kao štampa, ali rotacija koju je
+        // korisnik zadao u templejtu pod "Dizajn na finalnoj rolni" (perforacija.dizajnRotacija).
+        dizajnRolna: (function () {
+            var base = (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {};
+            var rot = (pf.dizajnRotacija !== undefined && pf.dizajnRotacija !== null && pf.dizajnRotacija !== "")
+                ? pf.dizajnRotacija : base.rotacija;
+            return Object.assign({}, base, { rotacija: rot });
+        })(),
         stampa: {
             masina: st.masina, strana: st.strana, brojBoja: st.brojBoja, smer: st.smerOdmotavanja,
             klise: st.klise, obimValjka: st.obimValjka, hilzna: st.precnikHilzne, stamparija: st.stamparija,
@@ -251,6 +286,8 @@ function roll(D, mw, mh) {
     }
     return sW(rp(mw > 320) + '<clipPath id="c1"><rect x="' + WEBX0 + '" y="' + WEBY0 + '" width="' + wW + '" height="' + wH + '"/></clipPath><g clip-path="url(#c1)">' + t + '</g>', mw, mh);
 }
+// Finalna rolna za REZANJE: ista slika kao štampa ali sa rotacijom "Dizajn na finalnoj rolni".
+function rollFinal(D, mw, mh) { return roll(Object.assign({}, D, { dizajn: D.dizajnRolna || D.dizajn }), mw, mh); }
 function rollRez(D, mw, mh) {
     // Vertikalna finalna rolna (kao kod štampe), ali web prikazuje RASPORED TRAKA (slitting) — kao u templejtu (rezanje), ne dizajn štampe.
     var total = D.rez.sirinaMat || 840;
@@ -287,16 +324,21 @@ function napHtml(D, op) {
 }
 function statRow(D, extra) {
     var jed = (D.jedinica || 'm');
-    var mLab = T("nalog.kolicina") + (jed === 'm' ? ' (zadato)' : '');
+    // Zadata (poručena) vrednost u JEDINICI koju je kupac zadao — jasno označena.
+    var mLab = 'Dužina trake' + (jed === 'm' ? ' (zadato)' : '');
     var kgLab = 'Kilaža' + (jed === 'kg' ? ' (zadato)' : '');
-    return '<div class="stats">'
+    var kgVal = (jed === 'kg' && D.zadatoV) ? fmtN(D.zadatoV) : fmtN(Math.round(D.kgUkupno || 0));
+    var out = '<div class="stats">'
         + stat(mLab, fmtN(D.kolicina), 'm', COLm)
-        + stat(kgLab, fmtN(Math.round(D.kgUkupno || 0)), 'kg', '#0d9488')
-        + (extra || '')
+        + stat(kgLab, kgVal, 'kg', '#0d9488');
+    if (jed === 'kom' && D.zadatoV) out += stat('Količina (zadato)', fmtN(D.zadatoV), 'kom', '#6366f1');
+    out += (extra || '')
+        + stat('Matična +' + (D.skartPct || 5) + '%', fmtN(D.metriMatPlus), 'm', '#059669')
         + stat('Debljina', D.TOTu, 'µm', '#0ea5e9')
         + stat('Slojeva', D.LAY.length, D.LAY.length === 4 ? 'kvadripleks' : (D.LAY.length === 3 ? 'tripleks' : (D.LAY.length === 2 ? 'dupleks' : 'sloj')), '#14b8a6')
         + stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp)
         + '</div>';
+    return out;
 }
 // Identitet naloga (Kupac / Tip / Proizvod) — ide NA VRH svake operacije, iznad pločica.
 function identBlock(kupac, tip, proizvod) {
@@ -319,7 +361,7 @@ function totalKg(D) { return D.LAY.reduce(function (s, l) { return s + l.gm2 * D
 
 function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
-        '<div class="ulaz"><b>Obračun:</b> ' + fmtN(D.komUkupno) + ' kom × ' + D.korak + ' mm = ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = <b>' + fmtN(D.metriMat) + ' m matične rolne</b> (širina ' + D.sirinaMat + ' mm)</div>' +
+        '<div class="ulaz"><b>Obračun:</b> Poručeno <b>' + fmtN(D.zadatoV) + ' ' + esc(D.jedinica) + '</b> &rarr; ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = ' + fmtN(D.metriMat) + ' m matične &nbsp;·&nbsp; +' + (D.skartPct || 5) + '% škart = <b>' + fmtN(D.metriMatPlus) + ' m</b> &nbsp;·&nbsp; materijal <b>' + fmtN(Math.round(D.kgPlus || 0)) + ' kg</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
         '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table>' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) { var Lr = D.LAY[ri] || {}; var vN = r.n || Lr.n || ''; var vPV = r.pv || Lr.pv || ''; var vOZ = r.oz || Lr.oz || ''; var vPR = r.pr || Lr.pr || ''; var vU = r.u || Lr.u || ''; return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || D.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : ((D.LAY[ri] && D.LAY[ri].gm2) ? (D.LAY[ri].gm2 * D.kgF).toFixed(1) : '—')) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
         napHtml(D, 'materijal') +
@@ -938,7 +980,7 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni");
     if (vrsta === "kasiranje") return pKas(D);
     if (vrsta === "lakiranje") return pLak(D);
-    if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna") + (D.imaPerforaciju ? pPerfBig(D) : "");
+    if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna", rollFinal) + (D.imaPerforaciju ? pPerfBig(D) : "");
     return pMat(D);
 }
 

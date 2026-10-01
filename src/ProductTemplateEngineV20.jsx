@@ -321,6 +321,7 @@ const defaultForm = {
     napomena: "",
     porucenaKolicina: "",
     jedinicaUnosa: "m",          // "m" = metri gotove trake | "kom" | "kg"
+    folijaSkart: "5",            // dodatak/škart % na matičnu rolnu (podrazumevano 5)
     dimenzijaSirina: "",
     dimenzijaDuzina: "",
     idealnaSirinaMaterijala: "",
@@ -551,8 +552,10 @@ function orderMetraze(f) {
 //   m²                  = metri matične × ulazna širina
 //   kg                  = m² × g/m²
 // ─────────────────────────────────────────────────────────────────────────────
-function folijaObracun(form, skartPct = 5) {
+function folijaObracun(form, skartPct) {
     const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    // Dodatak (škart) %: prosleđen argument ima prednost, inače iz forme (folijaSkart), podrazumevano 5.
+    if (skartPct === undefined || skartPct === null) skartPct = N_(form && form.folijaSkart) || 5;
     const layers = (form.folija?.layers || []).filter(l => N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) > 0 || (N_(l.debljina) && N_(l.koeficijent)));
     const rez = form.folija?.rezanje || {};
 
@@ -2550,10 +2553,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage }) {
                                     : "metri GOTOVE trake"}
                         </div>
                     </div>
+                    <div>
+                        <label style={labelStyle()}>Dodatak / škart (%)</label>
+                        <input type="number" value={form.folijaSkart ?? ""} placeholder="5"
+                            onChange={e => update("folijaSkart", e.target.value)}
+                            style={{ ...fieldStyle(), fontWeight: 900, color: "#059669", background: "#f0fdf4" }} />
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>dodaje se na matičnu rolnu (podrazumevano 5%)</div>
+                    </div>
                     {(() => {
                         const ob = folijaObracun(form);
                         return <div>
-                            <label style={labelStyle()}>Matična rolna +5% (auto)</label>
+                            <label style={labelStyle()}>Matična rolna +{ob.skartPct}% (auto)</label>
                             <input readOnly value={ob.metriMatPlus ? `${ob.metriMatPlus.toLocaleString("sr-RS")} m` : "—"}
                                 style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }} />
                             <div style={{ fontSize: 10, color: "#059669", marginTop: 4, fontWeight: 800 }}>
