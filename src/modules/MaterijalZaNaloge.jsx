@@ -64,10 +64,17 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             // NE vuci parametri/rezultati (jsonb sa CELIM templejtom, desetine KB po nalogu).
             // Ovaj ekran koristi samo broj, kupca i naziv — sve ostalo je bio mrtav teret
             // koji je na telefonu pravio sekunde cekanja.
+            //
+            // VAZNO (status "radi"): kada radnik u RadnikOperaciji klikne "Zapocni
+            // operaciju", status materijal-operacije predje u "radi". Ranije "radi"
+            // nije bio u listi, pa je nalog (i njegove rolne) NESTAJAO iz magacina cim
+            // operacija krene. Magacin mora da zadrzi nalog i dok je operacija u toku,
+            // sve dok magacioner stvarno ne izda materijal (status -> "izdato") ili ga
+            // ne obelezi "spremljeno" ("potvrdi"). Zato "radi"/"Radi" sada ostaju u listi.
             const { data: ops, error: oErr } = await supabase.from("operativni_nalozi")
                 .select("id, broj_naloga, glavni_nalog_id, tip_naloga, status, redosled")
                 .eq("tip_naloga", "materijal")
-                .in("status", ["ceka", "ceka_magacin", "Ceka", "čeka", "spremanje"])
+                .in("status", ["ceka", "ceka_magacin", "Ceka", "čeka", "spremanje", "radi", "Radi", "u_toku"])
                 .order("redosled", { ascending: true }).limit(60);
             if (oErr) throw oErr;
             const list = ops || [];
@@ -260,11 +267,21 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         const total = rolls.length;
         const done = rolls.filter((r) => scanned[r.id]).length;
         const allDone = total > 0 && done === total;
+        // Status operacije (radi li je radnik vec zapoceo) — samo info traka za magacionera.
+        const opStatus = String(open.op?.status || "").toLowerCase();
+        const uToku = opStatus === "radi" || opStatus === "u_toku";
         return (
             <div style={wrap}>
                 {scanOpen && <QRScannerModal onResult={(t) => { setScanOpen(false); tryCheck(t); }} onClose={() => setScanOpen(false)} />}
                 {scanLocOpen && <QRScannerModal onResult={(t) => { onLocScan(t); }} onClose={() => setScanLocOpen(false)} />}
                 <Header title={open.master.broj_naloga || open.op.broj_naloga || "Nalog"} sub={(open.master.kupac || "—") + " · " + (open.master.proizvod || open.master.naziv || "")} />
+
+                {uToku && (
+                    <div style={{ ...card, marginBottom: 9, borderLeft: "5px solid #7c3aed", background: "#faf5ff" }}>
+                        <div style={{ fontWeight: 900, fontSize: 13.5, color: "#6d28d9" }}>▶ Radnik je započeo operaciju</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Rolne i dalje čekaju da ih spremiš/izdaš — nalog ostaje ovde dok ne izdaš materijal.</div>
+                    </div>
+                )}
 
                 <div style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ fontSize: 28 }}>📦</div>
@@ -343,13 +360,17 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             {!loading && items.length === 0 && <div style={card}>Nema naloga koji čekaju materijal. 🎉</div>}
             {!loading && items.map((it, idx) => {
                 const m = it.master;
+                const opStatus = String(it.op?.status || "").toLowerCase();
+                const uToku = opStatus === "radi" || opStatus === "u_toku";
                 return (
-                    <div key={idx} onClick={() => openNalog(it)} style={{ ...card, borderLeft: "5px solid #f59e0b", cursor: "pointer" }}>
+                    <div key={idx} onClick={() => openNalog(it)} style={{ ...card, borderLeft: "5px solid " + (uToku ? "#7c3aed" : "#f59e0b"), cursor: "pointer" }}>
                         <div style={{ fontSize: 12, fontWeight: 900, color: "#0f766e" }}>{m.broj_naloga || it.op.broj_naloga || "—"}</div>
                         <div style={{ fontSize: 16, fontWeight: 900, marginTop: 2 }}>{m.kupac || "—"}</div>
                         <div style={{ fontSize: 13, color: "#475569" }}>{m.proizvod || m.naziv || ""}</div>
                         <div style={{ display: "flex", gap: 8, marginTop: 9, flexWrap: "wrap" }}>
-                            <span style={pill("#fef3c7", "#a16207")}>⏳ Spremi materijal ›</span>
+                            {uToku
+                                ? <span style={pill("#f3e8ff", "#6d28d9")}>▶ Radnik radi · spremi/izdaj materijal ›</span>
+                                : <span style={pill("#fef3c7", "#a16207")}>⏳ Spremi materijal ›</span>}
                         </div>
                     </div>
                 );

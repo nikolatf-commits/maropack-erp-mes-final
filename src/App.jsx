@@ -2261,8 +2261,16 @@ function MainAppContent() {
                                             var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
                                             var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
                                             var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
-                                            var grParam = (function () { var p = (master && master.parametri) || (gr[0] && gr[0].parametri); try { return typeof p === "string" ? JSON.parse(p) : (p || {}); } catch (e) { return {}; } })();
-                                            var grKreirao = (master && master.kreirao_ime) || (grParam && grParam.kreirao_ime) || gr[0].kreirao_ime || gr[0].radnik || "";
+                                            var parseParam = function (obj) { try { var p = obj && obj.parametri; if (p == null) return {}; return typeof p === "string" ? JSON.parse(p) : p; } catch (e) { return {}; } };
+                                            var grParam = (function () { var p = parseParam(master); return (p && Object.keys(p).length) ? p : parseParam(gr[0]); })();
+                                            // KO JE KREIRAO NALOG (ne radnik/magacioner koji je uradio operaciju!).
+                                            // Tražimo samo polja kreatora: kreirao_ime / kreirao / napravio / kreirao_korisnik,
+                                            // na master-u i u parametrima bilo koje operacije. NIKAD ne pada na n.radnik,
+                                            // jer je to izvršilac prve operacije (npr. magacioner koji je izdao materijal).
+                                            var kreiraoPolja = function (o) { return (o && (o.kreirao_ime || o.kreirao || o.napravio || o.kreirao_korisnik)) || ""; };
+                                            var grKreirao = kreiraoPolja(master) || kreiraoPolja(parseParam(master))
+                                                || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])); if (v) return v; } return ""; })()
+                                                || "";
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
                                             var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || gr[0].rok_isporuke || "";
                                             var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";
