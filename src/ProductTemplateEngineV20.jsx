@@ -2299,6 +2299,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 mats: layers,
                 res: { template: record.data, operacije: record.operacije || [] },
                 product_master_id: productMasterId,
+                qr_token: productMasterId,
                 template_id: templateId,
                 template_version: record.template_version || "V1",
                 operacije: record.operacije || inferTemplateOperations(record.data),
