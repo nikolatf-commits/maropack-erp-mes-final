@@ -42,26 +42,29 @@ export function presetTip(tip) {
 }
 
 // Adapter: kesa objekat iz templejta/naloga -> config za CrtezKese.
-// Tip kese (maropack ključ) postavlja osnovni oblik; čekirane opcije ga dorade.
+// Tip kese (maropack ključ) postavlja OBLIK (vrh, dno-osnova, broj komora);
+// sve DEKORACIJE/OPCIJE (štampa, ADH, eurozumba, perforacija…) se crtaju SAMO
+// ako su ČEKIRANE opcije. Kad korisnik odčekira opciju — nestaje sa skice.
 export function kesaToConfig(kesa = {}) {
     const o = kesa.options || {};
     const base = presetTip(kesa.tipKese);
     const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const klapnaMm = num(kesa.klapna);
     const faltaMm = num(kesa.falta);
-    const vrh = base.vrh;
-    const dno = o.falta_dno ? "faltna" : (o.var_dno ? "naht" : base.dno);
+    const vrh = base.vrh;                                   // oblik vrha = tip kese
+    const dno = o.falta_dno ? "faltna" : (o.var_dno ? "naht" : base.dno);  // dno: tip + opcije
     return {
         tip: kesa.tipKese || "",
         vrh,
         klTip: o.kosa_klapna ? "schrag" : base.klTip,
         dno,
-        adh: o.adh_traka ? true : !!base.adh,
-        euroloch: o.eurozumba ? true : !!base.euroloch,
+        // ── OPCIJE: crtaju se SAMO ako su čekirane (više se ne forsiraju iz tipa) ──
+        adh: !!o.adh_traka,          // ADH lepljiva traka — samo ako je čekirana opcija
+        euroloch: !!o.eurozumba,     // eurozumba — samo ako je čekirana
         luft: !!(o.okrugla_zumba || o.busene_rupe),
-        stampa: o.stampa !== undefined ? !!o.stampa : true,
-        perf: o.mikroperforacija ? "heiss" : (o.poprecna_perf ? "easy" : base.perf),
-        komore: base.komore || 1,
+        stampa: !!o.stampa,          // ŠTAMPA — samo ako je čekirana (ranije: podrazumevano DA → curilo na skicu)
+        perf: o.mikroperforacija ? "heiss" : (o.poprecna_perf ? "easy" : (o.abreiss ? "abreiss" : "none")),
+        komore: base.komore || 1,    // broj komora = tip kese
         duplofan: !!o.duplofan,
         anleger: !!o.anleger,
         falznut: !!o.utor,
@@ -82,7 +85,7 @@ export function kesaToConfig(kesa = {}) {
 
 const DEFAULTS = {
     tip: "", vrh: "otvor", klTip: "rect", dno: "ravno",
-    adh: false, euroloch: false, luft: false, stampa: true,
+    adh: false, euroloch: false, luft: false, stampa: false,
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
     poprecniVar: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     positions: {},
@@ -104,9 +107,6 @@ function buildSvgPro(c, u, lang = "sr") {
     const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
     const legend = (c.legend || []).filter((l) => l && l.n);
-    // viewBox suzen na širinu crteža (pre je desno bio tekst panel) — tako se crtež
-    // pri prikazu (width 100%) razvuče na celu širinu strane i bude veći. Tekst (tip,
-    // dimenzije, pozicije) ide u traku NA DNU (H povećan da ima mesta).
     const W = 520, H = 1040;
     const s = Math.min(150 / sirina, 300 / duzina);
     const bw = sirina * s, bh = duzina * s;
@@ -132,7 +132,6 @@ function buildSvgPro(c, u, lang = "sr") {
     if (dno === "naht" || dno === "faltna" || dno === "kreuz") g += `<line x1="${q(x0 + 2)}" y1="${q(y1 - 3)}" x2="${q(x1 - 2)}" y2="${q(y1 - 3)}" stroke="${INK}" stroke-width="1.3"/>`;
     const f = Math.min(extraMm * s, bh * .13);
     if (dno === "faltna") g += `<path d="M ${q(x0 + 5)} ${q(y1 - 3)} L ${q(cx)} ${q(y1 - 3 - f)} L ${q(x1 - 5)} ${q(y1 - 3)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3" fill="none"/>`;
-    // klapna / header
     if (vrh === "klapna") {
         const kp = klTip === "schrag" ? `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky + kl * .5)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}` : `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}`;
         g += `<path d="${kp}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
@@ -140,7 +139,6 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<rect x="${q(kx0)}" y="${q(ky)}" width="${q(kx1 - kx0)}" height="${q(kl)}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
     }
     if (c.adh && (vrh === "klapna" || vrh === "header")) { const ay = ky + Math.max(kl * .5, 6); g += `<rect x="${q(kx0 + 7)}" y="${q(ay)}" width="${q(kx1 - kx0 - 14)}" height="4" rx="1.5" fill="#fde2e2" stroke="${ACC}" stroke-width=".9"/>`; }
-    // eurozumba (sombrero) — na unetoj poziciji (od vrha + levo od centra)
     const mm = (v) => num(v) * s;
     const has = (o, ff) => o && o[ff] !== "" && o[ff] != null && !isNaN(num(o[ff]));
     const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
@@ -148,7 +146,6 @@ function buildSvgPro(c, u, lang = "sr") {
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
     const ey = has(eV, "odVrha") ? eTop + mm(eV.odVrha) : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
     if (c.euroloch) g += euroPath(ex, ey, eW);
-    // stampa — na unetoj poziciji/veličini
     const psx = (P.stampa || {});
     const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .56;
     const ph = has(psx, "visina") ? mm(psx.visina) : bh * .19;
@@ -163,11 +160,9 @@ function buildSvgPro(c, u, lang = "sr") {
     if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
     if (c.anleger) g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 5)}" width="${q(bw - 16)}" height="5" rx="2" fill="#dbeafe" stroke="${BLUE}" stroke-width=".9"/>`;
     if (c.luft) g += `<circle cx="${q(cx)}" cy="${q(y0 + 16)}" r="4.5" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
-    // KOTE — levo + dole
     g += ext(x0, y1, x0, y1 + 36) + ext(x1, y1, x1, y1 + 36) + dH(x0, x1, y1 + 30, `${sirina}`);
     g += ext(x0, y0, x0 - 42, y0) + ext(x0, y1, x0 - 42, y1) + dV(y0, y1, x0 - 36, `${duzina}`);
     if (kl > 0) g += ext(kx0, ky, x0 - 42, ky) + ext(x0, y0, x0 - 42, y0) + dV(ky, y0, x0 - 64, `${klMm}`);
-    // BALONI + LEGENDA (iz legend, samo uključene opcije)
     const anchor = (key) => {
         switch (key) {
             case "euroloch": case "eurozumba": return [ex + eW / 2, ey];
@@ -191,8 +186,6 @@ function buildSvgPro(c, u, lang = "sr") {
         }
     };
     const BX = 440;
-    // Poređaj krugove po VISINI tačke na kesi (da leader linije ne ukrštaju),
-    // ali zadrži broj = redni broj iz legende (desna lista).
     const anchored = legend.map((it, i) => { const a = anchor(it.key); return { it, i, ax: a[0], ay: a[1] }; });
     const sortByY = [...anchored].sort((p, r) => p.ay - r.ay);
     let by = 100;
@@ -202,7 +195,6 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".8"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
         by += 34;
     });
-    // ===== BOČNI PRESEK =====
     const sx = 90, syT = 560, sD = (dno === "faltna" || dno === "kreuz") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
     g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.presek")}</text>`;
     if (dno === "faltna" || dno === "kreuz") {
@@ -215,7 +207,6 @@ function buildSvgPro(c, u, lang = "sr") {
         if (dno === "naht") { g += `<rect x="${sx}" y="${sby - 8}" width="${sD}" height="8" fill="url(#seal${u})"/><line x1="${sx}" y1="${sby - 8}" x2="${sx + sD}" y2="${sby - 8}" stroke="${INK}" stroke-width="1.2"/>`; }
         else g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/>`;
     }
-    // ===== POGLED ODOZDO =====
     const bx = 320, bY = 575, bW = 170, bDp = (dno === "faltna" || dno === "kreuz") ? 92 : 26;
     g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.odozdo")}</text>`;
     g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.6"/>`;
@@ -229,7 +220,6 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     g += ext(bx, bY + bDp, bx, bY + bDp + 28) + ext(bx + bW, bY + bDp, bx + bW, bY + bDp + 28) + dH(bx, bx + bW, bY + bDp + 22, `${sirina}`);
     if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, `${extraMm}`);
-    // ===== INFO PANEL — DOLE (puna širina, da crtež gore bude veći) =====
     const PADX = 30, RXX = W - 30, BTY = 758;
     g += `<line x1="${PADX}" y1="${BTY}" x2="${RXX}" y2="${BTY}" stroke="#111827" stroke-width="1"/>`;
     g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text>`;
@@ -256,259 +246,6 @@ function buildSvgPro(c, u, lang = "sr") {
         });
     }
     return { inner: d + g, vbW: W, vbH: H };
-}
-
-function buildSvg(c, u, opt) {
-    const sirina = +c.sirina || 95, duzina = +c.duzina || 175, klMm = +c.klMm || 0, extraMm = +c.extraMm || 30;
-    const { vrh, klTip, dno, adh, euroloch, luft, stampa, perf } = c;
-    const kom = +c.komore || 1;
-
-    const scale = Math.min(168 / sirina, 300 / duzina);
-    const bodyW = sirina * scale, bodyH = duzina * scale;
-    const klH = vrh === "klapna" ? Math.max(16, klMm * scale) : 0;
-    const headH = vrh === "header" ? Math.max(22, extraMm * scale) : 0;
-    const dnoH = (dno === "faltna" || dno === "naht" || dno === "kreuz") ? Math.max(14, Math.min(extraMm * scale, 52)) : 0;
-    const cx = 205, x0 = cx - bodyW / 2, x1 = cx + bodyW / 2;
-    const topY = 88, yHeadBot = topY + headH, yFlapBot = yHeadBot + klH, yOpen = yFlapBot, yBot = yOpen + bodyH;
-    const bulge = Math.min(10, bodyW * 0.07);
-    const P = c.positions || {};
-    const mm = (v) => (Number(String(v ?? "").replace(",", ".")) || 0) * scale;
-    const has = (o, f) => o && o[f] !== "" && o[f] != null && !isNaN(Number(String(o[f]).replace(",", ".")));
-    const anyPos = (o) => o && ["odVrha", "odDna", "levo", "desno", "sirina", "visina"].some((f) => has(o, f));
-    let s = '';
-
-    s += `<g transform="translate(0 ${2 * yBot}) scale(1 -1)" opacity="0.18"><path d="${pillow(x0, yOpen, bodyW, bodyH, bulge)}" fill="url(#refl_${u})"/></g>`;
-    s += `<ellipse cx="${cx + 4}" cy="${yBot + 20}" rx="${bodyW * 0.5}" ry="10" fill="#0f172a" opacity="0.18" filter="url(#soft_${u})"/>`;
-    s += `<path d="${pillow(x0 + 5, yOpen - 5, bodyW, bodyH, bulge)}" fill="#d8e8e5" opacity="0.5"/>`;
-    s += `<path d="${pillow(x0, yOpen, bodyW, bodyH, bulge)}" fill="url(#film_${u})" stroke="#5b7c86" stroke-width="1.3" stroke-opacity="0.5"/>`;
-    s += `<clipPath id="cl_${u}"><path d="${pillow(x0, yOpen, bodyW, bodyH, bulge)}"/></clipPath>`;
-    s += `<g clip-path="url(#cl_${u})">`;
-    s += `<ellipse cx="${cx - bodyW * 0.12}" cy="${yOpen + bodyH * 0.34}" rx="${bodyW * 0.7}" ry="${bodyH * 0.5}" fill="url(#vol_${u})"/>`;
-    s += `<polygon points="${x0},${yOpen + bodyH * 0.2} ${x0 + bodyW * 0.4},${yOpen} ${x0 + bodyW * 0.56},${yOpen} ${x0 + bodyW * 0.12},${yBot} ${x0},${yBot}" fill="#ffffff" opacity="0.32"/>`;
-    s += `<polygon points="${x0 + bodyW * 0.7},${yOpen} ${x0 + bodyW * 0.8},${yOpen} ${x0 + bodyW * 0.46},${yBot} ${x0 + bodyW * 0.37},${yBot}" fill="#ffffff" opacity="0.16"/>`;
-    s += `<path d="M${x0 + bodyW * 0.18} ${yOpen + 10} Q${x0 + bodyW * 0.4} ${yOpen + bodyH * 0.3} ${x0 + bodyW * 0.3} ${yBot - 12}" fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.22" filter="url(#soft_${u})"/>`;
-    s += `<path d="M${x0 + bodyW * 0.62} ${yOpen + 14} Q${x0 + bodyW * 0.5} ${yOpen + bodyH * 0.45} ${x0 + bodyW * 0.7} ${yBot - 10}" fill="none" stroke="#5b7c86" stroke-width="1.6" stroke-opacity="0.12" filter="url(#soft_${u})"/>`;
-    s += `<path d="M${x0 + bodyW * 0.82} ${yOpen + bodyH * 0.2} Q${x0 + bodyW * 0.7} ${yOpen + bodyH * 0.5} ${x0 + bodyW * 0.85} ${yBot - 16}" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-opacity="0.18" filter="url(#soft_${u})"/>`;
-    s += `</g>`;
-    s += `<path d="${pillow(x0 + 2, yOpen + 2, bodyW - 4, bodyH - 4, bulge)}" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-opacity="0.55"/>`;
-
-    if (stampa) {
-        const ps = P.stampa || {};
-        if (anyPos(ps)) {
-            const sw = has(ps, "sirina") ? mm(ps.sirina) : bodyW * 0.5;
-            const sh = has(ps, "visina") ? mm(ps.visina) : (bodyH - dnoH) * 0.4;
-            const sy = yOpen + (has(ps, "odVrha") ? mm(ps.odVrha) : 16);
-            const sx = has(ps, "levo") ? x0 + mm(ps.levo) : cx - sw / 2;
-            s += `<rect x="${sx}" y="${sy}" width="${sw}" height="${sh}" rx="2" fill="#0d9488" fill-opacity="0.06" stroke="#0d9488" stroke-width="0.9" stroke-opacity="0.55" stroke-dasharray="3 3"/>`;
-            if (c.stampaText) {
-                const escX = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                const fs = Math.max(6, Math.min(11, sh / 6));
-                const maxCh = Math.max(3, Math.floor((sw - 6) / (fs * 0.55)));
-                const lines = [];
-                String(c.stampaText).split(/\r?\n/).forEach((raw) => {
-                    const words = raw.split(/\s+/).filter(Boolean);
-                    if (!words.length) { lines.push(""); return; }
-                    let cur = "";
-                    words.forEach((w) => {
-                        const t = (cur ? cur + " " : "") + w;
-                        if (t.length <= maxCh) cur = t; else { if (cur) lines.push(cur); cur = w; }
-                    });
-                    if (cur) lines.push(cur);
-                });
-                const lh = fs + 2;
-                let ty = sy + (sh - lines.length * lh) / 2 + fs;
-                const cid = "st" + u;
-                s += `<clipPath id="${cid}"><rect x="${sx}" y="${sy}" width="${sw}" height="${sh}"/></clipPath><g clip-path="url(#${cid})">`;
-                lines.forEach((ln) => { if (ln) s += `<text x="${sx + sw / 2}" y="${ty}" font-size="${fs.toFixed(1)}" fill="#0f766e" text-anchor="middle" font-weight="600">${escX(ln)}</text>`; ty += lh; });
-                s += `</g>`;
-            } else {
-                s += `<text x="${sx + sw / 2}" y="${sy + sh / 2 + 3}" font-size="9" fill="#0d9488" text-anchor="middle" opacity="0.7">štampa</text>`;
-            }
-            if (has(ps, "odVrha")) s += kotaV(sx - 10, yOpen, sy, sx, `${ps.odVrha} mm`);
-            if (has(ps, "levo")) s += kotaH(sy + sh + 12, x0, sx, sy + sh, `${ps.levo} mm`);
-            if (has(ps, "sirina")) s += kotaH(sy - 10, sx, sx + sw, sy, `${ps.sirina} mm`);
-            if (has(ps, "visina")) s += kotaV(sx + sw + 12, sy, sy + sh, sx + sw, `${ps.visina} mm`);
-        } else {
-            s += `<rect x="${x0 + 13}" y="${yOpen + 16}" width="${bodyW - 26}" height="${bodyH - dnoH - 30}" rx="4" fill="none" stroke="#0d9488" stroke-width="0.7" stroke-opacity="0.35" stroke-dasharray="3 3"/>`;
-        }
-    }
-
-    if (vrh === "header") {
-        s += `<path d="${rr(x0, topY, bodyW, headH, 6)}" fill="url(#hdr_${u})" stroke="#5b7c86" stroke-width="1.1" stroke-opacity="0.55"/>`;
-        s += `<rect x="${x0}" y="${yHeadBot - 2.5}" width="${bodyW}" height="5" fill="#9fb6bd" opacity="0.85"/>`;
-        for (let xx = x0 + 3; xx < x1; xx += 5) s += `<line x1="${xx}" y1="${yHeadBot - 2.5}" x2="${xx - 3}" y2="${yHeadBot + 2.5}" stroke="#ffffff" stroke-width="0.6" stroke-opacity="0.7"/>`;
-    }
-
-    if (vrh === "klapna") {
-        const ky0 = headH > 0 ? yHeadBot : topY, kh = yFlapBot - ky0, cut = klTip === "schrag" ? Math.min(bodyW * 0.26, kh * 0.85) : 0;
-        s += `<rect x="${x0}" y="${yOpen}" width="${bodyW}" height="16" fill="url(#fsh_${u})" clip-path="url(#cl_${u})"/>`;
-        if (klTip === "schrag") s += `<path d="M${x0} ${yFlapBot} L${x0} ${ky0 + cut} L${x0 + cut} ${ky0} L${x1 - cut} ${ky0} L${x1} ${ky0 + cut} L${x1} ${yFlapBot} Z" fill="url(#flap_${u})" stroke="#5b7c86" stroke-width="1.1" stroke-opacity="0.55"/>`;
-        else s += `<path d="${rr(x0, ky0, bodyW, kh, 5)}" fill="url(#flap_${u})" stroke="#5b7c86" stroke-width="1.1" stroke-opacity="0.55"/>`;
-        s += `<line x1="${x0 + 5}" y1="${ky0 + 3}" x2="${x1 - 5}" y2="${ky0 + 3}" stroke="#ffffff" stroke-width="1" stroke-opacity="0.6"/>`;
-    } else if (vrh === "otvor") {
-        s += `<rect x="${x0 + 2}" y="${yOpen}" width="${bodyW - 4}" height="8" fill="url(#osh_${u})" clip-path="url(#cl_${u})"/>`;
-    }
-
-    if (adh) {
-        let ay; if (vrh === "klapna") { const ky0 = headH > 0 ? yHeadBot : topY; ay = ky0 + (yFlapBot - ky0) * 0.45; } else ay = yOpen + 11;
-        s += `<rect x="${x0 + 13}" y="${ay}" width="${bodyW - 26}" height="9" rx="2" fill="#fde68a" fill-opacity="0.88" stroke="#d99a06" stroke-width="0.8"/>`;
-        s += `<rect x="${x0 + 13}" y="${ay + 1}" width="${bodyW - 26}" height="3" rx="1.5" fill="#ffffff" opacity="0.55"/>`;
-        s += `<path d="M${x1 - 13} ${ay} q12 -7 17 0 l-5 4 Z" fill="#fffbeb" stroke="#d99a06" stroke-width="0.7"/>`;
-    }
-
-    if (euroloch) {
-        const pe = P.eurozumba || {};
-        const q = (n) => Math.round(n * 10) / 10;
-        const euroPath = (ecx, ecy, W) => {
-            const H = Math.max(W * 0.34, 5), Rb = Math.max(W * 0.16, 3), r = Math.min(H / 2, 4);
-            const left = ecx - W / 2, right = ecx + W / 2, top = ecy - H / 2, bot = ecy + H / 2;
-            return `<path d="M ${q(left)} ${q(top + r)} Q ${q(left)} ${q(top)} ${q(left + r)} ${q(top)} L ${q(ecx - Rb)} ${q(top)} A ${q(Rb)} ${q(Rb)} 0 0 1 ${q(ecx + Rb)} ${q(top)} L ${q(right - r)} ${q(top)} Q ${q(right)} ${q(top)} ${q(right)} ${q(top + r)} L ${q(right)} ${q(bot - r)} Q ${q(right)} ${q(bot)} ${q(right - r)} ${q(bot)} L ${q(left + r)} ${q(bot)} Q ${q(left)} ${q(bot)} ${q(left)} ${q(bot - r)} Z" fill="#ffffff" stroke="#0f172a" stroke-width="1.6"/>`;
-        };
-        if (anyPos(pe)) {
-            const W = has(pe, "sirina") ? mm(pe.sirina) : 22;
-            const ey = yOpen + (has(pe, "odVrha") ? mm(pe.odVrha) : 22);
-            const ex = has(pe, "levo") ? x0 + mm(pe.levo) : cx;
-            s += euroPath(ex, ey, W);
-            if (has(pe, "sirina")) s += `<text x="${q(ex + W / 2 + 5)}" y="${q(ey + 3)}" font-size="9" fill="#475569">${pe.sirina}</text>`;
-            if (has(pe, "odVrha")) s += kotaV(ex - W / 2 - 12, yOpen, ey, ex, `${pe.odVrha} mm`);
-            if (has(pe, "levo")) s += kotaH(ey + 16, x0, ex, ey, `${pe.levo} mm`);
-        } else {
-            const ey = vrh === "header" ? topY + headH * 0.55 : yOpen + 22, W = Math.min(bodyW * 0.42, 40);
-            s += euroPath(cx, ey, W);
-        }
-    }
-    if (luft) {
-        const pl = (anyPos(P.okrugla_zumba) ? P.okrugla_zumba : (anyPos(P.busene_rupe) ? P.busene_rupe : {}));
-        if (anyPos(pl)) {
-            const dia = has(pl, "sirina") ? mm(pl.sirina) : 8, r = Math.max(dia / 2, 2);
-            const lx = has(pl, "levo") ? x0 + mm(pl.levo) : x1 - 18;
-            const ly = yOpen + (has(pl, "odVrha") ? mm(pl.odVrha) : (euroloch ? 46 : 34));
-            s += `<circle cx="${lx}" cy="${ly}" r="${r}" fill="#e9eef2" stroke="#7c8a93" stroke-width="1"/><circle cx="${lx - r * 0.3}" cy="${ly - r * 0.3}" r="${r * 0.4}" fill="#fff" opacity="0.8"/>`;
-            if (has(pl, "sirina")) s += `<text x="${lx + r + 3}" y="${ly + 3}" font-size="9" fill="#475569">Ø${pl.sirina}</text>`;
-            if (has(pl, "odVrha")) s += kotaV(lx - r - 12, yOpen, ly, lx, `${pl.odVrha} mm`);
-            if (has(pl, "levo")) s += kotaH(ly + r + 14, x0, lx, ly, `${pl.levo} mm`);
-        } else {
-            const lx = x1 - 18, ly = yOpen + (euroloch ? 46 : 34);
-            s += `<circle cx="${lx}" cy="${ly}" r="4" fill="#e9eef2" stroke="#7c8a93" stroke-width="1"/><circle cx="${lx - 1}" cy="${ly - 1}" r="1.6" fill="#fff" opacity="0.8"/>`;
-        }
-    }
-
-    // --- dodatne tehničke opcije (sve ostavljaju trag na crtežu) ---
-    if (c.ojacanje) { // ojačan rub oko otvora (dupla ivica)
-        s += `<line x1="${x0 + 3}" y1="${yOpen + 2}" x2="${x1 - 3}" y2="${yOpen + 2}" stroke="#475569" stroke-width="2.4" stroke-opacity="0.45"/>`;
-        s += `<line x1="${x0 + 3}" y1="${yOpen + 5}" x2="${x1 - 3}" y2="${yOpen + 5}" stroke="#475569" stroke-width="1" stroke-opacity="0.35"/>`;
-    }
-    if (c.duplofan) { // duplofan traka (pojačanje pri vrhu)
-        const dy = yOpen + (vrh === "klapna" ? 30 : 13);
-        s += `<rect x="${x0 + 8}" y="${dy}" width="${bodyW - 16}" height="7" rx="2" fill="#bfdbfe" fill-opacity="0.7" stroke="#3b82f6" stroke-width="0.7"/>`;
-    }
-    if (c.anleger) { // anleger / header umetak pri vrhu tela
-        s += `<rect x="${x0 + 6}" y="${yOpen + 3}" width="${bodyW - 12}" height="13" rx="2" fill="#e2e8f0" fill-opacity="0.85" stroke="#94a3b8" stroke-width="0.8"/>`;
-        for (let xx = x0 + 10; xx < x1 - 8; xx += 5) s += `<line x1="${xx}" y1="${yOpen + 3}" x2="${xx - 3}" y2="${yOpen + 16}" stroke="#94a3b8" stroke-width="0.4"/>`;
-    }
-    if (c.falznut && vrh !== "klapna") { // utor / žleb (Falznut)
-        const fy = yOpen + 8; s += `<line x1="${x0 + 4}" y1="${fy}" x2="${x1 - 4}" y2="${fy}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2"/>`;
-    }
-    if (c.bocniVar) { // bočni var (šav uz obe ivice)
-        for (const ex of [x0, x1 - 4]) {
-            s += `<rect x="${ex}" y="${yOpen}" width="4" height="${bodyH - dnoH}" fill="#cbd5e1" opacity="0.6"/>`;
-            for (let yy = yOpen + 4; yy < yBot - dnoH; yy += 5) s += `<line x1="${ex}" y1="${yy}" x2="${ex + 4}" y2="${yy - 3}" stroke="#94a3b8" stroke-width="0.4"/>`;
-        }
-    }
-    if (c.poprecniVar) { // poprečni / kontinualni / toplotni var (šav popreko)
-        const wy = yOpen + (bodyH - dnoH) * 0.5;
-        s += `<rect x="${x0}" y="${wy - 2}" width="${bodyW}" height="5" fill="#cbd5e1" opacity="0.8"/>`;
-        for (let xx = x0 + 2; xx < x1; xx += 4) s += `<line x1="${xx}" y1="${wy - 2}" x2="${xx - 3}" y2="${wy + 3}" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.6"/>`;
-    }
-    if (c.otvorDno) { // otvor na dnu
-        s += `<line x1="${x0 + 6}" y1="${yBot - 2}" x2="${x1 - 6}" y2="${yBot - 2}" stroke="#dc2626" stroke-width="1.1" stroke-dasharray="5 3"/>`;
-    }
-
-    if (kom > 1) { for (let i = 1; i < kom; i++) { const xx = x0 + bodyW * i / kom; s += `<line x1="${xx}" y1="${yOpen + 6}" x2="${xx}" y2="${yBot - dnoH - 6}" stroke="#9fb6bd" stroke-width="2" stroke-opacity="0.45"/><line x1="${xx}" y1="${yOpen + 6}" x2="${xx}" y2="${yBot - dnoH - 6}" stroke="#ffffff" stroke-width="0.6" stroke-opacity="0.7"/>`; } }
-
-    if (perf === "easy") { const py = yOpen + (vrh === "klapna" ? 22 : 26); s += `<line x1="${x0 + 12}" y1="${py}" x2="${x1 - 12}" y2="${py}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="1.5 3"/>`; }
-    if (perf === "abreiss") { s += `<line x1="${x0}" y1="${yOpen}" x2="${x1}" y2="${yOpen}" stroke="#b9c4cc" stroke-width="1" stroke-dasharray="2 2.5"/><line x1="${x0}" y1="${yBot}" x2="${x1}" y2="${yBot}" stroke="#b9c4cc" stroke-width="1" stroke-dasharray="2 2.5"/>`; }
-    if (perf === "heiss") { s += `<g clip-path="url(#cl_${u})">`; for (let yy = yOpen + 20; yy < yBot - dnoH - 8; yy += 14) for (let xx = x0 + 16; xx < x1 - 12; xx += 14) s += `<circle cx="${xx}" cy="${yy}" r="0.8" fill="#64748b" opacity="0.55"/>`; s += `</g>`; }
-
-    if (dno === "faltna") { const gy = yBot - dnoH; s += `<path d="M${x0} ${gy} L${cx} ${yBot} L${x1} ${gy} Z" fill="#aecdc8" opacity="0.5"/><path d="M${x0} ${gy} L${cx} ${gy + dnoH * 0.55} L${x1} ${gy}" fill="none" stroke="#5b7c86" stroke-width="0.9" stroke-opacity="0.6"/><line x1="${x0}" y1="${gy}" x2="${x1}" y2="${gy}" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.5"/>`; }
-    else if (dno === "naht") { s += `<rect x="${x0}" y="${yBot - 6}" width="${bodyW}" height="6" rx="2" fill="#aebfc6" opacity="0.9"/>`; for (let xx = x0 + 2; xx < x1; xx += 4) s += `<line x1="${xx}" y1="${yBot - 6}" x2="${xx - 3}" y2="${yBot}" stroke="#fff" stroke-width="0.5" stroke-opacity="0.6"/>`; s += `<line x1="${x0}" y1="${yBot - 6}" x2="${x1}" y2="${yBot - 6}" stroke="#ffffff" stroke-width="0.7" stroke-opacity="0.6"/>`; }
-    else if (dno === "kreuz") { const gy = yBot - dnoH; s += `<path d="${rr(x0, gy, bodyW, dnoH, 4)}" fill="#cfe0dd" opacity="0.6" stroke="#5b7c86" stroke-width="0.8" stroke-opacity="0.5"/><line x1="${x0}" y1="${gy}" x2="${x1}" y2="${yBot}" stroke="#5b7c86" stroke-width="0.7" stroke-opacity="0.5"/><line x1="${x1}" y1="${gy}" x2="${x0}" y2="${yBot}" stroke="#5b7c86" stroke-width="0.7" stroke-opacity="0.5"/>`; }
-
-    if (opt.bottomViews) {
-        const bx = 452, bw = 212;
-        const p1y = 98, p1h = 190, xc = bx + bw / 2, g = 18, xL = xc - g, xR = xc + g, wy0 = p1y + 50, wyB = p1y + p1h - 44;
-        s += `<rect x="${bx}" y="${p1y}" width="${bw}" height="${p1h}" rx="12" fill="#ffffff" stroke="#dbe2e8"/>`;
-        s += `<text x="${xc}" y="${p1y + 22}" font-size="10.5" font-weight="800" fill="#0f766e" text-anchor="middle" letter-spacing="0.5">DNO — BOČNI PRESEK</text>`;
-        s += `<line x1="${xL}" y1="${wy0}" x2="${xL}" y2="${wyB}" stroke="#5b7c86" stroke-width="1.6"/><line x1="${xR}" y1="${wy0}" x2="${xR}" y2="${wyB}" stroke="#5b7c86" stroke-width="1.6"/><text x="${xc}" y="${wy0 - 8}" font-size="9" fill="#94a3b8" text-anchor="middle">prednja / zadnja strana</text>`;
-        if (dno === "faltna") { const d = Math.max(24, Math.min(extraMm * scale * 1.6, 80)); s += `<path d="M${xL} ${wyB} L${xc} ${wyB - d} L${xR} ${wyB}" fill="#bcd4d0" fill-opacity="0.5" stroke="#5b7c86" stroke-width="1.4" stroke-linejoin="round"/><line x1="${xL}" y1="${wyB}" x2="${xR}" y2="${wyB}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 2"/><line x1="${xR + 16}" y1="${wyB - d}" x2="${xR + 16}" y2="${wyB}" stroke="#94a3b8" stroke-width="1"/><path d="M${xR + 16} ${wyB - d} l-3 5 l6 0 Z" fill="#94a3b8"/><path d="M${xR + 16} ${wyB} l-3 -5 l6 0 Z" fill="#94a3b8"/><text x="${xR + 22}" y="${wyB - d / 2 + 3}" font-size="10" fill="#475569">${extraMm}mm</text><text x="${xc}" y="${wyB + 24}" font-size="10" fill="#64748b" text-anchor="middle">faltna — uvučeno dno</text>`; }
-        else if (dno === "naht") { s += `<rect x="${xL}" y="${wyB - 2}" width="${xR - xL}" height="6" rx="2" fill="#aebfc6"/>`; for (let xx = xL + 2; xx < xR; xx += 4) s += `<line x1="${xx}" y1="${wyB - 2}" x2="${xx - 3}" y2="${wyB + 4}" stroke="#fff" stroke-width="0.6" stroke-opacity="0.7"/>`; s += `<text x="${xc}" y="${wyB + 24}" font-size="10" fill="#64748b" text-anchor="middle">ultrazvučni šav 3 mm</text>`; }
-        else if (dno === "kreuz") { s += `<rect x="${xL}" y="${wyB - 10}" width="${xR - xL}" height="12" rx="2" fill="#cfe0dd" stroke="#5b7c86" stroke-width="1"/><line x1="${xL}" y1="${wyB - 10}" x2="${xR}" y2="${wyB + 2}" stroke="#5b7c86" stroke-width="0.7"/><text x="${xc}" y="${wyB + 24}" font-size="10" fill="#64748b" text-anchor="middle">ukršteno (kreuz) dno</text>`; }
-        else { s += `<line x1="${xL}" y1="${wyB}" x2="${xR}" y2="${wyB}" stroke="#5b7c86" stroke-width="1.8"/><text x="${xc}" y="${wyB + 24}" font-size="10" fill="#64748b" text-anchor="middle">ravno (zavareno) dno</text>`; }
-
-        const p2y = 300, p2h = 176, cyB = p2y + p2h / 2 + 8;
-        s += `<rect x="${bx}" y="${p2y}" width="${bw}" height="${p2h}" rx="12" fill="#ffffff" stroke="#dbe2e8"/>`;
-        s += `<text x="${xc}" y="${p2y + 22}" font-size="10.5" font-weight="800" fill="#0f766e" text-anchor="middle" letter-spacing="0.5">DNO — POGLED ODOZDO</text>`;
-        const rw = Math.min(bw * 0.56, bodyW * 1.0), rh = (dno === "faltna") ? 64 : (dno === "naht") ? 20 : 50, rx0 = xc - rw / 2, ry0 = cyB - rh / 2;
-        if (dno === "naht") {
-            s += `<rect x="${rx0}" y="${cyB - 5}" width="${rw}" height="10" rx="2" fill="#eef6f5" stroke="#5b7c86" stroke-width="1.2"/><line x1="${rx0}" y1="${cyB}" x2="${rx0 + rw}" y2="${cyB}" stroke="#5b7c86" stroke-width="1.6"/>`;
-            for (let xx = rx0 + 3; xx < rx0 + rw; xx += 5) s += `<line x1="${xx}" y1="${cyB - 2}" x2="${xx - 3}" y2="${cyB + 2}" stroke="#94a3b8" stroke-width="0.6"/>`;
-            s += `<text x="${xc}" y="${cyB + 26}" font-size="10" fill="#64748b" text-anchor="middle">ravna linija šava</text>`;
-        } else {
-            s += `<rect x="${rx0}" y="${ry0}" width="${rw}" height="${rh}" rx="3" fill="#eef6f5" stroke="#5b7c86" stroke-width="1.2"/>`;
-            if (dno === "faltna") {
-                s += `<line x1="${rx0}" y1="${cyB}" x2="${rx0 + rw}" y2="${cyB}" stroke="#5b7c86" stroke-width="1" stroke-dasharray="4 3"/>`;
-                s += `<line x1="${rx0}" y1="${ry0}" x2="${rx0 + 20}" y2="${cyB}" stroke="#5b7c86" stroke-width="0.8"/><line x1="${rx0}" y1="${ry0 + rh}" x2="${rx0 + 20}" y2="${cyB}" stroke="#5b7c86" stroke-width="0.8"/>`;
-                s += `<line x1="${rx0 + rw}" y1="${ry0}" x2="${rx0 + rw - 20}" y2="${cyB}" stroke="#5b7c86" stroke-width="0.8"/><line x1="${rx0 + rw}" y1="${ry0 + rh}" x2="${rx0 + rw - 20}" y2="${cyB}" stroke="#5b7c86" stroke-width="0.8"/>`;
-                s += `<text x="${xc}" y="${ry0 + rh + 22}" font-size="10" fill="#64748b" text-anchor="middle">faltna razvučena (aufgeklappt)</text>`;
-            } else if (dno === "kreuz") {
-                s += `<line x1="${rx0}" y1="${ry0}" x2="${rx0 + rw}" y2="${ry0 + rh}" stroke="#5b7c86" stroke-width="0.9"/><line x1="${rx0 + rw}" y1="${ry0}" x2="${rx0}" y2="${ry0 + rh}" stroke="#5b7c86" stroke-width="0.9"/>`;
-                s += `<rect x="${xc - rw * 0.16}" y="${cyB - rh * 0.2}" width="${rw * 0.32}" height="${rh * 0.4}" fill="#fff" stroke="#5b7c86" stroke-width="0.9"/>`;
-                s += `<text x="${xc}" y="${ry0 + rh + 22}" font-size="10" fill="#64748b" text-anchor="middle">ukršteni (kreuz) preklop</text>`;
-            } else {
-                s += `<text x="${xc}" y="${ry0 + rh + 22}" font-size="10" fill="#64748b" text-anchor="middle">ravno dno</text>`;
-            }
-            s += kotaH(ry0 - 14, rx0, rx0 + rw, ry0, `${sirina} mm`);
-        }
-    }
-
-    if (opt.kote) {
-        const objTop = vrh === "otvor" ? yOpen : topY;
-        s += kotaH(objTop - 24, x0, x1, objTop, `${sirina} mm`);
-        s += kotaV(x0 - 26, yOpen, yBot, x0, `${duzina} mm`);
-        if (vrh === "klapna") s += kotaV(x1 + 24, headH > 0 ? yHeadBot : topY, yOpen, x1, `${klMm}`);
-        if (vrh === "header") s += kotaV(x1 + 24, topY, yHeadBot, x1, `${extraMm}`);
-    }
-
-    if (opt.info) {
-        const tname = (TIPOVI[c.tip] && TIPOVI[c.tip].n) || "Kesa";
-        const chips = [];
-        if (vrh === "klapna") chips.push(klTip === "schrag" ? "kosa klapna" : "klapna");
-        if (vrh === "header") chips.push("header");
-        if (dno === "faltna") chips.push("faltna dno"); if (dno === "naht") chips.push("ultrazv. šav"); if (dno === "kreuz") chips.push("ukršteno dno");
-        if (adh) chips.push("ADH"); if (euroloch) chips.push("euroloch"); if (luft) chips.push("vazduš. otvor");
-        if (perf !== "none") chips.push(perf === "easy" ? "easy-open" : perf === "abreiss" ? "rolna" : "heißnadel"); if (kom > 1) chips.push(kom + " komore");
-        if (c.duplofan) chips.push("duplofan"); if (c.anleger) chips.push("anleger"); if (c.falznut) chips.push("utor/falznut");
-        if (c.bocniVar) chips.push("bočni var"); if (c.poprecniVar) chips.push("poprečni var");
-        if (c.otvorDno) chips.push("otvor na dnu"); if (c.ojacanje) chips.push("ojačanje"); if (c.pakovanjeTrn) chips.push("pakov. na trnu");
-        s += `<text x="${cx}" y="${yBot + 54}" font-size="15" font-weight="800" fill="#0f172a" text-anchor="middle">${tname}</text>`;
-        s += `<text x="${cx}" y="${yBot + 72}" font-size="11" fill="#64748b" text-anchor="middle">${sirina} × ${duzina} mm · BOPP/CPP</text>`;
-        let chx = cx - chips.reduce((a, ch) => a + ch.length * 6.2 + 22, 0) / 2, chy = yBot + 88;
-        for (const ch of chips) { const w = ch.length * 6.2 + 16; s += `<rect x="${chx}" y="${chy}" width="${w}" height="20" rx="10" fill="#ccfbf1" stroke="#0d9488" stroke-opacity="0.3"/><text x="${chx + w / 2}" y="${chy + 14}" font-size="10.5" fill="#0f766e" text-anchor="middle" font-weight="600">${ch}</text>`; chx += w + 6; }
-    }
-
-    const defs = `<defs>
-    <linearGradient id="film_${u}" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.96"/><stop offset="0.5" stop-color="#e9f4f3"/><stop offset="1" stop-color="#d6e7e4"/></linearGradient>
-    <radialGradient id="vol_${u}" cx="0.4" cy="0.32" r="0.75"><stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="0.6" stop-color="#ffffff" stop-opacity="0.06"/><stop offset="1" stop-color="#9fc4bf" stop-opacity="0.12"/></radialGradient>
-    <linearGradient id="flap_${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e3efed"/></linearGradient>
-    <linearGradient id="hdr_${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbfdfd"/><stop offset="1" stop-color="#eef3f5"/></linearGradient>
-    <linearGradient id="fsh_${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#334155" stop-opacity="0.22"/><stop offset="1" stop-color="#334155" stop-opacity="0"/></linearGradient>
-    <linearGradient id="osh_${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#334155" stop-opacity="0.16"/><stop offset="1" stop-color="#334155" stop-opacity="0"/></linearGradient>
-    <linearGradient id="refl_${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfe3e0" stop-opacity="0.8"/><stop offset="1" stop-color="#cfe3e0" stop-opacity="0"/></linearGradient>
-    <filter id="soft_${u}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3.5"/></filter>
-  </defs>`;
-
-    const vbW = opt.bottomViews ? 700 : 430;
-    return { inner: defs + s, vbW };
 }
 
 // SVG kao string (za HTML-string renderere, npr. NalogLayoutPRO)

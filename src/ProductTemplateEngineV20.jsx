@@ -504,17 +504,26 @@ function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
-        const duzM = (n(k.duzina) + n(k.klapna) + n(k.falta)) / 1000;   // korak, m
+        const W = n(k.sirina);                               // širina kese
+        const Lfull = n(k.duzina) + n(k.klapna) + n(k.falta); // dužina kese + klapna + falta
+        const sm = n(k.sirinaMaterijala);                    // širina materijala (web)
+        const orient = k.orijentacija || "sirina";           // "sirina" = kesa po širini uz materijal
+        // ORIJENTACIJA menja šta ide POPREKO materijala (određuje BAN) a šta DUŽ (određuje korak/metražu):
+        //  • "sirina": širina kese ide popreko (ban = širina_mat ÷ širina), korak = dužina+klapna+falta
+        //  • "duzina": dužina kese ide popreko (ban = širina_mat ÷ (dužina+klapna+falta)), korak = širina
+        const acrossWeb = orient === "duzina" ? Lfull : W;   // popreko → određuje ban
+        const alongWeb = orient === "duzina" ? W : Lfull;    // duž → određuje metražu
+        const banAuto = (sm > 0 && acrossWeb > 0) ? Math.max(1, Math.floor(sm / acrossWeb)) : 0;
+        // Ručno upisan ban ima prednost; inače se računa iz širine materijala i orijentacije.
+        const ban = Math.max(1, n(k.ban) || banAuto || 1);
         const kom = n(k.kolicina), skart = n(k.skart);
-        // BAN = broj traka po sirini. Rezanje NE skracuje duzinu - multiplicira je po traci,
-        // pa je maticna rolna BAN puta KRACA. Ranije se nije delilo -> trazilo se BAN x vise materijala.
-        const ban = Math.max(1, n(k.ban) || 1);
+        const duzM = alongWeb / 1000;         // korak duž trake, m (zavisi od orijentacije)
         const mTrake = kom * duzM;            // metri gotove trake
-        const mMat = mTrake / ban;            // metri maticne rolne  <-- ispravka
+        const mMat = ban > 0 ? mTrake / ban : mTrake;  // metri matične rolne (ban puta kraća)
         return {
             kol: Math.round(mMat),
             kolPlus: Math.ceil(mMat * (1 + skart / 100)),
-            kom, duzM, ban,
+            kom, duzM, ban, orient, banAuto,
             mTrake: Math.round(mTrake),
         };
     }
@@ -2924,10 +2933,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> (dužina+klapna+falta) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
-                            &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina kese — duž materijala" : "dužina+klapna+falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>{m.banAuto ? <span style={{ color: "#64748b" }}> (auto iz širine materijala)</span> : null}
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
+                            <div style={{ marginTop: 4, color: "#64748b" }}>
+                                Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide {m.orient === "duzina" ? "dužina kese (određuje ban)" : "širina kese (određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese (određuje metražu)" : "dužina kese (određuje metražu)"}.
+                            </div>
                             {m.ban > 1 && <div style={{ marginTop: 4, color: "#b91c1c", fontWeight: 700 }}>
                                 Ban {m.ban} → matična rolna je {m.ban}× kraća nego ukupna dužina traka.
                             </div>}
@@ -2947,7 +2959,26 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         {["sirina", "duzina", "klapna", "falta", "takt", "ban", "tolerancija", "grafika"].map(k => (
                             <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
+                        <Input label="Širina materijala (mm)" value={form.kesa.sirinaMaterijala} onChange={v => update("kesa.sirinaMaterijala", v)} placeholder="npr. 760" />
+                        <Select label="Orijentacija kese na materijalu" value={form.kesa.orijentacija || "sirina"} onChange={v => update("kesa.orijentacija", v)}
+                            options={[{ value: "sirina", label: "Kesa po širini (širina kese uz materijal)" }, { value: "duzina", label: "Kesa po dužini (dužina kese uz materijal)" }]} />
                     </Grid>
+                    {(() => {
+                        const N_ = v => Number(String(v ?? "").replace(",", ".")) || 0;
+                        const sm = N_(form.kesa.sirinaMaterijala);
+                        const orient = form.kesa.orijentacija || "sirina";
+                        // acrossWeb (određuje ban) = ista logika kao u orderMetraze
+                        const W = N_(form.kesa.sirina);
+                        const Lfull = N_(form.kesa.duzina) + N_(form.kesa.klapna) + N_(form.kesa.falta);
+                        const dim = orient === "duzina" ? Lfull : W;
+                        if (!(sm > 0 && dim > 0)) return null;
+                        const banSug = Math.max(1, Math.floor(sm / dim));
+                        const otpad = Math.round(sm - banSug * dim);
+                        return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#eff6ff", border: "1px dashed #93c5fd", borderRadius: 8, padding: "8px 10px" }}>
+                            📐 Predlog bana: <b style={{ color: "#1d4ed8" }}>{banSug}</b> &nbsp;(širina materijala {sm} mm ÷ {orient === "duzina" ? "dužina+klapna+falta" : "širina kese"} {dim} mm · ostatak {otpad} mm).
+                            &nbsp;Ako ostaviš <b>ban</b> prazan, koristi se ovaj auto-ban u proračunu.
+                        </div>;
+                    })()}
                 </Section>
 
                 <Section title={t("tmpl.materijali")} color={GREEN}>

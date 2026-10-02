@@ -18,6 +18,10 @@ export const FOOD_TEXT =
     "PAKOVANJE ZA HRANU — upotreba rukavica, mrežica za kosu, bez dlaka, mrva, mrlja, prljavštine, prašine, buba, drugih insekata i drugih stranih tela. Kutija mora biti obložena čistom folijom.";
 
 export const KESA_OPCIJE = [
+    // ADH lepljiva traka (ponovo-zatvorljiva) — čekira se sama za tipove sa klapnom,
+    // ali korisnik može da je isključi, i tada NESTAJE sa skice.
+    { k: "adh_traka", l: "ADH lepljiva traka (ponovo-zatvorljiva)", tip: "danet", crtez: "adh_traka" },
+
     {
         k: "duplofan", l: "Duplofan traka", tip: "lista",
         vals: ["Obična", "Permanentna", "Permanentna bezbedna za hranu", "Široka"],
@@ -114,17 +118,20 @@ export const KESA_OPCIJE = [
     },
 ];
 
-// Podrazumevane opcije po tipu kese (kad se izabere tip, ove se same čekiraju)
+// Podrazumevane opcije po tipu kese (kad se izabere tip, ove se same čekiraju).
+// Korisnik ih posle može isključiti — i tada nestaju sa skice.
 export const KESA_TIP_PRESET = {
     klappen: ["adh_traka"],
     bodenfalten: ["adh_traka", "falta_dno"],
     bodennaht: ["eurozumba", "var_dno"],
     header: ["eurozumba", "adh_traka"],
+    banderole: ["adh_traka"],
     brief: ["adh_traka"],
     easy: ["adh_traka"],
     flaschen: ["adh_traka"],
     heiss: ["perf_igle"],
     kreuz: ["adh_traka"],
+    mehr: ["adh_traka", "var_dno"],
     zweikammer: ["adh_traka"],
     zweifarbig: ["stampa"],
 };
@@ -137,7 +144,7 @@ export const POS_LBL = {
 
 // Grupisanje opcija po celinama (za templejt i nalog)
 export const KESA_GRUPE = [
-    { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
+    { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["adh_traka", "duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
     { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
     { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "poprecni_var"] },
     { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati"] },
