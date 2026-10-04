@@ -407,6 +407,7 @@ const defaultForm = {
         positions: {},
         // Ceo blok za štampu — kao kod folije (parametri + boje/stanice + dizajn na rolni)
         stampa: {
+            ima: false,            // čekboks kod materijala → zasebna operacija štampe
             masina: "",
             strana: "",
             obimValjka: "",
@@ -1749,10 +1750,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 : form.spulna?.stampa) || {};
         const brojBoja = Number(st.brojBoja) || 0;
         const imaBoje = Array.isArray(st.boje) && st.boje.some(b => b && b.tip !== "Lak");
-        // Kod kese: i čekirana opcija „Štampa" (options.stampa) pokreće operaciju štampe,
-        // da bi nalog išao PRVO na štampu pa tek onda na mašinu za kesu (kao kod folije).
+        // Kod kese nalog ide PRVO na štampu pa tek onda na mašinu za kesu (kao folija), kada:
+        //  • je čekiran čekboks „Štampa" kod materijala (kesa.stampa.ima), ili
+        //  • je štampa izabrana iz liste tehničkih karakteristika (options.stampa), ili
+        //  • su unete boje / broj boja.
+        const kesaStampaCekbox = form.type === "kesa" && !!(((form.kesa && form.kesa.stampa) || {}).ima);
         const kesaStampaOpcija = form.type === "kesa" && !!((form.kesa && form.kesa.options) || {}).stampa;
-        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje || kesaStampaOpcija;
+        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje || kesaStampaCekbox || kesaStampaOpcija;
 
         // Lakiranje je zasebna operacija — nastaje SAMO kad je čekiran "lak" na sloju.
         // (Boja tipa "Lak" u štampi se NE računa kao lakiranje.)
@@ -3017,6 +3021,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             Object.entries(patch).forEach(([key, value]) => updateLayer("kesa", i, key, value));
                         }}
                     />
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, padding: "10px 12px", border: "1.5px solid", borderColor: (form.kesa.stampa || {}).ima ? "#7c3aed" : "#dbe3ef", borderRadius: 10, background: (form.kesa.stampa || {}).ima ? "#faf5ff" : "#fff", cursor: "pointer", fontWeight: 800, color: "#334155" }}>
+                        <input type="checkbox" checked={!!(form.kesa.stampa || {}).ima} onChange={e => update("kesa.stampa.ima", e.target.checked)} />
+                        🖨️ Štampa (ide na posebnu mašinu za štampu pre kese)
+                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "#64748b" }}>čekiraj da se napravi zaseban nalog za štampu</span>
+                    </label>
                 </Section>
 
                 <Section title={t("tmpl.opcije")} color={ORANGE}>
@@ -3089,7 +3098,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     ))}
                 </Section>
 
-                {!!(form.kesa.options || {}).stampa && (
+                {(!!(form.kesa.stampa || {}).ima || !!(form.kesa.options || {}).stampa) && (
                     <Section title={t("tmpl.stampa_param", "Parametri štampe")} color="#7c3aed">
                         <Grid cols={4}>
                             {["masina", "strana", "obimValjka", "brojBoja", "klise", "precnikHilzne", "smerOdmotavanja", "stamparija"].map(k => (
