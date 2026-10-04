@@ -493,9 +493,9 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
         if (tab === "istorija" && selected) ucitajIstoriju(selected);
     }, [tab, selected?.db_id]);
 
-    // učitaj dokumentaciju kad se otvori tab "dok" ili promeni proizvod
+    // učitaj dokumentaciju kad se otvori tab "dok" ili "perforacija" (KPDF fajl) ili promeni proizvod
     useEffect(() => {
-        if (tab === "dok" && selected) loadDocs(selected);
+        if ((tab === "dok" || tab === "perforacija") && selected) loadDocs(selected);
         // eslint-disable-next-line
     }, [tab, selected?.db_id, selected?.id]);
 
@@ -867,6 +867,12 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
                                     <button disabled={savingPerf} onClick={sacuvajPerforaciju} style={btnStyle(savingPerf ? "#93c5fd" : BLUE, "#fff", savingPerf ? "#93c5fd" : BLUE)}>{savingPerf ? "Čuvam…" : "💾 Sačuvaj perforaciju"}</button>
+                                </div>
+                                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px dashed #e2e8f0" }}>
+                                    <SectionTitle title="KPDF fajl / crtež perforacije" note="Učitaj PDF ili sliku — otvaranje u A4 prikazu, štampa i preuzimanje (isto kao u Dokumentaciji)." />
+                                    <div style={{ maxWidth: 440 }}>
+                                        <DocCardPro tip={DOK_TIPOVI[0]} list={(docs || []).filter(d => d.tip === "kpdf")} loading={docsLoad} uploading={uploadingTip === "kpdf"} onUpload={handleUpload} onOpen={setViewDoc} onDelete={handleDeleteDoc} />
+                                    </div>
                                 </div>
                             </Card>;
                         })()}
