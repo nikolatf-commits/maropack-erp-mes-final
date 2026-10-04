@@ -405,9 +405,10 @@ const defaultForm = {
         zoomLevel: "100",
         options: {},
         positions: {},
+        // Slika za IZGLED NA SKICI KESE — ODVOJEN fajl od dizajna za štampu.
+        skicaDizajn: {},
         // Ceo blok za štampu — kao kod folije (parametri + boje/stanice + dizajn na rolni)
         stampa: {
-            ima: false,            // čekboks kod materijala → zasebna operacija štampe
             masina: "",
             strana: "",
             obimValjka: "",
@@ -1751,12 +1752,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
         const brojBoja = Number(st.brojBoja) || 0;
         const imaBoje = Array.isArray(st.boje) && st.boje.some(b => b && b.tip !== "Lak");
         // Kod kese nalog ide PRVO na štampu pa tek onda na mašinu za kesu (kao folija), kada:
-        //  • je čekiran čekboks „Štampa" kod materijala (kesa.stampa.ima), ili
+        //  • je čekiran „Š" pored materijala (l.stampa) — glavni uslov, zna se koji se materijal štampa, ili
         //  • je štampa izabrana iz liste tehničkih karakteristika (options.stampa), ili
         //  • su unete boje / broj boja.
-        const kesaStampaCekbox = form.type === "kesa" && !!(((form.kesa && form.kesa.stampa) || {}).ima);
         const kesaStampaOpcija = form.type === "kesa" && !!((form.kesa && form.kesa.options) || {}).stampa;
-        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje || kesaStampaCekbox || kesaStampaOpcija;
+        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje || kesaStampaOpcija;
 
         // Lakiranje je zasebna operacija — nastaje SAMO kad je čekiran "lak" na sloju.
         // (Boja tipa "Lak" u štampi se NE računa kao lakiranje.)
@@ -3021,11 +3021,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             Object.entries(patch).forEach(([key, value]) => updateLayer("kesa", i, key, value));
                         }}
                     />
-                    <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, padding: "10px 12px", border: "1.5px solid", borderColor: (form.kesa.stampa || {}).ima ? "#7c3aed" : "#dbe3ef", borderRadius: 10, background: (form.kesa.stampa || {}).ima ? "#faf5ff" : "#fff", cursor: "pointer", fontWeight: 800, color: "#334155" }}>
-                        <input type="checkbox" checked={!!(form.kesa.stampa || {}).ima} onChange={e => update("kesa.stampa.ima", e.target.checked)} />
-                        🖨️ Štampa (ide na posebnu mašinu za štampu pre kese)
-                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "#64748b" }}>čekiraj da se napravi zaseban nalog za štampu</span>
-                    </label>
+                    <div style={{ marginTop: 10, fontSize: 12, color: "#64748b", fontWeight: 700 }}>
+                        ℹ️ Čekiraj <b>„Š"</b> pored materijala koji se štampa — tada se otvara blok „Parametri štampanja" i nalog ide prvo na mašinu za štampu, pa na mašinu za kesu.
+                    </div>
                 </Section>
 
                 <Section title={t("tmpl.opcije")} color={ORANGE}>
@@ -3088,13 +3086,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                                                     {op.food && (
                                                         <div style={{ fontSize: 11, color: "#065f46", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "6px 8px", lineHeight: 1.4 }}>{FOOD_TEXT}</div>
                                                     )}
-                                                    {op.k === "stampa" && (
-                                                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #c4b5fd" }}>
-                                                            <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 6, fontSize: 12 }}>Slika dizajna štampe (ide na skicu kese)</div>
-                                                            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>Učitaj sliku (JPG/PNG/PDF), pa je okreni (↺ −90° / ↻ +90°), zrcali ili smanji/uvećaj (Širina/Visina %). Prikazuje se u polju „Štampa" na skici kese.</div>
-                                                            <RolnaDizajnEditor value={(form.kesa.stampa || {}).dizajn || {}} onChange={v => update("kesa.stampa.dizajn", v)} />
-                                                        </div>
-                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -3105,7 +3096,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     ))}
                 </Section>
 
-                {(!!(form.kesa.stampa || {}).ima || !!(form.kesa.options || {}).stampa) && (
+                {(form.kesa.layers || []).some(l => l && l.stampa) && (
                     <Section title={t("tmpl.stampa_param", "Parametri štampe")} color="#7c3aed">
                         <Grid cols={4}>
                             {["masina", "strana", "obimValjka", "brojBoja", "klise", "precnikHilzne", "smerOdmotavanja", "stamparija"].map(k => (
@@ -3119,9 +3110,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             <BojeStampeEditor value={(form.kesa.stampa || {}).boje} onChange={v => update("kesa.stampa.boje", v)} />
                         </div>
                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
-                            <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
+                            <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 8 }}>Dizajn za štampu — finalna rolna (JPEG / PNG / PDF)</div>
                             <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
-                                Učitaj sliku dizajna, pa je okreni (↺ −90° / ↻ +90°), zrcali ili smanji/uvećaj (Širina/Visina %). Prikazuje se na rolni ispod i u polju „Štampa" na skici kese.
+                                Fajl za štampu (ide na nalog za štampu i prikaz na rolni). Odvojen od slike za skicu kese. Okreni (↺ −90° / ↻ +90°), zrcali ili skaliraj (Širina/Visina %).
                             </div>
                             <RolnaDizajnEditor value={(form.kesa.stampa || {}).dizajn || {}} onChange={v => update("kesa.stampa.dizajn", v)} />
                         </div>
@@ -3129,7 +3120,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 )}
 
                 <Section title={t("tmpl.crtez")} color={BLUE}>
-                    <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
+                    <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px dashed #c4b5fd" }}>
+                        <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 6, fontSize: 13 }}>Slika za izgled na skici kese</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                            Poseban fajl (JPG/PNG/PDF) samo za prikaz na skici kese — različit od dizajna za štampu. Okreni (↺ −90° / ↻ +90°), zrcali ili smanji/uvećaj (Širina/Visina %). Prikazuje se u polju „Štampa" na skici kese ispod.
+                        </div>
+                        <RolnaDizajnEditor value={form.kesa.skicaDizajn || {}} onChange={v => update("kesa.skicaDizajn", v)} hidePreview />
+                    </div>
+                    <div style={{ maxWidth: 420, margin: "0 auto" }}>
+                        <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
+                    </div>
                 </Section>
 
                 <Section title={t("tmpl.transport")} color={GREEN}>

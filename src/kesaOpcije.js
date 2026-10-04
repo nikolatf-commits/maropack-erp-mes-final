@@ -172,10 +172,10 @@ export function toCrtezKesa(kesa = {}) {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }
     });
-    // Štampa se prikazuje na skici i kada je uključena preko čekboksa kod materijala
-    // (kesa.stampa.ima) ili kada postoji učitan dizajn — ne samo kad je "Štampa" opcija iz liste.
-    const st = kesa.stampa || {};
-    if (st.ima || (st.dizajn && st.dizajn.url)) {
+    // Na SKICI KESE se prikazuje POSEBNA slika (kesa.skicaDizajn) — odvojena od
+    // dizajna za štampu (kesa.stampa.dizajn). Čim postoji ta slika, pali se polje štampe.
+    const sd = kesa.skicaDizajn || {};
+    if (sd.url) {
         stdOpt.stampa = true;
         if (!stdPos.stampa) stdPos.stampa = {};
     }
@@ -195,9 +195,8 @@ export function toCrtezKesa(kesa = {}) {
     return {
         tipKese: kesa.tipKese, sirina: kesa.sirina, duzina: kesa.duzina,
         klapna: kesa.klapna, falta, options: stdOpt, positions: stdPos, stampaText, legend,
-        // slika dizajna štampe (upload + rotacija/skala/zrcalo) — kao kod folije
-        // novo: kesa.stampa.dizajn (pun blok štampe); staro: kesa.stampaDizajn
-        stampaDizajn: (kesa.stampa && kesa.stampa.dizajn) || kesa.stampaDizajn || null,
+        // Slika koja ide na SKICU KESE (odvojena od dizajna za štampu).
+        stampaDizajn: kesa.skicaDizajn || null,
     };
 }
 

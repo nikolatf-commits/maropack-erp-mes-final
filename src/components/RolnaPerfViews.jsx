@@ -189,7 +189,7 @@ const _lab = { display: "block", fontSize: 11, fontWeight: 900, color: "#64748b"
 const _inp = { width: "100%", padding: 7, border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, fontWeight: 700 };
 
 // Editor za templejt: upload dizajna + rotacija/zrcalo + živi prikaz rolne
-export function RolnaDizajnEditor({ value = {}, onChange }) {
+export function RolnaDizajnEditor({ value = {}, onChange, hidePreview = false }) {
     const [busy, setBusy] = useState(false);
     const v = value || {};
     const set = (patch) => onChange && onChange({ ...v, ...patch });
@@ -216,7 +216,7 @@ export function RolnaDizajnEditor({ value = {}, onChange }) {
                 <div style={{ minWidth: 110 }}><label style={_lab}>Visina (%)</label><input style={_inp} type="number" value={v.visinaPct ?? 100} onChange={(e) => set({ visinaPct: e.target.value })} /></div>
                 <div style={{ alignSelf: "end" }}><button type="button" style={_ebtn} onClick={() => set({ sirinaPct: 100, visinaPct: 100 })}>Puna širina</button></div>
             </div>
-            <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={320} />
+            {!hidePreview && <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={320} />}
         </div>
     );
 }
