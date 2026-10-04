@@ -188,6 +188,9 @@ export function toCrtezKesa(kesa = {}) {
     return {
         tipKese: kesa.tipKese, sirina: kesa.sirina, duzina: kesa.duzina,
         klapna: kesa.klapna, falta, options: stdOpt, positions: stdPos, stampaText, legend,
+        // slika dizajna štampe (upload + rotacija/skala/zrcalo) — kao kod folije
+        // novo: kesa.stampa.dizajn (pun blok štampe); staro: kesa.stampaDizajn
+        stampaDizajn: (kesa.stampa && kesa.stampa.dizajn) || kesa.stampaDizajn || null,
     };
 }
 

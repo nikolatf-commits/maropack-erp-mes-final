@@ -405,6 +405,20 @@ const defaultForm = {
         zoomLevel: "100",
         options: {},
         positions: {},
+        // Ceo blok za štampu — kao kod folije (parametri + boje/stanice + dizajn na rolni)
+        stampa: {
+            masina: "",
+            strana: "",
+            obimValjka: "",
+            brojBoja: "",
+            klise: "",
+            precnikHilzne: "",
+            smerOdmotavanja: "",
+            stamparija: "",
+            napomena: "",
+            boje: [],
+            dizajn: {}
+        },
         transportKg: "0.35",
         pakovanje: "U bunt ide 200 kom"
     },
@@ -504,20 +518,25 @@ function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
+        const duzina = n(k.duzina), klapna = n(k.klapna), falta = n(k.falta);
         const W = n(k.sirina);                               // širina kese
-        const Lfull = n(k.duzina) + n(k.klapna) + n(k.falta); // dužina kese + klapna + falta
+        const Lfull = duzina + klapna + falta;               // dužina kese + klapna + falta
         const sm = n(k.sirinaMaterijala);                    // širina materijala (web)
         const orient = k.orijentacija || "sirina";           // "sirina" = kesa po širini uz materijal
         // ORIJENTACIJA menja šta ide POPREKO materijala (određuje BAN) a šta DUŽ (određuje korak/metražu):
-        //  • "sirina": širina kese ide popreko (ban = širina_mat ÷ širina), korak = dužina+klapna+falta
-        //  • "duzina": dužina kese ide popreko (ban = širina_mat ÷ (dužina+klapna+falta)), korak = širina
-        const acrossWeb = orient === "duzina" ? Lfull : W;   // popreko → određuje ban
-        const alongWeb = orient === "duzina" ? W : Lfull;    // duž → određuje metražu
+        //  • "sirina": širina kese ide popreko (ban = širina_mat ÷ širina), korak = dužina(×2)+klapna+falta
+        //  • "duzina": dužina kese ide popreko (ban = širina_mat ÷ (dužina+klapna+falta)), korak = širina(×2)
+        // DUPLO PLATNO: kesa ima PREDNJI I ZADNJI zid, pa se telo koje ide UZ traku duplira (×2).
+        //   Klapna i falta se dodaju samo JEDNOM (nisu deo dupliranja). acrossWeb/ban ostaje nepromenjen.
+        const acrossWeb = orient === "duzina" ? Lfull : W;   // popreko → određuje ban (nepromenjeno)
+        const alongWeb = orient === "duzina"
+            ? (2 * W)                             // po dužini: širina ide uz traku → ×2 (prednji+zadnji zid)
+            : (2 * duzina + klapna + falta);      // po širini: dužina ide uz traku → ×2, + klapna + falta jednom
         const banAuto = (sm > 0 && acrossWeb > 0) ? Math.max(1, Math.floor(sm / acrossWeb)) : 0;
         // Ručno upisan ban ima prednost; inače se računa iz širine materijala i orijentacije.
         const ban = Math.max(1, n(k.ban) || banAuto || 1);
         const kom = n(k.kolicina), skart = n(k.skart);
-        const duzM = alongWeb / 1000;         // korak duž trake, m (zavisi od orijentacije)
+        const duzM = alongWeb / 1000;         // korak duž trake, m (duplo platno uračunato)
         const mTrake = kom * duzM;            // metri gotove trake
         const mMat = ban > 0 ? mTrake / ban : mTrake;  // metri matične rolne (ban puta kraća)
         return {
@@ -1730,7 +1749,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 : form.spulna?.stampa) || {};
         const brojBoja = Number(st.brojBoja) || 0;
         const imaBoje = Array.isArray(st.boje) && st.boje.some(b => b && b.tip !== "Lak");
-        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
+        // Kod kese: i čekirana opcija „Štampa" (options.stampa) pokreće operaciju štampe,
+        // da bi nalog išao PRVO na štampu pa tek onda na mašinu za kesu (kao kod folije).
+        const kesaStampaOpcija = form.type === "kesa" && !!((form.kesa && form.kesa.options) || {}).stampa;
+        const imaStampu = L.some(l => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje || kesaStampaOpcija;
 
         // Lakiranje je zasebna operacija — nastaje SAMO kad je čekiran "lak" na sloju.
         // (Boja tipa "Lak" u štampi se NE računa kao lakiranje.)
@@ -2926,19 +2948,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             <label style={labelStyle()}>{t("tmpl.potrebno_materijala")}</label>
                             <input readOnly value={(() => { const m = orderMetraze(form).kolPlus; return m ? m.toLocaleString("sr-RS") + " m" : "—"; })()}
                                 style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }}
-                                title="kom × (dužina+klapna+falta) ÷ ban × (1+škart%)" />
+                                title="kom × (dužina×2 + klapna + falta, ili širina×2) ÷ ban × (1+škart%)" />
                         </div>
                     </Grid>
                     {(() => {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina kese — duž materijala" : "dužina+klapna+falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina×2 — duž materijala" : "dužina×2 + klapna + falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
                             &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>{m.banAuto ? <span style={{ color: "#64748b" }}> (auto iz širine materijala)</span> : null}
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
                             <div style={{ marginTop: 4, color: "#64748b" }}>
-                                Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide {m.orient === "duzina" ? "dužina kese (određuje ban)" : "širina kese (određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese (određuje metražu)" : "dužina kese (određuje metražu)"}.
+                                Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide {m.orient === "duzina" ? "dužina kese (određuje ban)" : "širina kese (određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese ×2 (određuje metražu)" : "dužina kese ×2 (određuje metražu)"}.
+                                <div style={{ marginTop: 2, color: "#b45309", fontWeight: 600 }}>Duplo platno (prednji + zadnji zid) → dimenzija duž materijala je ×2. Klapna i falta se dodaju jednom.</div>
                             </div>
                             {m.ban > 1 && <div style={{ marginTop: 4, color: "#b91c1c", fontWeight: 700 }}>
                                 Ban {m.ban} → matična rolna je {m.ban}× kraća nego ukupna dužina traka.
@@ -3065,6 +3088,29 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         </div>
                     ))}
                 </Section>
+
+                {!!(form.kesa.options || {}).stampa && (
+                    <Section title={t("tmpl.stampa_param", "Parametri štampe")} color="#7c3aed">
+                        <Grid cols={4}>
+                            {["masina", "strana", "obimValjka", "brojBoja", "klise", "precnikHilzne", "smerOdmotavanja", "stamparija"].map(k => (
+                                <Input key={k} label={k} value={(form.kesa.stampa || {})[k] || ""} onChange={v => update(`kesa.stampa.${k}`, v)} />
+                            ))}
+                        </Grid>
+                        <div style={{ marginTop: 10 }}>
+                            <Input label="📝 Napomena (štampa) — ide na nalog za štampu" value={(form.kesa.stampa || {}).napomena || ""} onChange={v => update("kesa.stampa.napomena", v)} placeholder="napomena za štampu..." />
+                        </div>
+                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                            <BojeStampeEditor value={(form.kesa.stampa || {}).boje} onChange={v => update("kesa.stampa.boje", v)} />
+                        </div>
+                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                            <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
+                            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                                Učitaj sliku dizajna, pa je okreni (↺ −90° / ↻ +90°), zrcali ili smanji/uvećaj (Širina/Visina %). Prikazuje se na rolni ispod i u polju „Štampa" na skici kese.
+                            </div>
+                            <RolnaDizajnEditor value={(form.kesa.stampa || {}).dizajn || {}} onChange={v => update("kesa.stampa.dizajn", v)} />
+                        </div>
+                    </Section>
+                )}
 
                 <Section title={t("tmpl.crtez")} color={BLUE}>
                     <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />

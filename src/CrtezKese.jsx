@@ -79,6 +79,7 @@ export function kesaToConfig(kesa = {}) {
         klMm: klapnaMm || 30,
         extraMm: dno === "faltna" ? (faltaMm || 30) : 30,
         stampaText: kesa.stampaText || "",
+        stampaDizajn: kesa.stampaDizajn || null,   // uploadovana slika dizajna štampe
         legend: kesa.legend || [],
     };
 }
@@ -90,6 +91,7 @@ const DEFAULTS = {
     poprecniVar: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     positions: {},
     stampaText: "",
+    stampaDizajn: null,
     perf: "none", komore: 1, sirina: 95, duzina: 175, klMm: 30, extraMm: 30,
 };
 
@@ -153,8 +155,31 @@ function buildSvgPro(c, u, lang = "sr") {
     const py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + bh * .3;
     if (c.stampa) {
         g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
-        const lines = String(c.stampaText || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
-        for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+        const dz = c.stampaDizajn || null;
+        const dzUrl = dz && (dz.url || dz.src || "");
+        if (dzUrl) {
+            // UPLOADOVANA SLIKA DIZAJNA — rotacija / skala / zrcalo, isečena na polje štampe (kao kod folije)
+            const rot = Number(dz.rotacija) || 0;
+            const zr = (Number(dz.zrcalo) === -1) ? -1 : 1;
+            const spct = (Number(dz.sirinaPct) || 100) / 100;
+            const vpct = (Number(dz.visinaPct) || 100) / 100;
+            // na 90°/270° zamena širine i visine da slika i dalje "leži" u polju
+            const rotated = (rot % 180) === 90;
+            const boxW = rotated ? ph : pw, boxH = rotated ? pw : ph;
+            const iw = boxW * spct, ih = boxH * vpct;
+            const cxR = px + pw / 2, cyR = py + ph / 2;
+            const ix = cxR - iw / 2, iy = cyR - ih / 2;
+            const clipId = "stclip" + u;
+            d += `<clipPath id="${clipId}"><rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2"/></clipPath>`;
+            let tf = `rotate(${rot} ${q(cxR)} ${q(cyR)})`;
+            if (zr === -1) tf += ` translate(${q(2 * cxR)} 0) scale(-1 1)`;
+            const safeUrl = String(dzUrl).replace(/"/g, "&quot;");
+            g += `<g clip-path="url(#${clipId})"><image href="${safeUrl}" x="${q(ix)}" y="${q(iy)}" width="${q(iw)}" height="${q(ih)}" transform="${tf}" preserveAspectRatio="xMidYMid meet"/></g>`;
+            g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="none" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
+        } else {
+            const lines = String(c.stampaText || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
+            for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+        }
     }
     const pvY = y0 + bh * .62;
     if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
