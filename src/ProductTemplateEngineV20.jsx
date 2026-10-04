@@ -2328,7 +2328,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 naziv: record.naziv,
                 kupac: record.kupac || null,
                 sku: record.data?.sifra || null,
-                status: "Aktivan",
+                status: "aktivan",
                 sir: Number(record.data?.idealnaSirinaMaterijala || record.data?.dimenzijaSirina) || null,
                 met: Number(record.data?.porucenaKolicina) || null,
                 mats: layers,
@@ -3100,14 +3100,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     <Section title={t("tmpl.stampa_param", "Parametri štampe")} color="#7c3aed">
                         <Grid cols={4}>
                             {["masina", "strana", "obimValjka", "brojBoja", "klise", "precnikHilzne", "smerOdmotavanja", "stamparija"].map(k => (
-                                <Input key={k} label={k} value={(form.kesa.stampa || {})[k] || ""} onChange={v => update(`kesa.stampa.${k}`, v)} />
+                                k === "brojBoja"
+                                    ? <div key={k}>
+                                        <label style={labelStyle()}>Broj boja (auto)</label>
+                                        <input readOnly value={(((form.kesa.stampa || {}).boje || []).length) || ""} title="Automatski se računa iz liste boja ispod"
+                                            style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }} placeholder="—" />
+                                    </div>
+                                    : <Input key={k} label={k} value={(form.kesa.stampa || {})[k] || ""} onChange={v => update(`kesa.stampa.${k}`, v)} />
                             ))}
                         </Grid>
                         <div style={{ marginTop: 10 }}>
                             <Input label="📝 Napomena (štampa) — ide na nalog za štampu" value={(form.kesa.stampa || {}).napomena || ""} onChange={v => update("kesa.stampa.napomena", v)} placeholder="napomena za štampu..." />
                         </div>
                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
-                            <BojeStampeEditor value={(form.kesa.stampa || {}).boje} onChange={v => update("kesa.stampa.boje", v)} />
+                            <BojeStampeEditor value={(form.kesa.stampa || {}).boje} onChange={v => { update("kesa.stampa.boje", v); update("kesa.stampa.brojBoja", String((v || []).length || "")); }} />
                         </div>
                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                             <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 8 }}>Dizajn za štampu — finalna rolna (JPEG / PNG / PDF)</div>
