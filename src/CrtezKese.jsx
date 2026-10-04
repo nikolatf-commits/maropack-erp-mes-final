@@ -140,14 +140,12 @@ function buildSvgPro(c, u, lang = "sr") {
     } else if (vrh === "header") {
         g += `<rect x="${q(kx0)}" y="${q(ky)}" width="${q(kx1 - kx0)}" height="${q(kl)}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
     }
-    if (c.adh && (vrh === "klapna" || vrh === "header")) { const ay = ky + Math.max(kl * .5, 6); g += `<rect x="${q(kx0 + 7)}" y="${q(ay)}" width="${q(kx1 - kx0 - 14)}" height="4" rx="1.5" fill="#fde2e2" stroke="${ACC}" stroke-width=".9"/>`; }
     const mm = (v) => num(v) * s;
     const has = (o, ff) => o && o[ff] !== "" && o[ff] != null && !isNaN(num(o[ff]));
     const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
     const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
     const ey = has(eV, "odVrha") ? eTop + mm(eV.odVrha) : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
-    if (c.euroloch) g += euroPath(ex, ey, eW);
     const psx = (P.stampa || {});
     const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .56;
     const ph = has(psx, "visina") ? mm(psx.visina) : bh * .19;
@@ -181,6 +179,10 @@ function buildSvgPro(c, u, lang = "sr") {
             for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
         }
     }
+    // OPCIJE (adh traka, eurozumba, ...) se crtaju POSLE slike štampe, da je "pregaze"
+    // i ostanu vidljive — ranije su išle pre slike pa ih je slika prekrivala.
+    if (c.adh && (vrh === "klapna" || vrh === "header")) { const ay = ky + Math.max(kl * .5, 6); g += `<rect x="${q(kx0 + 7)}" y="${q(ay)}" width="${q(kx1 - kx0 - 14)}" height="4" rx="1.5" fill="#fde2e2" stroke="${ACC}" stroke-width=".9"/>`; }
+    if (c.euroloch) g += euroPath(ex, ey, eW);
     const pvY = y0 + bh * .62;
     if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
     if (c.anleger) g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 5)}" width="${q(bw - 16)}" height="5" rx="2" fill="#dbeafe" stroke="${BLUE}" stroke-width=".9"/>`;

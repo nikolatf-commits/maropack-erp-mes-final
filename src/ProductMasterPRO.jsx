@@ -10,12 +10,15 @@ const RED = "#dc2626";
 
 const sampleProducts = [];
 
-// Mogući statusi proizvoda (menja se iz zaglavlja)
-const STATUS_OPCIJE = ["Aktivan", "Razvoj", "Stop"];
-// Tipovi perforacije (izmenljivo u tabu Perforacija)
-const PERF_TIPOVI = ["Nema", "Mikroperforacija", "Eurozumba", "KPDF", "Poprečna perforacija", "Perforacija vrućim iglama"];
-function perfLbl() { return { display: "block", fontSize: 11, color: "#64748b", fontWeight: 900, textTransform: "uppercase", letterSpacing: .3, marginBottom: 5 }; }
-function statusKanon(s) { const x = String(s || "").toLowerCase(); return x.includes("raz") ? "Razvoj" : x.includes("stop") ? "Stop" : "Aktivan"; }
+// Mogući statusi proizvoda (menja se iz zaglavlja). Vrednost u bazi je mala slova
+// (da prođe kroz check-constraint "proizvodi_status_check"); labela je za prikaz.
+const STATUS_OPCIJE = [
+    { v: "aktivan", l: "Aktivan" },
+    { v: "razvoj", l: "Razvoj" },
+    { v: "stop", l: "Stop" },
+];
+function statusKanon(s) { const x = String(s || "").toLowerCase(); return x.includes("raz") ? "razvoj" : x.includes("stop") ? "stop" : "aktivan"; }
+function statusBoja(v) { const x = statusKanon(v); return x === "razvoj" ? ORANGE : x === "stop" ? RED : GREEN; }
 
 function normalizeTip(tip) {
     const t = String(tip || "").toLowerCase();
@@ -453,10 +456,8 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     const [docsLoad, setDocsLoad] = useState(false);
     const [uploadingTip, setUploadingTip] = useState("");
     const [viewDoc, setViewDoc] = useState(null);
-    // status + perforacija (izmenljivo)
+    // status (izmenljivo iz zaglavlja)
     const [savingStatus, setSavingStatus] = useState(false);
-    const [perfDraft, setPerfDraft] = useState(null);
-    const [savingPerf, setSavingPerf] = useState(false);
 
     // upiši događaj u istoriju (tabela: proizvod_istorija)
     async function zabeleziIstoriju(product, akcija, detalj) {
@@ -498,19 +499,6 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
         if ((tab === "dok" || tab === "perforacija") && selected) loadDocs(selected);
         // eslint-disable-next-line
     }, [tab, selected?.db_id, selected?.id]);
-
-    // pripremi formu perforacije kad se otvori tab "perforacija" ili promeni proizvod
-    useEffect(() => {
-        if (tab === "perforacija" && selected) {
-            const p = selected.perforacija || {};
-            setPerfDraft({
-                tip: (p.tip && p.tip !== "—") ? p.tip : "Nema",
-                odnos: (p.odnos && p.odnos !== "—") ? p.odnos : "",
-                pozicija: (p.pozicija && p.pozicija !== "—") ? p.pozicija : ""
-            });
-        }
-        // eslint-disable-next-line
-    }, [tab, selected?.id]);
 
     // ---- DOKUMENTACIJA: učitavanje / upload / brisanje ----
     async function loadDocs(product) {
@@ -608,38 +596,15 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             if (setDb) setDb(prev => ({ ...prev, proizvodi: (prev?.proizvodi || []).map(p => p.id === selected.db_id ? { ...p, status: noviStatus } : p) }));
             zabeleziIstoriju(selected, "Promenjen status", noviStatus);
             msg && msg("Status promenjen u: " + noviStatus, "ok");
-        } catch (e) { msg && msg("Status nije promenjen: " + (e?.message || e), "err"); }
+        } catch (e) {
+            const m = String(e?.message || e);
+            if (/status_check|check constraint/i.test(m)) {
+                msg && msg("Baza ne dozvoljava ovaj status. Pokreni SQL: ukloni/proširi constraint „proizvodi_status_check\" (vrednosti: aktivan, razvoj, stop).", "err");
+            } else { msg && msg("Status nije promenjen: " + m, "err"); }
+        }
         finally { setSavingStatus(false); }
     }
 
-    // ---- PERFORACIJA (izmena + čuvanje) ----
-    async function sacuvajPerforaciju() {
-        if (!selected || !perfDraft) return;
-        if (!selected.db_id) { msg && msg("Proizvod nema ID u bazi — perforacija se ne može sačuvati.", "err"); return; }
-        setSavingPerf(true);
-        try {
-            const tip = normalizeTip(selected.tip);
-            // Ažuriraj postojeći data (template) ili ga izgradi iz proizvoda
-            let baseData;
-            try { baseData = (selected.raw && selected.raw.data) ? JSON.parse(JSON.stringify(selected.raw.data)) : buildTemplateFromProduct(selected); }
-            catch (e) { baseData = buildTemplateFromProduct(selected); }
-            baseData[tip] = baseData[tip] || {};
-            const ima = perfDraft.tip && perfDraft.tip !== "Nema";
-            baseData[tip].kpdf = {
-                ...(baseData[tip].kpdf || {}),
-                enabled: !!ima,
-                tip: perfDraft.tip || "Nema",
-                odnos: perfDraft.odnos || "",
-                pozicija: perfDraft.pozicija || ""
-            };
-            const { error } = await supabase.from("proizvodi").update({ data: baseData }).eq("id", selected.db_id);
-            if (error) throw error;
-            if (setDb) setDb(prev => ({ ...prev, proizvodi: (prev?.proizvodi || []).map(p => p.id === selected.db_id ? { ...p, data: baseData } : p) }));
-            zabeleziIstoriju(selected, "Izmenjena perforacija", ima ? (perfDraft.tip + (perfDraft.odnos ? " · " + perfDraft.odnos : "") + (perfDraft.pozicija ? " · " + perfDraft.pozicija : "")) : "Nema perforaciju");
-            msg && msg("Perforacija sačuvana.", "ok");
-        } catch (e) { msg && msg("Perforacija nije sačuvana: " + (e?.message || e), "err"); }
-        finally { setSavingPerf(false); }
-    }
     const stats = {
         total: products.length,
         folija: products.filter(p => p.tip === "folija").length,
@@ -812,13 +777,18 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                                 <div style={{ marginTop: 5, opacity: .9, fontWeight: 700, fontSize: 13 }}>🏢 {selected.kupac} · 🏷️ Šifra: {selected.sifra || "—"}</div>
                                 <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
                                     {[["🎞️", selected.tip], ["📌", selected.verzija], ["📅", selected.datum]].map(([ik, v], i) => v ? <span key={i} style={{ background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.25)", borderRadius: 999, padding: "5px 13px", fontSize: 10.5, fontWeight: 900 }}>{ik} {String(v).toUpperCase()}</span> : null)}
-                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.25)", borderRadius: 999, padding: "3px 6px 3px 11px", fontSize: 10.5, fontWeight: 900 }}>
-                                        🟢 STATUS:
-                                        <select value={statusKanon(selected.status)} onChange={e => promeniStatus(e.target.value)} disabled={savingStatus}
-                                            style={{ background: "#fff", color: "#0f172a", border: "none", borderRadius: 999, padding: "4px 8px", fontSize: 10.5, fontWeight: 900, cursor: savingStatus ? "wait" : "pointer" }}>
-                                            {STATUS_OPCIJE.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
-                                        </select>
-                                    </span>
+                                    {(() => {
+                                        const sv = statusKanon(selected.status);
+                                        const col = statusBoja(sv);
+                                        return <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", borderRadius: 999, padding: "4px 8px 4px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+                                            <span style={{ width: 9, height: 9, borderRadius: "50%", background: col }} />
+                                            <span style={{ fontSize: 10, fontWeight: 900, color: "#64748b", textTransform: "uppercase", letterSpacing: .3 }}>Status</span>
+                                            <select value={sv} onChange={e => promeniStatus(e.target.value)} disabled={savingStatus}
+                                                style={{ border: "none", background: "transparent", color: col, fontSize: 11.5, fontWeight: 900, cursor: savingStatus ? "wait" : "pointer", outline: "none", textTransform: "uppercase" }}>
+                                                {STATUS_OPCIJE.map(s => <option key={s.v} value={s.v} style={{ color: "#0f172a" }}>{s.l}</option>)}
+                                            </select>
+                                        </span>;
+                                    })()}
                                 </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -839,43 +809,12 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                         </div>}
                         {tab === "materijali" && <><SectionTitle title="Materijali proizvoda" note="Ista Material PRO tabela kao u kalkulacijama i template-ima. Bez Žuta, ostaju samo Š i L." /><MaterialTable rows={selected.materijali} /></>}
                         {tab === "stampa" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Štampa / lak / kliše" /><InfoRow label="Broj boja" value={selected.stampa.boje} /><InfoRow label="Kliše" value={selected.stampa.klise} /><InfoRow label="Lak" value={selected.stampa.lak} /><InfoRow label="Napomena" value={selected.stampa.napomena} /></Card>}
-                        {tab === "perforacija" && (() => {
-                            const d = perfDraft || { tip: "Nema", odnos: "", pozicija: "" };
-                            const ima = d.tip && d.tip !== "Nema";
-                            return <Card style={{ boxShadow: "none", padding: 16 }}>
-                                <SectionTitle title="Perforacija / KPDF" note="Izaberi tip, unesi odnos i poziciju, pa sačuvaj. Čuva se uz proizvod i vidi se u nalozima/kalkulaciji." />
-                                <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 16px" }}>
-                                    {ima
-                                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg,#dcfce7,#bbf7d0)", color: "#15803d", border: "1px solid #86efac", borderRadius: 10, padding: "8px 15px", fontWeight: 900, fontSize: 14, boxShadow: "0 2px 8px rgba(22,163,74,.15)" }}>✂️ IMA PERFORACIJU</span>
-                                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#f8fafc", color: "#94a3b8", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 15px", fontWeight: 800, fontSize: 14 }}>— nema perforaciju</span>}
-                                </div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
-                                    <div>
-                                        <label style={perfLbl()}>Tip perforacije</label>
-                                        <select value={d.tip} onChange={e => setPerfDraft({ ...d, tip: e.target.value })} style={inputStyle()}>
-                                            {PERF_TIPOVI.map(t => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={perfLbl()}>Odnos</label>
-                                        <input value={d.odnos} onChange={e => setPerfDraft({ ...d, odnos: e.target.value })} placeholder="npr. 30/60" style={inputStyle()} disabled={!ima} />
-                                    </div>
-                                    <div>
-                                        <label style={perfLbl()}>Pozicija</label>
-                                        <input value={d.pozicija} onChange={e => setPerfDraft({ ...d, pozicija: e.target.value })} placeholder="npr. sredina / 100 mm od vrha" style={inputStyle()} disabled={!ima} />
-                                    </div>
-                                </div>
-                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-                                    <button disabled={savingPerf} onClick={sacuvajPerforaciju} style={btnStyle(savingPerf ? "#93c5fd" : BLUE, "#fff", savingPerf ? "#93c5fd" : BLUE)}>{savingPerf ? "Čuvam…" : "💾 Sačuvaj perforaciju"}</button>
-                                </div>
-                                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px dashed #e2e8f0" }}>
-                                    <SectionTitle title="KPDF fajl / crtež perforacije" note="Učitaj PDF ili sliku — otvaranje u A4 prikazu, štampa i preuzimanje (isto kao u Dokumentaciji)." />
-                                    <div style={{ maxWidth: 440 }}>
-                                        <DocCardPro tip={DOK_TIPOVI[0]} list={(docs || []).filter(d => d.tip === "kpdf")} loading={docsLoad} uploading={uploadingTip === "kpdf"} onUpload={handleUpload} onOpen={setViewDoc} onDelete={handleDeleteDoc} />
-                                    </div>
-                                </div>
-                            </Card>;
-                        })()}
+                        {tab === "perforacija" && <Card style={{ boxShadow: "none", padding: 16 }}>
+                            <SectionTitle title="KPDF fajl / crtež perforacije" note="Učitaj PDF ili sliku — otvaranje u A4 prikazu, štampa i preuzimanje (isto kao u Dokumentaciji)." />
+                            <div style={{ maxWidth: 440 }}>
+                                <DocCardPro tip={DOK_TIPOVI[0]} list={(docs || []).filter(d => d.tip === "kpdf")} loading={docsLoad} uploading={uploadingTip === "kpdf"} onUpload={handleUpload} onOpen={setViewDoc} onDelete={handleDeleteDoc} />
+                            </div>
+                        </Card>}
                         {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
                         {tab === "dok" && <>
                             <SectionTitle title="Dokumentacija" note="Učitaj KPDF, tehnički list i slike/crteže (PDF ili slika). Otvaranje je u A4 prikazu, sa štampom i preuzimanjem." />
