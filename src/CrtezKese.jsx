@@ -109,8 +109,8 @@ function buildSvgPro(c, u, lang = "sr") {
     const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
     const legend = (c.legend || []).filter((l) => l && l.n);
-    const W = 520, H = 1040;
-    const s = Math.min(150 / sirina, 300 / duzina);
+    const W = 520, H = 1130;
+    const s = Math.min(215 / sirina, 320 / duzina);
     const bw = sirina * s, bh = duzina * s;
     const kl = vrh === "klapna" ? Math.min(klMm * s, 64) : (vrh === "header" ? Math.min(extraMm * s, 52) : 0);
     const cx = 250, y0 = 150 + kl, x0 = cx - bw / 2, x1 = cx + bw / 2, y1 = y0 + bh, bulge = Math.min(7, bw * 0.05);
@@ -122,7 +122,7 @@ function buildSvgPro(c, u, lang = "sr") {
     const euroPath = (ecx, ecy, WW) => { const HH = Math.max(WW * 0.34, 5), Rb = Math.max(WW * 0.16, 3), r = Math.min(HH / 2, 4), left = ecx - WW / 2, right = ecx + WW / 2, top = ecy - HH / 2, bot = ecy + HH / 2; return `<path d="M ${q(left)} ${q(top + r)} Q ${q(left)} ${q(top)} ${q(left + r)} ${q(top)} L ${q(ecx - Rb)} ${q(top)} A ${q(Rb)} ${q(Rb)} 0 0 1 ${q(ecx + Rb)} ${q(top)} L ${q(right - r)} ${q(top)} Q ${q(right)} ${q(top)} ${q(right)} ${q(top + r)} L ${q(right)} ${q(bot - r)} Q ${q(right)} ${q(bot)} ${q(right - r)} ${q(bot)} L ${q(left + r)} ${q(bot)} Q ${q(left)} ${q(bot)} ${q(left)} ${q(bot - r)} Z" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`; };
 
     let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern>`;
-    let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="${W}" height="740" fill="url(#grid${u})"/>`;
+    let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="${W}" height="770" fill="url(#grid${u})"/>`;
     g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter">${T("crtez.prednji")}</text>`;
     g += `<ellipse cx="${cx}" cy="${q(y1 + 11)}" rx="${q(bw * 0.5)}" ry="7" fill="${INK}" opacity=".1"/>`;
     const body = `M ${q(x0)} ${q(y0)} C ${q(x0 - bulge)} ${q(y0 + bh * .3)} ${q(x0 - bulge)} ${q(y0 + bh * .7)} ${q(x0)} ${q(y1)} L ${q(x1)} ${q(y1)} C ${q(x1 + bulge)} ${q(y0 + bh * .7)} ${q(x1 + bulge)} ${q(y0 + bh * .3)} ${q(x1)} ${q(y0)} Z`;
@@ -222,7 +222,7 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".8"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
         by += 34;
     });
-    const sx = 90, syT = 560, sD = (dno === "faltna" || dno === "kreuz") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
+    const sx = 90, syT = 600, sD = (dno === "faltna" || dno === "kreuz") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
     g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.presek")}</text>`;
     if (dno === "faltna" || dno === "kreuz") {
         g += `<path d="M ${sx} ${sby} L ${sx} ${sby - 14} C ${sx} ${sby - sH * .5} ${sx + sD / 2 - topW / 2} ${syT + 18} ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 + topW / 2} ${syT + 10} C ${sx + sD / 2 + topW / 2} ${syT + 18} ${sx + sD} ${sby - sH * .5} ${sx + sD} ${sby - 14} L ${sx + sD} ${sby} Z" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
@@ -234,7 +234,7 @@ function buildSvgPro(c, u, lang = "sr") {
         if (dno === "naht") { g += `<rect x="${sx}" y="${sby - 8}" width="${sD}" height="8" fill="url(#seal${u})"/><line x1="${sx}" y1="${sby - 8}" x2="${sx + sD}" y2="${sby - 8}" stroke="${INK}" stroke-width="1.2"/>`; }
         else g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/>`;
     }
-    const bx = 320, bY = 575, bW = 170, bDp = (dno === "faltna" || dno === "kreuz") ? 92 : 26;
+    const bx = 320, bY = 615, bW = 170, bDp = (dno === "faltna" || dno === "kreuz") ? 92 : 26;
     g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.odozdo")}</text>`;
     g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.6"/>`;
     if (dno === "faltna") {
@@ -247,7 +247,7 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     g += ext(bx, bY + bDp, bx, bY + bDp + 28) + ext(bx + bW, bY + bDp, bx + bW, bY + bDp + 28) + dH(bx, bx + bW, bY + bDp + 22, `${sirina}`);
     if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, `${extraMm}`);
-    const PADX = 30, RXX = W - 30, BTY = 758;
+    const PADX = 30, RXX = W - 30, BTY = 800;
     g += `<line x1="${PADX}" y1="${BTY}" x2="${RXX}" y2="${BTY}" stroke="#111827" stroke-width="1"/>`;
     g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text>`;
     g += `<text x="${PADX}" y="${BTY + 44}" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
