@@ -172,6 +172,13 @@ export function toCrtezKesa(kesa = {}) {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }
     });
+    // Štampa se prikazuje na skici i kada je uključena preko čekboksa kod materijala
+    // (kesa.stampa.ima) ili kada postoji učitan dizajn — ne samo kad je "Štampa" opcija iz liste.
+    const st = kesa.stampa || {};
+    if (st.ima || (st.dizajn && st.dizajn.url)) {
+        stdOpt.stampa = true;
+        if (!stdPos.stampa) stdPos.stampa = {};
+    }
     const legend = [];
     KESA_OPCIJE.forEach((o) => {
         if (!opt[o.k] || o.food) return;

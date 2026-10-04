@@ -3088,6 +3088,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                                                     {op.food && (
                                                         <div style={{ fontSize: 11, color: "#065f46", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "6px 8px", lineHeight: 1.4 }}>{FOOD_TEXT}</div>
                                                     )}
+                                                    {op.k === "stampa" && (
+                                                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #c4b5fd" }}>
+                                                            <div style={{ fontWeight: 900, color: "#7c3aed", marginBottom: 6, fontSize: 12 }}>Slika dizajna štampe (ide na skicu kese)</div>
+                                                            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>Učitaj sliku (JPG/PNG/PDF), pa je okreni (↺ −90° / ↻ +90°), zrcali ili smanji/uvećaj (Širina/Visina %). Prikazuje se u polju „Štampa" na skici kese.</div>
+                                                            <RolnaDizajnEditor value={(form.kesa.stampa || {}).dizajn || {}} onChange={v => update("kesa.stampa.dizajn", v)} />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
