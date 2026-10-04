@@ -372,6 +372,51 @@ function tdStyle(center = false) {
     return { padding: "11px 10px", borderBottom: "1px solid #eef2f7", color: "#334155", fontWeight: 700, textAlign: center ? "center" : "left", whiteSpace: "nowrap" };
 }
 
+// =====================================================================
+// DOKUMENTACIJA — upload / otvaranje (A4) / štampa / preuzimanje
+// Čuvanje: 1) Supabase Storage (bucket "dokumentacija") + tabela
+//          "proizvod_dokumenti";  2) fallback: base64 u localStorage
+//          (radi odmah, ali je vidljivo samo na tom računaru/pregledaču).
+// =====================================================================
+const DOK_BUCKET = "dokumentacija";
+const DOK_TIPOVI = [
+    { k: "kpdf", l: "KPDF", icon: "📄", accept: "application/pdf,image/*" },
+    { k: "tehnicki", l: "Tehnički list", icon: "📋", accept: "application/pdf,image/*" },
+    { k: "slike", l: "Slike / crteži", icon: "🖼️", accept: "image/*,application/pdf" },
+];
+function fileToDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+    });
+}
+function localDocsKey(product) { return "maropack_docs_" + (product?.db_id || product?.id || "x"); }
+function readLocalDocs(product) {
+    try { const raw = localStorage.getItem(localDocsKey(product)); const a = raw ? JSON.parse(raw) : []; return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function writeLocalDocs(product, docs) {
+    try { localStorage.setItem(localDocsKey(product), JSON.stringify(docs)); return true; } catch (e) { return false; }
+}
+function isPdfDoc(d) {
+    return String(d?.mime || "").includes("pdf") || /^data:application\/pdf/i.test(String(d?.url || "")) || /\.pdf($|\?|#|;)/i.test(String(d?.url || ""));
+}
+function downloadDoc(d) {
+    try { const a = document.createElement("a"); a.href = d.url; a.download = d.naziv || "dokument"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { window.open(d.url, "_blank"); }
+}
+function printDoc(d) {
+    const w = window.open("", "_blank", "width=920,height=1200");
+    if (!w) { alert("Dozvoli iskačuće prozore (pop-up) da bi štampa radila."); return; }
+    const naslov = String(d.naziv || "Dokument").replace(/[<>]/g, "");
+    if (isPdfDoc(d)) {
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100vh}</style></head><body><iframe id="f" src="' + d.url + '"></iframe><script>var f=document.getElementById("f");f.onload=function(){setTimeout(function(){try{f.contentWindow.focus();f.contentWindow.print();}catch(e){try{window.print();}catch(_){}}},500);};<\/script></body></html>');
+    } else {
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>@page{size:A4;margin:10mm}html,body{margin:0}img{width:100%;height:auto;display:block}</style></head><body onload="setTimeout(function(){window.print();},350)"><img src="' + d.url + '"/></body></html>');
+    }
+    w.document.close();
+}
+
 export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     const auth = (() => { try { return useAuth(); } catch (e) { return {}; } })();
     const trenutniKorisnik = auth?.user?.ime || auth?.userProfile?.ime || auth?.user?.email || "nepoznat";
@@ -396,6 +441,11 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     const [selectedId, setSelectedId] = useState(null);
     const [istorija, setIstorija] = useState([]);
     const [istorijaLoad, setIstorijaLoad] = useState(false);
+    // Dokumentacija (KPDF / Tehnički list / Slike-crteži)
+    const [docs, setDocs] = useState([]);
+    const [docsLoad, setDocsLoad] = useState(false);
+    const [uploadingTip, setUploadingTip] = useState("");
+    const [viewDoc, setViewDoc] = useState(null);
 
     // upiši događaj u istoriju (tabela: proizvod_istorija)
     async function zabeleziIstoriju(product, akcija, detalj) {
@@ -431,6 +481,97 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     useEffect(() => {
         if (tab === "istorija" && selected) ucitajIstoriju(selected);
     }, [tab, selected?.db_id]);
+
+    // učitaj dokumentaciju kad se otvori tab "dok" ili promeni proizvod
+    useEffect(() => {
+        if (tab === "dok" && selected) loadDocs(selected);
+        // eslint-disable-next-line
+    }, [tab, selected?.db_id, selected?.id]);
+
+    // ---- DOKUMENTACIJA: učitavanje / upload / brisanje ----
+    async function loadDocs(product) {
+        if (!product) { setDocs([]); return; }
+        setDocsLoad(true);
+        let dbDocs = [];
+        try {
+            if (product.db_id) {
+                const { data, error } = await supabase.from("proizvod_dokumenti")
+                    .select("*").eq("proizvod_id", product.db_id).order("created_at", { ascending: false });
+                if (error) throw error;
+                dbDocs = (data || []).map(r => ({
+                    id: r.id, tip: r.tip, naziv: r.naziv, url: r.url, mime: r.mime,
+                    created_at: r.created_at, korisnik: r.korisnik, storage_path: r.storage_path, source: "db"
+                }));
+            }
+        } catch (e) { dbDocs = []; }
+        const localDocs = readLocalDocs(product).map(d => ({ ...d, source: "local" }));
+        setDocs([...dbDocs, ...localDocs]);
+        setDocsLoad(false);
+    }
+
+    async function handleUpload(tip, file) {
+        if (!file || !selected) return;
+        // 15 MB granica (base64 u bazi/localStorage ume da pukne na većem)
+        if (file.size && file.size > 15 * 1024 * 1024) {
+            msg && msg("Fajl je veći od 15 MB — smanji ga ili koristi Supabase Storage.", "err");
+            return;
+        }
+        setUploadingTip(tip);
+        const naziv = file.name || (tip + "-dokument");
+        const mime = file.type || "";
+        try {
+            let kakoSacuvano = null;
+            // 1) Supabase Storage + tabela proizvod_dokumenti
+            try {
+                const ext = (naziv.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+                const path = "proizvod_" + (selected.db_id || selected.id) + "/" + tip + "_" + Date.now() + "." + ext;
+                const up = await supabase.storage.from(DOK_BUCKET).upload(path, file, { upsert: true, contentType: mime || undefined });
+                if (up.error) throw up.error;
+                const pub = supabase.storage.from(DOK_BUCKET).getPublicUrl(path);
+                const url = pub?.data?.publicUrl;
+                if (!url) throw new Error("Nema javnog URL-a (bucket mora biti public).");
+                const ins = await supabase.from("proizvod_dokumenti").insert([{
+                    proizvod_id: selected.db_id || null,
+                    proizvod_naziv: selected.naziv || "",
+                    tip, naziv, url, storage_path: path, mime,
+                    velicina: file.size || null,
+                    korisnik: trenutniKorisnik,
+                    created_at: new Date().toISOString()
+                }]).select();
+                if (ins.error) throw ins.error;
+                kakoSacuvano = "db";
+            } catch (eStore) {
+                // 2) Fallback: base64 u localStorage (radi odmah, lokalno)
+                const dataUrl = await fileToDataURL(file);
+                const local = readLocalDocs(selected);
+                local.unshift({ id: "loc-" + Date.now(), tip, naziv, url: dataUrl, mime, created_at: new Date().toISOString(), korisnik: trenutniKorisnik });
+                const ok = writeLocalDocs(selected, local);
+                if (!ok) throw new Error("Lokalno čuvanje nije uspelo (fajl prevelik za pregledač).");
+                kakoSacuvano = "local";
+            }
+            await loadDocs(selected);
+            zabeleziIstoriju(selected, "Dodat dokument", (DOK_TIPOVI.find(x => x.k === tip)?.l || tip) + ": " + naziv);
+            msg && msg(kakoSacuvano === "db" ? "Dokument sačuvan na server." : "Dokument sačuvan lokalno (uključi Supabase Storage za deljenje među korisnicima).", "ok");
+        } catch (e) {
+            msg && msg("Greška pri čuvanju dokumenta: " + (e?.message || e), "err");
+        } finally { setUploadingTip(""); }
+    }
+
+    async function handleDeleteDoc(doc) {
+        if (!doc || !selected) return;
+        if (typeof window !== "undefined" && !window.confirm("Obrisati dokument \"" + (doc.naziv || "") + "\"?")) return;
+        try {
+            if (doc.source === "db") {
+                if (doc.storage_path) { try { await supabase.storage.from(DOK_BUCKET).remove([doc.storage_path]); } catch (e) { } }
+                if (doc.id != null) { await supabase.from("proizvod_dokumenti").delete().eq("id", doc.id); }
+            } else {
+                const local = readLocalDocs(selected).filter(d => d.id !== doc.id);
+                writeLocalDocs(selected, local);
+            }
+            await loadDocs(selected);
+            msg && msg("Dokument obrisan.", "ok");
+        } catch (e) { msg && msg("Brisanje nije uspelo: " + (e?.message || e), "err"); }
+    }
     const stats = {
         total: products.length,
         folija: products.filter(p => p.tip === "folija").length,
@@ -619,7 +760,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                     <div style={{ padding: 18 }}>
                         {tab === "osnovno" && <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 320px", gap: 16 }}>
                             <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Osnovni podaci" /><InfoRow label="Naziv" value={selected.naziv} /><InfoRow label="Kupac" value={selected.kupac} /><InfoRow label="Tip" value={selected.tip} /><InfoRow label="Šifra" value={selected.sifra} /><InfoRow label="Verzija" value={selected.verzija} /><InfoRow label="Datum" value={selected.datum} /></Card>
-                            <Card style={{ boxShadow: "none", padding: 16, background: "#f8fafc" }}><SectionTitle title="Brze akcije" /><ActionRow text="Otvori template" onClick={() => openTemplateFromProduct(selected)} /><ActionRow text="Kreiraj kalkulaciju iz proizvoda" onClick={() => createCalculationFromProduct(selected)} /><ActionRow text="Kreiraj ponudu iz proizvoda" onClick={() => createOfferFromProduct(selected)} /><ActionRow text="Kreiraj naloge iz proizvoda" onClick={() => createOrdersFromProduct(selected)} /><ActionRow text="Dodaj KPDF / PDF dokument" /><ActionRow text="Pogledaj istoriju izmena" /></Card>
+                            <Card style={{ boxShadow: "none", padding: 16, background: "#f8fafc" }}><SectionTitle title="Brze akcije" /><ActionRow text="Otvori template" onClick={() => openTemplateFromProduct(selected)} /><ActionRow text="Kreiraj kalkulaciju iz proizvoda" onClick={() => createCalculationFromProduct(selected)} /><ActionRow text="Kreiraj ponudu iz proizvoda" onClick={() => createOfferFromProduct(selected)} /><ActionRow text="Kreiraj naloge iz proizvoda" onClick={() => createOrdersFromProduct(selected)} /><ActionRow text="Dodaj KPDF / PDF dokument" onClick={() => setTab("dok")} /><ActionRow text="Pogledaj istoriju izmena" onClick={() => setTab("istorija")} /></Card>
                         </div>}
                         {tab === "materijali" && <><SectionTitle title="Materijali proizvoda" note="Ista Material PRO tabela kao u kalkulacijama i template-ima. Bez Žuta, ostaju samo Š i L." /><MaterialTable rows={selected.materijali} /></>}
                         {tab === "stampa" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Štampa / lak / kliše" /><InfoRow label="Broj boja" value={selected.stampa.boje} /><InfoRow label="Kliše" value={selected.stampa.klise} /><InfoRow label="Lak" value={selected.stampa.lak} /><InfoRow label="Napomena" value={selected.stampa.napomena} /></Card>}
@@ -639,7 +780,14 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                             </Card>;
                         })()}
                         {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
-                        {tab === "dok" && <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}><DocCard title="KPDF" value={selected.dokumentacija.kpdf} /><DocCard title="Tehnički list" value={selected.dokumentacija.tehnickiList} /><DocCard title="Slike / crteži" value={selected.dokumentacija.slike} /></div>}
+                        {tab === "dok" && <>
+                            <SectionTitle title="Dokumentacija" note="Učitaj KPDF, tehnički list i slike/crteže (PDF ili slika). Otvaranje je u A4 prikazu, sa štampom i preuzimanjem." />
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}>
+                                {DOK_TIPOVI.map(t => (
+                                    <DocCardPro key={t.k} tip={t} list={(docs || []).filter(d => d.tip === t.k)} loading={docsLoad} uploading={uploadingTip === t.k} onUpload={handleUpload} onOpen={setViewDoc} onDelete={handleDeleteDoc} />
+                                ))}
+                            </div>
+                        </>}
                         {tab === "istorija" && <Card style={{ boxShadow: "none", padding: 16 }}>
                             <SectionTitle title="Istorija izmena" note="Beleže se kreiranja kalkulacija, ponuda, naloga i otvaranja template-a." />
                             {istorijaLoad ? <div style={{ color: "#94a3b8", fontWeight: 700, padding: "10px 2px" }}>Učitavam istoriju…</div>
@@ -664,6 +812,8 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                 </> : <div style={{ padding: 40, color: "#64748b", fontWeight: 800 }}>Nema proizvoda za prikaz.</div>}
             </Card>
         </div>
+
+        {viewDoc && <DokViewerA4 doc={viewDoc} onClose={() => setViewDoc(null)} />}
     </div>;
 }
 
@@ -672,6 +822,57 @@ function Kpi({ label, value, color }) {
 }
 function SectionTitle({ title, note }) { return <div style={{ marginBottom: 12 }}><div style={{ fontSize: 15, fontWeight: 950, color: "#0f172a" }}>{title}</div>{note && <div style={{ fontSize: 12, color: "#64748b", fontWeight: 750, marginTop: 3 }}>{note}</div>}</div>; }
 function ActionRow({ text, onClick }) { return <div onClick={onClick} style={{ padding: "10px 0", borderBottom: "1px solid #e2e8f0", color: "#334155", fontWeight: 850, fontSize: 13, cursor: onClick ? "pointer" : "default" }}>→ {text}</div>; }
+
+// --- Dokumentacija: kartica po tipu (KPDF / Tehnički list / Slike-crteži) ---
+function DocCardPro({ tip, list, loading, uploading, onUpload, onOpen, onDelete }) {
+    const inputRef = React.useRef(null);
+    return <Card style={{ boxShadow: "none", padding: 16, background: "#f8fafc", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 18 }}>{tip.icon}</span>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{tip.l}</div>
+            <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 900, color: (list || []).length ? GREEN : "#94a3b8" }}>{(list || []).length ? (list.length + " fajl" + (list.length > 1 ? "a" : "")) : "—"}</span>
+        </div>
+        <input ref={inputRef} type="file" accept={tip.accept} style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f) onUpload(tip.k, f); e.target.value = ""; }} />
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7, minHeight: 44 }}>
+            {loading ? <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 12 }}>Učitavam…</div>
+                : (list || []).length === 0 ? <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 12 }}>Nije dodat.</div>
+                    : list.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 10px" }}>
+                        <span style={{ fontSize: 15 }}>{isPdfDoc(d) ? "📕" : "🖼️"}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.naziv}</div>
+                            <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>{d.source === "local" ? "lokalno" : "server"}{d.created_at ? " · " + new Date(d.created_at).toLocaleDateString("sr-RS") : ""}</div>
+                        </div>
+                        <button title="Otvori u A4 prikazu" onClick={() => onOpen(d)} style={miniBtn(BLUE)}>Otvori</button>
+                        <button title="Obriši dokument" onClick={() => onDelete(d)} style={miniBtn(RED)}>✕</button>
+                    </div>)}
+        </div>
+        <button disabled={uploading} onClick={() => inputRef.current && inputRef.current.click()} style={{ ...btnStyle(uploading ? "#eef2f7" : "#fff", uploading ? "#94a3b8" : "#334155", "#cbd5e1"), marginTop: 14 }}>{uploading ? "Učitavam…" : "➕ Dodaj (PDF / slika)"}</button>
+    </Card>;
+}
+function miniBtn(color) { return { border: "1px solid " + color + "55", background: color + "12", color, borderRadius: 8, padding: "6px 9px", fontWeight: 900, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }; }
+
+// --- A4 prikaz dokumenta (modal) sa štampom i preuzimanjem ---
+function DokViewerA4({ doc, onClose }) {
+    const pdf = isPdfDoc(doc);
+    return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.78)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", padding: 18, overflow: "auto" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 820, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginBottom: 12, flexWrap: "wrap" }}>
+                <div style={{ color: "#fff", fontWeight: 900, fontSize: 15, flex: 1, minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.naziv}</div>
+                <button onClick={() => printDoc(doc)} style={viewerBtn("#fff", "#0f172a")}>🖨️ Štampaj</button>
+                <button onClick={() => downloadDoc(doc)} style={viewerBtn("#2563eb", "#fff")}>⬇️ Preuzmi</button>
+                <button onClick={onClose} style={viewerBtn("rgba(255,255,255,.2)", "#fff")}>✕ Zatvori</button>
+            </div>
+            <div style={{ width: "100%", background: "#fff", borderRadius: 6, boxShadow: "0 20px 60px rgba(0,0,0,.4)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: pdf ? undefined : "210 / 297" }}>
+                {pdf
+                    ? <iframe title={doc.naziv} src={doc.url} style={{ border: 0, width: "100%", height: "min(1160px, 86vh)" }} />
+                    : <img src={doc.url} alt={doc.naziv} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />}
+            </div>
+            <div style={{ color: "rgba(255,255,255,.7)", fontSize: 11, marginTop: 10, fontWeight: 700 }}>A4 prikaz · klikni van papira za zatvaranje</div>
+        </div>
+    </div>;
+}
+function viewerBtn(bg, color) { return { border: "none", borderRadius: 10, padding: "9px 13px", fontWeight: 900, fontSize: 12, cursor: "pointer", background: bg, color }; }
+
 function DocCard({ title, value }) { return <Card style={{ boxShadow: "none", padding: 18, background: "#f8fafc" }}><div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>{title}</div><div style={{ marginTop: 8, fontSize: 18, color: "#0f172a", fontWeight: 950 }}>{value}</div><button style={{ ...btnStyle("#fff", "#334155", "#cbd5e1"), marginTop: 14 }}>Dodaj / otvori</button></Card>; }
 function inputStyle() { return { width: "100%", boxSizing: "border-box", border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontSize: 13, fontWeight: 750, background: "#fff", color: "#0f172a" }; }
 function btnStyle(bg, color, border) { return { border: `1px solid ${border}`, background: bg, color, borderRadius: 12, padding: "10px 14px", fontWeight: 900, cursor: "pointer", boxShadow: bg === "#fff" ? "none" : "0 10px 20px rgba(37,99,235,.18)" }; }
