@@ -3133,7 +3133,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         </div>
                         <RolnaDizajnEditor value={form.kesa.skicaDizajn || {}} onChange={v => update("kesa.skicaDizajn", v)} hidePreview />
                     </div>
-                    <div style={{ maxWidth: 420, margin: "0 auto" }}>
+                    <div style={{ maxWidth: 720, margin: "0 auto" }}>
                         <CrtezKese config={kesaToConfig(toCrtezKesa(form.kesa))} width="100%" />
                     </div>
                 </Section>

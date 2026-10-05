@@ -109,7 +109,7 @@ function buildSvgPro(c, u, lang = "sr") {
     const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
     const legend = (c.legend || []).filter((l) => l && l.n);
-    const W = 520, H = 1130;
+    const W = 520, H = 1075;
     const s = Math.min(215 / sirina, 320 / duzina);
     const bw = sirina * s, bh = duzina * s;
     const kl = vrh === "klapna" ? Math.min(klMm * s, 64) : (vrh === "header" ? Math.min(extraMm * s, 52) : 0);
@@ -147,10 +147,13 @@ function buildSvgPro(c, u, lang = "sr") {
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
     const ey = has(eV, "odVrha") ? eTop + mm(eV.odVrha) : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
     const psx = (P.stampa || {});
-    const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .56;
-    const ph = has(psx, "visina") ? mm(psx.visina) : bh * .19;
+    // Podrazumevano polje štampe ide od VRHA tela (do klapne) skoro do dna i preko
+    // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
+    // vrednosti (širina/visina/levo/odVrha), one imaju prednost.
+    const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .88;
     const px = has(psx, "levo") ? x0 + mm(psx.levo) : cx - pw / 2;
-    const py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + bh * .3;
+    const py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + 4;
+    const ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, (y1 - py) - 6);
     if (c.stampa) {
         g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
         const dz = c.stampaDizajn || null;
@@ -247,7 +250,7 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     g += ext(bx, bY + bDp, bx, bY + bDp + 28) + ext(bx + bW, bY + bDp, bx + bW, bY + bDp + 28) + dH(bx, bx + bW, bY + bDp + 22, `${sirina}`);
     if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, `${extraMm}`);
-    const PADX = 30, RXX = W - 30, BTY = 800;
+    const PADX = 30, RXX = W - 30, BTY = 785;
     g += `<line x1="${PADX}" y1="${BTY}" x2="${RXX}" y2="${BTY}" stroke="#111827" stroke-width="1"/>`;
     g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text>`;
     g += `<text x="${PADX}" y="${BTY + 44}" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
