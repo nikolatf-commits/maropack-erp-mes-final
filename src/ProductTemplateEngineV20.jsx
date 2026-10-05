@@ -317,6 +317,7 @@ const defaultForm = {
     naziv: "",
     kupac: "",
     sifra: "",
+    pisBroj: "",                  // Broj naloga iz PIS-a — prolazi kroz svaku operaciju
     svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
     napomena: "",
     porucenaKolicina: "",
@@ -523,7 +524,7 @@ function orderMetraze(f) {
         const duzina = n(k.duzina), klapna = n(k.klapna), falta = n(k.falta);
         const W = n(k.sirina);                               // širina kese
         const Lfull = duzina + klapna + falta;               // dužina kese + klapna + falta
-        const sm = n(k.sirinaMaterijala);                    // širina materijala (web)
+        const sm = n(k.sirinaMaterijala) || n(f.idealnaSirinaMaterijala); // širina materijala (web) — jedinstveno polje gore
         const orient = k.orijentacija || "sirina";           // "sirina" = kesa po širini uz materijal
         // ORIJENTACIJA menja šta ide POPREKO materijala (određuje BAN) a šta DUŽ (određuje korak/metražu):
         //  • "sirina": širina kese ide popreko (ban = širina_mat ÷ širina), korak = dužina(×2)+klapna+falta
@@ -532,8 +533,8 @@ function orderMetraze(f) {
         //   Klapna i falta se dodaju samo JEDNOM (nisu deo dupliranja). acrossWeb/ban ostaje nepromenjen.
         const acrossWeb = orient === "duzina" ? Lfull : W;   // popreko → određuje ban (nepromenjeno)
         const alongWeb = orient === "duzina"
-            ? (2 * W)                             // po dužini: širina ide uz traku → ×2 (prednji+zadnji zid)
-            : (2 * duzina + klapna + falta);      // po širini: dužina ide uz traku → ×2, + klapna + falta jednom
+            ? (2 * W)                                 // po dužini: širina ide uz traku → ×2 (prednji+zadnji zid)
+            : (2 * duzina + klapna + 2 * falta);      // po širini: dužina ×2, klapna ×1, FALTA ×2 (dno na oba zida)
         const banAuto = (sm > 0 && acrossWeb > 0) ? Math.max(1, Math.floor(sm / acrossWeb)) : 0;
         // Ručno upisan ban ima prednost; inače se računa iz širine materijala i orijentacije.
         const ban = Math.max(1, n(k.ban) || banAuto || 1);
@@ -1599,7 +1600,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
     function setType(t) {
         // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
         // pa se ne prelivaju iz jednog templejta u drugi.
-        const SHARED = ["sifra", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        const SHARED = ["sifra", "pisBroj", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
         setForm(prev => {
             if (t === prev.type) return prev;
             const next = clone(prev);
@@ -1947,6 +1948,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 status: "ceka_magacin",
                 parametri: {
                     sifra: form.sifra || "",
+                    pis_broj: form.pisBroj || "",
                     template: form,
                     porucena_kolicina: kol,
                     kolicina_za_rad: kolPlus,
@@ -2564,6 +2566,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 <Input label={t("tmpl.naziv")} value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
                 <Select label={t("tmpl.tip_proizvoda")} value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
             </div>
+            {/* Broj naloga iz PIS-a — prolazi kroz svaku operaciju (prikazuje se ispod naslova naloga) */}
+            <div style={{ marginBottom: 12 }}>
+                <Input label="📋 Broj naloga iz PIS-a" value={form.pisBroj} onChange={v => update("pisBroj", v)} placeholder="npr. PIS-2026-12345" />
+            </div>
             {/* Svrha proizvoda — za šta se koristi (AI i ručna pretraga) */}
             <div style={{ marginBottom: 12 }}>
                 <Input label="🎯 Svrha proizvoda (za šta se koristi)" value={form.svrha} onChange={v => update("svrha", v)} placeholder="npr. folija za posudu PE · duplex za sir · kesa za kafu doypack · triplex za paštetu" />
@@ -2952,20 +2958,20 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             <label style={labelStyle()}>{t("tmpl.potrebno_materijala")}</label>
                             <input readOnly value={(() => { const m = orderMetraze(form).kolPlus; return m ? m.toLocaleString("sr-RS") + " m" : "—"; })()}
                                 style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900, cursor: "default" }}
-                                title="kom × (dužina×2 + klapna + falta, ili širina×2) ÷ ban × (1+škart%)" />
+                                title="kom × (dužina×2 + klapna + 2×falta, ili širina×2) ÷ ban × (1+škart%)" />
                         </div>
                     </Grid>
                     {(() => {
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina×2 — duž materijala" : "dužina×2 + klapna + falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina×2 — duž materijala" : "dužina×2 + klapna + 2×falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
                             &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>{m.banAuto ? <span style={{ color: "#64748b" }}> (auto iz širine materijala)</span> : null}
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
                             <div style={{ marginTop: 4, color: "#64748b" }}>
                                 Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide {m.orient === "duzina" ? "dužina kese (određuje ban)" : "širina kese (određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese ×2 (određuje metražu)" : "dužina kese ×2 (određuje metražu)"}.
-                                <div style={{ marginTop: 2, color: "#b45309", fontWeight: 600 }}>Duplo platno (prednji + zadnji zid) → dimenzija duž materijala je ×2. Klapna i falta se dodaju jednom.</div>
+                                <div style={{ marginTop: 2, color: "#b45309", fontWeight: 600 }}>Duplo platno (prednji + zadnji zid) → dimenzija duž materijala je ×2. Klapna ×1; falta ×2 (dno na oba zida).</div>
                             </div>
                             {m.ban > 1 && <div style={{ marginTop: 4, color: "#b91c1c", fontWeight: 700 }}>
                                 Ban {m.ban} → matična rolna je {m.ban}× kraća nego ukupna dužina traka.
@@ -2986,13 +2992,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         {["sirina", "duzina", "klapna", "falta", "takt", "ban", "tolerancija", "grafika"].map(k => (
                             <Input key={k} label={k} value={form.kesa[k]} onChange={v => update(`kesa.${k}`, v)} />
                         ))}
-                        <Input label="Širina materijala (mm)" value={form.kesa.sirinaMaterijala} onChange={v => update("kesa.sirinaMaterijala", v)} placeholder="npr. 760" />
                         <Select label="Orijentacija kese na materijalu" value={form.kesa.orijentacija || "sirina"} onChange={v => update("kesa.orijentacija", v)}
                             options={[{ value: "sirina", label: "Kesa po širini (širina kese uz materijal)" }, { value: "duzina", label: "Kesa po dužini (dužina kese uz materijal)" }]} />
                     </Grid>
                     {(() => {
                         const N_ = v => Number(String(v ?? "").replace(",", ".")) || 0;
-                        const sm = N_(form.kesa.sirinaMaterijala);
+                        const sm = N_(form.kesa.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
                         const orient = form.kesa.orijentacija || "sirina";
                         // acrossWeb (određuje ban) = ista logika kao u orderMetraze
                         const W = N_(form.kesa.sirina);
