@@ -92,7 +92,7 @@ function buildLayers(nalog) {
 
 /* ---------- D (podaci za v6) ---------- */
 function buildD(nalog) {
-    const { od, t, folija, kesa } = getData(nalog);
+    const { od, t, folija, kesa, spulna } = getData(nalog);
     const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
     const jeSpulna = /spul|špul/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const LAY = buildLayers(nalog);
@@ -173,15 +173,20 @@ function buildD(nalog) {
         else if (!eDuzinaRolne && ePrecnik > 0) { eDuzinaRolne = Math.max(0, Math.round(Math.PI * ((ePrecnik / 2) * (ePrecnik / 2) - rr * rr) / debUm)); autoDuzina = true; }
     }
     // Napomene: globalna (templejt/nalog) + po operaciji — prikazuju se u nalozima ako su upisane
+    // Napomena PO OPERACIJI — prvo iz jedinstvenog t.napomene[op] (unosi se u templejtu),
+    // pa fallback na stara mesta (folija/kesa/spulna pod-objekti). Radi za sve tipove.
+    const napOp = (t && t.napomene) || {};
+    const sp = spulna || {};
     const nap = {
-        global: nalog.napomena || od.napomena || t.napomena || folija.napomena || "",
-        materijal: folija.materijalNapomena || (folija.materijal && folija.materijal.napomena) || "",
-        stampa: (st && st.napomena) || "",
-        kasiranje: (folija.kasiranje && folija.kasiranje.napomena) || "",
-        lakiranje: (folija.lakiranje && folija.lakiranje.napomena) || "",
-        rezanje: (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || "",
-        kesa: (kesa && kesa.napomena) || "",
-        spulna: (folija.spulna && folija.spulna.napomena) || ""
+        global: nalog.napomena || od.napomena || t.napomena || folija.napomena || (kesa && kesa.napomena) || sp.napomena || "",
+        materijal: napOp.materijal || folija.materijalNapomena || kesa.materijalNapomena || sp.materijalNapomena || (folija.materijal && folija.materijal.napomena) || "",
+        stampa: napOp.stampa || (st && st.napomena) || "",
+        kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || "",
+        lakiranje: napOp.lakiranje || (folija.lakiranje && folija.lakiranje.napomena) || "",
+        rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || "",
+        kesa: napOp.kesa || (kesa && kesa.napomena) || "",
+        formatiranje: napOp.formatiranje || (folija.formatiranje && folija.formatiranje.napomena) || (sp.formatiranje && sp.formatiranje.napomena) || "",
+        spulna: napOp.spulna || sp.napomena || (folija.spulna && folija.spulna.napomena) || ""
     };
     const ukupnoMetara = (lanes.length || 1) * metriMat;   // zbir metraže svih traka
     return {
@@ -1017,6 +1022,7 @@ function pFormat(D, nalog) {
         '<div class="sec">' + secH(1, c, 'Plan reza (formatiranje)', 'iz naloga') + '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#faf5ff">' + bar + '</div></div>' +
         (plan.length ? '<div class="sec">' + secH(2, c, 'Plan po sloju', '') + tabela + '</div>' : '') +
         (ost > 0 ? '<div class="ulaz">Bočni ostatak <b>' + ost + ' mm</b>: ' + (p0.ostatak_na_stanje ? 'vraća se na stanje kao nova rolna (širina ' + ost + ' mm) — za drugi nalog.' : 'ide na otpad (škart).') + '</div>' : '') +
+        napHtml(D, 'formatiranje') +
         foot('Operater formatirke', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formatiranje');
 }
 

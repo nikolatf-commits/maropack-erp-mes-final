@@ -320,6 +320,8 @@ const defaultForm = {
     pisBroj: "",                  // Broj naloga iz PIS-a — prolazi kroz svaku operaciju
     svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
     napomena: "",
+    // Napomena PO OPERACIJI — unosi se ovde, povlači se na odgovarajući nalog operacije
+    napomene: { materijal: "", stampa: "", lakiranje: "", kasiranje: "", rezanje: "", formatiranje: "", kesa: "", spulna: "" },
     porucenaKolicina: "",
     jedinicaUnosa: "m",          // "m" = metri gotove trake | "kom" | "kg"
     folijaSkart: "5",            // dodatak/škart % na matičnu rolnu (podrazumevano 5)
@@ -2729,6 +2731,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     </div>
                 );
             })()}
+        </Section>
+
+        <Section title="📝 Napomene po operacijama (idu na nalog svake operacije)" color="#0ea5e9">
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                Napomena koju ovde upišeš prikazuje se na nalogu baš te operacije (materijal, štampa, kaširanje, rezanje…). Globalna napomena ide na sve.
+            </div>
+            <Grid cols={2}>
+                {(form.type === "folija"
+                    ? [["materijal", "Materijal"], ["stampa", "Štampa"], ["lakiranje", "Lakiranje"], ["kasiranje", "Kaširanje"], ["rezanje", "Perforacija / Rezanje"]]
+                    : form.type === "kesa"
+                        ? [["materijal", "Materijal"], ["stampa", "Štampa"], ["kasiranje", "Kaširanje"], ["kesa", "Izrada kese"]]
+                        : [["materijal", "Materijal"], ["formatiranje", "Formatiranje"], ["spulna", "Izrada špulne"]]
+                ).map(function (par) {
+                    var k = par[0], l = par[1];
+                    return <Input key={k} label={"📝 " + l} value={(form.napomene || {})[k] || ""} onChange={v => update("napomene." + k, v)} placeholder={"napomena za " + l.toLowerCase() + "…"} />;
+                })}
+            </Grid>
         </Section>
 
         {form.type === "folija" && (
