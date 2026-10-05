@@ -908,6 +908,7 @@ export const ALATI = {
             duzina: { type: "number", description: "Dužina kese u mm" },
             klapna: { type: "number", description: "Klapna u mm" },
             falta: { type: "number", description: "Falta u mm" },
+            orijentacija: { type: "string", description: "Kako kesa leži na materijalu: 'sirina' (po širini, dužina ×2 — podrazumevano) ili 'duzina' (po dužini, širina ×2). Duplo platno: falta ×2, klapna ×1." },
             kolicina: { type: "number", description: "Broj komada" },
             materijali: { type: "array", description: "Slojevi [{tezina g/m², cena €/kg}]", items: { type: "object" } },
             skart: { type: "number" }, marza: { type: "number" },
@@ -988,7 +989,7 @@ export const ALATI = {
             let ulaz, rez;
             if (tip === "kesa") {
                 if (!N(a.duzina)) napomene.push("Kesa bez dužine — proveri mejl.");
-                ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta), kolicina: N(a.kolicina) || 1000, materijali, skart, marza, stampaCena: N(a.stampaCena), transportCena: N(a.transport), ostaleOpcijeEur: N(a.ostaleOpcijeEur) };
+                ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta), orijentacija: a.orijentacija || "sirina", kolicina: N(a.kolicina) || 1000, materijali, skart, marza, stampaCena: N(a.stampaCena), transportCena: N(a.transport), ostaleOpcijeEur: N(a.ostaleOpcijeEur) };
                 rez = kalkulacijaKese(ulaz);
             } else if (tip === "spulna") {
                 ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), tezinaGM2: N(a.tezinaGM2), cenaM2: N(a.cenaM2), skart, marza, kolicina: N(a.kolicina) || 1, transport: N(a.transport) };

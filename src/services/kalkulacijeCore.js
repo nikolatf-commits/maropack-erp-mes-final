@@ -157,10 +157,16 @@ export function kalkulacijaFolije(u = {}) {
 // ═════════════════════════════ KESA ══════════════════════════════════════════
 /**
  * Ulaz: sirina (mm), duzina (mm), klapna (mm), falta (mm), kolicina (kom),
+ *  orijentacija ("sirina" | "duzina" — kako kesa leži na materijalu),
  *  materijali [{tezina g/m², cena €/kg}], skart %, marza %,
  *  stampa (bool) + stampaCena (€/kg), transportCena (€/kg),
  *  klise: { broj, cena }, ojacanje: { sirina, debljina, cena },
  *  adh: { odsecak, cena }, ostaleOpcijeEur (€ / 1000 kom)
+ *
+ *  MATERIJAL — DUPLO PLATNO (prednji + zadnji zid), ISTO kao nalog/metraža:
+ *    po širini (podrazumevano): uz traku = 2×dužina + klapna + 2×falta ; popreko = širina
+ *    po dužini:                 uz traku = 2×širina                      ; popreko = dužina + klapna + falta
+ *    Površina po kesi = (uz traku) × (popreko).  FALTA ×2, KLAPNA ×1.
  */
 export function kalkulacijaKese(u = {}) {
     const sirina = N(u.sirina), duzina = N(u.duzina), klapna = N(u.klapna), falta = N(u.falta);
@@ -174,9 +180,19 @@ export function kalkulacijaKese(u = {}) {
     const avgCenaKg = br > 0 ? ukCenaKg / br : 2.9;
     koraci.push(`Ukupna gramaža slojeva: ${R2(ukTezGm2)} g/m² · prosečna cena ${R2(avgCenaKg)} €/kg`);
 
-    // kg na 1000 komada
-    const tezKg1000 = ((sirina + klapna) / 1000) * ((duzina + falta) / 1000) * ukTezGm2;
-    koraci.push(`Težina 1000 kom: (${sirina}+${klapna})/1000 × (${duzina}+${falta})/1000 × ${R2(ukTezGm2)} = ${R4(tezKg1000)} kg`);
+    // DUPLO PLATNO + orijentacija — isti model kao nalog (NalogLayoutPRO/kesaD)
+    const orient = String(u.orijentacija || "sirina").toLowerCase().includes("du") ? "duzina" : "sirina";
+    const korakK = orient === "duzina" ? (2 * sirina) : (2 * duzina + klapna + 2 * falta); // mm uz traku
+    const poprecnoMm = orient === "duzina" ? (duzina + klapna + falta) : sirina;            // mm popreko (ban)
+    const povrsinaM2 = (korakK * poprecnoMm) / 1000000;  // m² materijala po kesi
+
+    // kg na 1000 komada = (g po kesi).  g po kesi = površina(m²) × g/m²
+    const tezKg1000 = povrsinaM2 * ukTezGm2;
+    if (orient === "duzina")
+        koraci.push(`Materijal po kesi (po dužini): (dužina+klapna+falta=${duzina}+${klapna}+${falta}=${poprecnoMm}) × (2×širina=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²`);
+    else
+        koraci.push(`Materijal po kesi (po širini): širina=${sirina} × (2×dužina+klapna+2×falta=${2 * duzina}+${klapna}+${2 * falta}=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²  (prednji+zadnji zid, falta ×2, klapna ×1)`);
+    koraci.push(`Težina 1000 kom: ${R4(povrsinaM2)} m² × ${R2(ukTezGm2)} g/m² = ${R4(tezKg1000)} kg`);
 
     const kgSaSkartom = tezKg1000 * (1 + skart / 100);
     const cenaMatKom = kgSaSkartom * avgCenaKg;
@@ -216,19 +232,23 @@ export function kalkulacijaKese(u = {}) {
 
     return {
         tip: "kesa", jedinica: "€ / 1000 kom",
-        idealna_sirina_materijala: sirina * 2 + klapna,
+        orijentacija: orient,
+        povrsina_m2_po_kesi: R4(povrsinaM2),
+        korak_uz_traku_mm: korakK,
+        popreko_mm: poprecnoMm,
+        idealna_sirina_materijala: poprecnoMm,   // minimalna širina rolne (jedan ban); roll = ban × ovo
         kg_na_1000_kom: R4(tezKg1000),
         troskovi: { materijal: R2(cenaMatKom), stampa: R2(stmTr), adh: R2(adhTr), ojacanje: R2(ojTr), klise: R2(kliseTr), ostale_opcije: R2(ostale), transport: R2(trTr) },
         osnovna_cena: R2(osnovna),
         konacna_cena: R2(konacna),
         cena_po_komadu: R4(konacna / 1000),
         za_ceo_nalog: { kolicina_kom: kolicina, ukupno_kg: R4(tezKg1000 * (1 + skart / 100) * valFak), vrednost: R2(konacna * valFak) },
-        // Materijal za ceo nalog: rolna širine (2×širina + klapna), dužina = kom × (dužina + falta)
+        // Materijal za ceo nalog: traka širine `popreko`, dužina = kom × korak uz traku (duplo platno uračunato)
         potrebno_materijala: [{
             sloj: "materijal kese",
-            sirina_mm: sirina * 2 + klapna,
-            duzina_m: Math.round((kolicina * (duzina + falta)) / 1000),
-            duzina_sa_skartom_m: Math.ceil((kolicina * (duzina + falta)) / 1000 * (1 + skart / 100)),
+            sirina_mm: poprecnoMm,
+            duzina_m: Math.round((kolicina * korakK) / 1000),
+            duzina_sa_skartom_m: Math.ceil((kolicina * korakK) / 1000 * (1 + skart / 100)),
             kg: R2(tezKg1000 * valFak),
             kg_sa_skartom: R2(tezKg1000 * (1 + skart / 100) * valFak),
         }],

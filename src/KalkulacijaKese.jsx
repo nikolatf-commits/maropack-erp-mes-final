@@ -143,6 +143,8 @@ export default function KalkulacijaKese({ setPage }) {
     const [ban, setBan] = useState(1);
     const [tolerancija, setTolerancija] = useState('±10%');
     const [grafika, setGrafika] = useState('');
+    // Orijentacija kese na materijalu — kao u templejtu/nalogu. Utiče na duplo platno.
+    const [orijentacija, setOrijentacija] = useState('sirina'); // "sirina" | "duzina"
 
     // Materijali
     const [materijali, setMaterijali] = useState([
@@ -238,6 +240,7 @@ export default function KalkulacijaKese({ setPage }) {
             if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
             if (kal.klapna !== undefined) setKlapna(Number(kal.klapna));
             if (kal.falta !== undefined) setFalta(Number(kal.falta));
+            if (kal.orijentacija) setOrijentacija(String(kal.orijentacija).toLowerCase().includes('du') ? 'duzina' : 'sirina');
             if (kal.napomena) setNapomena(kal.napomena);
             if (Array.isArray(kal.materijali) && kal.materijali.length) {
                 setMaterijali(kal.materijali.map(m => ({
@@ -276,6 +279,7 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setKolicina, p.kolicina); S(setSkart, p.skart); S(setMarza, p.marza); S(setSetupMasina, p.setupMasina);
                 T(setDatumIsp, p.datumIsp); S(setZeljCena, p.zeljCena);
                 S(setSirina, p.sirina); S(setDuzina, p.duzina); S(setKlapna, p.klapna); S(setFalta, p.falta);
+                if (p.orijentacija) setOrijentacija(String(p.orijentacija).toLowerCase().includes('du') ? 'duzina' : 'sirina');
                 S(setTakta, p.takta); S(setBan, p.ban); T(setTolerancija, p.tolerancija); T(setGrafika, p.grafika);
                 T(setPakovanje, p.pakovanje); T(setNapomena, p.napomena);
                 const pr = _ul.params || {};
@@ -310,6 +314,7 @@ export default function KalkulacijaKese({ setPage }) {
         setDuzina(Number(k.duzina || 0));
         setKlapna(Number(k.klapna || 0));
         setFalta(Number(k.falta || 0));
+        if (k.orijentacija) setOrijentacija(String(k.orijentacija).toLowerCase().includes('du') ? 'duzina' : 'sirina');
         setTakta(Number(k.takt || 0));
         setBan(Number(k.ban || 1));
         setTolerancija(k.tolerancija || '±10%');
@@ -400,13 +405,20 @@ export default function KalkulacijaKese({ setPage }) {
         });
         const avgCenaKg = matBr > 0 ? ukCenaKg / matBr : 2.9;
 
-        const tezKg1000 = (sirina + klapna) / 1000 * (duzina + falta) / 1000 * ukTezGm2;
+        // DUPLO PLATNO (prednji + zadnji zid), ISTO kao nalog/metraža:
+        //   po širini: uz traku = 2×dužina + klapna + 2×falta ; popreko = širina
+        //   po dužini: uz traku = 2×širina                      ; popreko = dužina + klapna + falta
+        //   Površina po kesi = (uz traku) × (popreko).  FALTA ×2, KLAPNA ×1.
+        const korakK = orijentacija === 'duzina' ? (2 * sirina) : (2 * duzina + klapna + 2 * falta);
+        const poprecnoMm = orijentacija === 'duzina' ? (duzina + klapna + falta) : sirina;
+        const povrsinaM2PoKesi = (korakK * poprecnoMm) / 1000000; // m² materijala po kesi
+        const tezKg1000 = povrsinaM2PoKesi * ukTezGm2;            // g po kesi = kg na 1000 kom
         const tezJedneG = tezKg1000;
 
         const kgSaSkartom = tezKg1000 * (1 + skart / 100);
         const cenaMatKom = kgSaSkartom * avgCenaKg;
 
-        const ik = sirina * 2 + klapna;
+        const ik = poprecnoMm; // idealna širina rolne (popreko kese = jedan ban)
 
         const stmTr = opts.stampa ? (tezKg1000 * stCena) : 0;
         const adhTr = opts.adhTraka ? (adhOds * adhCena) : 0;
@@ -437,7 +449,7 @@ export default function KalkulacijaKese({ setPage }) {
 
         // KAŠIRANJE (spajanje slojeva) + LAK — kao kod folije. Broj prolaza kaширanja = slojevi − 1
         // (duplex=1, triplex=2, kvadriplex=3). Površina po 1000 kom u m².
-        const m2Po1000 = (sirina + klapna) / 1000 * (duzina + falta) / 1000 * 1000;
+        const m2Po1000 = povrsinaM2PoKesi * 1000;
         const kasProlazi = Math.max(0, matBr - 1);
         // Kaширanje (usluga, €/m²) — kao pre: cena × površina/1000kom × prolazi
         const kasTr = kasCena * m2Po1000 * kasProlazi;
@@ -503,7 +515,7 @@ export default function KalkulacijaKese({ setPage }) {
             idealnaS: ik,
             izrMarza
         });
-    }, [sirina, duzina, klapna, falta, kolicina, skart, marza, setupMasina, materijali, opts,
+    }, [sirina, duzina, klapna, falta, orijentacija, kolicina, skart, marza, setupMasina, materijali, opts,
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
         odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena,
@@ -554,6 +566,7 @@ export default function KalkulacijaKese({ setPage }) {
                     duzina,
                     klapna,
                     falta,
+                    orijentacija,
                     layers: materijali,
                     options: opts,
                     pakovanje: napomena || ''
@@ -584,6 +597,7 @@ export default function KalkulacijaKese({ setPage }) {
                 duzina: Number(duzina),
                 klapna: Number(klapna),
                 falta: Number(falta),
+                orijentacija,
 
                 // Materijal (spojeni tipovi)
                 materijali_struktura,
@@ -610,7 +624,7 @@ export default function KalkulacijaKese({ setPage }) {
                         // SVA ostala polja — da se NIŠTA ne vrati na default pri ponovnom otvaranju
                         polja: {
                             mod, naziv, kupac, oznakaUpita, kolicina, skart, marza, setupMasina,
-                            datumIsp, zeljCena, sirina, duzina, klapna, falta, takta, ban,
+                            datumIsp, zeljCena, sirina, duzina, klapna, falta, orijentacija, takta, ban,
                             tolerancija, grafika, pakovanje, napomena
                         },
                         params: { dupTip, dupPoz, ezVel, ezDist, ozD, ozPoz, anTip, stTip, stPov, stMotiv, stPoz },
@@ -669,6 +683,7 @@ export default function KalkulacijaKese({ setPage }) {
                     duzina: String(duzina || ''),
                     klapna: String(klapna ?? ''),
                     falta: String(falta ?? ''),
+                    orijentacija: orijentacija || 'sirina',
                     takt: String(takta ?? ''),
                     ban: String(ban ?? ''),
                     tolerancija: tolerancija || '±10%',
@@ -697,7 +712,7 @@ export default function KalkulacijaKese({ setPage }) {
 
     return (
         <div style={s.wrap}>
-            <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, sirina, duzina, klapna, falta, kolicina, skart, marza, materijali, rezultat: rez })} />
+            <AIPomoc ekran="Kalkulacija kese" kontekst={() => ({ naziv, kupac, oznaka_upita: oznakaUpita, sirina, duzina, klapna, falta, orijentacija, kolicina, skart, marza, materijali, rezultat: rez })} />
             {/* HEADER */}
             <div style={{ background: 'linear-gradient(135deg, #0d9488 0%, #115e59 100%)', padding: 40, borderRadius: 16, color: 'white', marginBottom: 20, position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 40, right: 40, display: 'flex', gap: 8, background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 50 }}>
@@ -758,6 +773,12 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Field label="Dužina (mm)" value={duzina} onChange={setDuzina} type="number" />
                                 <Field label="Klapna (mm)" value={klapna} onChange={setKlapna} type="number" />
                                 <Field label="Falta (mm)" value={falta} onChange={setFalta} type="number" />
+                            </div>
+                            <div style={{ ...s.grid4, marginTop: '9px' }}>
+                                <Sel label="Orijentacija na materijalu" value={orijentacija} onChange={setOrijentacija}>
+                                    <option value="sirina">Po širini (dužina ×2)</option>
+                                    <option value="duzina">Po dužini (širina ×2)</option>
+                                </Sel>
                             </div>
                             <div style={{ ...s.grid4, marginTop: '9px' }}>
                                 <Field label="Takta/min" value={takta} onChange={setTakta} type="number" />
