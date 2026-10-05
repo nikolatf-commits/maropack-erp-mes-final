@@ -510,8 +510,8 @@ function kesaD(nalog) {
     const Lfull = H + KL + FA;                                 // dužina + klapna + falta
     const poprecnoMm = orient === "duzina" ? Lfull : W;        // staje po širini materijala (× ban)
     // DUPLO PLATNO: kesa ima PREDNJI I ZADNJI zid → dimenzija UZ traku se DUPLIRA (×2).
-    //   Klapna i falta se dodaju samo JEDNOM (nisu deo dupliranja).
-    const uzduznoMm = orient === "duzina" ? (2 * W) : (2 * H + KL + FA);  // troši metražu
+    //   Po širini: dužina ×2, klapna ×1, FALTA ×2 (dno na oba zida). Po dužini: širina ×2.
+    const uzduznoMm = orient === "duzina" ? (2 * W) : (2 * H + KL + 2 * FA);  // troši metražu
     const korakK = uzduznoMm;
     const smer = orient;                                       // za prikaz (povratna kompatibilnost)
     // Ban: ručni ima prednost; inače auto iz širine materijala (isto kao templejt).
@@ -551,7 +551,7 @@ function kesaInfo(D, K) {
 }
 function kesaObracun(K) {
     return (K.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + K.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
-        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + (K.smer === 'duzina' ? ('2 × ' + K.W + ' (širina, duplo platno)') : ('2 × ' + K.H + ' (dužina, duplo platno) + ' + K.KL + ' + ' + K.FA)) + ' = <b>' + K.korakK + ' mm</b> &nbsp;·&nbsp; ' +
+        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + (K.smer === 'duzina' ? ('2 × ' + K.W + ' (širina, duplo platno)') : ('2 × ' + K.H + ' (dužina) + ' + K.KL + ' (klapna) + 2 × ' + K.FA + ' (falta)')) + ' = <b>' + K.korakK + ' mm</b> &nbsp;·&nbsp; ' +
         fmtN(K.kom) + ' kom × ' + (K.korakK / 1000).toFixed(3) + ' m = ' + fmtN(K.mTrake) + ' m trake &divide; ' + K.ban + ' = ' + fmtN(K.mMat) + ' m &nbsp;·&nbsp; +' + K.skart + '% škart = <b>' + fmtN(K.mMatPlus) + ' m matične rolne</b> (širina ' + K.sirMat + ' mm)</div>';
 }
 function kesaTotalKg(D, K) { return D.LAY.reduce(function (a, l) { return a + l.gm2 * K.kgF; }, 0).toFixed(1); }
@@ -1094,7 +1094,7 @@ const V6_CSS = `
 .nv6 .meta-strip .m{flex:1;min-width:90px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;text-align:center}
 .nv6 .meta-strip .m b{display:block;font-size:8.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;font-weight:800}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
-.nv6 .hdqr{width:74px;height:74px;background:#fff;border-radius:8px;padding:5px;display:block}
+.nv6 .hdqr{width:104px;height:104px;background:#fff;border-radius:8px;padding:6px;display:block}
 .nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
 .nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
 @media print{
@@ -1157,7 +1157,9 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
         const url = opid
             ? origin + "/?opid=" + encodeURIComponent(opid)
             : origin + "/?nalog=" + encodeURIComponent(broj || "");
-        QRCode.toDataURL(url, { margin: 1, width: 320 }).then((d) => { if (on) setQr(d); }).catch(() => { });
+        // margin 2 = šira „tiha zona" (margin 1 se na malom prikazu nije uvek skenirao),
+        // width 360 = oštriji izvor; EC ostaje default M (H je pregust za malu nalepnicu).
+        QRCode.toDataURL(url, { margin: 2, width: 360 }).then((d) => { if (on) setQr(d); }).catch(() => { });
         return () => { on = false; };
     }, [broj, opid]);
     // Bez memo-a se ceo nalog gradio ponovo na SVAKI render (a QR stiže async → +1 render).
