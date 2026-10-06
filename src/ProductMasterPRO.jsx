@@ -419,10 +419,12 @@ function printDoc(d) {
     const w = window.open("", "_blank", "width=920,height=1200");
     if (!w) { alert("Dozvoli iskačuće prozore (pop-up) da bi štampa radila."); return; }
     const naslov = String(d.naziv || "Dokument").replace(/[<>]/g, "");
+    // data: PDF se u iframe-u često ne učita za štampu — koristi blob: URL
+    const printUrl = (isPdfDoc(d) && String(d.url || "").startsWith("data:")) ? dataUrlToBlobUrl(d.url) : d.url;
     if (isPdfDoc(d)) {
-        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100vh}</style></head><body><iframe id="f" src="' + d.url + '"></iframe><script>var f=document.getElementById("f");f.onload=function(){setTimeout(function(){try{f.contentWindow.focus();f.contentWindow.print();}catch(e){try{window.print();}catch(_){}}},500);};<\/script></body></html>');
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100vh}</style></head><body><iframe id="f" src="' + printUrl + '"></iframe><script>var f=document.getElementById("f");f.onload=function(){setTimeout(function(){try{f.contentWindow.focus();f.contentWindow.print();}catch(e){try{window.print();}catch(_){}}},500);};<\/script></body></html>');
     } else {
-        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>@page{size:A4;margin:10mm}html,body{margin:0}img{width:100%;height:auto;display:block}</style></head><body onload="setTimeout(function(){window.print();},350)"><img src="' + d.url + '"/></body></html>');
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + naslov + '</title><style>@page{size:A4;margin:10mm}html,body{margin:0}img{width:100%;height:auto;display:block}</style></head><body onload="setTimeout(function(){window.print();},350)"><img src="' + printUrl + '"/></body></html>');
     }
     w.document.close();
 }
@@ -887,23 +889,49 @@ function DocCardPro({ tip, list, loading, uploading, onUpload, onOpen, onDelete 
 }
 function miniBtn(color) { return { border: "1px solid " + color + "55", background: color + "12", color, borderRadius: 8, padding: "6px 9px", fontWeight: 900, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }; }
 
+// data: URL -> blob: URL. PDF u iframe-u kao data: URL mnogi pregledači prikažu kao
+// sićušnu stranu u tamnom okviru (ili ga uopšte ne otvore). blob: URL se prikaže
+// normalno i poštuje #view/#zoom parametre.
+function dataUrlToBlobUrl(dataUrl) {
+    try {
+        const parts = String(dataUrl).split(",");
+        const head = parts[0] || "";
+        const b64 = parts[1] || "";
+        const mime = (head.match(/data:([^;]+)/) || [, "application/pdf"])[1];
+        const bin = atob(b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return URL.createObjectURL(new Blob([arr], { type: mime }));
+    } catch (e) { return dataUrl; }
+}
+
 // --- A4 prikaz dokumenta (modal) sa štampom i preuzimanjem ---
 function DokViewerA4({ doc, onClose }) {
     const pdf = isPdfDoc(doc);
-    return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.78)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", padding: 18, overflow: "auto" }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 820, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginBottom: 12, flexWrap: "wrap" }}>
+    // PDF: data: -> blob: (da se otvori normalno, ne sićušno u tamnom okviru)
+    const src = useMemo(() => {
+        if (!doc || !doc.url) return "";
+        if (pdf && String(doc.url).startsWith("data:")) return dataUrlToBlobUrl(doc.url);
+        return doc.url;
+    }, [doc, pdf]);
+    useEffect(() => () => { if (src && String(src).startsWith("blob:")) { try { URL.revokeObjectURL(src); } catch (e) { } } }, [src]);
+    // #view=FitH + zoom=page-width => PDF se uklopi po ŠIRINI papira (ne sitna strana)
+    const pdfSrc = pdf && src ? (src + "#toolbar=1&navpanes=0&statusbar=0&view=FitH&zoom=page-width") : src;
+    return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.82)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", padding: 14, overflow: "auto" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 960, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ color: "#fff", fontWeight: 900, fontSize: 15, flex: 1, minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.naziv}</div>
+                <button onClick={() => window.open(src, "_blank")} style={viewerBtn("rgba(255,255,255,.2)", "#fff")}>↗️ Novi tab</button>
                 <button onClick={() => printDoc(doc)} style={viewerBtn("#fff", "#0f172a")}>🖨️ Štampaj</button>
                 <button onClick={() => downloadDoc(doc)} style={viewerBtn("#2563eb", "#fff")}>⬇️ Preuzmi</button>
                 <button onClick={onClose} style={viewerBtn("rgba(255,255,255,.2)", "#fff")}>✕ Zatvori</button>
             </div>
             <div style={{ width: "100%", background: "#fff", borderRadius: 6, boxShadow: "0 20px 60px rgba(0,0,0,.4)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: pdf ? undefined : "210 / 297" }}>
                 {pdf
-                    ? <iframe title={doc.naziv} src={doc.url} style={{ border: 0, width: "100%", height: "min(1160px, 86vh)" }} />
-                    : <img src={doc.url} alt={doc.naziv} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />}
+                    ? <iframe title={doc.naziv} src={pdfSrc} style={{ border: 0, width: "100%", height: "90vh", display: "block", background: "#525659" }} />
+                    : <img src={src} alt={doc.naziv} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />}
             </div>
-            <div style={{ color: "rgba(255,255,255,.7)", fontSize: 11, marginTop: 10, fontWeight: 700 }}>A4 prikaz · klikni van papira za zatvaranje</div>
+            <div style={{ color: "rgba(255,255,255,.7)", fontSize: 11, marginTop: 10, fontWeight: 700 }}>A4 prikaz · ako je prazno/sitno, otvori „↗️ Novi tab" · klikni van papira za zatvaranje</div>
         </div>
     </div>;
 }

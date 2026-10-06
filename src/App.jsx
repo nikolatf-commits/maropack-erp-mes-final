@@ -2233,7 +2233,7 @@ function MainAppContent() {
                         <div>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
                                 <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
-                                <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno"; }).length} otvorenih / {db.nalozi.length} ukupno</div>
+                                <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno" && s.indexOf("stiglo") < 0; }).length} otvorenih / {db.nalozi.length} ukupno</div>
                             </div>
                             {pregNalog ? (
                                 <PregledNalogaPRO

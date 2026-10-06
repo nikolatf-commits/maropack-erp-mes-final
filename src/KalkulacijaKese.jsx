@@ -550,6 +550,17 @@ export default function KalkulacijaKese({ setPage }) {
                 ? materijali.reduce((sum, m) => sum + (Number(m.cena) || 0), 0) / materijali.length
                 : 0;
 
+            // Struktura materijala (slojevi) — ide u bazu i u snapshot. Ranije nije bila
+            // definisana pa je čuvanje padalo sa "materijali_struktura is not defined".
+            const materijali_struktura = (materijali || []).map(m => ({
+                vrsta: m.vrsta || m.tip || '',
+                pod_vrsta: m.pod_vrsta || m.podvrsta || m.podVrsta || '',
+                oznaka: m.oznaka || m.oznaka_materijala || '',
+                debljina: Number(m.debljina) || 0,
+                gm2: Number(m.tezina) || 0,
+                cena: Number(m.cena) || 0,
+            }));
+
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
                 tip: 'kesa',
                 type: 'kesa',

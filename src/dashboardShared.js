@@ -53,6 +53,9 @@ export function getDateValue(row) {
 
 export function isFinishedStatus(status) {
     const s = normalizeStatus(status);
+    // "stiglo iz štamparije" = štampa je gotova (materijal se vratio) → tretira se kao ZAVRŠENO
+    // (isto kao u App.jsx i MachineSchedulerPRO). Bez ovoga nalog sa štampom se vodi kao aktivan.
+    if (s.indexOf("stiglo") >= 0) return true;
     return ["zavrseno", "zavrsen", "gotovo", "uradjeno", "zavrsena", "zatvoreno", "zatvoren"].includes(s);
 }
 
