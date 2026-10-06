@@ -56,6 +56,20 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
         if (!window.confirm('Da li ste sigurni da želite da obrišete ovu kalkulaciju?')) return;
 
         try {
+            // LOKALNA kalkulacija iz templejta (iz_template / nebrojčani ID "KAL-TPL-...") —
+            // ne postoji kao red u bazi, pa se briše iz localStorage, ne preko Supabase.
+            const idNijeBroj = !/^\d+$/.test(String(kal.id ?? ''));
+            if (kal.iz_template || idNijeBroj) {
+                try {
+                    const arr = JSON.parse(localStorage.getItem('maropack_template_kalkulacije') || '[]');
+                    const novi = arr.filter(k => String(k.id) !== String(kal.id));
+                    localStorage.setItem('maropack_template_kalkulacije', JSON.stringify(novi));
+                } catch (e) { }
+                setKalkulacije(kalkulacije.filter(k => !(String(k.id) === String(kal.id) && k.tip === kal.tip)));
+                alert('Kalkulacija (iz templejta) uklonjena iz liste.');
+                return;
+            }
+
             // Odaberi pravu tabelu
             const tabela = kal.tip === 'folija' ? 'kalkulacije_folije' :
                 kal.tip === 'kesa' ? 'kalkulacije_kese' :
