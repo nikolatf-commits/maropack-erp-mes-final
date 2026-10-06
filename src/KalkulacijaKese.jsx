@@ -240,7 +240,7 @@ export default function KalkulacijaKese({ setPage }) {
             if (kal.duzina !== undefined) setDuzina(Number(kal.duzina) || 0);
             if (kal.klapna !== undefined) setKlapna(Number(kal.klapna));
             if (kal.falta !== undefined) setFalta(Number(kal.falta));
-            if (kal.orijentacija) setOrijentacija(String(kal.orijentacija).toLowerCase().includes('du') ? 'duzina' : 'sirina');
+            { const _ori = kal.orijentacija || (kal.rezultati && kal.rezultati._ulaz && kal.rezultati._ulaz.polja && kal.rezultati._ulaz.polja.orijentacija); if (_ori) setOrijentacija(String(_ori).toLowerCase().includes('du') ? 'duzina' : 'sirina'); }
             if (kal.napomena) setNapomena(kal.napomena);
             if (Array.isArray(kal.materijali) && kal.materijali.length) {
                 setMaterijali(kal.materijali.map(m => ({
@@ -667,16 +667,33 @@ export default function KalkulacijaKese({ setPage }) {
                 napomena,
                 created_by: user?.id
             };
-            let error, savedId = editId;
-            if (mode === 'update' && editId) {
-                ({ error } = await supabase.from('kalkulacije_kese').update(zapis).eq('id', editId));
-            } else {
-                const r = await supabase.from('kalkulacije_kese').insert([zapis]).select('id').single();
-                error = r.error; savedId = r.data?.id || null;
-                if (savedId) setEditId(savedId);
+            // Čuvanje OTPORNO na nepoznate kolone: ako baza prijavi "Could not find the 'X'
+            // column of 'kalkulacije_kese'", izbaci tu kolonu (vrednost ostaje u rezultati JSON-u)
+            // i pokušaj ponovo. Tako radi bez ručne izmene baze (npr. kolona 'orijentacija').
+            async function upisi(payload) {
+                if (mode === 'update' && editId) {
+                    const r = await supabase.from('kalkulacije_kese').update(payload).eq('id', editId);
+                    return { error: r.error, id: editId };
+                }
+                const r = await supabase.from('kalkulacije_kese').insert([payload]).select('id').single();
+                return { error: r.error, id: r.data?.id || null };
             }
-
+            let error, savedId = editId;
+            let payload = { ...zapis };
+            const izbacene = [];
+            for (let pokusaj = 0; pokusaj < 10; pokusaj++) {
+                const r = await upisi(payload);
+                error = r.error; savedId = r.id;
+                if (!error) break;
+                const m = String(error.message || '').match(/Could not find the '([^']+)' column/i);
+                if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) {
+                    delete payload[m[1]]; izbacene.push(m[1]); continue;
+                }
+                break;
+            }
+            if (!error && savedId) setEditId(savedId);
             if (error) throw error;
+            if (izbacene.length) console.warn('Kalkulacija sačuvana bez kolona koje baza nema:', izbacene.join(', '), '(vrednosti su u rezultati JSON-u)');
 
             alert(mode === 'update' ? '✅ Izmene sačuvane!' : '✅ Nova kalkulacija sačuvana!');
         } catch (err) {
