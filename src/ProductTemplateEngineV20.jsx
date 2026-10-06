@@ -72,11 +72,14 @@ function useMaterialMaster() {
 
 // jedinstvene vrednosti po koloni, filtrirane prethodnim izborima (kaskada)
 function mmDistinct(lista, kolona, filter = {}) {
+    const norm = (v) => String(v ?? "").trim().toLowerCase();
     const skup = new Set();
     for (const r of lista) {
         let ok = true;
         for (const k in filter) {
-            if (filter[k] && String(r[k] ?? "") !== String(filter[k])) { ok = false; break; }
+            // Poređenje BEZ obzira na velika/mala slova i razmake — da predlozi za
+            // pod-vrstu/oznaku/debljinu rade i kad se vrsta ukuca ručno (npr. "papir" vs "PAPIR").
+            if (filter[k] && norm(r[k]) !== norm(filter[k])) { ok = false; break; }
         }
         if (ok && r[kolona] != null && String(r[kolona]).trim() !== "") skup.add(String(r[kolona]).trim());
     }
@@ -732,11 +735,12 @@ function MaterialInlineSelector({ layer, onPatch }) {
     const debljina = (rawDeb === "" || rawDeb == null) ? "" : (Number(String(rawDeb).replace("µ", "")) || "");
 
     // --- Izvedeno: koeficijent / gm2 iz tačnog reda žive baze, inače statički ---
+    const eqCI = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
     const matchRow = useLive
         ? materijali.find(r =>
-            String(r.vrsta ?? "") === String(vrsta) &&
-            String(r.pod_vrsta ?? "") === String(pod_vrsta) &&
-            String(r.oznaka ?? "") === String(oznaka) &&
+            eqCI(r.vrsta, vrsta) &&
+            eqCI(r.pod_vrsta, pod_vrsta) &&
+            eqCI(r.oznaka, oznaka) &&
             String(r.debljina ?? "") === String(debljina))
         : null;
     const koeficijent = (matchRow?.koeficijent ?? getKoeficijent(vrsta)) || layer?.koeficijent || "1.00";
