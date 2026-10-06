@@ -61,18 +61,33 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                 kal.tip === 'kesa' ? 'kalkulacije_kese' :
                     'kalkulacije_spulne';
 
-            const { error } = await supabase
+            if (kal.id == null) { alert('Ne mogu da obrišem — kalkulacija nema ID.'); return; }
+
+            const { data, error } = await supabase
                 .from(tabela)
                 .delete()
-                .eq('id', kal.id);
+                .eq('id', kal.id)
+                .select();   // vrati obrisane redove da znamo da li je stvarno obrisano
 
             if (error) throw error;
+
+            // RLS ili već obrisano: delete prođe bez greške ali ne obriše nijedan red
+            if (!data || data.length === 0) {
+                alert('Kalkulacija NIJE obrisana (0 redova). Verovatno baza ne dozvoljava brisanje (RLS DELETE pravilo) za ovu tabelu: ' + tabela + '. Javi mi pa dodamo pravilo.');
+                return;
+            }
 
             setKalkulacije(kalkulacije.filter(k => !(k.id === kal.id && k.tip === kal.tip)));
             alert('Kalkulacija obrisana!');
         } catch (err) {
-            console.error('Greška:', err);
-            alert('Greška pri brisanju!');
+            console.error('Greška pri brisanju:', err);
+            // FK veza (ponuda/nalog koristi ovu kalkulaciju) ili RLS — prikaži pravi razlog
+            var m = String(err && (err.message || err.details || err.hint) || err);
+            if (/foreign key|violates|referenced/i.test(m)) {
+                alert('Ne mogu da obrišem — kalkulacija je povezana sa ponudom ili nalogom. Prvo obriši/odvoji ponudu/nalog, pa onda kalkulaciju.\n\nDetalj: ' + m);
+            } else {
+                alert('Greška pri brisanju: ' + m);
+            }
         }
     }
 
