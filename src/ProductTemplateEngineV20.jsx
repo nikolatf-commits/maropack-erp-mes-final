@@ -365,7 +365,8 @@ const defaultForm = {
             duzinaRolne: "",
             dorada: "",
             smerGP: "",
-            sirineTraka: ""
+            sirineTraka: "",
+            nacinPakovanja: ""
         },
         kpdf: {
             enabled: false,
@@ -410,6 +411,10 @@ const defaultForm = {
         positions: {},
         // Slika za IZGLED NA SKICI KESE — ODVOJEN fajl od dizajna za štampu.
         skicaDizajn: {},
+        // Napomene po operacijama (inline, kao kod folije) — povlače se na odgovarajući nalog
+        materijalNapomena: "",
+        kasiranje: { napomena: "" },
+        izradaNapomena: "",
         // Ceo blok za štampu — kao kod folije (parametri + boje/stanice + dizajn na rolni)
         stampa: {
             masina: "",
@@ -453,7 +458,10 @@ const defaultForm = {
         // pakovanje
         kutija: "",
         rolniPoPaleti: "18",
-        napomena: ""
+        napomena: "",
+        // Napomene po operacijama (inline) — materijal i formatiranje; `napomena` = izrada špulne
+        materijalNapomena: "",
+        formatiranje: { napomena: "" }
     }
 };
 
@@ -1458,7 +1466,7 @@ function SpoolDrawing({ spulna, update }) {
                 <Select label="Tip namotavanja" value={spulna.smer || "Gap winding"} onChange={v => update("spulna.smer", v)} options={["Gap winding", "Overlapped winding"]} />
                 <Select label="Smer namotavanja" value={spulna.smerNamotavanja || "Levo"} onChange={v => update("spulna.smerNamotavanja", v)} options={["Levo", "Desno"]} />
                 <Input label="Težina bruto (kg)" value={spulna.tezinaBruto || "25.50"} onChange={v => update("spulna.tezinaBruto", v)} />
-                <Input label="Napomena" value={spulna.napomena || "Standardna špulna za OPP foliju."} onChange={v => update("spulna.napomena", v)} />
+                <TextArea label="Napomena" value={spulna.napomena || "Standardna špulna za OPP foliju."} onChange={v => update("spulna.napomena", v)} />
             </Grid>
         </Section>
     </>;
@@ -2632,7 +2640,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12, marginBottom: 12 }}>
                 <Input label={t("tmpl.idealna_sirina")} value={form.idealnaSirinaMaterijala}
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
-                <Input label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
+                <TextArea label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
             {/* AUTO KALKULACIJA — FOLIJA (poštuje broj traka, radi za kom/kg/m) */}
             {form.type === "folija" && (() => {
@@ -2733,23 +2741,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
             })()}
         </Section>
 
-        <Section title="📝 Napomene po operacijama (idu na nalog svake operacije)" color="#0ea5e9">
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
-                Napomena koju ovde upišeš prikazuje se na nalogu baš te operacije (materijal, štampa, kaširanje, rezanje…). Globalna napomena ide na sve.
-            </div>
-            <Grid cols={2}>
-                {(form.type === "folija"
-                    ? [["materijal", "Materijal"], ["stampa", "Štampa"], ["lakiranje", "Lakiranje"], ["kasiranje", "Kaširanje"], ["rezanje", "Perforacija / Rezanje"]]
-                    : form.type === "kesa"
-                        ? [["materijal", "Materijal"], ["stampa", "Štampa"], ["kasiranje", "Kaširanje"], ["kesa", "Izrada kese"]]
-                        : [["materijal", "Materijal"], ["formatiranje", "Formatiranje"], ["spulna", "Izrada špulne"]]
-                ).map(function (par) {
-                    var k = par[0], l = par[1];
-                    return <Input key={k} label={"📝 " + l} value={(form.napomene || {})[k] || ""} onChange={v => update("napomene." + k, v)} placeholder={"napomena za " + l.toLowerCase() + "…"} />;
-                })}
-            </Grid>
-        </Section>
-
         {form.type === "folija" && (
             <>
                 <Section title={t("tmpl.materijali")} color={BLUE}>
@@ -2768,7 +2759,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         }}
                     />
                     <div style={{ marginTop: 10 }}>
-                        <Input label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.folija.materijalNapomena || ""} onChange={v => update("folija.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
+                        <TextArea label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.folija.materijalNapomena || ""} onChange={v => update("folija.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
                     </div>
                 </Section>
 
@@ -2779,7 +2770,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         ))}
                     </Grid>
                     <div style={{ marginTop: 10 }}>
-                        <Input label="📝 Napomena (štampa) — ide na nalog za štampu" value={form.folija.stampa.napomena || ""} onChange={v => update("folija.stampa.napomena", v)} placeholder="napomena za štampu..." />
+                        <TextArea label="📝 Napomena (štampa) — ide na nalog za štampu" value={form.folija.stampa.napomena || ""} onChange={v => update("folija.stampa.napomena", v)} placeholder="napomena za štampu..." />
                     </div>
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                         <BojeStampeEditor value={form.folija.stampa.boje} onChange={v => update("folija.stampa.boje", v)} />
@@ -2799,7 +2790,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         <Input label="Pokrivenost (puna/UV/mat...)" value={form.folija.lakiranje?.pokrivenost || ""} onChange={v => update("folija.lakiranje.pokrivenost", v)} />
                         <Input label="Sušenje" value={form.folija.lakiranje?.susenje || ""} onChange={v => update("folija.lakiranje.susenje", v)} />
                         <div style={{ gridColumn: "span 3" }}>
-                            <Input label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
+                            <TextArea label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
                         </div>
                     </Grid>
                     <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" ili boja tipa „Lak". Ovi podaci idu na nalog za lakiranje.</div>
@@ -2822,7 +2813,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         ))}
                         <Input label="Predlog valjka za kaširanje" value={form.folija.rezanje.predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("folija.rezanje.predlogValjkaKasiranja", v)} />
                         <div style={{ gridColumn: "span 3" }}>
-                            <Input label="📝 Napomena (kaширanje) — ide na nalog za kaширanje" value={form.folija.kasiranje.napomena || ""} onChange={v => update("folija.kasiranje.napomena", v)} placeholder="napomena za kaширanje..." />
+                            <TextArea label="📝 Napomena (kaширanje) — ide na nalog za kaширanje" value={form.folija.kasiranje.napomena || ""} onChange={v => update("folija.kasiranje.napomena", v)} placeholder="napomena za kaширanje..." />
                         </div>
                     </Grid>
                 </Section>
@@ -2938,12 +2929,24 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             <input readOnly style={{ ...fieldStyle(), background: "#f0fdf4", color: "#059669", fontWeight: 900 }}
                                 value={form.folija.rezanje.predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || "auto"} />
                         </div>
+                        <div>
+                            <label style={labelStyle()}>Način pakovanja</label>
+                            <input style={fieldStyle()} list="nacin_pakovanja_opcije" value={form.folija.rezanje.nacinPakovanja || ""}
+                                onChange={e => update("folija.rezanje.nacinPakovanja", e.target.value)} placeholder="npr. Kartonska kutija, 6 rolni/kutija, na paleti" />
+                            <datalist id="nacin_pakovanja_opcije">
+                                <option value="Kartonska kutija" />
+                                <option value="Na paleti (folirano)" />
+                                <option value="Na trnu" />
+                                <option value="U bunt / termoskupljajuća folija" />
+                                <option value="Pojedinačno u kesu" />
+                            </datalist>
+                        </div>
                     </div>
                     <div style={{ marginTop: 4 }}>
                         <RollPreview folija={form.folija} idealna={form.idealnaSirinaMaterijala} />
                     </div>
                     <div style={{ marginTop: 10 }}>
-                        <Input label="📝 Napomena (rezanje) — ide na nalog za rezanje" value={form.folija.rezanje.napomena || ""} onChange={v => update("folija.rezanje.napomena", v)} placeholder="napomena za rezanje/perforaciju..." />
+                        <TextArea label="📝 Napomena (rezanje) — ide na nalog za rezanje" value={form.folija.rezanje.napomena || ""} onChange={v => update("folija.rezanje.napomena", v)} placeholder="napomena za rezanje/perforaciju..." />
                     </div>
                 </Section>
 
@@ -3030,6 +3033,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             &nbsp;Ako ostaviš <b>ban</b> prazan, koristi se ovaj auto-ban u proračunu.
                         </div>;
                     })()}
+                    <Grid cols={1}>
+                        <TextArea label="📝 Napomena (izrada kese) — ide na nalog za kesu" value={form.kesa.izradaNapomena || ""} onChange={v => update("kesa.izradaNapomena", v)} placeholder="napomena za mašinu za kese (zavar, falta, dno...)..." />
+                    </Grid>
                 </Section>
 
                 <Section title={t("tmpl.materijali")} color={GREEN}>
@@ -3048,6 +3054,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     <div style={{ marginTop: 10, fontSize: 12, color: "#64748b", fontWeight: 700 }}>
                         ℹ️ Čekiraj <b>„Š"</b> pored materijala koji se štampa — tada se otvara blok „Parametri štampanja" i nalog ide prvo na mašinu za štampu, pa na mašinu za kesu.
                     </div>
+                    <Grid cols={2}>
+                        <TextArea label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.kesa.materijalNapomena || ""} onChange={v => update("kesa.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
+                        {(form.kesa.layers || []).length > 1 && (
+                            <TextArea label="📝 Napomena (kaширanje) — ide na nalog za kaширanje" value={(form.kesa.kasiranje || {}).napomena || ""} onChange={v => update("kesa.kasiranje.napomena", v)} placeholder="napomena za kaширanje..." />
+                        )}
+                    </Grid>
                 </Section>
 
                 <Section title={t("tmpl.opcije")} color={ORANGE}>
@@ -3134,7 +3146,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             ))}
                         </Grid>
                         <div style={{ marginTop: 10 }}>
-                            <Input label="📝 Napomena (štampa) — ide na nalog za štampu" value={(form.kesa.stampa || {}).napomena || ""} onChange={v => update("kesa.stampa.napomena", v)} placeholder="napomena za štampu..." />
+                            <TextArea label="📝 Napomena (štampa) — ide na nalog za štampu" value={(form.kesa.stampa || {}).napomena || ""} onChange={v => update("kesa.stampa.napomena", v)} placeholder="napomena za štampu..." />
                         </div>
                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                             <BojeStampeEditor value={(form.kesa.stampa || {}).boje} onChange={v => { update("kesa.stampa.boje", v); update("kesa.stampa.brojBoja", String((v || []).length || "")); }} />
@@ -3166,7 +3178,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     <Grid cols={3}>
                         <Input label="Cena transporta €/kg" value={form.kesa.transportKg} onChange={v => update("kesa.transportKg", v)} />
                         <Input label="Pakovanje" value={form.kesa.pakovanje} onChange={v => update("kesa.pakovanje", v)} />
-                        <Input label="Napomena" value={form.napomena} onChange={v => update("napomena", v)} />
+                        <TextArea label="Napomena" value={form.napomena} onChange={v => update("napomena", v)} />
                     </Grid>
                 </Section>
             </>
@@ -3248,7 +3260,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     })()}
                 </Grid>
                 <Grid cols={1}>
-                    <Input label="Napomena (ide crveno na nalog)" value={form.spulna.napomena} onChange={v => update("spulna.napomena", v)} placeholder="npr. Silikon spolja, papir unutra" />
+                    <TextArea label="📝 Napomena (izrada špulne) — ide na nalog za špulnu" value={form.spulna.napomena} onChange={v => update("spulna.napomena", v)} placeholder="npr. Silikon spolja, papir unutra" />
                 </Grid>
 
                 {/* AUTO KALKULACIJA — ŠPULNA */}
@@ -3310,6 +3322,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         Object.entries(patch).forEach(([key, value]) => updateLayer("spulna", i, key, value));
                     }}
                 />
+                <Grid cols={2}>
+                    <TextArea label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.spulna.materijalNapomena || ""} onChange={v => update("spulna.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
+                    <TextArea label="📝 Napomena (formatiranje) — ide na nalog za formatiranje" value={(form.spulna.formatiranje || {}).napomena || ""} onChange={v => update("spulna.formatiranje.napomena", v)} placeholder="napomena za formatiranje (rezanje na trake)..." />
+                </Grid>
             </Section>
             <SpoolDrawing spulna={form.spulna} update={update} />
         </>}
@@ -3720,6 +3736,13 @@ function lepaLabela(k) {
 
 function Input({ label, value, onChange, type = "text", placeholder = "" }) {
     return <div><label style={labelStyle()}>{lepaLabela(label)}</label><input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={fieldStyle()} /></div>;
+}
+
+// Višeredno polje za duže napomene — može ručno da se razvuče (resize) i само raste.
+function TextArea({ label, value, onChange, placeholder = "", rows = 3 }) {
+    return <div><label style={labelStyle()}>{lepaLabela(label)}</label>
+        <textarea value={value || ""} placeholder={placeholder} rows={rows} onChange={(e) => onChange(e.target.value)}
+            style={{ ...fieldStyle(), minHeight: 68, resize: "vertical", lineHeight: 1.45, fontFamily: "inherit" }} /></div>;
 }
 
 function BojeStampeEditor({ value, onChange }) {

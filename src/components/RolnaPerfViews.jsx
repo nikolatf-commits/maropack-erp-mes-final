@@ -4,7 +4,7 @@ import React, { useState } from "react";
 const WEBX0 = 145, WEBX1 = 540, WEBY0 = 258, WEBY1 = 718;
 
 function svgWrap(inner, maxW) {
-    return `<svg viewBox="0 0 600 760" width="100%" style="max-width:${maxW || 430}px;display:block;margin:0 auto;background:#fff">` + inner + `</svg>`;
+    return `<svg viewBox="0 0 600 760" width="100%" style="max-width:${maxW || 560}px;display:block;margin:0 auto;background:#fff">` + inner + `</svg>`;
 }
 
 // Rolna (zaobljen desni kraj) + traka pune širine + čeona elipsa + strelica odmotavanja
@@ -21,23 +21,25 @@ function rollParts() {
     return s;
 }
 
+// Kote sa BELIM OREOLOM (casing) iza linija i uokvirenim belim okvirom iza broja —
+// da ostanu jasno čitljive i kad je preko rolne ubačena šarena slika dizajna.
+const DIMC = "#1e3a8a";          // tamnoplava = jači kontrast
+const HALO = "#ffffff";
 function dimH(x1, x2, y, txt) {
     if (Math.abs(x2 - x1) < 2) return '';
-    const mx = (x1 + x2) / 2;
-    return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<line x1="${x1}" y1="${y - 4}" x2="${x1}" y2="${y + 4}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<line x1="${x2}" y1="${y - 4}" x2="${x2}" y2="${y + 4}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<rect x="${mx - 19}" y="${y - 15}" width="38" height="13" fill="#fff"/>` +
-        `<text x="${mx}" y="${y - 5}" text-anchor="middle" font-size="10" font-weight="800" fill="#1d4ed8">${txt}</text>`;
+    const mx = (x1 + x2) / 2, w = Math.max(30, String(txt).length * 7 + 12);
+    const seg = (a, b, cc, dd) => `<line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${HALO}" stroke-width="3.6" stroke-linecap="round" opacity="0.92"/><line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${DIMC}" stroke-width="1.5"/>`;
+    return seg(x1, y, x2, y) + seg(x1, y - 5, x1, y + 5) + seg(x2, y - 5, x2, y + 5) +
+        `<rect x="${mx - w / 2}" y="${y - 18}" width="${w}" height="15" rx="3.5" fill="#fff" stroke="${DIMC}" stroke-width="0.9" opacity="0.98"/>` +
+        `<text x="${mx}" y="${y - 7}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${DIMC}">${txt}</text>`;
 }
 function dimV(x, y1, y2, txt) {
     if (Math.abs(y2 - y1) < 2) return '';
-    const my = (y1 + y2) / 2;
-    return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<line x1="${x - 4}" y1="${y1}" x2="${x + 4}" y2="${y1}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<line x1="${x - 4}" y1="${y2}" x2="${x + 4}" y2="${y2}" stroke="#1d4ed8" stroke-width="1"/>` +
-        `<rect x="${x + 3}" y="${my - 7}" width="44" height="13" fill="#fff"/>` +
-        `<text x="${x + 6}" y="${my + 3}" font-size="10" font-weight="800" fill="#1d4ed8">${txt}</text>`;
+    const my = (y1 + y2) / 2, w = Math.max(30, String(txt).length * 7 + 12);
+    const seg = (a, b, cc, dd) => `<line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${HALO}" stroke-width="3.6" stroke-linecap="round" opacity="0.92"/><line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${DIMC}" stroke-width="1.5"/>`;
+    return seg(x, y1, x, y2) + seg(x - 5, y1, x + 5, y1) + seg(x - 5, y2, x + 5, y2) +
+        `<rect x="${x + 3}" y="${my - 8}" width="${w}" height="15" rx="3.5" fill="#fff" stroke="${DIMC}" stroke-width="0.9" opacity="0.98"/>` +
+        `<text x="${x + 3 + w / 2}" y="${my + 3}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${DIMC}">${txt}</text>`;
 }
 
 const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',', '.')); return isNaN(n) ? (d ?? 0) : n; };
@@ -217,6 +219,13 @@ export function RolnaDizajnEditor({ value = {}, onChange, hidePreview = false })
                 <div style={{ alignSelf: "end" }}><button type="button" style={_ebtn} onClick={() => set({ sirinaPct: 100, visinaPct: 100 })}>Puna širina</button></div>
             </div>
             {!hidePreview && <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={320} />}
+            {!hidePreview && v.url && (
+                <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8", letterSpacing: ".3px", marginBottom: 4 }}>ORIGINALNA SLIKA — PUNA VELIČINA (kote sa slike)</div>
+                    <img src={v.url} alt="originalni dizajn" style={{ display: "block", width: "100%", maxHeight: 560, objectFit: "contain", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff" }} />
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Ovo je tvoja slika u originalnoj razmeri — sve crvene kote/oznake sa nje se vide jasno. Ide i kao poseban prilog na nalogu.</div>
+                </div>
+            )}
         </div>
     );
 }

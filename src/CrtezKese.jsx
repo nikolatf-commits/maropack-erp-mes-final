@@ -34,11 +34,14 @@ export const TIPOVI = {
     mehr: { n: "Mehrkammerbeutel", vrh: "klapna", klTip: "rect", dno: "naht", adh: 1, euroloch: 0, perf: "none", komore: 3 },
     zweifarbig: { n: "Zweifarbige Beutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1 },
     zweikammer: { n: "Zweikammerbeutel", vrh: "klapna", klTip: "rect", dno: "naht", adh: 1, euroloch: 0, perf: "none", komore: 2 },
+    doypack: { n: "Doypack", vrh: "otvor", klTip: "rect", dno: "doypack", adh: 0, euroloch: 1, perf: "none", komore: 1 },
+    seitenfalten: { n: "Seitenfaltenbeutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1, bocna: 1 },
+    vakuum: { n: "Vakuumbeutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1, vac: 1 },
 };
 
 export function presetTip(tip) {
     const t = TIPOVI[tip] || TIPOVI.flach;
-    return { tip, vrh: t.vrh, klTip: t.klTip, dno: t.dno, adh: !!t.adh, euroloch: !!t.euroloch, perf: t.perf, komore: t.komore };
+    return { tip, vrh: t.vrh, klTip: t.klTip, dno: t.dno, adh: !!t.adh, euroloch: !!t.euroloch, perf: t.perf, komore: t.komore, bocna: !!t.bocna, vac: !!t.vac };
 }
 
 // Adapter: kesa objekat iz templejta/naloga -> config za CrtezKese.
@@ -77,7 +80,11 @@ export function kesaToConfig(kesa = {}) {
         sirina: num(kesa.sirina) || 95,
         duzina: num(kesa.duzina) || 175,
         klMm: klapnaMm || 30,
-        extraMm: dno === "faltna" ? (faltaMm || 30) : 30,
+        extraMm: (dno === "faltna" || dno === "doypack") ? (faltaMm || 30) : 30,
+        // Novi tipovi: bočna falta (seitenfalten) i vakuum — oblik, ne opcija
+        bocnaFalta: !!base.bocna,
+        bocnaMm: faltaMm,
+        vakuum: !!base.vac,
         stampaText: kesa.stampaText || "",
         stampaDizajn: kesa.stampaDizajn || null,   // uploadovana slika dizajna štampe
         legend: kesa.legend || [],
@@ -89,6 +96,7 @@ const DEFAULTS = {
     adh: false, euroloch: false, luft: false, stampa: false,
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
     poprecniVar: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
+    bocnaFalta: false, bocnaMm: 0, vakuum: false,
     positions: {},
     stampaText: "",
     stampaDizajn: null,
@@ -108,6 +116,7 @@ function buildSvgPro(c, u, lang = "sr") {
     const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
+    const bocna = !!c.bocnaFalta, vakuum = !!c.vakuum, bocnaMm = num(c.bocnaMm);
     const legend = (c.legend || []).filter((l) => l && l.n);
     const W = 520, H = 1075;
     const s = Math.min(215 / sirina, 320 / duzina);
@@ -121,7 +130,7 @@ function buildSvgPro(c, u, lang = "sr") {
     const ext = (a, b, cc, dd) => `<line x1="${q(a)}" y1="${q(b)}" x2="${q(cc)}" y2="${q(dd)}" stroke="${INK}" stroke-width=".4" opacity=".55"/>`;
     const euroPath = (ecx, ecy, WW) => { const HH = Math.max(WW * 0.34, 5), Rb = Math.max(WW * 0.16, 3), r = Math.min(HH / 2, 4), left = ecx - WW / 2, right = ecx + WW / 2, top = ecy - HH / 2, bot = ecy + HH / 2; return `<path d="M ${q(left)} ${q(top + r)} Q ${q(left)} ${q(top)} ${q(left + r)} ${q(top)} L ${q(ecx - Rb)} ${q(top)} A ${q(Rb)} ${q(Rb)} 0 0 1 ${q(ecx + Rb)} ${q(top)} L ${q(right - r)} ${q(top)} Q ${q(right)} ${q(top)} ${q(right)} ${q(top + r)} L ${q(right)} ${q(bot - r)} Q ${q(right)} ${q(bot)} ${q(right - r)} ${q(bot)} L ${q(left + r)} ${q(bot)} Q ${q(left)} ${q(bot)} ${q(left)} ${q(bot - r)} Z" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`; };
 
-    let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern>`;
+    let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern><pattern id="vac${u}" width="7" height="7" patternUnits="userSpaceOnUse"><line x1="3.5" y1="0" x2="3.5" y2="7" stroke="${LINE}" stroke-width=".7"/></pattern>`;
     let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="${W}" height="770" fill="url(#grid${u})"/>`;
     g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter">${T("crtez.prednji")}</text>`;
     g += `<ellipse cx="${cx}" cy="${q(y1 + 11)}" rx="${q(bw * 0.5)}" ry="7" fill="${INK}" opacity=".1"/>`;
@@ -131,9 +140,25 @@ function buildSvgPro(c, u, lang = "sr") {
     g += `<line x1="${q(x0 + 3.5)}" y1="${q(y0)}" x2="${q(x0 + 3.5)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1"/><line x1="${q(x1 - 3.5)}" y1="${q(y0)}" x2="${q(x1 - 3.5)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1"/>`;
     const kom = +c.komore || 1;
     for (let k = 1; k < kom; k++) { const kxx = x0 + bw * k / kom; g += `<line x1="${q(kxx)}" y1="${q(y0)}" x2="${q(kxx)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="6 3"/>`; }
-    if (dno === "naht" || dno === "faltna" || dno === "kreuz") g += `<line x1="${q(x0 + 2)}" y1="${q(y1 - 3)}" x2="${q(x1 - 2)}" y2="${q(y1 - 3)}" stroke="${INK}" stroke-width="1.3"/>`;
+    if (dno === "naht" || dno === "faltna" || dno === "kreuz" || dno === "doypack") g += `<line x1="${q(x0 + 2)}" y1="${q(y1 - 3)}" x2="${q(x1 - 2)}" y2="${q(y1 - 3)}" stroke="${INK}" stroke-width="1.3"/>`;
     const f = Math.min(extraMm * s, bh * .13);
-    if (dno === "faltna") g += `<path d="M ${q(x0 + 5)} ${q(y1 - 3)} L ${q(cx)} ${q(y1 - 3 - f)} L ${q(x1 - 5)} ${q(y1 - 3)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3" fill="none"/>`;
+    if (dno === "faltna" || dno === "doypack") g += `<path d="M ${q(x0 + 5)} ${q(y1 - 3)} L ${q(cx)} ${q(y1 - 3 - f)} L ${q(x1 - 5)} ${q(y1 - 3)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3" fill="none"/>`;
+    // DOYPACK — zaobljeno stojeće dno + linija poda (da se vidi da kesa stoji)
+    if (dno === "doypack") {
+        g += `<path d="M ${q(x0 + 3)} ${q(y1 - 3)} Q ${q(cx)} ${q(y1 + 9)} ${q(x1 - 3)} ${q(y1 - 3)}" fill="none" stroke="${INK}" stroke-width="1.3"/>`;
+        g += `<line x1="${q(x0 - 12)}" y1="${q(y1 + 14)}" x2="${q(x1 + 12)}" y2="${q(y1 + 14)}" stroke="${LINE}" stroke-width="1" stroke-dasharray="3 3"/>`;
+    }
+    // SEITENFALTEN — bočne falte (senčeni pojas + linija pregiba sa obe strane)
+    if (bocna) {
+        const gw = Math.min((bocnaMm / 2) * s, bw * 0.24);
+        g += `<rect x="${q(x0)}" y="${q(y0)}" width="${q(gw)}" height="${q(bh)}" fill="#0f172a" opacity=".05"/><rect x="${q(x1 - gw)}" y="${q(y0)}" width="${q(gw)}" height="${q(bh)}" fill="#0f172a" opacity=".05"/>`;
+        g += `<line x1="${q(x0 + gw)}" y1="${q(y0)}" x2="${q(x0 + gw)}" y2="${q(y1)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3"/><line x1="${q(x1 - gw)}" y1="${q(y0)}" x2="${q(x1 - gw)}" y2="${q(y1)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3"/>`;
+    }
+    // VAKUUM — zaptivni ram sa 4 strane + emboss kanali (tekstura)
+    if (vakuum) {
+        g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 8)}" width="${q(bw - 16)}" height="${q(bh - 16)}" fill="url(#vac${u})" opacity=".5"/>`;
+        g += `<rect x="${q(x0 + 4)}" y="${q(y0 + 4)}" width="${q(bw - 8)}" height="${q(bh - 8)}" fill="none" stroke="${SUB}" stroke-width="2.4" stroke-dasharray="2 2" opacity=".6"/>`;
+    }
     if (vrh === "klapna") {
         const kp = klTip === "schrag" ? `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky + kl * .5)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}` : `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}`;
         g += `<path d="${kp}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
@@ -225,22 +250,22 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".8"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
         by += 34;
     });
-    const sx = 90, syT = 600, sD = (dno === "faltna" || dno === "kreuz") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
+    const sx = 90, syT = 600, sD = (dno === "faltna" || dno === "kreuz" || dno === "doypack") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
     g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.presek")}</text>`;
-    if (dno === "faltna" || dno === "kreuz") {
+    if (dno === "faltna" || dno === "kreuz" || dno === "doypack") {
         g += `<path d="M ${sx} ${sby} L ${sx} ${sby - 14} C ${sx} ${sby - sH * .5} ${sx + sD / 2 - topW / 2} ${syT + 18} ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 + topW / 2} ${syT + 10} C ${sx + sD / 2 + topW / 2} ${syT + 18} ${sx + sD} ${sby - sH * .5} ${sx + sD} ${sby - 14} L ${sx + sD} ${sby} Z" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
         g += `<path d="M ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 - topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT + 10}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.2"/>`;
         g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/><path d="M ${sx + 3} ${sby} L ${sx + sD / 2} ${sby - 16} L ${sx + sD - 3} ${sby}" stroke="${AMB}" stroke-width="1.1" stroke-dasharray="4 3" fill="none"/>`;
-        g += ext(sx, sby, sx, sby + 28) + ext(sx + sD, sby, sx + sD, sby + 28) + dH(sx, sx + sD, sby + 22, `${dno === "faltna" ? extraMm : ""}`);
+        g += ext(sx, sby, sx, sby + 28) + ext(sx + sD, sby, sx + sD, sby + 28) + dH(sx, sx + sD, sby + 22, `${(dno === "faltna" || dno === "doypack") ? extraMm : ""}`);
     } else {
         g += `<rect x="${sx}" y="${syT + 8}" width="${sD}" height="${sH - 8}" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
         if (dno === "naht") { g += `<rect x="${sx}" y="${sby - 8}" width="${sD}" height="8" fill="url(#seal${u})"/><line x1="${sx}" y1="${sby - 8}" x2="${sx + sD}" y2="${sby - 8}" stroke="${INK}" stroke-width="1.2"/>`; }
         else g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/>`;
     }
-    const bx = 320, bY = 615, bW = 170, bDp = (dno === "faltna" || dno === "kreuz") ? 92 : 26;
+    const bx = 320, bY = 615, bW = 170, bDp = (dno === "faltna" || dno === "kreuz" || dno === "doypack") ? 92 : 26;
     g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter">${T("crtez.odozdo")}</text>`;
     g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.6"/>`;
-    if (dno === "faltna") {
+    if (dno === "faltna" || dno === "doypack") {
         g += `<rect x="${bx}" y="${bY + bDp / 2 - 5}" width="${bW}" height="10" fill="url(#seal${u})"/><line x1="${bx}" y1="${bY + bDp / 2}" x2="${bx + bW}" y2="${bY + bDp / 2}" stroke="${INK}" stroke-width="1.1"/>`;
         g += `<path d="M ${bx} ${bY} L ${bx + bDp / 2} ${bY + bDp / 2} L ${bx} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/><path d="M ${bx + bW} ${bY} L ${bx + bW - bDp / 2} ${bY + bDp / 2} L ${bx + bW} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/>`;
     } else if (dno === "kreuz") {
@@ -255,7 +280,7 @@ function buildSvgPro(c, u, lang = "sr") {
     g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter">MAROPACK D.O.O.</text>`;
     g += `<text x="${PADX}" y="${BTY + 44}" font-size="16" fill="${INK}" font-weight="900" font-family="Inter">${T("crtez.naslov")}</text>`;
     const tn = (TIPOVI[c.tip] && TIPOVI[c.tip].n) || "Kesa";
-    const meta = [["Tip", tn], ["Dimenzije", sirina + " × " + duzina + " mm"], [vrh === "klapna" ? "Klapna" : "Vrh", vrh === "klapna" ? (klMm + " mm" + (klTip === "schrag" ? " (kosa)" : "")) : vrh], ["Dno", dno === "faltna" ? ("Faltna " + extraMm + " mm") : (dno === "naht" ? "Var na dnu" : (dno === "kreuz" ? "Ukršteno" : "Ravno"))]];
+    const meta = [["Tip", tn], ["Dimenzije", sirina + " × " + duzina + " mm"], [vrh === "klapna" ? "Klapna" : "Vrh", vrh === "klapna" ? (klMm + " mm" + (klTip === "schrag" ? " (kosa)" : "")) : vrh], ["Dno", dno === "faltna" ? ("Faltna " + extraMm + " mm") : (dno === "doypack" ? ("Stojeće " + extraMm + " mm") : (dno === "naht" ? (bocna ? ("Var + bočna falta " + Math.round(bocnaMm) + " mm") : (vakuum ? "Vakuum var" : "Var na dnu")) : (dno === "kreuz" ? "Ukršteno" : "Ravno")))]];
     const colW = (RXX - PADX) / meta.length, mY = BTY + 76;
     meta.forEach((m, i) => {
         const mx = PADX + colW * i;

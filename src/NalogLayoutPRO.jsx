@@ -178,13 +178,13 @@ function buildD(nalog) {
     const napOp = (t && t.napomene) || {};
     const sp = spulna || {};
     const nap = {
-        global: nalog.napomena || od.napomena || t.napomena || folija.napomena || (kesa && kesa.napomena) || sp.napomena || "",
+        global: nalog.napomena || od.napomena || t.napomena || folija.napomena || "",
         materijal: napOp.materijal || folija.materijalNapomena || kesa.materijalNapomena || sp.materijalNapomena || (folija.materijal && folija.materijal.napomena) || "",
         stampa: napOp.stampa || (st && st.napomena) || "",
         kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || "",
         lakiranje: napOp.lakiranje || (folija.lakiranje && folija.lakiranje.napomena) || "",
         rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || "",
-        kesa: napOp.kesa || (kesa && kesa.napomena) || "",
+        kesa: napOp.kesa || (kesa && kesa.izradaNapomena) || (kesa && kesa.napomena) || "",
         formatiranje: napOp.formatiranje || (folija.formatiranje && folija.formatiranje.napomena) || (sp.formatiranje && sp.formatiranje.napomena) || "",
         spulna: napOp.spulna || sp.napomena || (folija.spulna && folija.spulna.napomena) || ""
     };
@@ -243,6 +243,7 @@ function buildD(nalog) {
             duzina: metriMat,   // proizvodni metri (matična rolna)
             duzinaRolne: eDuzinaRolne, autoPrecnik, autoDuzina, debUm,
             hilzna: nHilzna, smer: fr.smerOdmotavanja || st.smerOdmotavanja || "Na glavu",
+            nacinPakovanja: rz.nacinPakovanja || fr.nacinPakovanja || "",
         },
         perf: {
             N: num(pf.kolone || pf.brojKolona) || (lanes.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
@@ -453,9 +454,23 @@ function pRollBig(D, label, sub, pp, rollFn, hideMeta) {
     // hideMeta=true → bez donje trake (Širina trake/Hilzna/Prečnik/Smer). Ti podaci su za
     // finalnu rolnu (rezanje); na slici za ŠTAMPU se ne prikazuju.
     var meta = hideMeta ? '' : ('<div class="meta-strip"><div class="m"><b>Širina trake</b>' + (D.rez.sirinaTrake || '—') + ' mm</div><div class="m"><b>Hilzna</b>' + D.rez.hilzna + ' mm</div><div class="m"><b>Prečnik</b>' + D.rez.precnik + ' mm</div><div class="m"><b>Smer</b>' + esc(D.rez.smer) + '</div></div>');
-    return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">' + esc(label) + '</div><div class="bigsub">' + esc(sub) + '</div><div class="framed">' + (rollFn || roll)(D, 500, 860) + '</div>' + meta + '</div>', pp);
+    return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">' + esc(label) + '</div><div class="bigsub">' + esc(sub) + '</div><div class="framed">' + (rollFn || roll)(D, 720, 1000) + '</div>' + meta + '</div>', pp);
 }
 
+// PRILOG: originalna uploadovana slika dizajna preko CELE A4 strane, bez iskrivljenja
+// (xMidYMid meet) — da crvene kote/oznake koje su DEO slike budu čitljive u punoj veličini.
+// Vraća "" ako nema prave uploadovane slike (generisana nalepnica se ne prikazuje ovde).
+function pDizajnFull(D, dz, naslov) {
+    var z = dz || {};
+    var url = z.url || z.slika || "";
+    if (!url) return "";
+    var safe = String(url).replace(/"/g, "&quot;");
+    var img = '<svg viewBox="0 0 760 980" width="100%" style="display:block;background:#fff">' +
+        '<rect width="760" height="980" fill="#fff"/>' +
+        '<image href="' + safe + '" x="6" y="6" width="748" height="968" preserveAspectRatio="xMidYMid meet"/>' +
+        '</svg>';
+    return pageWrap(D, '<div class="body" style="padding:16px 20px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">' + esc(naslov) + '</div><div class="bigsub">Originalna grafika kupca u punoj veličini — kote i oznake sa slike</div><div class="framed" style="padding:5px">' + img + '</div></div>', 'Strana · dizajn (prilog)');
+}
 function passRow(lab, l) { return '<tr><td>' + lab + '</td><td><span class="dot-c" style="background:' + l.c + '"></span>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td></tr>'; }
 function passLam(lab, name, u) { return '<tr style="background:#f8fafc"><td>' + lab + '</td><td colspan="4"><i>' + esc(name) + '</i></td><td class="n">' + u + ' µm</td></tr>'; }
 function passCard(title, spoj, rowsHtml, c) { return '<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px"><div style="background:' + c + '14;color:' + c + ';font-size:11px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;justify-content:space-between"><span>' + esc(title) + '</span><span style="font-weight:800">spoj: ' + esc(spoj) + '</span></div><table style="margin:0">' + th(['Komponenta', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }], c) + '<tbody>' + rowsHtml + '</tbody></table></div>'; }
@@ -505,13 +520,14 @@ function pRez(D) {
         '<div class="ulaz"><b>Ulaz:</b> kaširana rolna, ulazna širina ' + D.sirinaMat + ' mm → ' + (D.rez.brojTraka || '—') + ' traka po ' + (D.rez.sirinaTrake || '—') + ' mm.</div>' +
         '<div class="sec">' + secH(1, c, 'Prikaz rezanja (po širini)', 'iz templejta') + '<div class="fig"><div class="cap">Raspored traka po širini</div>' + rezSvg(D) + '</div></div>' +
         '<div class="sec">' + secH(2, c, 'Plan rezanja', 'iz templejta') + '<div class="info">' + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Broj traka', D.rez.brojTraka || '—') + infoC('Širina trake', (D.rez.sirinaTrake || '—') + ' mm') + infoC('Otpad', (D.rez.otpad || 0) + ' mm') + infoC('Prečnik rolne', D.rez.precnik + ' mm' + (D.rez.autoPrecnik ? ' (auto)' : '')) + infoC('Dužina rolne', (D.rez.duzinaRolne ? fmtN(D.rez.duzinaRolne) : fmtN(D.rez.duzina)) + ' m' + (D.rez.autoDuzina ? ' (auto)' : '')) + infoC('Hilzna', D.rez.hilzna + ' mm') + infoC('Smer', D.rez.smer) + '</div></div>' +
+        (D.rez.nacinPakovanja ? '<div class="ulaz" style="border-left-color:#16a34a;background:#f0fdf4;color:#166534;margin-top:12px"><b>📦 Način pakovanja:</b> ' + esc(D.rez.nacinPakovanja) + '</div>' : '') +
         (lanes.length ? '<div class="sec">' + secH(3, c, 'Trake', '') + '<table>' + th(['Traka', { t: 'Širina', n: 1 }, { t: 'Metara', n: 1 }, { t: 'Kom', n: 1 }, 'Perforacija'], c) + '<tbody>' + lanes.map(function (lw, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + lw + ' mm</td><td class="n">' + fmtN(D.rez.duzina) + '</td><td class="n">' + fmtN(D.komPoTraci) + '</td><td>' + (D.imaPerforaciju ? (esc(D.perf.tip) + ' · ' + D.perf.N + ' kol.') : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
         '<div class="ulaz" style="margin-top:16px">🖼 <b>Izgled na finalnoj rolni</b>' + (D.imaPerforaciju ? ' i <b>perforacija (kotirano)</b> su na posebnim stranama.' : ' je na posebnoj strani. (Bez perforacije.)') + '</div>' +
         napHtml(D, 'rezanje') +
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
 }
 
-function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 500, 860) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
+function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
 
 
 /* ============================ KESA ============================ */
@@ -1046,10 +1062,10 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         // Ostale operacije (štampa/perforacija/lakiranje) NE bacamo u materijal —
         // padaju na odgovarajuće stranice ispod (folija-stil), da naslov bude tačan.
     }
-    if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni", null, true);
+    if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni", null, true) + pDizajnFull(D, D.dizajn, "DIZAJN ZA ŠTAMPU — ORIGINAL");
     if (vrsta === "kasiranje") return pKas(D);
     if (vrsta === "lakiranje") return pLak(D);
-    if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna", rollFinal) + (D.imaPerforaciju ? pPerfBig(D) : "");
+    if (vrsta === "perforacija_rezanje" || vrsta === "rezanje") return pRez(D) + pRollBig(D, "IZGLED NA FINALNOJ ROLNI", D.proizvod + " · rolna " + (D.rez.sirinaTrake || "—") + " mm · " + fmtN(D.rez.duzina) + " m", "Prilog · finalna rolna", rollFinal) + pDizajnFull(D, D.dizajnRolna || D.dizajn, "DIZAJN NA FINALNOJ ROLNI — ORIGINAL") + (D.imaPerforaciju ? pPerfBig(D) : "");
     return pMat(D);
 }
 

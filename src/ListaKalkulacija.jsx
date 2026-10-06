@@ -379,12 +379,17 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                         kal.rezultati?.cenaPoKgOsnovna ??
                                         (po1000Marza > 0 ? poKgMarza * (po1000Osnovna / po1000Marza) : 0)
                                     );
-                                    // UKUPNO NALOG: koristi sačuvani total ako postoji, inače cena po jedinici × količina
+                                    // UKUPNO NALOG: koristi sačuvani total ako postoji, inače ga izvedi.
+                                    // Jedinice cene po tipu:
+                                    //  • kesa  → €/1000 kom, a `broj` je u KOMADIMA  → × broj/1000
+                                    //  • špulna → € PO ŠPULNI, `broj` je broj špulni  → × broj
+                                    //  • folija → €/1000 m, `broj` je broj ×1000 m     → × broj
+                                    const faktorUk = kal.tip === 'kesa' ? (broj / 1000) : broj;
                                     const ukupnoNalog = Number(
-                                        kal.rezultati?.ukupnoNalog ?? kal.ukupno_nalog ?? (po1000Marza * broj)
+                                        kal.rezultati?.ukupnoNalog ?? kal.ukupno_nalog ?? (po1000Marza * faktorUk)
                                     );
                                     const ukupnoOsnovna = Number(
-                                        kal.rezultati?.ukupnoOsnovno ?? kal.ukupno_osnovno ?? (po1000Osnovna * broj)
+                                        kal.rezultati?.ukupnoOsnovno ?? kal.ukupno_osnovno ?? (po1000Osnovna * faktorUk)
                                     );
                                     return (
                                         <div style={{ textAlign: 'right', minWidth: 220 }}>

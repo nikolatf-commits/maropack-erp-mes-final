@@ -613,6 +613,15 @@ export default function KalkulacijaKese({ setPage }) {
                 // Rezultati + SNAPSHOT ulaza (opcije i sve njihove cene) — da se vrate pri otvaranju
                 rezultati: {
                     ...rez,
+                    // Polja koja Lista kalkulacija čita za prikaz (ukupan nalog + €/kg) —
+                    // bez njih je lista padala na pogrešan rezervni račun (×1000) ili prikazivala 0.
+                    kolicina: Number(kolicina) || 0,
+                    konacnaCena: rez.konacna || 0,          // €/1000 kom (sa maржom)
+                    osnovnaCena: rez.osnovna || 0,          // €/1000 kom (osnovna)
+                    ukupnoNalog: rez.vrednostKon || 0,      // ukupno za ceo nalog (sa maржom)
+                    ukupnoOsnovno: rez.vrednostOsn || 0,    // ukupno za ceo nalog (osnovna)
+                    cenaPoKgSaMarza: (rez.tezJedne > 0 ? (rez.konacna / rez.tezJedne) : 0),
+                    cenaPoKgOsnovna: (rez.tezJedne > 0 ? (rez.osnovna / rez.tezJedne) : 0),
                     _ulaz: {
                         opts,
                         cene: {

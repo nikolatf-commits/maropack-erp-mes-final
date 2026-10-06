@@ -1153,6 +1153,7 @@ export const ALATI = {
                     status: "ceka_magacin",
                     parametri: {
                         sifra: t.sirovo?.sifra || "",
+                        pis_broj: T(t.sirovo?.pisBroj) || "",
                         template: tplZaNalog,
                         porucena_kolicina: kolicina,
                         kolicina_za_rad: kolicina,
@@ -1173,7 +1174,7 @@ export const ALATI = {
                     tip_naloga: op,
                     status: op === "materijal" ? "ceka_magacin" : "ceka",
                     redosled: i + 1,
-                    parametri: { sifra: t.sirovo?.sifra || "", template: tplZaNalog },
+                    parametri: { sifra: t.sirovo?.sifra || "", pis_broj: T(t.sirovo?.pisBroj) || "", template: tplZaNalog },
                 }));
                 const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
                 if (oErr) return { ok: false, poruka: "operativni_nalozi: " + oErr.message };
@@ -1224,6 +1225,7 @@ export const ALATI = {
                         const noviPar = {
                             ...par,
                             sifra: t.sirovo?.sifra || null,
+                            pis_broj: T(t.sirovo?.pisBroj) || "",
                             template: templejtSaKolicinom(t.sirovo, t.tip, kolicina, jed),
                             kupac: a.kupac || "",
                             kolicina: kolicina || null,
@@ -1497,6 +1499,29 @@ export const ALATI = {
             }
             if (T(a.oznaka)) red.oznaka_upita = T(a.oznaka);
 
+            // ── Uskladi `rezultati` sa onim što Lista kalkulacija čita (camelCase + ukupan nalog) ──
+            // Core vraća snake_case (konacna_cena, za_ceo_nalog.vrednost…), a lista traži
+            // konacnaCena / ukupnoNalog / cenaPoKgSaMarza. Bez ovoga bi AI kalkulacija pokazala 0.
+            {
+                const _zc = rez.za_ceo_nalog || {};
+                const _kol = tip === "folija" ? (N(u.nalog) || 1) : (N(u.kolicina) || (tip === "kesa" ? 1000 : 1));
+                const _ukupnoNalog = N(_zc.vrednost) || N(_zc.konacna) || 0;
+                const _ukupnoOsnovno = N(_zc.osnovna) || (N(rez.konacna_cena) > 0 ? N(rez.osnovna_cena) * (_ukupnoNalog / N(rez.konacna_cena)) : 0);
+                const _kgPer = N(rez.kg_na_1000_kom);
+                const _cenaKgM = N(rez.cena_po_kg_sa_marzom) || (_kgPer > 0 ? N(rez.konacna_cena) / _kgPer : 0);
+                const _cenaKgO = N(rez.cena_po_kg) || (_kgPer > 0 ? N(rez.osnovna_cena) / _kgPer : 0);
+                red.rezultati = {
+                    ...rez,
+                    konacnaCena: N(rez.konacna_cena),
+                    osnovnaCena: N(rez.osnovna_cena),
+                    ukupnoNalog: _ukupnoNalog,
+                    ukupnoOsnovno: _ukupnoOsnovno,
+                    cenaPoKgSaMarza: _cenaKgM,
+                    cenaPoKgOsnovna: _cenaKgO,
+                    kolicina: _kol,
+                };
+            }
+
             const { data: upisana, error } = await supabase.from(tabela).insert([red]).select("id");
             if (error) return { ok: false, poruka: "Upis u " + tabela + " nije uspeo: " + error.message };
             return {
@@ -1557,7 +1582,7 @@ export const ALATI = {
             kasiranje: { type: "object", description: "Kaширanje: tipLepka, odnosLepka, nanosLepka, brojKasiranja, materijalABC" },
             lakiranje: { type: "object", description: "Lakiranje: tip, masina, strana, nanos, pokrivenost, susenje, napomena" },
             perforacija: { type: "object", description: "Perforacija/KPDF: tip, razmak, sirina, pozicija, smer, brojRupa" },
-            rezanje: { type: "object", description: "Rezanje: sirinaMaterijala, sirinaTrake, brojTraka" },
+            rezanje: { type: "object", description: "Rezanje (folija): sirinaMaterijala, sirinaTrake, brojTraka, dorada, smerGP, sirineTraka, nacinPakovanja (npr. 'Kartonska kutija, 6 rolni/kutija, folirano na paleti')" },
             dimenzije_kese: {
                 type: "object",
                 description: "Za kesu. Dimenzije: sirina, duzina, klapna, falta, ban, takt, tolerancija, grafika, kolicina, skart. " +
@@ -1566,13 +1591,19 @@ export const ALATI = {
                     "header (Headerbeutel/sa hederom-vešalicom) | banderole | rolle (na rolni) | brief (Briefhülle/koverta) | " +
                     "doppel (Doppeltasche/dupla) | easy (Easy-Opening) | flaschen (Flaschenbeutel/za flaše) | " +
                     "heiss (Heißgenadelte/vruće iglana) | kreuz (Kreuzboden/ukršteno dno) | mehr (Mehrkammer/više komora) | " +
-                    "zweifarbig (dvobojna) | zweikammer (dvokomorna). " +
+                    "zweifarbig (dvobojna) | zweikammer (dvokomorna) | " +
+                    "doypack (stojeća kesa — stojeće dno, falta = dubina dna) | " +
+                    "seitenfalten (bočna falta — falta = dubina bočne falte) | " +
+                    "vakuum (vakuum kesa — zaptivena sa 4 strane). " +
                     "options — objekat true/false po TAČNIM šiframa: duplofan, poz_duplofan, ukosena_klapna, perf_otkinuti, " +
                     "otvor_dno, falta_dno, var_dno, tolerancija_kol, stampa, povrsina, pozicija, motiv, eurozumba, utor, " +
                     "perf_igle, okrugla_zumba, velicina_pozicija, poprecna_perf, poprecni_var, hrana, anleger, pakovati. " +
-                    "NE koristi druge šifre. Primer: { tipKese: \"header\", sirina: 180, duzina: 260, klapna: 25, options: { eurozumba: true, poprecna_perf: true } }",
+                    "NE koristi druge šifre. Primer: { tipKese: \"header\", sirina: 180, duzina: 260, klapna: 25, options: { eurozumba: true, poprecna_perf: true } } " +
+                    "Dodaj i orijentacija: 'sirina' (kesa po širini, dužina ×2 — podrazumevano) ili 'duzina' (po dužini, širina ×2). Duplo platno: falta ×2, klapna ×1.",
             }, dimenzije_spulne: { type: "object", description: "Za špulnu: W, T, D, Da, Di, G, C, sirinaMaterijala, maxMetara, sirinaHilzne, sideA, sideB, rolniPoPaleti, jedinicaUnosa, smer, kolicina, skart" },
-            napomena: { type: "string" },
+            pis_broj: { type: "string", description: "Broj naloga iz PIS-a — prikazuje se u zaglavlju SVAKOG naloga (folija/kesa/špulna)." },
+            napomena: { type: "string", description: "Globalna napomena (ide na SVE naloge)." },
+            napomene: { type: "object", description: "Napomene PO OPERACIJI — svaka ide na nalog baš te operacije (crveno). Ključevi po tipu: folija → materijal, stampa, lakiranje, kasiranje, rezanje; kesa → materijal, stampa, kasiranje, kesa; spulna → materijal, formatiranje, spulna. Primer: { materijal: 'Samo iz LOT-a 2026-08', rezanje: 'Oštar nož' }" },
         },
         opisPlana: (a) => {
             const d = [];
@@ -1608,16 +1639,45 @@ export const ALATI = {
             if (a.stampa && typeof a.stampa === "object") grana.stampa = a.stampa;
             if (a.kasiranje && typeof a.kasiranje === "object") grana.kasiranje = a.kasiranje;
             if (a.lakiranje && typeof a.lakiranje === "object") grana.lakiranje = a.lakiranje;
+            // Rezanje/perforacija/KPDF idu POD granu (Template Engine i nalog čitaju folija.rezanje,
+            // folija.perforacija, folija.kpdf) — ne na top-level, inače se ne pročitaju na nalogu.
+            if (tip === "folija") {
+                if (a.rezanje && typeof a.rezanje === "object") grana.rezanje = a.rezanje;
+                if (a.perforacija && typeof a.perforacija === "object") { grana.perforacija = a.perforacija; grana.kpdf = { enabled: true, ...a.perforacija }; }
+            }
             if (tip === "kesa" && a.dimenzije_kese && typeof a.dimenzije_kese === "object") Object.assign(grana, a.dimenzije_kese);
             if (tip === "spulna" && a.dimenzije_spulne && typeof a.dimenzije_spulne === "object") Object.assign(grana, a.dimenzije_spulne);
+
+            // Napomene PO OPERACIJI — upisuju se u ista polja grane koja čita nalog (inline, kao folija).
+            const nop = (a.napomene && typeof a.napomene === "object") ? a.napomene : {};
+            const nap = (k) => T(nop[k]) || "";
+            function setSt(v) { grana.stampa = { ...(grana.stampa || {}), napomena: v }; }
+            if (tip === "folija") {
+                if (nap("materijal")) grana.materijalNapomena = nap("materijal");
+                if (nap("stampa")) setSt(nap("stampa"));
+                if (nap("lakiranje")) grana.lakiranje = { ...(grana.lakiranje || {}), napomena: nap("lakiranje") };
+                if (nap("kasiranje")) grana.kasiranje = { ...(grana.kasiranje || {}), napomena: nap("kasiranje") };
+                if (nap("rezanje")) grana.rezanje = { ...(grana.rezanje || {}), napomena: nap("rezanje") };
+            } else if (tip === "kesa") {
+                if (nap("materijal")) grana.materijalNapomena = nap("materijal");
+                if (nap("stampa")) setSt(nap("stampa"));
+                if (nap("kasiranje")) grana.kasiranje = { ...(grana.kasiranje || {}), napomena: nap("kasiranje") };
+                if (nap("kesa")) grana.izradaNapomena = nap("kesa");
+            } else if (tip === "spulna") {
+                if (nap("materijal")) grana.materijalNapomena = nap("materijal");
+                if (nap("formatiranje")) grana.formatiranje = { ...(grana.formatiranje || {}), napomena: nap("formatiranje") };
+                if (nap("spulna")) grana.napomena = nap("spulna");
+            }
 
             const data = {
                 sifra: null, naziv, kupac: T(a.kupac) || "", type: tip, tip,
                 product_master_id: "PROD-AI-" + Date.now(),
                 idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
+                pisBroj: T(a.pis_broj) || "",
                 [tip]: grana,
                 napomena: T(a.napomena) || "Kreirano preko AI agenta",
             };
+            // Zadrži i top-level (kompatibilnost sa starijim čitačima), ali izvor istine je grana.
             if (a.perforacija && typeof a.perforacija === "object") { data.perforacija = a.perforacija; data.kpdf = { enabled: true, ...a.perforacija }; }
             if (a.rezanje && typeof a.rezanje === "object") data.rezanje = a.rezanje;
             const tplId = "TPL-" + Date.now();
