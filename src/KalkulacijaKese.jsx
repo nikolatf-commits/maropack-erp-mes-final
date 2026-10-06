@@ -1143,12 +1143,12 @@ export default function KalkulacijaKese({ setPage }) {
                             </div>
                         </div>
 
-                        <div style={{ background: 'linear-gradient(135deg,#fed7aa,#fdba74)', border: '2px solid #f97316', borderRadius: '9px', padding: '11px', marginBottom: '8px' }}>
-                            <div style={{ fontSize: '9px', fontWeight: 700, color: '#9a3412', textTransform: 'uppercase', marginBottom: '6px' }}>📦 Materijal za nalog</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
-                                <div><div style={{ fontSize: '7px', color: '#9a3412' }}>Težina kese</div><div style={{ fontSize: '12px', fontWeight: 800, color: '#9a3412' }}>{(rez.tezJedne || 0).toFixed(3)} g</div></div>
-                                <div><div style={{ fontSize: '7px', color: '#9a3412' }}>Ukupno kg</div><div style={{ fontSize: '12px', fontWeight: 800, color: '#9a3412' }}>{(rez.ukKg || 0).toFixed(2)} kg</div></div>
-                                <div><div style={{ fontSize: '7px', color: '#9a3412' }}>Idealna širina</div><div style={{ fontSize: '12px', fontWeight: 800, color: '#9a3412' }}>{rez.idealnaS || 0} mm</div></div>
+                        <div style={{ background: 'linear-gradient(135deg,#fed7aa,#fdba74)', border: '2px solid #f97316', borderRadius: '11px', padding: '15px', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: '#9a3412', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '10px' }}>📦 Materijal za nalog</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                <div><div style={{ fontSize: '10px', fontWeight: 700, color: '#9a3412' }}>Težina kese</div><div style={{ fontSize: '19px', fontWeight: 900, color: '#9a3412', lineHeight: 1.15 }}>{(rez.tezJedne || 0).toFixed(3)} g</div></div>
+                                <div><div style={{ fontSize: '10px', fontWeight: 700, color: '#9a3412' }}>Ukupno kg</div><div style={{ fontSize: '19px', fontWeight: 900, color: '#9a3412', lineHeight: 1.15 }}>{(rez.ukKg || 0).toFixed(2)} kg</div></div>
+                                <div><div style={{ fontSize: '10px', fontWeight: 700, color: '#9a3412' }}>Idealna širina</div><div style={{ fontSize: '19px', fontWeight: 900, color: '#9a3412', lineHeight: 1.15 }}>{rez.idealnaS || 0} mm</div></div>
                             </div>
                         </div>
 
