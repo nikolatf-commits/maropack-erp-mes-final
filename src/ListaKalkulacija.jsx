@@ -423,11 +423,11 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                                 </div>
                                             </div>
 
-                                            {/* CENA NA 1000m (samo folija) */}
-                                            {kal.tip === 'folija' && (
+                                            {/* CENA NA 1000m (folija) / 1000 kom (kesa) / po špulni (špulna) */}
+                                            {(po1000Marza > 0 || po1000Osnovna > 0) && (
                                                 <div>
                                                     <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
-                                                        Cena na 1000m
+                                                        {kal.tip === 'folija' ? 'Cena na 1000m' : kal.tip === 'spulna' ? 'Cena po špulni' : 'Cena na 1000 kom'}
                                                     </div>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#94a3b8' }}>
                                                         <span>Osnovna</span>
