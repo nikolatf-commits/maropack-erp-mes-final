@@ -3,8 +3,8 @@ import React, { useState } from "react";
 // Geometrija trake (web) — ista kao u potvrđenom prototipu
 const WEBX0 = 145, WEBX1 = 540, WEBY0 = 258, WEBY1 = 718;
 
-function svgWrap(inner, maxW) {
-    return `<svg viewBox="0 0 600 760" width="100%" style="max-width:${maxW || 560}px;display:block;margin:0 auto;background:#fff">` + inner + `</svg>`;
+function svgWrap(inner, maxW, vb) {
+    return `<svg viewBox="${vb || '0 0 600 760'}" width="100%" style="max-width:${maxW || 560}px;display:block;margin:0 auto;background:#fff">` + inner + `</svg>`;
 }
 
 // Rolna (zaobljen desni kraj) + traka pune širine + čeona elipsa + strelica odmotavanja
@@ -25,13 +25,14 @@ function rollParts() {
 // da ostanu jasno čitljive i kad je preko rolne ubačena šarena slika dizajna.
 const DIMC = "#1e3a8a";          // tamnoplava = jači kontrast
 const HALO = "#ffffff";
-function dimH(x1, x2, y, txt) {
+function dimH(x1, x2, y, txt, color) {
     if (Math.abs(x2 - x1) < 2) return '';
+    const C = color || DIMC;
     const mx = (x1 + x2) / 2, w = Math.max(30, String(txt).length * 7 + 12);
-    const seg = (a, b, cc, dd) => `<line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${HALO}" stroke-width="3.6" stroke-linecap="round" opacity="0.92"/><line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${DIMC}" stroke-width="1.5"/>`;
+    const seg = (a, b, cc, dd) => `<line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${HALO}" stroke-width="3.6" stroke-linecap="round" opacity="0.92"/><line x1="${a}" y1="${b}" x2="${cc}" y2="${dd}" stroke="${C}" stroke-width="1.5"/>`;
     return seg(x1, y, x2, y) + seg(x1, y - 5, x1, y + 5) + seg(x2, y - 5, x2, y + 5) +
-        `<rect x="${mx - w / 2}" y="${y - 18}" width="${w}" height="15" rx="3.5" fill="#fff" stroke="${DIMC}" stroke-width="0.9" opacity="0.98"/>` +
-        `<text x="${mx}" y="${y - 7}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${DIMC}">${txt}</text>`;
+        `<rect x="${mx - w / 2}" y="${y - 18}" width="${w}" height="15" rx="3.5" fill="#fff" stroke="${C}" stroke-width="0.9" opacity="0.98"/>` +
+        `<text x="${mx}" y="${y - 7}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${C}">${txt}</text>`;
 }
 function dimV(x, y1, y2, txt) {
     if (Math.abs(y2 - y1) < 2) return '';
@@ -110,24 +111,71 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
     const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
     const lin = (Array.isArray(linije) ? linije : []).filter((L) => L && !isNaN(parseFloat(L.mm)));
     let o = ``, brL = 0, brD = 0;
-    lin.forEach((L, i) => {
+    // 1) Pripremi sve linije (x, strana, boja, pozicija, ID) — ID po redosledu unosa (L1,L2,… / D1,D2,…)
+    const items = lin.map((L, i) => {
         const x = WEBX0 + num(L.mm) * sx;
-        if (x < WEBX0 || x > WEBX1) return;
-        const c = BOJE[i % BOJE.length];
-        const gap = num(L.razmak) || gGlob;
         const gore = L.strana !== "desna";
-        if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o += `<circle cx="${x}" cy="${y}" r="2" fill="${c}"/>`; }
-        else { o += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5"/>`; }
-        o += `<circle cx="${x}" cy="${gore ? yTop : yBot}" r="3" fill="${c}"/>`;
         const poz = (L.poz != null && L.poz !== "") ? L.poz : Math.round(gore ? num(L.mm) : (Wmm - num(L.mm)));
-        const tag = (gore ? 'L' + (++brL) : 'D' + (++brD)) + ' · ' + poz + (num(L.razmak) ? (' / ' + num(L.razmak) + 'mm') : '');
-        o += `<text x="${x}" y="${(gore ? yTop - 6 : yBot + 15)}" text-anchor="middle" font-size="10" font-weight="900" fill="${c}">${tag}</text>`;
-        if (gore) o += dimH(WEBX0, x, WEBY0 + 16 + i * 15, poz + ' mm');
-        else o += dimH(x, WEBX1, WEBY1 - 16 - i * 15, poz + ' mm');
+        return { x, gore, c: BOJE[i % BOJE.length], poz, razmak: num(L.razmak), id: (gore ? 'L' + (++brL) : 'D' + (++brD)) };
+    }).filter((it) => it.x >= WEBX0 && it.x <= WEBX1);
+
+    // 2) Perforacija (tačke za „rupe", isprekidana linija za mikroperforaciju) + tačka na kraju
+    items.forEach((it) => {
+        const gap = it.razmak || gGlob;
+        if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o += `<circle cx="${it.x}" cy="${y}" r="2" fill="${it.c}"/>`; }
+        else { o += `<line x1="${it.x}" y1="${yTop}" x2="${it.x}" y2="${yBot}" stroke="${it.c}" stroke-width="2.5" stroke-dasharray="8 5"/>`; }
+        o += `<circle cx="${it.x}" cy="${it.gore ? yTop : yBot}" r="3.2" fill="${it.c}"/>`;
     });
-    o += dimV(WEBX0 + 18, WEBY0, yTop, odV + ' mm');
-    o += dimV(WEBX0 + 18, yBot, WEBY1, odD + ' mm');
-    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
+
+    // 2b) RAZMAK IZMEĐU RUPA — kotiran: mala vertikalna kota između prve dve rupe svake linije.
+    if (tip === 'rupe') {
+        const xs = items.map((it) => it.x).sort((a, b) => a - b);
+        const nearRight = (x) => xs.some((o2) => o2 > x + 0.5 && o2 - x < 44);
+        items.forEach((it) => {
+            const gap = it.razmak || gGlob;
+            const yA = yTop, yB = yTop + gap * sy;
+            const side = nearRight(it.x) ? -1 : 1, lx = it.x + 12 * side;
+            o += `<line x1="${it.x}" y1="${yA}" x2="${lx}" y2="${yA}" stroke="${it.c}" stroke-width="0.9"/>`;
+            o += `<line x1="${it.x}" y1="${yB}" x2="${lx}" y2="${yB}" stroke="${it.c}" stroke-width="0.9"/>`;
+            o += `<line x1="${lx}" y1="${yA}" x2="${lx}" y2="${yB}" stroke="${it.c}" stroke-width="1.2"/>`;
+            const tx = lx + 4 * side, anc = side > 0 ? 'start' : 'end';
+            o += `<text x="${tx}" y="${(yA + yB) / 2 + 3}" text-anchor="${anc}" font-size="9" font-weight="800" fill="${it.c}" stroke="#fff" stroke-width="2.4" paint-order="stroke">${gap} mm</text>`;
+        });
+    }
+
+    // 3) Oznake L1/L2… uz tačku — RAZMAKNUTE po visini kad su rupe blizu (bez horizontalnog preklapanja)
+    const MINX = 30, TSTEP = 12;
+    const tops = items.filter((it) => it.gore).sort((a, b) => a.x - b.x);
+    const bots = items.filter((it) => !it.gore).sort((a, b) => a.x - b.x);
+    const stag = (arr) => { let lastX = -1e9, lvl = 0; arr.forEach((it) => { lvl = (it.x - lastX < MINX) ? lvl + 1 : 0; it.lvl = lvl; lastX = it.x; }); };
+    stag(tops); stag(bots);
+    tops.forEach((it) => { o += `<text x="${it.x}" y="${yTop - 7 - it.lvl * TSTEP}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${it.c}" stroke="#fff" stroke-width="2.6" paint-order="stroke">${it.id}</text>`; });
+    bots.forEach((it) => { o += `<text x="${it.x}" y="${yBot + 16 + it.lvl * TSTEP}" text-anchor="middle" font-size="10.5" font-weight="900" fill="${it.c}" stroke="#fff" stroke-width="2.6" paint-order="stroke">${it.id}</text>`; });
+
+    // 4) Kote pozicija — svaka na SVOJOJ „lestvici": gornje iznad trake, donje ispod. Nema preklapanja.
+    const LANE = 17;
+    const laneTopY = (k) => WEBY0 - 16 - k * LANE;
+    const laneBotY = (k) => WEBY1 + 16 + k * LANE;
+    const conn = (x, ya, yb, c) => `<line x1="${x}" y1="${ya}" x2="${x}" y2="${yb}" stroke="${HALO}" stroke-width="3" opacity="0.9"/><line x1="${x}" y1="${ya}" x2="${x}" y2="${yb}" stroke="${c}" stroke-width="0.9" stroke-dasharray="3 3"/>`;
+    tops.forEach((it, k) => {
+        const ly = laneTopY(k);
+        o += conn(it.x, ly, yTop, it.c);
+        o += dimH(WEBX0, it.x, ly, it.poz + ' mm', it.c);
+    });
+    bots.forEach((it, k) => {
+        const ly = laneBotY(k);
+        o += conn(it.x, yBot, ly, it.c);
+        o += dimH(it.x, WEBX1, ly, it.poz + ' mm', it.c);
+    });
+
+    o += dimV(WEBX0 + 14, WEBY0, yTop, odV + ' mm');
+    o += dimV(WEBX0 + 14, yBot, WEBY1, odD + ' mm');
+
+    // 5) Dinamički viewBox — da se lestvice kota uvek vide (crtež se proširi gore/dole po potrebi)
+    const minY = tops.length ? (laneTopY(tops.length - 1) - 20) : 0;
+    const maxY = bots.length ? (laneBotY(bots.length - 1) + 12) : 760;
+    const vbY = Math.min(0, minY), vbH = Math.max(760, maxY) - vbY;
+    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth, `0 ${vbY} 600 ${vbH}`) }} />;
 }
 
 export default { RolnaDizajn, PerforacijaCrtez };

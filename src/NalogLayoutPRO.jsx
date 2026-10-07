@@ -212,6 +212,8 @@ function buildD(nalog) {
             : ((num(t.dimenzijaSirina) || "?") + " mm × " + (eDuzinaRolne ? (fmtN(eDuzinaRolne) + " m rolna") : "?")),
         kom: (jedinica === "kom" && zadatoV) ? zadatoV : (od.kom || t.porucenaKolicinaKom || nalog.kom || (komUkupno || "—")),
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
+        // Idealna širina materijala (iz proizvoda/templejta) — da se uporedi sa stvarno korišćenom rolnom
+        idealnaSir: num(t.idealnaSirinaMaterijala) || num(od.idealnaSirinaMaterijala) || 0,
         metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         // Dizajn NA FINALNOJ ROLNI (rezanje): ista slika kao štampa, ali rotacija koju je
@@ -290,10 +292,10 @@ function labelDataUri(D) {
         '<rect x="24" y="180" width="122" height="22" fill="#0e7a52"/><text x="85" y="195" text-anchor="middle" font-family="Arial" font-size="10" font-weight="800" fill="#fff">' + t2 + '</text></svg>';
     return "data:image/svg+xml," + encodeURIComponent(svg);
 }
-function sW(i, m, mh) { return '<svg viewBox="0 0 600 760" style="width:auto;max-width:' + (m || 190) + 'px;max-height:' + (mh || 760) + 'px;background:#fff">' + i + '</svg>'; }
+function sW(i, m, mh, vb) { return '<svg viewBox="' + (vb || '0 0 600 760') + '" style="width:auto;max-width:' + (m || 190) + 'px;max-height:' + (mh || 760) + 'px;background:#fff">' + i + '</svg>'; }
 function rp(big) { const sw = big ? 2.6 : 1.5; let s = ""; s += '<path d="M 85 42 L 462 42 A 78 108 0 0 1 540 150 L 540 718 L 145 718 L 145 258 L 85 258 Z" fill="#eef3fb"/>'; s += '<path d="M 85 42 L 462 42 A 78 108 0 0 1 540 150 L 540 718 L 145 718 L 145 258" fill="none" stroke="#334a72" stroke-width="' + sw + '"/>'; s += '<ellipse cx="85" cy="150" rx="60" ry="108" fill="#f4f7fd" stroke="#334a72" stroke-width="' + (big ? 2.6 : 2) + '"/>'; s += '<ellipse cx="85" cy="150" rx="23" ry="40" fill="#fff" stroke="#9db6dd" stroke-width="1.6"/>'; s += '<path d="M 145 150 L 188 214 L 145 258 Z" fill="#eef4fc"/>'; s += '<line x1="145" y1="150" x2="145" y2="258" stroke="#334a72" stroke-width="' + (big ? 2.6 : 1.8) + '"/>'; s += '<line x1="92" y1="278" x2="92" y2="560" stroke="#475569" stroke-width="' + (big ? 4.5 : 3) + '"/><path d="M 92 576 l -10 -22 l 20 0 z" fill="#475569"/>'; return s; }
 function ah(x, y, dir) { var d; if (dir == 'r') d = 'M' + x + ' ' + y + ' l 9 -3.2 l 0 6.4 z'; else if (dir == 'l') d = 'M' + x + ' ' + y + ' l -9 -3.2 l 0 6.4 z'; else if (dir == 'd') d = 'M' + x + ' ' + y + ' l -3.2 9 l 6.4 0 z'; else d = 'M' + x + ' ' + y + ' l -3.2 -9 l 6.4 0 z'; return '<path d="' + d + '" fill="#1e40af"/>'; }
-function dimH(x1, x2, y, t, fy) { var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#1e40af" stroke-width="1.1"/>' + ah(x1, y, 'r') + ah(x2, y, 'l'); var mx = (x1 + x2) / 2; o += '<rect x="' + (mx - 22) + '" y="' + (y - 9) + '" width="44" height="15" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + mx + '" y="' + (y + 1.5) + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e40af">' + t + '</text>'; return o; }
+function dimH(x1, x2, y, t, fy, color) { var C = color || '#1e40af'; var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="' + C + '" stroke-width="1.3"/>' + '<line x1="' + x1 + '" y1="' + (y - 4) + '" x2="' + x1 + '" y2="' + (y + 4) + '" stroke="' + C + '" stroke-width="1.3"/><line x1="' + x2 + '" y1="' + (y - 4) + '" x2="' + x2 + '" y2="' + (y + 4) + '" stroke="' + C + '" stroke-width="1.3"/>'; var mx = (x1 + x2) / 2, w = Math.max(44, String(t).length * 7 + 12); o += '<rect x="' + (mx - w / 2) + '" y="' + (y - 9) + '" width="' + w + '" height="15" rx="2.5" fill="#fff" stroke="' + C + '" stroke-width="0.9"/><text x="' + mx + '" y="' + (y + 1.5) + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="' + C + '">' + t + '</text>'; return o; }
 function dimV(x, y1, y2, t, fx) { var o = ''; if (fx != null) { o += '<line x1="' + fx + '" y1="' + y1 + '" x2="' + (x - 8) + '" y2="' + y1 + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + fx + '" y1="' + y2 + '" x2="' + (x - 8) + '" y2="' + y2 + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '" stroke="#1e40af" stroke-width="1.1"/>' + ah(x, y1, 'd') + ah(x, y2, 'u'); var my = (y1 + y2) / 2; o += '<rect x="' + (x - 8) + '" y="' + (my - 23) + '" width="16" height="46" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + x + '" y="' + my + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e40af" transform="rotate(-90 ' + x + ' ' + my + ')">' + t + '</text>'; return o; }
 function dimSmall(x1, x2, y, t, fy) { var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#1e40af" stroke-width="1.1"/><line x1="' + x1 + '" y1="' + (y - 3) + '" x2="' + x1 + '" y2="' + (y + 3) + '" stroke="#1e40af"/><line x1="' + x2 + '" y1="' + (y - 3) + '" x2="' + x2 + '" y2="' + (y + 3) + '" stroke="#1e40af"/>'; var mx = (x1 + x2) / 2; o += '<rect x="' + (mx - 13) + '" y="' + (y - 23) + '" width="26" height="14" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + mx + '" y="' + (y - 13) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#1e40af">' + t + '</text>'; return o; }
 function roll(D, mw, mh) {
@@ -340,21 +342,58 @@ function perf(D, mw, mh) {
     const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
     const lin = Array.isArray(P.linije) ? P.linije : [];
     let o = "", brL = 0, brD = 0;
+    var vbY = 0, vbH = 760;
     if (lin.length) {
         // 1:1 kao editor: tačne pozicije + strana + razmak po liniji (tačke za rupe, linija za mikroperf.)
-        lin.forEach(function (L, i) {
+        // Kote se NE nagomilavaju — svaka ide na svoju „lestvicu", a oznake L/D se razmiču kad su linije blizu.
+        const items = lin.map(function (L, i) {
             const x = WEBX0 + num(L.mm) * sx;
-            if (x < WEBX0 || x > WEBX1) return;
-            const c = BOJE[i % BOJE.length], gap = num(L.razmak) || gGlob, gore = L.strana !== 'desna';
-            if (rupe) { for (let y = yT; y <= yB; y += gap * sy) o += '<circle cx="' + x + '" cy="' + y + '" r="2" fill="' + c + '"/>'; }
-            else { o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="' + c + '" stroke-width="2.5" stroke-dasharray="8 5"/>'; }
-            o += '<circle cx="' + x + '" cy="' + (gore ? yT : yB) + '" r="3" fill="' + c + '"/>';
+            const gore = L.strana !== 'desna';
             const poz = (L.poz != null && L.poz !== "") ? L.poz : Math.round(gore ? num(L.mm) : (Wm - num(L.mm)));
-            const tag = (gore ? 'L' + (++brL) : 'D' + (++brD)) + ' · ' + poz + (num(L.razmak) ? (' / ' + num(L.razmak) + 'mm') : '');
-            o += '<text x="' + x + '" y="' + (gore ? yT - 6 : yB + 15) + '" text-anchor="middle" font-size="10" font-weight="900" fill="' + c + '">' + esc(tag) + '</text>';
-            if (gore) o += dimH(WEBX0, x, WEBY0 + 16 + i * 15, poz + ' mm');
-            else o += dimH(x, WEBX1, WEBY1 - 16 - i * 15, poz + ' mm');
+            return { x: x, gore: gore, c: BOJE[i % BOJE.length], poz: poz, razmak: num(L.razmak), id: (gore ? 'L' + (++brL) : 'D' + (++brD)) };
+        }).filter(function (it) { return it.x >= WEBX0 && it.x <= WEBX1; });
+
+        items.forEach(function (it) {
+            const gap = it.razmak || gGlob;
+            if (rupe) { for (let y = yT; y <= yB; y += gap * sy) o += '<circle cx="' + it.x + '" cy="' + y + '" r="2" fill="' + it.c + '"/>'; }
+            else { o += '<line x1="' + it.x + '" y1="' + yT + '" x2="' + it.x + '" y2="' + yB + '" stroke="' + it.c + '" stroke-width="2.5" stroke-dasharray="8 5"/>'; }
+            o += '<circle cx="' + it.x + '" cy="' + (it.gore ? yT : yB) + '" r="3.2" fill="' + it.c + '"/>';
         });
+
+        // RAZMAK IZMEĐU RUPA — kotiran: mala vertikalna kota između prve dve rupe svake linije.
+        if (rupe) {
+            const xs = items.map(function (it) { return it.x; }).sort(function (a, b) { return a - b; });
+            const nearRight = function (x) { return xs.some(function (o2) { return o2 > x + 0.5 && o2 - x < 44; }); };
+            items.forEach(function (it) {
+                const gap = it.razmak || gGlob;
+                const yA = yT, yBb = yT + gap * sy;
+                const side = nearRight(it.x) ? -1 : 1, lx = it.x + 12 * side;
+                o += '<line x1="' + it.x + '" y1="' + yA + '" x2="' + lx + '" y2="' + yA + '" stroke="' + it.c + '" stroke-width="0.9"/>';
+                o += '<line x1="' + it.x + '" y1="' + yBb + '" x2="' + lx + '" y2="' + yBb + '" stroke="' + it.c + '" stroke-width="0.9"/>';
+                o += '<line x1="' + lx + '" y1="' + yA + '" x2="' + lx + '" y2="' + yBb + '" stroke="' + it.c + '" stroke-width="1.2"/>';
+                const tx = lx + 4 * side, anc = side > 0 ? 'start' : 'end';
+                o += '<text x="' + tx + '" y="' + ((yA + yBb) / 2 + 3) + '" text-anchor="' + anc + '" font-size="9" font-weight="800" fill="' + it.c + '" stroke="#fff" stroke-width="2.4" paint-order="stroke">' + gap + ' mm</text>';
+            });
+        }
+
+        const MINX = 30, TSTEP = 12;
+        const tops = items.filter(function (it) { return it.gore; }).sort(function (a, b) { return a.x - b.x; });
+        const bots = items.filter(function (it) { return !it.gore; }).sort(function (a, b) { return a.x - b.x; });
+        const stag = function (arr) { let lastX = -1e9, lvl = 0; arr.forEach(function (it) { lvl = (it.x - lastX < MINX) ? lvl + 1 : 0; it.lvl = lvl; lastX = it.x; }); };
+        stag(tops); stag(bots);
+        tops.forEach(function (it) { o += '<text x="' + it.x + '" y="' + (yT - 7 - it.lvl * TSTEP) + '" text-anchor="middle" font-size="10.5" font-weight="900" fill="' + it.c + '" stroke="#fff" stroke-width="2.6" paint-order="stroke">' + esc(it.id) + '</text>'; });
+        bots.forEach(function (it) { o += '<text x="' + it.x + '" y="' + (yB + 16 + it.lvl * TSTEP) + '" text-anchor="middle" font-size="10.5" font-weight="900" fill="' + it.c + '" stroke="#fff" stroke-width="2.6" paint-order="stroke">' + esc(it.id) + '</text>'; });
+
+        const LANE = 17;
+        const laneTopY = function (k) { return WEBY0 - 16 - k * LANE; };
+        const laneBotY = function (k) { return WEBY1 + 16 + k * LANE; };
+        const conn = function (x, ya, yb, c) { return '<line x1="' + x + '" y1="' + ya + '" x2="' + x + '" y2="' + yb + '" stroke="#fff" stroke-width="3" opacity="0.9"/><line x1="' + x + '" y1="' + ya + '" x2="' + x + '" y2="' + yb + '" stroke="' + c + '" stroke-width="0.9" stroke-dasharray="3 3"/>'; };
+        tops.forEach(function (it, k) { const ly = laneTopY(k); o += conn(it.x, ly, yT, it.c); o += dimH(WEBX0, it.x, ly, it.poz + ' mm', null, it.c); });
+        bots.forEach(function (it, k) { const ly = laneBotY(k); o += conn(it.x, yB, ly, it.c); o += dimH(it.x, WEBX1, ly, it.poz + ' mm', null, it.c); });
+
+        const minY = tops.length ? (laneTopY(tops.length - 1) - 20) : 0;
+        const maxY = bots.length ? (laneBotY(bots.length - 1) + 12) : 760;
+        vbY = Math.min(0, minY); vbH = Math.max(760, maxY) - vbY;
     } else {
         // fallback (stari način): ravnomerno N kolona
         const N = Math.max(2, P.N), oL = P.oL, oR = P.oR, xF = WEBX0 + oL * sx, xL = WEBX1 - oR * sx, st = (xL - xF) / (N - 1);
@@ -362,7 +401,7 @@ function perf(D, mw, mh) {
         const hy = WEBY0 - 17; o += dimSmall(WEBX0, xF, hy, oL, WEBY0); o += dimH(xF, xL, hy, (N - 1) + ' × ' + Math.round(st / sx), WEBY0); o += dimSmall(xL, WEBX1, hy, oR, WEBY0);
     }
     const vx = WEBX0 - 20; o += dimV(vx, WEBY0, yT, oV, WEBX0) + dimV(vx, yB, WEBY1, oD, WEBX0);
-    return sW(rp(mw > 320) + o, mw, mh);
+    return sW(rp(mw > 320) + o, mw, mh, '0 ' + vbY + ' 600 ' + vbH);
 }
 function rezSvg(D) { const total = D.rez.sirinaMat || 840; const lanes = D.rez.lanes.length ? D.rez.lanes : Array.from({ length: D.rez.brojTraka || 8 }, () => D.rez.sirinaTrake || 85); const used = lanes.reduce((s, x) => s + x, 0); const we = Math.max(0, (total - used) / 2); const X0 = 50, X1 = 660, scale = (X1 - X0) / total, topY = 46, h = 56; let o = ''; o += '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + h + '" fill="#eef4fc" stroke="#1e3a8a" stroke-width="1.3"/>'; let x = X0; const wePx = we * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; x += wePx; lanes.forEach(function (lw, i) { const sPx = lw * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/><text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="11" font-weight="900" fill="#1d4ed8">' + (i + 1) + '</text><text x="' + (x + sPx / 2) + '" y="' + (topY + h + 13) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#334155">' + lw + '</text>'; x += sPx; }); o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; o += dimH(X0, X1, topY - 16, total + ' mm'); return '<svg viewBox="0 0 710 120" width="100%" style="max-width:640px;background:#fff">' + o + '</svg>'; }
 
@@ -426,7 +465,7 @@ function spojMaterijala(LAY) {
     return { labela: 'Materijal (' + plex + ')', html: html };
 }
 // Ostatak identifikacije (bez Kupac/Tip/Proizvod — oni su gore u identBlock).
-function infoBlock(D) { return '<div class="info">' + infoC('Šifra', D.sifra) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', D.sirinaMat + ' mm') + infoC('Rok', D.rok) + '</div>'; }
+function infoBlock(D) { return '<div class="info">' + infoC('Šifra', D.sifra) + infoC('Dimenzije', D.dimenzije) + infoC('Kom', D.kom) + infoC('Idealna širina', (D.idealnaSir || D.sirinaMat) + ' mm') + infoC('Rok', D.rok) + '</div>'; }
 // Pun opis jednog sloja: vrsta + pod-vrsta + oznaka + debljina (za SPOJ i REDOSLED kaširanja)
 function komp(l) { if (!l) return ''; var t = [l.n, l.pv, l.oz].filter(Boolean).join(' '); if (l.u) t += ' ' + num(l.u) + ' µm'; return t; }
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
@@ -442,7 +481,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> Poručeno <b>' + fmtN(D.zadatoV) + ' ' + esc(D.jedinica) + '</b> &rarr; ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = ' + fmtN(D.metriMat) + ' m matične &nbsp;·&nbsp; +' + (D.skartPct || 5) + '% škart = <b>' + fmtN(D.metriMatPlus) + ' m</b> &nbsp;·&nbsp; materijal <b>' + fmtN(Math.round(D.kgPlus || 0)) + ' kg</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table class="rl">' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizv.', { t: 'Deb. (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'po broju naloga') + '<table class="rl">' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizv.', { t: 'Deb. (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + (Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l) { return { qr: '—', n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })).map(function (r, ri) {
             // Sve rezervisane rolne su za neki SLOJ. Ako rolni fale snapshot podaci materijala
             // (vrsta/oznaka/debljina…), povuci ih iz odgovarajućeg sloja (r.sloj), a ako nema —
             // iz prvog sloja (kod jednoslojne folije su sve rolne isti materijal).
@@ -456,7 +495,25 @@ function pMat(D) {
             // Metara rolne = koliko TA rolna ima (fizička dužina / preostalo); fallback na alocirano.
             var mNaRolni = r.rolnaM || r.alok || 0;
             var vKG = (r.kg != null) ? r.kg : (Lr.gm2 && mNaRolni ? +(Lr.gm2 * (D.sirinaMat / 1000) * mNaRolni / 1000).toFixed(1) : null);
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (mNaRolni ? fmtN(mNaRolni) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+            // Širina rolne: ako je šira od IDEALNE → crveno (ima ivični otpad)
+            var vSir = num(r.sir) || num(Lr.sirina) || 0;
+            var sirCell = vSir ? ((D.idealnaSir && vSir > D.idealnaSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (mNaRolni ? fmtN(mNaRolni) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+        (function () {
+            // POREĐENJE: idealna širina (iz proizvoda) vs stvarno korišćena rolna → ivični otpad + preporuka za poruku
+            var ideal = num(D.idealnaSir);
+            var rolneSir = (Array.isArray(D.rolne) ? D.rolne : []).map(function (r) { return num(r.sir); }).filter(function (x) { return x > 0; });
+            var koris = rolneSir.length ? Math.max.apply(null, rolneSir) : num(D.sirinaMat);
+            if (!ideal || !koris) return '';
+            var razlika = koris - ideal;
+            if (razlika > 0) {
+                var pct = ((razlika / koris) * 100).toFixed(1);
+                return '<div class="ulaz" style="border-left-color:#d97706;background:#fffbeb;color:#92400e;margin-top:12px">' +
+                    '<b>📐 Širina materijala:</b> Idealna <b>' + ideal + ' mm</b> &nbsp;·&nbsp; Korišćena rolna <b style="color:#b91c1c">' + koris + ' mm</b> &nbsp;·&nbsp; Ivični otpad <b>' + razlika + ' mm</b> (≈ ' + pct + '%). ' +
+                    '💡 Za sledeću porudžbinu naruči materijal širine <b>' + ideal + ' mm</b> da nema otpada.</div>';
+            }
+            return '<div class="ulaz" style="border-left-color:#16a34a;background:#f0fdf4;color:#166534;margin-top:12px"><b>📐 Širina materijala:</b> Idealna <b>' + ideal + ' mm</b> &nbsp;·&nbsp; Korišćena <b>' + koris + ' mm</b> — bez ivičnog otpada. ✓</div>';
+        })() +
         napHtml(D, 'materijal') +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana · materijal');
 }
@@ -1025,6 +1082,7 @@ function citajRolne(nalog) {
                 u: r.snap_debljina || r.debljina || r.deb || "",
                 lot: r.lot || r.LOT || "—",
                 lok: r.lokacija || r.palet || r.location || "—",
+                sir: num(r.snap_sirina || r.sirina || r.sirina_mm || r.sir || r.width),  // širina rolne (mm)
                 alok: alok,
                 rolnaM: rolnaM,
                 kg: kgpm > 0 && mRef > 0 ? +(kgpm * mRef).toFixed(1) : null,
