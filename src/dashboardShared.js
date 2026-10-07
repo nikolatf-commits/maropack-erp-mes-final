@@ -167,7 +167,7 @@ export async function loadDashboardData(timeRange = 30) {
     try {
         const [radRes, zastRes] = await Promise.all([
             supabase.from("operativni_nalozi")
-                .select("id, broj_naloga, radnik, masina, status, start_ts, stop_ts, created_at, uradjeno, skart")
+                .select("*")  // "*" da povučemo i skart_jed/tip_naloga bez pada ako kolona fali
                 .eq("status", "zavrseno")
                 .or(`stop_ts.gte.${cutoffDate.toISOString()},and(stop_ts.is.null,created_at.gte.${cutoffDate.toISOString()})`)
                 .order("created_at", { ascending: false }),
@@ -446,9 +446,55 @@ function minIzmedju(a, b) {
     const m = (new Date(b) - new Date(a)) / 60000;
     return Number.isFinite(m) && m > 0 ? m : 0;
 }
+// --- ŠKART: jedinica (kg podrazumevano, ili m) i naziv faze po operaciji ---
+// Radnik pri QR završetku bira kg ili m; čuva se u operativni_nalozi.skart + skart_jed.
+export function skartJed(r) { return String(r && r.skart_jed || "").toLowerCase() === "m" ? "m" : "kg"; }
+// Goli (master) broj naloga bez sufiksa faze: "MP-2026-0016-PERFORACIJA_REZANJE" -> "MP-2026-0016".
+export function masterBroj(b) { return String(b || "").trim().replace(/-[A-Za-zČĆŽŠĐČćžšđ_]+$/, ""); }
+// Čitljiv naziv faze iz tipa operacije ili sufiksa broja naloga.
+export function fazaNaloga(r) {
+    let s = String((r && (r.tip_naloga || r.vrsta_naloga || r.vrsta || r.operacija)) || "").toLowerCase();
+    if (!s) { const m = String(r && r.broj_naloga || "").match(/-([A-Za-zČĆŽŠĐČćžšđ_]+)$/); if (m) s = m[1].toLowerCase(); }
+    s = s.replace(/\s+/g, "_");
+    if (/stamp|štamp/.test(s)) return "Štampa";
+    if (/kaš|kas/.test(s)) return "Kaširanje";
+    if (/perf|rez/.test(s)) return "Perforacija / Rezanje";
+    if (/format/.test(s)) return "Formatiranje";
+    if (/mater|lans/.test(s)) return "Materijal / Lansiranje";
+    if (/lak/.test(s)) return "Lakiranje";
+    return s ? (s.charAt(0).toUpperCase() + s.slice(1)) : "Operacija";
+}
+
+// --- Preračun metri -> kilogrami, po nalogu (iz širine i gramaže u templejtu) ---
+function _pj(v) { if (v == null) return {}; if (typeof v === "object") return v; try { return JSON.parse(v) || {}; } catch (e) { return {}; } }
+// kg po dužnom metru za nalog = širina(mm) × gramaža(g/m²) / 1.000.000. 0 ako nema podataka.
+export function kgPoMetruNaloga(n) {
+    if (!n || typeof n !== "object") return 0;
+    const od = _pj(n.order_data), par = _pj(n.parametri), rez = _pj(n.rezultati), res = _pj(n.res), parRes = _pj(par.res);
+    const embTpl = rez.template || res.template || parRes.template || par.template || null;
+    const tpl = _pj(n.product_template || n.template || od.template || embTpl);
+    const tData = _pj(n.templateData || tpl.data || od.templateData);
+    const t = (tData && Object.keys(tData).length) ? tData : tpl;
+    const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const rzn = folija.rezanje || {};
+    const sirina = safeNumber(rzn.sirinaMaterijala) || safeNumber(t.idealnaSirinaMaterijala) || safeNumber(od.idealnaSirinaMaterijala) || 0;
+    let layers = (Array.isArray(od.materijali) && od.materijali.length) ? od.materijali : (Array.isArray(folija.layers) ? folija.layers : []);
+    let gsm = layers.reduce((s, l) => s + (safeNumber(l.gm2) || safeNumber(l.gsm) || safeNumber(l.tezina)), 0);
+    if (!gsm) gsm = safeNumber(t.gm2) || safeNumber(folija.gm2) || 0;
+    if (!sirina || !gsm) return 0;
+    return (sirina * gsm) / 1000000;
+}
+export function konvMapKg(nalozi = []) {
+    const m = {};
+    (Array.isArray(nalozi) ? nalozi : []).forEach((n) => { const b = masterBroj(n && (n.broj_naloga || n.broj || n.master_broj)); if (b && m[b] == null) { const k = kgPoMetruNaloga(n); if (k > 0) m[b] = k; } });
+    return m;
+}
+const _r1 = (x) => Math.round(x * 10) / 10;
+
 export function buildWorkersFromRad(data = {}) {
     const rad = data.rad || [];
     const zastoji = data.zastojiProd || [];
+    const konv = konvMapKg(data.nalozi || []);   // nalog -> kg po metru
     const key = (v) => normalizeText(v);
     const zastBy = new Map();
     zastoji.forEach((z) => { const k = key(z.radnik || z.radnik_ime); if (!k) return; const g = zastBy.get(k) || { broj: 0, min: 0 }; g.broj += 1; g.min += safeNumber(z.trajanje_min); zastBy.set(k, g); });
@@ -456,12 +502,16 @@ export function buildWorkersFromRad(data = {}) {
     rad.forEach((r) => {
         const ime = String(r.radnik || "").trim() || "Ručno / bez radnika";
         const k = key(ime);
-        if (!map.has(k)) map.set(k, { ime, pozicija: "Operater", masina: r.masina || "—", zavrseno: 0, aktivnosti: 0, zastoji: 0, zastojMin: 0, kolicina: 0, skartKg: 0, grossMin: 0, radMin: 0, poslednjaAktivnost: null, status: "Aktivan" });
+        if (!map.has(k)) map.set(k, { ime, pozicija: "Operater", masina: r.masina || "—", zavrseno: 0, aktivnosti: 0, zastoji: 0, zastojMin: 0, kolicina: 0, kolicinaM: 0, kolicinaKg: 0, skartKg: 0, skartM: 0, skartMuKg: 0, grossMin: 0, radMin: 0, poslednjaAktivnost: null, status: "Aktivan" });
         const w = map.get(k);
+        const kpm = konv[masterBroj(r.broj_naloga)] || 0;
+        const um = safeNumber(r.uradjeno);
         w.zavrseno += 1; w.aktivnosti += 1;
         w.grossMin += minIzmedju(r.start_ts, r.stop_ts);
-        w.kolicina += safeNumber(r.uradjeno);
-        w.skartKg += safeNumber(r.skart);
+        w.kolicina += um; w.kolicinaM += um;
+        if (kpm > 0) w.kolicinaKg += um * kpm;
+        const sv = safeNumber(r.skart);
+        if (skartJed(r) === "m") { w.skartM += sv; if (kpm > 0) w.skartMuKg += sv * kpm; } else w.skartKg += sv;
         if (r.masina) w.masina = r.masina;
         const d = r.stop_ts || r.start_ts;
         if (d && (!w.poslednjaAktivnost || new Date(d) > new Date(w.poslednjaAktivnost))) w.poslednjaAktivnost = d;
@@ -473,6 +523,13 @@ export function buildWorkersFromRad(data = {}) {
         // Efikasnost ima smisla samo ako je bilo evidentiranog vremena (QR). Ručne bez
         // vremena → "—" (null), da ne obaraju prosek na 0%.
         w.efikasnost = gross > 0 ? Math.min(100, Math.round((w.radMin / gross) * 100)) : null;
+        // Škart u kg = uneto u kg + (uneto u m preračunato u kg). Procenat = škart kg / urađeno kg.
+        w.skartUkupnoKg = _r1(w.skartKg + w.skartMuKg);
+        w.skartPct = w.kolicinaKg > 0 ? _r1((w.skartUkupnoKg / w.kolicinaKg) * 100) : null;
+        w.kolicinaM = _r1(w.kolicinaM);
+        w.kolicinaKg = _r1(w.kolicinaKg);
+        w.skartKg = _r1(w.skartKg);
+        w.skartM = _r1(w.skartM);
     });
     return Array.from(map.values()).sort((a, b) => b.zavrseno - a.zavrseno || b.radMin - a.radMin);
 }
@@ -490,5 +547,60 @@ export function calcManagerKPIs(data = {}) {
     const efikasnost = grossMin > 0 ? ((radMin / grossMin) * 100).toFixed(1) : "—";
     // "Radnici" = svi koji su završili neku operaciju (QR imenom, ručne pod "Ručno / bez radnika").
     const imena = new Set(rad.map((r) => normalizeText(r.radnik) || "rucno").filter(Boolean));
-    return { ukupnoRadnika: imena.size, aktivniRadnici: aktivniSet.size, zavrseneFaze, ukupnoZastoja, efikasnost, radMin: Math.round(radMin), zastMin: Math.round(zastMin) };
+    // Ukupan škart (kg i m posebno — ne mešaju se bez preračuna)
+    let skartKg = 0, skartM = 0;
+    rad.forEach((r) => { if (skartJed(r) === "m") skartM += safeNumber(r.skart); else skartKg += safeNumber(r.skart); });
+    return { ukupnoRadnika: imena.size, aktivniRadnici: aktivniSet.size, zavrseneFaze, ukupnoZastoja, efikasnost, radMin: Math.round(radMin), zastMin: Math.round(zastMin), skartKg: Math.round(skartKg * 10) / 10, skartM: Math.round(skartM * 10) / 10 };
+}
+
+// --- ŠKART po NALOGU, razbijen po FAZAMA i po RADNICIMA ---
+// Vraća listu: [{ nalog, proizvod, kg, m, faze:[{naziv,kg,m}], radnici:[{ime,kg,m}], rolni }]
+// kg i m se drže ODVOJENO (radnik bira jedinicu). Primer: nalog 20 kg = Štampa 10 + Lansiranje 5 + Rezanje 5.
+export function buildSkartPoNalogu(data = {}) {
+    const rad = data.rad || [];
+    const nalozi = data.nalozi || [];
+    // mapa master broj -> naziv proizvoda (ako je dostupno u nalozima)
+    const nazivBy = {};
+    (Array.isArray(nalozi) ? nalozi : []).forEach((n) => {
+        const b = masterBroj(n && (n.broj_naloga || n.broj || n.master_broj));
+        if (b && !nazivBy[b]) nazivBy[b] = (n && (n.naziv_proizvoda || n.proizvod || n.naziv)) || "";
+    });
+    const m = {};
+    rad.forEach((r) => {
+        const v = safeNumber(r.skart);
+        if (v <= 0) return;
+        const nalog = masterBroj(r.broj_naloga) || "—";
+        const jed = skartJed(r);
+        const faza = fazaNaloga(r);
+        const ime = String(r.radnik || "").trim() || "Ručno / bez radnika";
+        if (!m[nalog]) m[nalog] = { nalog, proizvod: nazivBy[nalog] || "", kg: 0, m: 0, faze: {}, radnici: {}, rolni: 0 };
+        const g = m[nalog];
+        if (jed === "m") g.m += v; else g.kg += v;
+        if (!g.faze[faza]) g.faze[faza] = { kg: 0, m: 0 };
+        if (jed === "m") g.faze[faza].m += v; else g.faze[faza].kg += v;
+        if (!g.radnici[ime]) g.radnici[ime] = { kg: 0, m: 0 };
+        if (jed === "m") g.radnici[ime].m += v; else g.radnici[ime].kg += v;
+        g.rolni += 1;
+    });
+    const r1 = (x) => Math.round(x * 10) / 10;
+    return Object.values(m).map((x) => ({
+        nalog: x.nalog, proizvod: x.proizvod, kg: r1(x.kg), m: r1(x.m), rolni: x.rolni,
+        faze: Object.keys(x.faze).map((naziv) => ({ naziv, kg: r1(x.faze[naziv].kg), m: r1(x.faze[naziv].m) })).sort((a, b) => (b.kg + b.m) - (a.kg + a.m)),
+        radnici: Object.keys(x.radnici).map((ime) => ({ ime, kg: r1(x.radnici[ime].kg), m: r1(x.radnici[ime].m) })).sort((a, b) => (b.kg + b.m) - (a.kg + a.m)),
+    })).sort((a, b) => (b.kg - a.kg) || (b.m - a.m));
+}
+
+// --- ŠKART zbirno po FAZI (preko svih naloga) ---
+export function buildSkartPoFazi(data = {}) {
+    const rad = data.rad || [];
+    const m = {};
+    rad.forEach((r) => {
+        const v = safeNumber(r.skart); if (v <= 0) return;
+        const faza = fazaNaloga(r), jed = skartJed(r);
+        if (!m[faza]) m[faza] = { faza, kg: 0, m: 0, broj: 0 };
+        if (jed === "m") m[faza].m += v; else m[faza].kg += v;
+        m[faza].broj += 1;
+    });
+    const r1 = (x) => Math.round(x * 10) / 10;
+    return Object.values(m).map((x) => ({ faza: x.faza, kg: r1(x.kg), m: r1(x.m), broj: x.broj })).sort((a, b) => (b.kg + b.m) - (a.kg + a.m));
 }

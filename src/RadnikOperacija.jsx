@@ -104,7 +104,7 @@ export default function RadnikOperacija({ opid }) {
     const [planMasina, setPlanMasina] = useState(""); // mašina na koju je nalog raspoređen (iz plana)
     const [showRazlog, setShowRazlog] = useState(false);
     const [showFinish, setShowFinish] = useState(false);
-    const [fin, setFin] = useState({ uradjeno: "", skart: "", napomena: "" });
+    const [fin, setFin] = useState({ uradjeno: "", skart: "", jed: "kg", napomena: "" });
 
     const meta = useMemo(() => opMeta(op), [op]);
     // MATERIJAL (magacin) nema mašinu — radnik samo upiše ime.
@@ -338,10 +338,17 @@ export default function RadnikOperacija({ opid }) {
             await supabase.from("nalog_zastoji")
                 .update({ stop_ts: new Date().toISOString(), trajanje_min: min }).eq("id", aktivanZastoj.id);
         }
-        const { error } = await supabase.from("operativni_nalozi").update({
+        const jed = (fin.jed === "m") ? "m" : "kg";   // radnik bira: kg (podrazumevano) ili m
+        const patch = {
             status: "zavrseno", stop_ts: new Date().toISOString(), pauza_ts: null,
-            uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), napomena: fin.napomena || "",
-        }).eq("id", opid);
+            uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), skart_jed: jed, napomena: fin.napomena || "",
+        };
+        let { error } = await supabase.from("operativni_nalozi").update(patch).eq("id", opid);
+        // Ako baza još nema kolonu skart_jed — skini je i probaj ponovo (ne blokira završetak).
+        if (error && /skart_jed/.test(String(error.message || ""))) {
+            const p2 = Object.assign({}, patch); delete p2.skart_jed;
+            ({ error } = await supabase.from("operativni_nalozi").update(p2).eq("id", opid));
+        }
         if (error) setErr("Završetak nije uspeo: " + error.message);
         // v2: upis u knjigu stavki materijala pri završetku operacije. Best-effort: ne blokira završetak.
         //  - MATERIJAL završen  → materijal je fizički IZDAT: izdato_m = alocirano_m (gde nije upisano)
@@ -364,7 +371,8 @@ export default function RadnikOperacija({ opid }) {
                             .eq("id", r.id);
                     }
                 }
-                const skartM = Number(fin.skart || 0);
+                // otpad_m se raspoređuje samo kad je škart unet u METRIMA (kg ne znači dužinu rolne)
+                const skartM = (jed === "m") ? Number(fin.skart || 0) : 0;
                 if (skartM > 0 && lista.length) {
                     const uk = lista.reduce((s, r) => s + (Number(r.alocirano_m) || 0), 0);
                     for (const r of lista) {
@@ -429,8 +437,18 @@ export default function RadnikOperacija({ opid }) {
                     <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginBottom: 4 }}>✓ Završetak operacije</div>
                     <label style={lbl}>Urađeno (m)</label>
                     <input style={inp} inputMode="numeric" value={fin.uradjeno} onChange={(e) => setFin((p) => ({ ...p, uradjeno: e.target.value }))} placeholder="npr. 50000" />
-                    <label style={lbl}>Škart (m)</label>
-                    <input style={inp} inputMode="numeric" value={fin.skart} onChange={(e) => setFin((p) => ({ ...p, skart: e.target.value }))} placeholder="0" />
+                    <label style={lbl}>Škart ({fin.jed === "m" ? "metara" : "kg"})</label>
+                    <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                        <input style={{ ...inp, flex: 1, marginBottom: 0 }} inputMode="numeric" value={fin.skart} onChange={(e) => setFin((p) => ({ ...p, skart: e.target.value }))} placeholder="0" />
+                        <div style={{ display: "flex", gap: 4 }}>
+                            {["kg", "m"].map((u) => (
+                                <button key={u} type="button" onClick={() => setFin((p) => ({ ...p, jed: u }))}
+                                    style={{ minWidth: 48, borderRadius: 10, border: "1px solid " + (fin.jed === u ? "#f59e0b" : "#334155"), background: fin.jed === u ? "#f59e0b" : "#0f172a", color: fin.jed === u ? "#111827" : "#94a3b8", fontWeight: 900, fontSize: 14, cursor: "pointer" }}>
+                                    {u}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <label style={lbl}>Napomena</label>
                     <input style={inp} value={fin.napomena} onChange={(e) => setFin((p) => ({ ...p, napomena: e.target.value }))} placeholder="opciono" />
                     <div style={{ background: "#1d4ed822", border: "1px solid #1d4ed8", borderRadius: 10, padding: 11, fontSize: 12, color: "#bfdbfe", margin: "14px 0 2px" }}>
@@ -538,7 +556,7 @@ export default function RadnikOperacija({ opid }) {
                 <div style={{ textAlign: "center", padding: "20px 0" }}>
                     <div style={{ fontSize: 44 }}>✅</div>
                     <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", margin: "8px 0" }}>Operacija završena</div>
-                    <div style={{ color: "#94a3b8", fontSize: 13 }}>Urađeno: {Number(op.uradjeno || 0).toLocaleString("sr-RS")} m · Škart: {Number(op.skart || 0)} m</div>
+                    <div style={{ color: "#94a3b8", fontSize: 13 }}>Urađeno: {Number(op.uradjeno || 0).toLocaleString("sr-RS")} m · Škart: {Number(op.skart || 0)} {op.skart_jed === "m" ? "m" : "kg"}</div>
                     <div style={{ color: "#64748b", fontSize: 12, marginTop: 6 }}>Rad {fmtMin(radMin)} · Zastoji {fmtMin(zastojiMin)}</div>
                 </div>
             )}
