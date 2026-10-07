@@ -613,16 +613,22 @@ export function kreatorNaloga(n) {
 }
 export function buildNaloziPoKreatoru(data = {}) {
     const nalozi = data.nalozi || [];
+    const opMap = grupisiOperacije(data.operacije || []);
     const m = {};
     (Array.isArray(nalozi) ? nalozi : []).forEach((n) => {
         const ime = kreatorNaloga(n) || "— Nepoznato";
-        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, ukasnilo: 0, kolicinaM: 0, poslednji: null };
+        const ops = opMap.get(n.id) || [];
+        // ZAVRŠEN = sve operacije naloga su gotove (isto pravilo kao „GOTOVO" u aplikaciji);
+        // ako nema operacija, padni na status master naloga.
+        const zavrsen = ops.length > 0 ? ops.every((o) => isFinishedStatus(o.status)) : isFinishedStatus(n.status);
+        // Količina: poručena količina naloga (parametri parsiran), pa izlaz poslednje operacije kao rezerva.
+        const par = _pj(n.parametri);
+        const qty = safeNumber(n.kol ?? n.kolicina ?? n.metraza ?? par.porucena_kolicina ?? par.kolicina_za_rad) || finalnoUradjeno(ops);
+        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, kolicinaM: 0, poslednji: null };
         const g = m[ime];
         g.broj += 1;
-        const st = String(n.status || "").toLowerCase();
-        if (st.indexOf("zavr") >= 0 || st.indexOf("gotov") >= 0) g.zavrseno += 1;
-        if (n.kasni === true || Number(n.kasnjenje_dana) > 0) g.ukasnilo += 1;
-        g.kolicinaM += safeNumber(n.kol || n.kolicina || n.metraza || n.porucena_kolicina);
+        if (zavrsen) g.zavrseno += 1;
+        g.kolicinaM += qty;
         const d = n.created_at || n.datum || n.datum_kreiranja;
         if (d && (!g.poslednji || new Date(d) > new Date(g.poslednji))) g.poslednji = d;
     });
