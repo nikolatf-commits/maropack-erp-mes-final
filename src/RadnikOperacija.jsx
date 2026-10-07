@@ -104,7 +104,7 @@ export default function RadnikOperacija({ opid }) {
     const [planMasina, setPlanMasina] = useState(""); // mašina na koju je nalog raspoređen (iz plana)
     const [showRazlog, setShowRazlog] = useState(false);
     const [showFinish, setShowFinish] = useState(false);
-    const [fin, setFin] = useState({ uradjeno: "", skart: "", jed: "kg", napomena: "" });
+    const [fin, setFin] = useState({ uradjeno: "", skart: "", jed: "m", napomena: "" });
 
     const meta = useMemo(() => opMeta(op), [op]);
     // MATERIJAL (magacin) nema mašinu — radnik samo upiše ime.
@@ -338,7 +338,7 @@ export default function RadnikOperacija({ opid }) {
             await supabase.from("nalog_zastoji")
                 .update({ stop_ts: new Date().toISOString(), trajanje_min: min }).eq("id", aktivanZastoj.id);
         }
-        const jed = (fin.jed === "m") ? "m" : "kg";   // radnik bira: kg (podrazumevano) ili m
+        const jed = (fin.jed === "kg") ? "kg" : "m";   // radnik bira: m (podrazumevano) ili kg
         const patch = {
             status: "zavrseno", stop_ts: new Date().toISOString(), pauza_ts: null,
             uradjeno: Number(fin.uradjeno || 0), skart: Number(fin.skart || 0), skart_jed: jed, napomena: fin.napomena || "",
@@ -556,7 +556,7 @@ export default function RadnikOperacija({ opid }) {
                 <div style={{ textAlign: "center", padding: "20px 0" }}>
                     <div style={{ fontSize: 44 }}>✅</div>
                     <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", margin: "8px 0" }}>Operacija završena</div>
-                    <div style={{ color: "#94a3b8", fontSize: 13 }}>Urađeno: {Number(op.uradjeno || 0).toLocaleString("sr-RS")} m · Škart: {Number(op.skart || 0)} {op.skart_jed === "m" ? "m" : "kg"}</div>
+                    <div style={{ color: "#94a3b8", fontSize: 13 }}>Urađeno: {Number(op.uradjeno || 0).toLocaleString("sr-RS")} m · Škart: {Number(op.skart || 0)} {op.skart_jed === "kg" ? "kg" : "m"}</div>
                     <div style={{ color: "#64748b", fontSize: 12, marginTop: 6 }}>Rad {fmtMin(radMin)} · Zastoji {fmtMin(zastojiMin)}</div>
                 </div>
             )}

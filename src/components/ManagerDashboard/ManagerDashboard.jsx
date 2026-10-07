@@ -4,6 +4,7 @@ import {
     buildWorkersFromRad,
     buildSkartPoNalogu,
     buildSkartPoFazi,
+    buildNaloziPoKreatoru,
     calcManagerKPIs,
     formatNumber,
     loadDashboardData,
@@ -80,6 +81,7 @@ export default function ManagerDashboard() {
     const zastoji = useMemo(() => data.zastojiProd || [], [data.zastojiProd]);
     const skartNalozi = useMemo(() => buildSkartPoNalogu(data), [data]);
     const skartFaze = useMemo(() => buildSkartPoFazi(data), [data]);
+    const kreatori = useMemo(() => buildNaloziPoKreatoru(data), [data]);
 
     return (
         <div style={styles.page}>
@@ -109,6 +111,7 @@ export default function ManagerDashboard() {
                 {[
                     ["radnici", "👥 Radnici"],
                     ["skart", "🗑️ Škart"],
+                    ["kreatori", "🧾 Po kreatoru"],
                     ["zastoji", "⏸️ Zastoji"],
                     ["top", "🏆 Top performeri"],
                     ["grafici", "📊 Grafici"]
@@ -127,6 +130,10 @@ export default function ManagerDashboard() {
 
                 {activeTab === "skart" && !loading && (
                     <SkartView workers={workers} skartNalozi={skartNalozi} skartFaze={skartFaze} kpi={kpi} />
+                )}
+
+                {activeTab === "kreatori" && !loading && (
+                    <KreatoriView kreatori={kreatori} />
                 )}
 
                 {activeTab === "zastoji" && !loading && (
@@ -290,6 +297,48 @@ function SkartView({ workers, skartNalozi, skartFaze, kpi }) {
     );
 }
 
+// ---------- PO KREATORU NALOGA: ko je napravio koliko naloga ----------
+function KreatoriView({ kreatori }) {
+    const ukupnoNaloga = kreatori.reduce((s, k) => s + k.broj, 0);
+    const ukupnoZavrseno = kreatori.reduce((s, k) => s + k.zavrseno, 0);
+    const maxBroj = Math.max(1, ...kreatori.map(k => k.broj));
+    const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
+    const td = { padding: "10px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
+    return (
+        <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 11, marginBottom: 16 }}>
+                <MiniKPI label="Kreatora naloga" value={kreatori.length} color="#0f172a" bg="#fff" />
+                <MiniKPI label="Ukupno naloga" value={ukupnoNaloga} color="#1d4ed8" bg="#eff6ff" />
+                <MiniKPI label="Završenih naloga" value={ukupnoZavrseno} color="#15803d" bg="#f0fdf4" />
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 900, margin: "4px 0 10px" }}>🧾 Ko je napravio koliko naloga</div>
+            {kreatori.length === 0 ? <Empty text="Nema naloga u izabranom periodu." /> : (
+                <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr>{["#", "Kreator", "Napravio naloga", "Završeno", "% završeno", "Količina (m)"].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                        <tbody>
+                            {kreatori.map((k, i) => (
+                                <tr key={i}>
+                                    <td style={{ ...td, color: "#94a3b8", fontWeight: 800 }}>#{i + 1}</td>
+                                    <td style={{ ...td, fontWeight: 900 }}>{k.ime}</td>
+                                    <td style={td}>
+                                        <div style={{ fontWeight: 950, fontSize: 15 }}>{k.broj}</div>
+                                        <div style={{ height: 5, background: "#e2e8f0", borderRadius: 3, marginTop: 3, overflow: "hidden" }}><div style={{ height: "100%", width: (k.broj / maxBroj * 100) + "%", background: "#1d4ed8" }} /></div>
+                                    </td>
+                                    <td style={{ ...td, color: "#15803d", fontWeight: 900 }}>{k.zavrseno}</td>
+                                    <td style={td}><b style={{ background: k.udeoZavrseno >= 80 ? "#dcfce7" : k.udeoZavrseno >= 50 ? "#fef9c3" : "#fee2e2", color: k.udeoZavrseno >= 80 ? "#166534" : k.udeoZavrseno >= 50 ? "#854d0e" : "#b91c1c", borderRadius: 8, padding: "2px 8px" }}>{k.udeoZavrseno}%</b></td>
+                                    <td style={td}>{k.kolicinaM ? formatNumber(k.kolicinaM, " m") : "—"}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Broji naloge iz trenutnog perioda koji su ušli u proizvodnju. Kreator se čita iz polja „kreirao_ime / kreirao / napravio".</div>
+        </div>
+    );
+}
+
 function MiniKPI({ label, value, color, bg }) {
     return <div style={{ background: bg || "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 14 }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#64748b" }}>{label}</div><div style={{ fontSize: 22, fontWeight: 950, color: color || "#0f172a", marginTop: 4 }}>{value}</div></div>;
 }
@@ -303,7 +352,7 @@ const styles = {
     title: { margin: 0, fontSize: 28, fontWeight: 900 }, subtitle: { color: "#475569", fontSize: 13 }, rangeButtons: { display: "flex", gap: 10 }, rangeBtn: { padding: "10px 22px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", color: "#1e3a8a", fontWeight: 800, cursor: "pointer" }, activeRange: { background: "#1d4ed8", color: "white" },
     syncInfo: { background: "rgba(255,255,255,.9)", borderRadius: 8, padding: 12, marginBottom: 10, fontWeight: 800, color: "#0f172a" },
     bigGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(170px,1fr))", gap: 12, marginBottom: 12 }, bigCard: { color: "white", borderRadius: 12, padding: 22, boxShadow: "0 8px 20px rgba(0,0,0,.14)" }, bigLabel: { fontWeight: 900, fontSize: 13 }, bigValue: { fontSize: 34, fontWeight: 900, marginTop: 12 }, bigSub: { fontSize: 12, opacity: .9, marginTop: 8 },
-    tabs: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 12 }, tab: { padding: 14, border: 0, borderRadius: 10, background: "#3155b5", color: "white", fontWeight: 900, cursor: "pointer" }, tabActive: { background: "white", color: "#1e3a8a" },
+    tabs: { display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10, marginBottom: 12 }, tab: { padding: 14, border: 0, borderRadius: 10, background: "#3155b5", color: "white", fontWeight: 900, cursor: "pointer" }, tabActive: { background: "white", color: "#1e3a8a" },
     panel: { background: "white", borderRadius: 14, padding: 20, boxShadow: "0 8px 24px rgba(15,23,42,.12)" }, search: { width: "100%", boxSizing: "border-box", padding: 14, border: "1px solid #cbd5e1", borderRadius: 8, marginBottom: 18 }, workerGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }, workerCard: { border: "1px solid #cbd5e1", borderRadius: 12, padding: 18, background: "white" }, workerTop: { display: "flex", justifyContent: "space-between" }, workerName: { fontWeight: 900, fontSize: 16 }, workerPos: { fontSize: 12, color: "#64748b", marginTop: 8 }, online: { background: "#dcfce7", color: "#16a34a", borderRadius: 8, padding: "2px 10px", height: 20 }, workerStats: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, background: "#f8fafc", borderRadius: 8, padding: 12, margin: "18px 0", fontSize: 12 }, workerMeta: { fontSize: 12, color: "#334155", marginBottom: 8 }, effRow: { display: "flex", justifyContent: "space-between", fontSize: 12 }, progressOuter: { height: 7, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", marginTop: 6 }, progressInner: { height: "100%", background: "#2563eb" },
     sectionTitle: { margin: "0 0 14px", fontSize: 18, fontWeight: 900 }, rowCard: { display: "grid", gridTemplateColumns: "1fr 1fr 100px", gap: 12, alignItems: "center", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, marginBottom: 10 }, chartsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(420px,1fr))", gap: 16 }, chartCard: { border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }, empty: { padding: 30, textAlign: "center", color: "#64748b", fontWeight: 800 }
 };
