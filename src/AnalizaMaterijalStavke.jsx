@@ -5,10 +5,37 @@ import { calculateGm2 } from "./data/materialMaster.js";
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+// ------- helper-i za IDEALNU širinu iz templejta naloga -------
+function _parse(v) { if (v == null) return {}; if (typeof v === "object") return v; try { return JSON.parse(v) || {}; } catch (e) { return {}; } }
+// Iz jednog reda radni_nalozi/operativni_nalozi izvuci IDEALNU širinu materijala.
+// Izvor istine (isti kao nalog/metrika): folija.rezanje.sirinaMaterijala -> t.idealnaSirinaMaterijala.
+function idealnaIzNaloga(n) {
+    if (!n || typeof n !== "object") return 0;
+    const od = _parse(n.order_data);
+    const par = _parse(n.parametri);
+    const rez = _parse(n.rezultati);
+    const res = _parse(n.res);
+    const parRes = _parse(par.res);
+    const embTpl = rez.template || res.template || parRes.template || par.template || null;
+    const tpl = _parse(n.product_template || n.template || od.template || embTpl);
+    const tData = _parse(n.templateData || tpl.data || od.templateData);
+    const t = (tData && Object.keys(tData).length) ? tData : tpl;
+    const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+    const rzn = folija.rezanje || {};
+    return num(rzn.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(od.idealnaSirinaMaterijala) || num(n.idealna_sirina) || 0;
+}
+// Ocisti nalog_ref na goli kod (npr. "MP-2026-0002 · Banda bianca 520 mm" -> "MP-2026-0002").
+function kodNaloga(ref) {
+    const s = String(ref || "").trim();
+    if (!s) return "";
+    const m = s.match(/^[A-Za-zČĆŽŠĐ]*[-\s]?\d{2,4}[-\s]?\d{2,6}/);
+    return (m ? m[0] : s.split(/[·,\/|]/)[0]).trim();
+}
+
 export default function AnalizaMaterijalStavke({ msg }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [tab, setTab] = useState("nalog"); // "nalog" | "materijal"
+    const [tab, setTab] = useState("nalog"); // "nalog" | "materijal" | "sirine"
     const [period, setPeriod] = useState("sve"); // "sve" | "30" | "90"
     const [q, setQ] = useState("");
 
@@ -35,6 +62,25 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 if (data.length < PAGE) break;
             }
 
+            // ------- IDEALNE širine po nalogu (iz templejta) -------
+            // Rolna u magacinu NEMA idealnu širinu — ona je u proizvodu/templejtu naloga.
+            // Gradimo mapu: kod naloga -> idealna širina, pa je spajamo sa rolnama.
+            const idealMap = {};
+            try {
+                let nal = [];
+                for (let od = 0; od < 20000; od += PAGE) {
+                    const { data } = await supabase.from("radni_nalozi").select("*").range(od, od + PAGE - 1);
+                    if (!data || !data.length) break;
+                    nal = nal.concat(data);
+                    if (data.length < PAGE) break;
+                }
+                nal.forEach((n) => {
+                    const kod = kodNaloga(n.broj_naloga || n.broj || n.master_broj);
+                    const iw = idealnaIzNaloga(n);
+                    if (kod && iw && !idealMap[kod]) idealMap[kod] = iw;
+                });
+            } catch (e) { /* ako nema pristupa radni_nalozi, idealna ostaje 0 */ }
+
             const transf = sve.filter((r) => jeIskoriscena(r.status)).map(function (r) {
                 const deb = num0(r.debljina ?? r.deb);
                 const sir = num0(r.sirina);
@@ -48,14 +94,17 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     const gsm = num0(r.gsm);
                     if (gsm && sir && m) kg = (m * sir * gsm) / 1000000;
                 }
+                const ref = r.nalog_ponbr || r.dodeljeno_nalogu || r.za_nalog || (r.nalog_id != null ? String(r.nalog_id) : null);
+                const ideal = idealMap[kodNaloga(ref)] || 0;   // PRAVA idealna širina (iz templejta)
                 return {
-                    nalog_ref: r.nalog_ponbr || r.dodeljeno_nalogu || r.za_nalog || (r.nalog_id != null ? String(r.nalog_id) : null),
+                    nalog_ref: ref,
                     vrsta: r.vrsta || null,
                     pod_vrsta: r.pod_vrsta || null,
                     oznaka: r.oznaka_materijala || r.oznaka || null,
                     debljina: deb || null,
                     dobavljac: r.dobavljac || r.proizvodjac || null,
-                    idealna_sirina: num0(r.sirina ?? r.sirina_mm) || null,
+                    koriscena_sirina: sir || null,                 // STVARNA širina rolne
+                    idealna_sirina: ideal || null,                 // PRAVA idealna širina (iz naloga)
                     potroseno: m,
                     vraceno: 0,
                     kg: kg,
@@ -72,12 +121,13 @@ export default function AnalizaMaterijalStavke({ msg }) {
         const m = {};
         rows.forEach((r) => {
             const k = r.nalog_ref || "— bez naloga";
-            if (!m[k]) m[k] = { nalog: k, izdato: 0, vraceno: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0 };
+            if (!m[k]) m[k] = { nalog: k, izdato: 0, vraceno: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0, koriscena: r.koriscena_sirina || 0 };
             m[k].izdato += num(r.potroseno);
             m[k].vraceno += num(r.vraceno);
             m[k].kg += num(r.kg);           // pun kg rolne (kao magacin)
             m[k].rolni += 1;
             if (!m[k].idealna && r.idealna_sirina) m[k].idealna = r.idealna_sirina;
+            if (r.koriscena_sirina && r.koriscena_sirina > m[k].koriscena) m[k].koriscena = r.koriscena_sirina;
         });
         return Object.values(m).map((x) => ({
             ...x,
@@ -91,7 +141,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const poMaterijalu = useMemo(() => {
         const m = {};
         rows.forEach((r) => {
-            const sir = r.idealna_sirina || "";
+            const sir = r.koriscena_sirina || "";
             const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, sir, r.dobavljac].map((x) => x || "").join("|");
             if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: sir, dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
             m[k].potroseno += Math.max(0, num(r.potroseno) - num(r.vraceno));
@@ -101,21 +151,59 @@ export default function AnalizaMaterijalStavke({ msg }) {
         return Object.values(m).filter((x) => x.potroseno > 0 || x.kg > 0).sort((a, b) => b.potroseno - a.potroseno);
     }, [rows]);
 
+    // ------- NOVO: po ŠIRINI / ivičnom otpadu -------
+    // Red = materijal (vrsta·pod-vrsta·oznaka·deb·proizvođač) × korišćena širina × idealna širina.
+    // Otpad mm = korišćena − idealna (po ivici).  Otpad kg = kg × (otpad/korišćena) — kilaža raste sa širinom.
+    const poSirini = useMemo(() => {
+        const m = {};
+        rows.forEach((r) => {
+            const kor = num(r.koriscena_sirina);
+            const ide = num(r.idealna_sirina);
+            const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac, kor, ide].map((x) => x || "").join("|");
+            if (!m[k]) m[k] = {
+                vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "",
+                dobavljac: r.dobavljac || "—", koriscena: kor, idealna: ide,
+                potroseno: 0, kg: 0, otpadKg: 0, rolni: 0,
+            };
+            const g = m[k];
+            const utro = Math.max(0, num(r.potroseno) - num(r.vraceno));
+            g.potroseno += utro;
+            g.kg += num(r.kg);
+            g.rolni += 1;
+            if (kor > 0 && ide > 0 && kor > ide) g.otpadKg += num(r.kg) * ((kor - ide) / kor);
+        });
+        return Object.values(m).map((x) => {
+            const otpadMm = (x.koriscena && x.idealna) ? Math.max(0, x.koriscena - x.idealna) : 0;
+            const otpadPct = (x.koriscena && x.idealna) ? (otpadMm / x.koriscena) * 100 : 0;
+            return { ...x, otpadMm, otpadPct };
+        }).filter((x) => x.kg > 0 || x.potroseno > 0)
+            // prvo materijali sa najvećim otpadom (kg), pa po potrošnji
+            .sort((a, b) => (b.otpadKg - a.otpadKg) || (b.potroseno - a.potroseno));
+    }, [rows]);
+
     const kpi = useMemo(() => {
         const izdato = rows.reduce((s, r) => s + num(r.potroseno), 0);
         const vraceno = rows.reduce((s, r) => s + num(r.vraceno), 0);
         const kgUk = rows.reduce((s, r) => s + num(r.kg), 0);
+        // ivični otpad: samo rolne gde je korišćena > idealna
+        let otpadKg = 0, saOtpadom = 0;
+        rows.forEach((r) => {
+            const kor = num(r.koriscena_sirina), ide = num(r.idealna_sirina);
+            if (kor > 0 && ide > 0 && kor > ide) { otpadKg += num(r.kg) * ((kor - ide) / kor); saOtpadom += 1; }
+        });
         return {
             plan: izdato,
             izdato: Math.max(0, izdato - vraceno),
             otpad: 0,
             kg: kgUk,                        // ukupno kg = zbir punih kg (kao magacin Iskorišćeno)
             nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
+            otpadKg, saOtpadom,
         };
     }, [rows]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
     const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
+    const filtSir = useMemo(() => !q.trim() ? poSirini : poSirini.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poSirini, q]);
 
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));
@@ -144,13 +232,14 @@ export default function AnalizaMaterijalStavke({ msg }) {
                 <div style={{ ...card, padding: 14 }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#64748b" }}>Naloga</div><div style={{ fontSize: 24, fontWeight: 950 }}>{fmt(kpi.nalozi)}</div></div>
                 <div style={{ ...card, padding: 14, background: "#eff6ff" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#1d4ed8" }}>Skinuto (bruto)</div><div style={{ fontSize: 24, fontWeight: 950, color: "#1d4ed8" }}>{fmt(kpi.plan)} m</div></div>
                 <div style={{ ...card, padding: 14, background: "#f0fdf4" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#15803d" }}>Stvarna potrošnja</div><div style={{ fontSize: 24, fontWeight: 950, color: "#15803d" }}>{fmt(kpi.izdato)} m</div></div>
-                <div style={{ ...card, padding: 14, background: "#fef2f2" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#dc2626" }}>Vraćeno</div><div style={{ fontSize: 24, fontWeight: 950, color: "#dc2626" }}>{fmt(Math.max(0, kpi.plan - kpi.izdato))} m</div></div>
+                <div style={{ ...card, padding: 14, background: "#fffbeb" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#b45309" }}>Ivični otpad</div><div style={{ fontSize: 24, fontWeight: 950, color: "#b45309" }}>{fmt(kpi.otpadKg, 1)} kg</div></div>
                 <div style={{ ...card, padding: 14, background: "#0f172a" }}><div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#94a3b8" }}>Ukupno kg</div><div style={{ fontSize: 24, fontWeight: 950, color: "#fff" }}>{fmt(kpi.kg, 1)}</div></div>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={() => setTab("nalog")} style={tabBtn("nalog")}>📋 Po nalogu</button>
                 <button onClick={() => setTab("materijal")} style={tabBtn("materijal")}>🧱 Po materijalu / dobavljaču</button>
+                <button onClick={() => setTab("sirine")} style={tabBtn("sirine")}>📐 Širine / ivični otpad</button>
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga..." style={{ marginLeft: "auto", border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, minWidth: 180 }} />
             </div>
 
@@ -187,7 +276,7 @@ export default function AnalizaMaterijalStavke({ msg }) {
                             </table>
                         </div>
                     </div>
-                ) : (
+                ) : tab === "materijal" ? (
                     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -213,9 +302,49 @@ export default function AnalizaMaterijalStavke({ msg }) {
                             </table>
                         </div>
                     </div>
+                ) : (
+                    // ------- NOVO: ŠIRINE / IVIČNI OTPAD -------
+                    <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+                        <div style={{ padding: "12px 14px", background: "#fffbeb", borderBottom: "1px solid #fde68a", fontSize: 12.5, color: "#92400e", fontWeight: 600 }}>
+                            Za svaki materijal: koju si <b>širinu koristio</b> (rolna iz magacina) naspram <b>idealne širine</b> koja ti je trebala (iz templejta proizvoda) — i koliki je <b>ivični otpad</b>. Crveno = širi materijal od potrebnog.
+                        </div>
+                        <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                <thead><tr>{["Vrsta", "Oznaka", "Pod-vrsta", "Deb.", "Proizvođač", "Korišćena š.", "Idealna š.", "Ivični otpad", "Potrošeno", "Otpad (kg)"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                                <tbody>
+                                    {filtSir.map((x, i) => {
+                                        const imaOtpad = x.otpadMm > 0;
+                                        const bezIdealne = !x.idealna;
+                                        return (
+                                            <tr key={i} style={imaOtpad ? { background: "#fff7ed" } : null}>
+                                                <td style={{ ...td, fontWeight: 900 }}>{x.vrsta}</td>
+                                                <td style={td}>{x.oznaka || "—"}</td>
+                                                <td style={td}>{x.pod_vrsta || "—"}</td>
+                                                <td style={td}>{x.debljina ? x.debljina + "µ" : "—"}</td>
+                                                <td style={td}>{x.dobavljac || "—"}</td>
+                                                <td style={{ ...td, fontWeight: 800, color: imaOtpad ? "#b91c1c" : "#0f172a" }}>{x.koriscena ? fmt(x.koriscena, 0) + " mm" : "—"}</td>
+                                                <td style={{ ...td, fontWeight: 800, color: bezIdealne ? "#94a3b8" : "#15803d" }}>{x.idealna ? fmt(x.idealna, 0) + " mm" : "— (nema u templejtu)"}</td>
+                                                <td style={td}>
+                                                    {bezIdealne ? <span style={{ color: "#94a3b8" }}>—</span>
+                                                        : imaOtpad
+                                                            ? <span style={{ fontWeight: 900, color: "#b91c1c" }}>+{fmt(x.otpadMm, 0)} mm <span style={{ fontWeight: 700, color: "#ea580c" }}>({fmt(x.otpadPct, 1)}%)</span></span>
+                                                            : <span style={{ fontWeight: 900, color: "#15803d" }}>✓ 0</span>}
+                                                </td>
+                                                <td style={td}>{fmt(x.potroseno)} m<div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 600 }}>{x.rolni} rolni</div></td>
+                                                <td style={{ ...td, fontWeight: 900, color: x.otpadKg > 0 ? "#b45309" : "#94a3b8" }}>{x.otpadKg > 0 ? fmt(x.otpadKg, 1) + " kg" : "—"}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style={{ padding: "10px 14px", fontSize: 11, color: "#94a3b8", borderTop: "1px solid #f1f5f9" }}>
+                            💡 Red sa ivičnim otpadom = sledeći put naruči materijal širine jednake „Idealna š." da nema otpada. „— (nema u templejtu)" = proizvod nema upisanu idealnu širinu materijala.
+                        </div>
+                    </div>
                 )
             )}
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Stvarna potrošnja = skinuto sa stanja − vraćeno u magacin (iz istorije rolni). Iskorišćenje = potrošeno / skinuto.</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Stvarna potrošnja = skinuto sa stanja − vraćeno u magacin (iz istorije rolni). Iskorišćenje = potrošeno / skinuto. Ivični otpad (kg) = kg × (korišćena − idealna) / korišćena.</div>
         </div>
     );
 }
