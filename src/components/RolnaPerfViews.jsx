@@ -45,7 +45,7 @@ function dimV(x, y1, y2, txt) {
 const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',', '.')); return isNaN(n) ? (d ?? 0) : n; };
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfSirinaMm = 0, maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -69,14 +69,28 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
     } else {
         o += `<text x="${cx}" y="${(WEBY0 + WEBY1) / 2}" text-anchor="middle" fill="#94a3b8" font-size="14" font-weight="800">nema dizajna</text>`;
     }
-    // Perforacijske linije preko dizajna (uzduž rolne) — tako izgleda na finalnoj rolni
+    // Perforacija preko dizajna — crta se ISTO kao na levoj skici (PERFORACIJA kotirano):
+    // „rupe" = tačke poređane po koloni (razmak = razmakRupa), „linija" = isprekidana linija.
+    // Vertikalni opseg poštuje OD VRHA / OD DNA i VISINU PRIKAZA (kao leva skica).
     if (Array.isArray(perfXmm) && perfXmm.length && num(perfSirinaMm) > 0) {
         const sxp = (WEBX1 - WEBX0) / num(perfSirinaMm);
         const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+        const Hmm = num(perfVisina);
+        const syp = Hmm > 0 ? (WEBY1 - WEBY0) / Hmm : 0;
+        const yTop = Hmm > 0 ? WEBY0 + num(perfOdVrha) * syp : WEBY0;
+        const yBot = Hmm > 0 ? WEBY1 - num(perfOdDna) * syp : WEBY1;
+        const gapPx = Hmm > 0 ? Math.max(4, num(perfRazmak, 5) * syp) : 10;
+        const rupe = String(perfTip) === 'rupe';
         perfXmm.forEach((mm, i) => {
             const x = WEBX0 + num(mm) * sxp;
+            if (x < WEBX0 || x > WEBX1) return;
             const c = BOJE[i % BOJE.length];
-            if (x >= WEBX0 && x <= WEBX1) o += `<line x1="${x}" y1="${WEBY0}" x2="${x}" y2="${WEBY1}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
+            if (rupe) {
+                for (let y = yTop; y <= yBot; y += gapPx) o += `<circle cx="${x}" cy="${y}" r="2" fill="${c}"/>`;
+                o += `<circle cx="${x}" cy="${yTop}" r="3" fill="${c}"/>`;
+            } else {
+                o += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
+            }
         });
     }
     return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
@@ -263,6 +277,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                     ...String(v.pozLeve || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)),
                     ...String(v.pozDesne || "").split(/[,;\s]+/).map((x) => parseFloat(x)).filter((x) => !isNaN(x)).map((x) => (Number(v.sirina) || 0) - x),
                 ] : []}
+                perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
                 maxWidth={nema ? 360 : 320} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>

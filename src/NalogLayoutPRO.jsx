@@ -245,11 +245,24 @@ function buildD(nalog) {
             hilzna: nHilzna, smer: fr.smerOdmotavanja || st.smerOdmotavanja || "Na glavu",
             nacinPakovanja: rz.nacinPakovanja || fr.nacinPakovanja || "",
         },
-        perf: {
-            N: num(pf.kolone || pf.brojKolona) || (lanes.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
-            oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: sirinaMat, Hm: num(pf.visina) || 600,
-            tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5,
-        },
+        perf: (function () {
+            // Perforacija 1:1 kao u editoru: lista linija (pozicija + strana + razmak po liniji).
+            var perfSir = num(pf.sirina) || num(rz.sirinaTrake) || sirinaMat;
+            var sirovLinije = Array.isArray(pf.linije) ? pf.linije : (function () {
+                var pL = String(pf.pozLeve || "").split(/[,;\s]+/).map(function (x) { return parseFloat(x); }).filter(function (x) { return !isNaN(x); });
+                var pR = String(pf.pozDesne || "").split(/[,;\s]+/).map(function (x) { return parseFloat(x); }).filter(function (x) { return !isNaN(x); });
+                return pL.map(function (p) { return { poz: p, strana: "leva", razmak: "" }; }).concat(pR.map(function (p) { return { poz: p, strana: "desna", razmak: "" }; }));
+            })();
+            var linije = (sirovLinije || []).filter(function (l) { return l && String(l.poz) !== "" && !isNaN(parseFloat(l.poz)); }).map(function (l) {
+                var poz = parseFloat(l.poz);
+                return { mm: l.strana === "desna" ? (perfSir - poz) : poz, poz: poz, strana: l.strana, razmak: (l.razmak === "" || l.razmak == null) ? "" : Number(l.razmak) };
+            });
+            return {
+                N: num(pf.kolone || pf.brojKolona) || (linije.length || lanes.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
+                oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: perfSir, Hm: num(pf.visina) || 600,
+                tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
+            };
+        })(),
     };
 }
 
@@ -319,7 +332,38 @@ function rollRez(D, mw, mh) {
     o += dimH(X0, X1, yT - 16, total + ' mm');
     return sW(o, mw, mh);
 }
-function perf(D, mw, mh) { const N = Math.max(2, D.perf.N), oV = D.perf.oV, oD = D.perf.oD, oL = D.perf.oL, oR = D.perf.oR, Wm = D.perf.Wm || 840, Hm = D.perf.Hm || 600; const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm, xF = WEBX0 + oL * sx, xL = WEBX1 - oR * sx, yT = WEBY0 + oV * sy, yB = WEBY1 - oD * sy, st = (xL - xF) / (N - 1); let o = ""; for (let i = 0; i < N; i++) { const x = xF + st * i; o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="#8b5cf6" stroke-width="2.2" stroke-dasharray="9 5"/><text x="' + x + '" y="' + (yT - 7) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#7c3aed">K' + (i + 1) + '</text>'; } const hy = WEBY0 - 17; o += dimSmall(WEBX0, xF, hy, oL, WEBY0); o += dimH(xF, xL, hy, (N - 1) + ' × ' + Math.round(st / sx), WEBY0); o += dimSmall(xL, WEBX1, hy, oR, WEBY0); const vx = WEBX0 - 20; o += dimV(vx, WEBY0, yT, oV, WEBX0) + dimV(vx, yB, WEBY1, oD, WEBX0); return sW(rp(mw > 320) + o, mw, mh); }
+function perf(D, mw, mh) {
+    const P = D.perf, oV = P.oV, oD = P.oD, Wm = P.Wm || 840, Hm = P.Hm || 600;
+    const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm;
+    const yT = WEBY0 + oV * sy, yB = WEBY1 - oD * sy;
+    const gGlob = num(P.razmak) || 5, rupe = String(P.tip) === 'rupe';
+    const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+    const lin = Array.isArray(P.linije) ? P.linije : [];
+    let o = "", brL = 0, brD = 0;
+    if (lin.length) {
+        // 1:1 kao editor: tačne pozicije + strana + razmak po liniji (tačke za rupe, linija za mikroperf.)
+        lin.forEach(function (L, i) {
+            const x = WEBX0 + num(L.mm) * sx;
+            if (x < WEBX0 || x > WEBX1) return;
+            const c = BOJE[i % BOJE.length], gap = num(L.razmak) || gGlob, gore = L.strana !== 'desna';
+            if (rupe) { for (let y = yT; y <= yB; y += gap * sy) o += '<circle cx="' + x + '" cy="' + y + '" r="2" fill="' + c + '"/>'; }
+            else { o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="' + c + '" stroke-width="2.5" stroke-dasharray="8 5"/>'; }
+            o += '<circle cx="' + x + '" cy="' + (gore ? yT : yB) + '" r="3" fill="' + c + '"/>';
+            const poz = (L.poz != null && L.poz !== "") ? L.poz : Math.round(gore ? num(L.mm) : (Wm - num(L.mm)));
+            const tag = (gore ? 'L' + (++brL) : 'D' + (++brD)) + ' · ' + poz + (num(L.razmak) ? (' / ' + num(L.razmak) + 'mm') : '');
+            o += '<text x="' + x + '" y="' + (gore ? yT - 6 : yB + 15) + '" text-anchor="middle" font-size="10" font-weight="900" fill="' + c + '">' + esc(tag) + '</text>';
+            if (gore) o += dimH(WEBX0, x, WEBY0 + 16 + i * 15, poz + ' mm');
+            else o += dimH(x, WEBX1, WEBY1 - 16 - i * 15, poz + ' mm');
+        });
+    } else {
+        // fallback (stari način): ravnomerno N kolona
+        const N = Math.max(2, P.N), oL = P.oL, oR = P.oR, xF = WEBX0 + oL * sx, xL = WEBX1 - oR * sx, st = (xL - xF) / (N - 1);
+        for (let i = 0; i < N; i++) { const x = xF + st * i; o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="#8b5cf6" stroke-width="2.2" stroke-dasharray="9 5"/><text x="' + x + '" y="' + (yT - 7) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#7c3aed">K' + (i + 1) + '</text>'; }
+        const hy = WEBY0 - 17; o += dimSmall(WEBX0, xF, hy, oL, WEBY0); o += dimH(xF, xL, hy, (N - 1) + ' × ' + Math.round(st / sx), WEBY0); o += dimSmall(xL, WEBX1, hy, oR, WEBY0);
+    }
+    const vx = WEBX0 - 20; o += dimV(vx, WEBY0, yT, oV, WEBX0) + dimV(vx, yB, WEBY1, oD, WEBX0);
+    return sW(rp(mw > 320) + o, mw, mh);
+}
 function rezSvg(D) { const total = D.rez.sirinaMat || 840; const lanes = D.rez.lanes.length ? D.rez.lanes : Array.from({ length: D.rez.brojTraka || 8 }, () => D.rez.sirinaTrake || 85); const used = lanes.reduce((s, x) => s + x, 0); const we = Math.max(0, (total - used) / 2); const X0 = 50, X1 = 660, scale = (X1 - X0) / total, topY = 46, h = 56; let o = ''; o += '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + h + '" fill="#eef4fc" stroke="#1e3a8a" stroke-width="1.3"/>'; let x = X0; const wePx = we * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; x += wePx; lanes.forEach(function (lw, i) { const sPx = lw * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/><text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="11" font-weight="900" fill="#1d4ed8">' + (i + 1) + '</text><text x="' + (x + sPx / 2) + '" y="' + (topY + h + 13) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#334155">' + lw + '</text>'; x += sPx; }); o += '<rect x="' + x + '" y="' + topY + '" width="' + wePx + '" height="' + h + '" fill="#fee2e2"/>'; o += dimH(X0, X1, topY - 16, total + ' mm'); return '<svg viewBox="0 0 710 120" width="100%" style="max-width:640px;background:#fff">' + o + '</svg>'; }
 
 const COLm = '#d97706', COLs = '#2563eb', COLk = '#4338ca', COLp = '#7c3aed';
@@ -527,7 +571,7 @@ function pRez(D) {
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
 }
 
-function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + D.perf.N + ' kolona · sve mere u mm</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
+function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + ((D.perf.linije && D.perf.linije.length) ? (D.perf.linije.length + ' linija') : (D.perf.N + ' kolona')) + ' · sve mere u mm</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
 
 
 /* ============================ KESA ============================ */
