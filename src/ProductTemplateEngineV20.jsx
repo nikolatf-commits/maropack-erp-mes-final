@@ -2303,6 +2303,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
 
     useEffect(() => { loadTemplates(); /* eslint-disable-next-line */ }, []);
 
+    // AUTO-OSVEŽAVANJE liste templejta kad BILO KO sačuva/obriše (Supabase realtime) — bez ručnog F5.
+    // Osvežava samo LISTU (saved), ne dira otvoreni form, pa ne prekida tvoje kucanje.
+    useEffect(() => {
+        let t = null;
+        const osvezi = () => { if (t) clearTimeout(t); t = setTimeout(() => { loadTemplates(); }, 1200); };
+        let ch = null;
+        try {
+            ch = supabase.channel("proizvodi-template-live")
+                .on("postgres_changes", { event: "*", schema: "public", table: "proizvodi" }, osvezi)
+                .subscribe();
+        } catch (e) { /* realtime nije uključen — ostaje ručno osvežavanje */ }
+        return () => { if (t) clearTimeout(t); try { if (ch) supabase.removeChannel(ch); } catch (e) { } };
+        // eslint-disable-next-line
+    }, []);
+
     useEffect(() => {
         try {
             const raw = localStorage.getItem("maropack_pending_template_edit");
@@ -2366,7 +2381,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
 
             // "new" → uvek insert (nov templejt, original ostaje).
             // "update" ili auto → update ako imamo db_id postojećeg, inače insert.
-            const existingDbId = (mode === "new") ? null : (record.db_id || (typeof record.id === 'number' ? record.id : null));
+            let existingDbId = (mode === "new") ? null : (record.db_id || (typeof record.id === 'number' ? record.id : null));
+            // ANTI-DUPLIKAT: ako nemamo numerički db_id (npr. proizvod učitan samo preko template_id,
+            // ili ga je drugi korisnik u međuvremenu snimio), nađi POSTOJEĆI red po template_id i radi
+            // UPDATE na njega — da izmena NE napravi nov red. To je bio uzrok duplikata kad dvoje rade.
+            if (!existingDbId && mode !== "new" && templateId) {
+                try {
+                    const { data: pos } = await supabase.from("proizvodi").select("id").eq("template_id", templateId).order("id", { ascending: true }).limit(1);
+                    if (pos && pos[0] && pos[0].id) existingDbId = pos[0].id;
+                } catch (e) { /* ignore */ }
+            }
             const payloadZaUpis = (mode === "new")
                 ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
                 : payload;
@@ -2383,6 +2407,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 error = res.error; data = res.data;
                 if (!error) break;
                 const poruka = [error.message, error.details, error.hint].filter(Boolean).join(" ");
+                // TRKA: neko je u istom trenutku ubacio isti template_id (jedinstveni indeks javi grešku)
+                // → pređi na UPDATE tog reda umesto novog insert-a.
+                if (!existingDbId && templateId && /duplicate key|23505|unique/i.test(poruka)) {
+                    try { const { data: pos } = await supabase.from("proizvodi").select("id").eq("template_id", templateId).limit(1); if (pos && pos[0] && pos[0].id) { existingDbId = pos[0].id; continue; } } catch (e) { }
+                }
                 const m = poruka.match(/'([^']+)' column|column "([^"]+)"|the '([^']+)' column|find the '([^']+)'/i);
                 const kol = m && (m[1] || m[2] || m[3] || m[4]);
                 if (kol && Object.prototype.hasOwnProperty.call(payloadR, kol)) { delete payloadR[kol]; continue; }
