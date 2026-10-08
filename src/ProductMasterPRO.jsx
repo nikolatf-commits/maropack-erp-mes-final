@@ -439,7 +439,22 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
 
     const products = useMemo(() => {
         const fromDb = Array.isArray(db?.proizvodi) ? db.proizvodi : [];
-        return fromDb.map(mapProduct);
+        const mapped = fromDb.map(mapProduct);
+        // DEDUP: isti proizvod se NE prikazuje dva puta (uzrok: db.proizvodi nakratko ima
+        // isti red i optimistički dodat i ponovo učitan, pre nego što se osveži F5).
+        // Ključ: db_id → template_id → product_master_id → šifra+kupac+naziv.
+        const kljuc = (p) => (p.db_id != null ? "id:" + p.db_id
+            : p.template_id ? "tpl:" + p.template_id
+                : p.product_master_id ? "pm:" + p.product_master_id
+                    : "k:" + [p.sifra, p.kupac, p.naziv].map(x => String(x || "").toLowerCase().trim()).join("|"));
+        const seen = new Map();
+        for (const p of mapped) {
+            const k = kljuc(p);
+            const prev = seen.get(k);
+            // zadrži zapis koji ima db_id (pravi red iz baze); inače prvi viđeni
+            if (!prev || (p.db_id != null && prev.db_id == null)) seen.set(k, p);
+        }
+        return Array.from(seen.values());
     }, [db]);
 
     const filtered = useMemo(() => products.filter((p) => {
