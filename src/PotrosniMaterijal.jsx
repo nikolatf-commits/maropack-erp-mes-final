@@ -10,14 +10,40 @@ const KAT_IKONA = { hilzna: "🧵", kutija: "📦", paleta: "🟫", etiketa: "�
 
 const praznoNovo = { naziv: "", kategorija: "hilzna", jedinica: "kom", stanje: "", min_zaliha: "", cena: "", dobavljac: "", dimenzija: "", precnik: "", debljina: "", duzina: "", napomena: "" };
 
-export default function PotrosniMaterijal({ msg }) {
+// --- STILOVI (van komponente — da se inputi NE prekreiraju pri svakom kucanju) ---
+const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
+const inp = { width: "100%", boxSizing: "border-box", padding: "12px 14px", border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 15, fontWeight: 600, height: 46 };
+const lab = { fontSize: 11, textTransform: "uppercase", fontWeight: 800, color: "#64748b", margin: "0 0 4px", display: "block" };
+const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
+const td = { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
+const btn = (bg, c) => ({ border: "none", borderRadius: 8, padding: "7px 11px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: bg, color: c || "#fff" });
+const jeHilzna = (k) => k === "hilzna";
+
+// Dodatna polja po kategoriji — definisano VAN glavne komponente (da inputi zadrže fokus).
+function PoljaExtra({ obj, set }) {
+    if (jeHilzna(obj.kategorija)) {
+        return (
+            <>
+                <div><label style={lab}>Prečnik (mm)</label><input style={inp} type="number" value={obj.precnik} onChange={(e) => set({ ...obj, precnik: e.target.value })} placeholder="76 / 152" /></div>
+                <div><label style={lab}>Debljina (mm)</label><input style={inp} type="number" value={obj.debljina} onChange={(e) => set({ ...obj, debljina: e.target.value })} placeholder="npr. 6" /></div>
+                <div><label style={lab}>Dužina (mm)</label><input style={inp} type="number" value={obj.duzina} onChange={(e) => set({ ...obj, duzina: e.target.value })} placeholder="npr. 500" /></div>
+            </>
+        );
+    }
+    return <div style={{ gridColumn: "span 2" }}><label style={lab}>Dimenzija</label><input style={inp} value={obj.dimenzija} onChange={(e) => set({ ...obj, dimenzija: e.target.value })} placeholder="npr. 400×300×250" /></div>;
+}
+
+export default function PotrosniMaterijal({ msg, korisnik }) {
+    const ja = String(korisnik || "").trim() || "—";
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState("");
     const [katFilter, setKatFilter] = useState("sve");
     const [novo, setNovo] = useState(praznoNovo);
-    const [edit, setEdit] = useState(null); // {id, ...polja}
+    const [edit, setEdit] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [istorija, setIstorija] = useState([]);
+    const [showIstorija, setShowIstorija] = useState(false);
 
     const poruka = (t, tip) => { if (msg) msg(t, tip); else if (tip === "err") alert(t); };
 
@@ -33,6 +59,25 @@ export default function PotrosniMaterijal({ msg }) {
         finally { setLoading(false); }
     }
 
+    async function loadIstorija() {
+        try {
+            const { data, error } = await supabase.from("potrosni_stavke").select("*").order("created_at", { ascending: false }).limit(300);
+            if (error) throw error;
+            setIstorija(data || []);
+        } catch (e) { poruka("Istorija nije učitana: " + (e.message || e), "err"); setIstorija([]); }
+    }
+
+    // Upis traga u knjigu (ko/šta/kada). Best-effort — ne blokira glavnu akciju.
+    async function trag(it, status, kolicina) {
+        try {
+            await supabase.from("potrosni_stavke").insert([{
+                nalog_ref: null, artikal_id: it.id || null, naziv: it.naziv, kategorija: it.kategorija,
+                kolicina: num(kolicina), jedinica: it.jedinica, cena: num(it.cena), status, korisnik: ja,
+            }]);
+        } catch (e) { /* trag je opcioni */ }
+        if (showIstorija) loadIstorija();
+    }
+
     async function dodaj() {
         if (!novo.naziv.trim()) { poruka("Unesi naziv artikla.", "err"); return; }
         setBusy(true);
@@ -43,8 +88,10 @@ export default function PotrosniMaterijal({ msg }) {
                 dobavljac: novo.dobavljac || null, dimenzija: novo.dimenzija || null,
                 precnik: num(novo.precnik) || null, debljina: num(novo.debljina) || null, duzina: num(novo.duzina) || null, napomena: novo.napomena || null,
             };
-            const { error } = await supabase.from("potrosni_materijal").insert([row]);
+            const { data, error } = await supabase.from("potrosni_materijal").insert([row]).select();
             if (error) throw error;
+            const nov = (data && data[0]) || { ...row };
+            await trag(nov, "kreiran", nov.stanje);
             setNovo(praznoNovo); poruka("Artikal dodat.");
             load();
         } catch (e) { poruka("Čuvanje nije uspelo: " + (e.message || e), "err"); }
@@ -64,6 +111,7 @@ export default function PotrosniMaterijal({ msg }) {
             };
             const { error } = await supabase.from("potrosni_materijal").update(row).eq("id", edit.id);
             if (error) throw error;
+            await trag({ ...edit, ...row }, "izmena", row.stanje);
             setEdit(null); poruka("Sačuvano."); load();
         } catch (e) { poruka("Izmena nije uspela: " + (e.message || e), "err"); }
         finally { setBusy(false); }
@@ -78,13 +126,7 @@ export default function PotrosniMaterijal({ msg }) {
         try {
             const { error } = await supabase.from("potrosni_materijal").update({ stanje: novoStanje, updated_at: new Date().toISOString() }).eq("id", it.id);
             if (error) throw error;
-            // trag u knjizi (ručni ulaz/izlaz, bez naloga)
-            try {
-                await supabase.from("potrosni_stavke").insert([{
-                    nalog_ref: delta > 0 ? "RUČNI ULAZ" : "RUČNI IZLAZ", artikal_id: it.id, naziv: it.naziv, kategorija: it.kategorija,
-                    kolicina: kol, jedinica: it.jedinica, cena: num(it.cena), status: delta > 0 ? "ulaz" : "izlaz",
-                }]);
-            } catch (e) { /* trag je opcioni */ }
+            await trag(it, delta > 0 ? "ulaz" : "izlaz", kol);
             load();
         } catch (e) { poruka("Promena stanja nije uspela: " + (e.message || e), "err"); }
         finally { setBusy(false); }
@@ -96,9 +138,14 @@ export default function PotrosniMaterijal({ msg }) {
         try {
             const { error } = await supabase.from("potrosni_materijal").update({ status: "obrisano" }).eq("id", it.id);
             if (error) throw error;
+            await trag(it, "brisanje", it.stanje);
             load();
         } catch (e) { poruka("Brisanje nije uspelo: " + (e.message || e), "err"); }
         finally { setBusy(false); }
+    }
+
+    function toggleIstorija() {
+        const n = !showIstorija; setShowIstorija(n); if (n) loadIstorija();
     }
 
     const filtrirani = useMemo(() => {
@@ -114,27 +161,9 @@ export default function PotrosniMaterijal({ msg }) {
         return { ukupno: items.length, ispod: ispod.length, vrednost, ispodLista: ispod };
     }, [items]);
 
-    const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
-    const inp = { width: "100%", boxSizing: "border-box", padding: "12px 14px", border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 15, fontWeight: 600, height: 46 };
-    const lab = { fontSize: 11, textTransform: "uppercase", fontWeight: 800, color: "#64748b", margin: "0 0 4px", display: "block" };
-    const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
-    const td = { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
-    const btn = (bg, c) => ({ border: "none", borderRadius: 8, padding: "7px 11px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: bg, color: c || "#fff" });
-    const jeHilzna = (k) => k === "hilzna";
-
-    const PoljaExtra = ({ obj, set }) => (
-        <>
-            {jeHilzna(obj.kategorija) ? (
-                <>
-                    <div><label style={lab}>Prečnik (mm)</label><input style={inp} type="number" value={obj.precnik} onChange={(e) => set({ ...obj, precnik: e.target.value })} placeholder="76 / 152" /></div>
-                    <div><label style={lab}>Debljina (mm)</label><input style={inp} type="number" value={obj.debljina} onChange={(e) => set({ ...obj, debljina: e.target.value })} placeholder="npr. 6" /></div>
-                    <div><label style={lab}>Dužina (mm)</label><input style={inp} type="number" value={obj.duzina} onChange={(e) => set({ ...obj, duzina: e.target.value })} placeholder="npr. 500" /></div>
-                </>
-            ) : (
-                <div style={{ gridColumn: "span 2" }}><label style={lab}>Dimenzija</label><input style={inp} value={obj.dimenzija} onChange={(e) => set({ ...obj, dimenzija: e.target.value })} placeholder="npr. 400×300×250" /></div>
-            )}
-        </>
-    );
+    const AKCIJA_LBL = { ulaz: "➕ Ulaz", izlaz: "➖ Izlaz", kreiran: "🆕 Kreiran", izmena: "✎ Izmena", brisanje: "🗑 Brisanje", rezervisano: "📌 Rezervisano", izdato: "📦 Izdato", vraceno: "↩️ Vraćeno" };
+    const AKCIJA_BOJA = { ulaz: "#166534", izlaz: "#b91c1c", kreiran: "#1d4ed8", izmena: "#7c3aed", brisanje: "#64748b" };
+    const vreme = (t) => { try { return new Date(t).toLocaleString("sr-RS"); } catch (e) { return t || ""; } };
 
     return (
         <div style={{ maxWidth: 1600, margin: "0 auto", padding: "8px 10px 40px" }}>
@@ -146,6 +175,7 @@ export default function PotrosniMaterijal({ msg }) {
                 <div style={{ ...card }}><div style={lab}>Artikala</div><div style={{ fontSize: 24, fontWeight: 950 }}>{kpi.ukupno}</div></div>
                 <div style={{ ...card, background: kpi.ispod ? "#fef2f2" : "#f0fdf4" }}><div style={lab}>Ispod minimalne zalihe</div><div style={{ fontSize: 24, fontWeight: 950, color: kpi.ispod ? "#b91c1c" : "#166534" }}>{kpi.ispod}</div></div>
                 <div style={{ ...card, background: "#0f172a" }}><div style={{ ...lab, color: "#94a3b8" }}>Vrednost zaliha</div><div style={{ fontSize: 22, fontWeight: 950, color: "#fff" }}>{fmt(kpi.vrednost, 2)} €</div></div>
+                <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "center" }}><button onClick={toggleIstorija} style={{ ...btn(showIstorija ? "#0f172a" : "#eef2ff", showIstorija ? "#fff" : "#3730a3"), fontSize: 14, padding: "12px 16px" }}>📜 Istorija promena</button></div>
             </div>
 
             {/* UPOZORENJE — za naručiti */}
@@ -153,6 +183,30 @@ export default function PotrosniMaterijal({ msg }) {
                 <div style={{ ...card, background: "#fff7ed", border: "1px solid #fed7aa", marginBottom: 14 }}>
                     <div style={{ fontWeight: 900, color: "#9a3412", marginBottom: 6 }}>⚠ Za naručiti ({kpi.ispod})</div>
                     <div>{kpi.ispodLista.map((x) => <span key={x.id} style={{ display: "inline-block", background: "#fff", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 800, margin: "2px 6px 2px 0" }}>{KAT_IKONA[x.kategorija] || ""} {x.naziv}: {fmt(x.stanje)} {x.jedinica} (min {fmt(x.min_zaliha)})</span>)}</div>
+                </div>
+            )}
+
+            {/* ISTORIJA */}
+            {showIstorija && (
+                <div style={{ ...card, padding: 0, overflow: "hidden", marginBottom: 14 }}>
+                    <div style={{ padding: "12px 14px", fontWeight: 900, borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10 }}>📜 Istorija promena <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>(poslednjih 300)</span><button onClick={loadIstorija} style={{ ...btn("#f1f5f9", "#334155"), marginLeft: "auto" }}>↻ Osveži</button></div>
+                    <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                            <thead><tr>{["Vreme", "Ko", "Akcija", "Artikal", "Količina"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                            <tbody>
+                                {istorija.length === 0 ? <tr><td style={td} colSpan={5}>Nema zabeleženih promena.</td></tr> :
+                                    istorija.map((r) => (
+                                        <tr key={r.id}>
+                                            <td style={{ ...td, whiteSpace: "nowrap", color: "#64748b" }}>{vreme(r.created_at)}</td>
+                                            <td style={{ ...td, fontWeight: 800 }}>{r.korisnik || "—"}</td>
+                                            <td style={{ ...td, fontWeight: 900, color: AKCIJA_BOJA[r.status] || "#334155" }}>{AKCIJA_LBL[r.status] || r.status}</td>
+                                            <td style={td}>{KAT_IKONA[r.kategorija] || ""} {r.naziv || "—"}{r.nalog_ref ? <span style={{ color: "#94a3b8" }}> · {r.nalog_ref}</span> : null}</td>
+                                            <td style={td}>{r.kolicina != null ? fmt(r.kolicina) + " " + (r.jedinica || "") : "—"}</td>
+                                        </tr>
+                                    ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
@@ -178,7 +232,7 @@ export default function PotrosniMaterijal({ msg }) {
                     <option value="sve">Sve kategorije</option>
                     {KATEGORIJE.map((k) => <option key={k} value={k}>{KAT_IKONA[k]} {k}</option>)}
                 </select>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga…" style={{ ...inp, maxWidth: 240 }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 pretraga…" style={{ ...inp, maxWidth: 260 }} />
                 <button onClick={load} style={{ ...btn("#f1f5f9", "#334155") }}>↻ Osveži</button>
             </div>
 
@@ -220,7 +274,7 @@ export default function PotrosniMaterijal({ msg }) {
             {/* EDIT MODAL */}
             {edit && (
                 <div onClick={() => setEdit(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-                    <div onClick={(e) => e.stopPropagation()} style={{ ...card, maxWidth: 560, width: "100%" }}>
+                    <div onClick={(e) => e.stopPropagation()} style={{ ...card, maxWidth: 640, width: "100%" }}>
                         <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>✎ Izmena: {edit.naziv}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
                             <div style={{ gridColumn: "span 2" }}><label style={lab}>Naziv</label><input style={inp} value={edit.naziv} onChange={(e) => setEdit({ ...edit, naziv: e.target.value })} /></div>

@@ -2380,7 +2380,7 @@ function MainAppContent() {
 
                     {/* MAGACIN UNIFIED - SVE U JEDNOM */}
                     {page === "analiza_materijal_stavke" && (<AnalizaMaterijalStavke msg={msg} />)}
-                    {page === "potrosni_materijal" && (<PotrosniMaterijal msg={msg} />)}
+                    {page === "potrosni_materijal" && (<PotrosniMaterijal msg={msg} korisnik={userProfile?.ime || user?.email || ""} />)}
 
                     {/* ✅ DRUGI PRO MODULI */}
                     {page === "dashboard_pro" && <DashboardPRO setPage={setPage} />}
