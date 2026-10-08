@@ -19,6 +19,33 @@ const td = { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", fontWeight:
 const btn = (bg, c) => ({ border: "none", borderRadius: 8, padding: "7px 11px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: bg, color: c || "#fff" });
 const jeHilzna = (k) => k === "hilzna";
 
+// Polja koja pratimo u istoriji izmena (staro → novo)
+const POLJA_IZMENA = [
+    { k: "naziv", l: "Naziv" },
+    { k: "kategorija", l: "Kategorija" },
+    { k: "jedinica", l: "Jedinica" },
+    { k: "stanje", l: "Stanje", n: true },
+    { k: "min_zaliha", l: "Min. zaliha", n: true },
+    { k: "cena", l: "Cena", n: true, suf: " €", d: 2 },
+    { k: "dobavljac", l: "Dobavljač" },
+    { k: "dimenzija", l: "Dimenzija" },
+    { k: "precnik", l: "Prečnik", n: true, suf: " mm" },
+    { k: "debljina", l: "Debljina", n: true, suf: " mm" },
+    { k: "duzina", l: "Dužina", n: true, suf: " mm" },
+    { k: "napomena", l: "Napomena" },
+];
+function valTxt(p, v) { if (p.n) { return (p.d ? fmt(num(v), p.d) : fmt(num(v))) + (p.suf || ""); } return String(v == null ? "" : v).trim() || "—"; }
+// Vrati čitljiv opis izmena: "Cena: 0,70 → 0,75 € · Stanje: 1.000 → 950"
+function razlikeIzmene(staro, novo) {
+    const out = [];
+    POLJA_IZMENA.forEach((p) => {
+        const a = staro ? staro[p.k] : undefined, b = novo ? novo[p.k] : undefined;
+        const iste = p.n ? (num(a) === num(b)) : (String(a == null ? "" : a).trim() === String(b == null ? "" : b).trim());
+        if (!iste) out.push(p.l + ": " + valTxt(p, a) + " → " + valTxt(p, b));
+    });
+    return out.join(" · ");
+}
+
 // Dodatna polja po kategoriji — definisano VAN glavne komponente (da inputi zadrže fokus).
 function PoljaExtra({ obj, set }) {
     if (jeHilzna(obj.kategorija)) {
@@ -67,12 +94,12 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
         } catch (e) { poruka("Istorija nije učitana: " + (e.message || e), "err"); setIstorija([]); }
     }
 
-    // Upis traga u knjigu (ko/šta/kada). Best-effort — ne blokira glavnu akciju.
-    async function trag(it, status, kolicina) {
+    // Upis traga u knjigu (ko/šta/kada + detalji izmene). Best-effort — ne blokira glavnu akciju.
+    async function trag(it, status, kolicina, detalji) {
         try {
             await supabase.from("potrosni_stavke").insert([{
                 nalog_ref: null, artikal_id: it.id || null, naziv: it.naziv, kategorija: it.kategorija,
-                kolicina: num(kolicina), jedinica: it.jedinica, cena: num(it.cena), status, korisnik: ja,
+                kolicina: num(kolicina), jedinica: it.jedinica, cena: num(it.cena), status, korisnik: ja, detalji: detalji || null,
             }]);
         } catch (e) { /* trag je opcioni */ }
         if (showIstorija) loadIstorija();
@@ -91,7 +118,7 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
             const { data, error } = await supabase.from("potrosni_materijal").insert([row]).select();
             if (error) throw error;
             const nov = (data && data[0]) || { ...row };
-            await trag(nov, "kreiran", nov.stanje);
+            await trag(nov, "kreiran", nov.stanje, "Početno stanje " + fmt(num(nov.stanje)) + " " + nov.jedinica + (num(nov.cena) ? " · cena " + fmt(num(nov.cena), 2) + " €" : ""));
             setNovo(praznoNovo); poruka("Artikal dodat.");
             load();
         } catch (e) { poruka("Čuvanje nije uspelo: " + (e.message || e), "err"); }
@@ -109,9 +136,11 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
                 precnik: num(edit.precnik) || null, debljina: num(edit.debljina) || null, duzina: num(edit.duzina) || null, napomena: edit.napomena || null,
                 updated_at: new Date().toISOString(),
             };
+            const staro = items.find((x) => x.id === edit.id) || {};
             const { error } = await supabase.from("potrosni_materijal").update(row).eq("id", edit.id);
             if (error) throw error;
-            await trag({ ...edit, ...row }, "izmena", row.stanje);
+            const opis = razlikeIzmene(staro, row) || "(bez izmena polja)";
+            await trag({ ...staro, ...row }, "izmena", row.stanje, opis);
             setEdit(null); poruka("Sačuvano."); load();
         } catch (e) { poruka("Izmena nije uspela: " + (e.message || e), "err"); }
         finally { setBusy(false); }
@@ -126,7 +155,7 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
         try {
             const { error } = await supabase.from("potrosni_materijal").update({ stanje: novoStanje, updated_at: new Date().toISOString() }).eq("id", it.id);
             if (error) throw error;
-            await trag(it, delta > 0 ? "ulaz" : "izlaz", kol);
+            await trag(it, delta > 0 ? "ulaz" : "izlaz", kol, "Stanje: " + fmt(num(it.stanje)) + " → " + fmt(novoStanje) + " " + it.jedinica + " (" + (delta > 0 ? "+" : "−") + fmt(kol) + ")");
             load();
         } catch (e) { poruka("Promena stanja nije uspela: " + (e.message || e), "err"); }
         finally { setBusy(false); }
@@ -138,7 +167,7 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
         try {
             const { error } = await supabase.from("potrosni_materijal").update({ status: "obrisano" }).eq("id", it.id);
             if (error) throw error;
-            await trag(it, "brisanje", it.stanje);
+            await trag(it, "brisanje", it.stanje, "Obrisano (stanje bilo " + fmt(num(it.stanje)) + " " + it.jedinica + ")");
             load();
         } catch (e) { poruka("Brisanje nije uspelo: " + (e.message || e), "err"); }
         finally { setBusy(false); }
@@ -192,15 +221,16 @@ export default function PotrosniMaterijal({ msg, korisnik }) {
                     <div style={{ padding: "12px 14px", fontWeight: 900, borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10 }}>📜 Istorija promena <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>(poslednjih 300)</span><button onClick={loadIstorija} style={{ ...btn("#f1f5f9", "#334155"), marginLeft: "auto" }}>↻ Osveži</button></div>
                     <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                            <thead><tr>{["Vreme", "Ko", "Akcija", "Artikal", "Količina"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                            <thead><tr>{["Vreme", "Ko", "Akcija", "Artikal", "Šta je menjano", "Količina"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                             <tbody>
-                                {istorija.length === 0 ? <tr><td style={td} colSpan={5}>Nema zabeleženih promena.</td></tr> :
+                                {istorija.length === 0 ? <tr><td style={td} colSpan={6}>Nema zabeleženih promena.</td></tr> :
                                     istorija.map((r) => (
                                         <tr key={r.id}>
                                             <td style={{ ...td, whiteSpace: "nowrap", color: "#64748b" }}>{vreme(r.created_at)}</td>
                                             <td style={{ ...td, fontWeight: 800 }}>{r.korisnik || "—"}</td>
-                                            <td style={{ ...td, fontWeight: 900, color: AKCIJA_BOJA[r.status] || "#334155" }}>{AKCIJA_LBL[r.status] || r.status}</td>
+                                            <td style={{ ...td, fontWeight: 900, color: AKCIJA_BOJA[r.status] || "#334155", whiteSpace: "nowrap" }}>{AKCIJA_LBL[r.status] || r.status}</td>
                                             <td style={td}>{KAT_IKONA[r.kategorija] || ""} {r.naziv || "—"}{r.nalog_ref ? <span style={{ color: "#94a3b8" }}> · {r.nalog_ref}</span> : null}</td>
+                                            <td style={{ ...td, color: "#334155", minWidth: 280 }}>{r.detalji || "—"}</td>
                                             <td style={td}>{r.kolicina != null ? fmt(r.kolicina) + " " + (r.jedinica || "") : "—"}</td>
                                         </tr>
                                     ))}
