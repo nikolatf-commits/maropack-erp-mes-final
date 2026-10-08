@@ -114,9 +114,9 @@ export default function PotrosniMaterijal({ msg }) {
         return { ukupno: items.length, ispod: ispod.length, vrednost, ispodLista: ispod };
     }, [items]);
 
-    const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 16, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
-    const inp = { width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, fontWeight: 600 };
-    const lab = { fontSize: 10, textTransform: "uppercase", fontWeight: 800, color: "#64748b", margin: "0 0 3px", display: "block" };
+    const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
+    const inp = { width: "100%", boxSizing: "border-box", padding: "12px 14px", border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 15, fontWeight: 600, height: 46 };
+    const lab = { fontSize: 11, textTransform: "uppercase", fontWeight: 800, color: "#64748b", margin: "0 0 4px", display: "block" };
     const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
     const td = { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
     const btn = (bg, c) => ({ border: "none", borderRadius: 8, padding: "7px 11px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: bg, color: c || "#fff" });
@@ -137,7 +137,7 @@ export default function PotrosniMaterijal({ msg }) {
     );
 
     return (
-        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "8px 4px 40px" }}>
+        <div style={{ maxWidth: 1600, margin: "0 auto", padding: "8px 10px 40px" }}>
             <div style={{ fontSize: 22, fontWeight: 950, marginBottom: 4 }}>🧰 Magacin potrošnog materijala</div>
             <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Hilzne, kutije, palete, etikete, traka… — stanje, minimalna zaliha i cena (ulazi u kalkulaciju).</div>
 
@@ -159,8 +159,8 @@ export default function PotrosniMaterijal({ msg }) {
             {/* DODAVANJE */}
             <div style={{ ...card, marginBottom: 14 }}>
                 <div style={{ fontWeight: 900, marginBottom: 10 }}>➕ Novi artikal</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
-                    <div style={{ gridColumn: "span 2" }}><label style={lab}>Naziv</label><input style={inp} value={novo.naziv} onChange={(e) => setNovo({ ...novo, naziv: e.target.value })} placeholder="npr. Hilzna 76mm / Kutija 40×30×25" /></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
+                    <div style={{ gridColumn: "span 2" }}><label style={lab}>Naziv</label><input autoFocus style={inp} value={novo.naziv} onChange={(e) => setNovo({ ...novo, naziv: e.target.value })} placeholder="npr. Hilzna 76mm / Kutija 40×30×25" /></div>
                     <div><label style={lab}>Kategorija</label><select style={inp} value={novo.kategorija} onChange={(e) => setNovo({ ...novo, kategorija: e.target.value })}>{KATEGORIJE.map((k) => <option key={k} value={k}>{KAT_IKONA[k]} {k}</option>)}</select></div>
                     <div><label style={lab}>Jedinica</label><select style={inp} value={novo.jedinica} onChange={(e) => setNovo({ ...novo, jedinica: e.target.value })}>{JEDINICE.map((j) => <option key={j} value={j}>{j}</option>)}</select></div>
                     <PoljaExtra obj={novo} set={setNovo} />
