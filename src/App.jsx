@@ -17,6 +17,7 @@ import UvozSpulnaExcel from "./UvozSpulnaExcel.jsx";
 import ProductMasterPRO from "./ProductMasterPRO.jsx";
 import ListaProizvodaKupci from './ListaProizvodaKupci.jsx';
 import AnalizaMaterijalStavke from './AnalizaMaterijalStavke.jsx';
+import PotrosniMaterijal from './PotrosniMaterijal.jsx';
 import PonudePRO from "./PonudePRO.jsx";
 import KalkulacijaFolije from "./KalkulacijaFolije.jsx";
 import KalkulacijaKese from "./KalkulacijaKese.jsx";
@@ -2379,6 +2380,7 @@ function MainAppContent() {
 
                     {/* MAGACIN UNIFIED - SVE U JEDNOM */}
                     {page === "analiza_materijal_stavke" && (<AnalizaMaterijalStavke msg={msg} />)}
+                    {page === "potrosni_materijal" && (<PotrosniMaterijal msg={msg} />)}
 
                     {/* ✅ DRUGI PRO MODULI */}
                     {page === "dashboard_pro" && <DashboardPRO setPage={setPage} />}
