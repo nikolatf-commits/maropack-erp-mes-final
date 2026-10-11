@@ -46,7 +46,7 @@ function productTabs(tipProizvoda) {
 const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
 function skiniSufiks(b) { return String(b || "").trim().replace(OP_SUFIKS, ""); }
 
-export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose, onObrisan }) {
+export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: naloziProp = [], osnovniNalog = {}, onBack, onClose, onObrisan, onDopuniMaterijal }) {
     const [nalozi, setNalozi] = useState([]);
     const [loading, setLoading] = useState(false);
     const [statusBusy, setStatusBusy] = useState(false);
@@ -599,6 +599,15 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     </div>
                 </div>
                 <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {(() => {
+                        // Delimičan nalog („čeka materijal") — dugme za dopunu (auto-dodela preostalih slojeva).
+                        const delim = (nalozi || []).some(n => String(n.status || "").toLowerCase() === "ceka_materijal");
+                        if (!delim || typeof onDopuniMaterijal !== "function") return null;
+                        const mId = (nalozi.find(n => n.glavni_nalog_id) || {}).glavni_nalog_id || masterKljuc;
+                        const br = skiniSufiks(naslovBroj || brojNaloga || "");
+                        if (!mId) return null;
+                        return <button onClick={() => onDopuniMaterijal({ id: mId, broj: br })} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #d97706", background: "#d97706", color: "#fff", fontWeight: 900, cursor: "pointer" }}>⏳ Dopuni materijal</button>;
+                    })()}
                     <button onClick={stampaj} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #0f766e", background: "#0f766e", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj ovaj</button>
                     <button onClick={stampajSveNaloge} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #1d4ed8", background: "#1d4ed8", color: "#fff", fontWeight: 900, cursor: "pointer" }}>🖨️ Štampaj sve ({dostupni.length})</button>
                     <button disabled={pdfBusy} onClick={() => sacuvajPDF(false)} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #b91c1c", background: pdfBusy ? "#fca5a5" : "#b91c1c", color: "#fff", fontWeight: 900, cursor: pdfBusy ? "wait" : "pointer" }}>📄 PDF ovaj</button>

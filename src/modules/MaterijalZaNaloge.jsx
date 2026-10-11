@@ -55,6 +55,8 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [lokacija, setLokacija] = useState("");          // lokacija spremanja rolni
     const [locParts, setLocParts] = useState({ magacin: "", red: "", polica: "", pozicija: "" });
     const [scanLocOpen, setScanLocOpen] = useState(false);
+    const [nedodeljeni, setNedodeljeni] = useState([]);    // slojevi koji još nemaju materijal (čeka administraciju)
+    const [vecIzdato, setVecIzdato] = useState({});        // rollId -> true (rolna već izdata ranije, npr. pre dopune)
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -95,7 +97,16 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
 
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
-        setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" });
+        setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" }); setNedodeljeni([]); setVecIzdato({});
+        // Delimičan nalog: koji slojevi još nemaju materijal (administracija ih dodeljuje kad stigne).
+        try {
+            if (it.master?.id) {
+                const { data: rn } = await supabase.from("radni_nalozi").select("parametri").eq("id", it.master.id).single();
+                const p = rn && rn.parametri;
+                const nd = (p && (p.nedodeljeni_slojevi || [])) || [];
+                if (Array.isArray(nd) && nd.length) setNedodeljeni(nd);
+            }
+        } catch (e) { }
         // VAZNO: operativni nalog ima broj SA SUFIKSOM operacije:
         //     op.broj_naloga      = "MP-2026-0015-MATERIJAL"
         // ali rolne i ledger nose CIST broj naloga:
@@ -146,17 +157,23 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             const ids = rows.map((r) => r.id).filter((x) => x != null);
             if (ids.length) {
                 const { data: st } = await supabase.from("materijal_stavke").select("*").in("rolna_id", ids).in("status", ["rezervisano", "izdato"]).order("created_at", { ascending: true });
-                const aMap = {}, sMap = {}, iMap = {};
+                const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
                 (st || []).forEach((s) => {
                     // preferiraj stavku ovog naloga (nalog_ref sadržan u dodeljeno_nalogu rolne)
                     const pripada = !broj || String(s.nalog_ref || "") === broj;
                     if (pripada || aMap[s.rolna_id] == null) {
                         aMap[s.rolna_id] = num(s.alocirano_m);
                         sMap[s.rolna_id] = s;
-                        iMap[s.rolna_id] = String(Math.round(Math.max(0, num(s.alocirano_m) - num(s.izdato_m))));
+                        const preostalo = Math.round(Math.max(0, num(s.alocirano_m) - num(s.izdato_m)));
+                        iMap[s.rolna_id] = String(preostalo);
+                        // Rolna već izdata ranije (npr. štampa pre dopune) — pred-čekiraj je da magacioner
+                        // skenira SAMO nove rolne, i ne izdaje je ponovo (preostalo = 0).
+                        if (String(s.status || "") === "izdato" && preostalo <= 0) { scInit[s.rolna_id] = true; vecInit[s.rolna_id] = true; }
                     }
                 });
                 setAlocMap(aMap); setStavkaMap(sMap); setIzdato(iMap);
+                if (Object.keys(scInit).length) setScanned(scInit);
+                setVecIzdato(vecInit);
             }
         } catch (e) { }
     }
@@ -323,9 +340,9 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                                     <div style={{ fontSize: 12, color: "#64748b" }}>{(r.vrsta || "") + (r.oznaka_materijala ? " · " + r.oznaka_materijala : "") + (r.deb ? " · " + r.deb + "µ" : "")}</div>
                                     <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>📍 {r.lokacija || "—"} · š {r.sirina || "—"} mm · na rolni {fmt(ostatak)} m · <b style={{ color: "#0f766e" }}>planirano {fmt(aloc)} m</b></div>
                                 </div>
-                                <span style={pill(on ? "#dcfce7" : "#fef3c7", on ? "#15803d" : "#a16207")}>{on ? "✓ skenirano" : "⏳ skeniraj"}</span>
+                                <span style={pill(on ? "#dcfce7" : "#fef3c7", on ? "#15803d" : "#a16207")}>{vecIzdato[r.id] ? "✓ izdato ranije" : (on ? "✓ skenirano" : "⏳ skeniraj")}</span>
                             </div>
-                            {on && (
+                            {on && !vecIzdato[r.id] && (
                                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
                                     <span style={{ fontSize: 12.5, fontWeight: 800, color: "#475569" }}>📤 Izdaj (m):</span>
                                     <input type="number" value={izdato[r.id] ?? String(Math.round(aloc))} onChange={(e) => setIzdato((p) => ({ ...p, [r.id]: e.target.value }))}
@@ -337,6 +354,13 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                         </div>
                     );
                 })}
+
+                {nedodeljeni.length > 0 && nedodeljeni.map((s, i) => (
+                    <div key={"ned" + i} style={{ ...card, marginBottom: 9, borderLeft: "5px dashed #f59e0b", background: "#fffbeb" }}>
+                        <div style={{ fontWeight: 900, fontSize: 13.5, color: "#a16207" }}>⏳ Sloj {s.sloj} · {[s.materijal, s.oznaka, s.debljina ? s.debljina + "µ" : ""].filter(Boolean).join(" ")} — nije dodeljeno</div>
+                        <div style={{ fontSize: 12, color: "#92400e", marginTop: 3 }}>Nema rolni za ovaj sloj. Čeka da administracija izabere materijal (tek kad stigne na stanje).</div>
+                    </div>
+                ))}
 
                 {total > 0 && (
                     <div style={{ position: "sticky", bottom: 0, paddingTop: 8 }}>

@@ -266,6 +266,8 @@ export default function RadnikOperacija({ opid }) {
         // Trazimo IME I PREZIME — inace bi u evidenciji zavrsavalo "Marko", "M.", ""
         // i ne bi se znalo ko je radio.
         if (ime.split(" ").filter(Boolean).length < 2) { setErr("Upiši ime i prezime."); return; }
+        // DELIMIČAN NALOG: dok fali materijal, operacija je zaključana ovde takođe (ne samo u UI).
+        if (op && op.status === "ceka_materijal") { setErr("Operacija čeka materijal — administracija još nije dodelila sav materijal."); return; }
         // MATERIJAL (magacin) nema mašinu — mašina se traži samo za ostale operacije.
         if (!nemaMasinu && !masina) { setErr("Izaberi mašinu."); return; }
         if (trebaSkenirati && !sveSkenirane) { setErr("Skeniraj sve rezervisane rolne pre početka (da ne dođe do zamene)."); return; }
@@ -459,8 +461,18 @@ export default function RadnikOperacija({ opid }) {
                 </div>
             )}
 
+            {/* ---------- EKRAN: ČEKA MATERIJAL (delimičan nalog) ---------- */}
+            {!showRazlog && !showFinish && op && op.status === "ceka_materijal" && (
+                <div style={{ background: "#2a1e05", border: "1px solid #a16207", borderRadius: 12, padding: 16, marginTop: 8 }}>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: "#fbbf24" }}>⏳ Čeka materijal</div>
+                    <div style={{ fontSize: 13, color: "#fde68a", marginTop: 6, lineHeight: 1.5 }}>
+                        Za ovu operaciju još nije dodeljen sav materijal (npr. drugi/treći sloj laminata). Administracija dodeljuje materijal kad stigne na stanje, a magacioner ga sprema — tek tada se operacija otključava. START je zaključan.
+                    </div>
+                </div>
+            )}
+
             {/* ---------- EKRAN: START ---------- */}
-            {!showRazlog && !showFinish && op && op.status !== "radi" && op.status !== "zastoj" && op.status !== "zavrseno" && (op.status === "ceka" || op.status === "poslato_stampariji" || op.status === "stiglo_iz_stamparije" || !op.start_ts) && (
+            {!showRazlog && !showFinish && op && op.status !== "radi" && op.status !== "zastoj" && op.status !== "zavrseno" && op.status !== "ceka_materijal" && (op.status === "ceka" || op.status === "poslato_stampariji" || op.status === "stiglo_iz_stamparije" || !op.start_ts) && (
                 <div>
                     <label style={lbl}>Radnik</label>
                     <input

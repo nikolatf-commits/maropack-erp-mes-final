@@ -1277,6 +1277,7 @@ function MainAppContent() {
     // -----------------------------------------------------
 
     const [page, setPage] = useState("dashboard_pro");
+    const [dopunaNalog, setDopunaNalog] = useState(null);  // {id, broj} — dopuna materijala delimičnog naloga
     const [openGroups, setOpenGroups] = useState(['dashboard']);
     const [navOtvoren, setNavOtvoren] = useState(false);   // mobilni meni (hamburger)
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
@@ -2245,6 +2246,7 @@ function MainAppContent() {
                                     nalozi={db.nalozi}
                                     onBack={function () { setPregNalog(null); }}
                                     onObrisan={function (mb) { setDb(function (d) { return Object.assign({}, d, { nalozi: (d.nalozi || []).filter(function (n) { return canonRef(n.broj_naloga || n.broj || "") !== mb; }) }); }); }}
+                                    onDopuniMaterijal={function (info) { setDopunaNalog(info); setPage("template_engine"); }}
                                 />
                             ) : db.nalozi.length === 0 ? (
                                 <div style={Object.assign({}, card, { textAlign: "center", padding: 50, color: "#94a3b8" })}>
@@ -2370,7 +2372,7 @@ function MainAppContent() {
                     {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                     {page === "template_engine" && (<div>
                         <NazadDugme setPage={setPage} to="baza_proizvoda_pro" label="Bazu proizvoda PRO" />
-                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} kreiraoIme={userProfile?.ime || user?.email || ""} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} />
+                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} kreiraoIme={userProfile?.ime || user?.email || ""} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} dopunaNalog={dopunaNalog} onDopunaDone={() => setDopunaNalog(null)} />
                     </div>)}
                     {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 

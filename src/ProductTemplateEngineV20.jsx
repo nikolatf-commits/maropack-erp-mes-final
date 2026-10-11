@@ -144,7 +144,10 @@ function formatMultiplier(sirinaRolne, idealna) {
 }
 
 function rangirajRolne(rolne, layer, opts = {}) {
-    const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1, ignoreWidth = false } = opts;
+    const { ideal = 0, samoDostupne = false, potrebnoM = 0, sirinaTolerancija = 1, ignoreWidth = false, excludeIds = null } = opts;
+    // excludeIds = rolne koje su već dodeljene drugom sloju istog naloga (duplex od istog materijala
+    // ne sme da uzme istu rolnu dvaput — FIFO: prvi sloj uzme najstariju, drugi sledeću).
+    const exSet = excludeIds ? (excludeIds instanceof Set ? excludeIds : new Set(excludeIds)) : null;
     // Rolna je „dostupna" ako status NIJE tvrdo zauzet (utrošena/prodata/otpisana…) I ima slobodnih metara.
     // „Rezervisano"/„Delimično rezervisano" NISU tvrdo zauzeti — dok ima slobodnih m, rolna se nudi.
     const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen|proizvodnj|u proizv/i;
@@ -173,7 +176,8 @@ function rangirajRolne(rolne, layer, opts = {}) {
             const okSir = ignoreWidth || !ideal || (Number(r.sirina) || 0) >= (ideal - sirinaTolerancija);
             // Proizvođač: ako je unet u sloju → SAMO taj proizvođač; ako nije unet → svi.
             const okProiz = !proizv || txtEq(r.dobavljac, proizv);
-            return okT && okD && okS && okRez && okPV && okOZ && okSir && okProiz;
+            const okEx = !exSet || !exSet.has(r.id);   // nije već uzeta za drugi sloj
+            return okT && okD && okS && okRez && okPV && okOZ && okSir && okProiz && okEx;
         })
         .sort((a, b) => {
             // 0) kad prikazujemo i uže: dovoljno široke (>= idealne) idu prve
@@ -216,9 +220,9 @@ function rangirajRolne(rolne, layer, opts = {}) {
 // Skupi KOMBINACIJU rolni čiji zbir metraže pokriva potrebu.
 // Redosled trošenja: najmanja metraža prvo (reslovi), pa FIFO, pa najbliža širina.
 function alocirajRolne(rolne, layer, opts = {}) {
-    const { ideal = 0, potrebnoM = 0 } = opts;
+    const { ideal = 0, potrebnoM = 0, excludeIds = null } = opts;
     // Isti skup kao padajuća lista (samoDostupne: false) — da Auto kombinuje sve što vidiš u listi.
-    const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: false, potrebnoM });
+    const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: false, potrebnoM, excludeIds });
     const redosled = [...matched].sort((a, b) => {
         if (ideal) {                                   // 0) ŠIRINA prva — bliža idealnoj (traka 25mm) pre širih
             const BAND = 25;
@@ -321,6 +325,7 @@ const defaultForm = {
     kupac: "",
     sifra: "",
     pisBroj: "",                  // Broj naloga iz PIS-a — prolazi kroz svaku operaciju
+    brojPorudzbine: "",           // Broj porudžbine — ide uz PIS broj kroz nalog
     svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
     napomena: "",
     // Napomena PO OPERACIJI — unosi se ovde, povlači se na odgovarajući nalog operacije
@@ -1582,7 +1587,7 @@ function inferTemplateOperations(tpl = {}) {
     return ops;
 }
 
-function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
+function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaNalog, onDopunaDone }) {
     const { t } = useLang();
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
@@ -1599,6 +1604,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
     const [masterId, setMasterId] = useState(null);        // radni_nalozi.id
     const [opMaterijalId, setOpMaterijalId] = useState(null); // operativni_nalozi.id (tip_naloga=materijal)
     const [saved, setSaved] = useState([]);
+    // DOPUNA MATERIJALA (delimičan nalog „čeka materijal") — otvara se iz Pregleda naloga.
+    const [dopunaMode, setDopunaMode] = useState(false);
+    const [dopunaInfo, setDopunaInfo] = useState(null);     // { nalogId, broj, coveredIdx:[], targetIdx:[] }
 
     function update(path, value) {
         setForm(prev => {
@@ -1614,7 +1622,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
     function setType(t) {
         // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
         // pa se ne prelivaju iz jednog templejta u drugi.
-        const SHARED = ["sifra", "pisBroj", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        const SHARED = ["sifra", "pisBroj", "brojPorudzbine", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
         setForm(prev => {
             if (t === prev.type) return prev;
             const next = clone(prev);
@@ -1814,6 +1822,206 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
         return pref + String(n + 1).padStart(4, "0");
     }
 
+    // Učitavanje stanja magacina (rolne) — deli se između kreiranja naloga i dopune materijala.
+    async function ucitajMagacinRolne() {
+        const MAG_KOLONE = [
+            "id", "br_rolne", "qr_code", "vrsta", "pod_vrsta", "oznaka_materijala",
+            "dobavljac", "deb", "sirina", "metraza", "metraza_ost", "rezervisano",
+            "kg_neto", "lot", "palet", "lokacija", "status", "dodeljeno_nalogu",
+            "datum_proizvodnje", "datum_prijema", "datum", "created_at",
+        ].join(", ");
+        const PAGE = 1000;
+        let rolne = [];
+        for (let od = 0; ; od += PAGE) {
+            const { data, error } = await supabase.from("magacin")
+                .select(MAG_KOLONE)
+                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana"])
+                .order("sirina")
+                .range(od, od + PAGE - 1);
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+            rolne.push(...data);
+            if (data.length < PAGE) break;
+            if (od > 100000) break;
+        }
+        return rolne;
+    }
+
+    // ── DOPUNA MATERIJALA ─────────────────────────────────────────────────
+    // Otvara se iz Pregleda naloga za DELIMIČAN nalog. Program auto-dodeli rolne
+    // za slojeve koji su čekali, administracija potvrdi → rolne idu magacioneru,
+    // a operacije „ceka_materijal" se otključavaju.
+    async function otvoriDopunu(nalog) {
+        if (!nalog || !nalog.id) return;
+        setDopunaMode(true); setNalogModal(true); setNalogSaved(false); setNalogSaving(false);
+        setNalogLoading(true); setNalogIzbor({}); setRucniUnos({}); setNalogFormat({}); setDopunaInfo(null);
+        try {
+            const { data: rn, error } = await supabase.from("radni_nalozi")
+                .select("id, broj_naloga, kupac, naziv, tip_proizvoda, parametri").eq("id", nalog.id).single();
+            if (error) throw error;
+            const p = (rn && rn.parametri) || {};
+            const tpl = p.template || {};
+            setForm(tpl);
+            setNalogBroj(rn.broj_naloga || nalog.broj || "");
+            setMasterId(rn.id);
+            const layers = (tpl.type === "folija" ? tpl.folija?.layers : tpl.type === "kesa" ? tpl.kesa?.layers : tpl.spulna?.layers) || [];
+            const nedSloj = new Set((p.nedodeljeni_slojevi || []).map(s => Number(s.sloj)));
+            const targetIdx = layers.map((_, i) => i).filter(i => nedSloj.has(i + 1));
+            const coveredIdx = layers.map((_, i) => i).filter(i => !nedSloj.has(i + 1));
+            if (!targetIdx.length) { msg && msg("Ovaj nalog nema slojeva koji čekaju materijal.", "err"); setNalogModal(false); setDopunaMode(false); setNalogLoading(false); return; }
+            const rolne = await ucitajMagacinRolne();
+            setNalogRolne(rolne);
+            const ideal = Number(tpl.idealnaSirinaMaterijala) || 0;
+            const potrebnoM = orderMetraze(tpl).kolPlus;
+            // Rolne koje OVAJ nalog već drži (za dodeljene slojeve) — ne nudi ih opet u dopuni.
+            const zauzeteRolne = new Set();
+            try {
+                const { data: st0 } = await supabase.from("materijal_stavke")
+                    .select("rolna_id").eq("nalog_ref", rn.broj_naloga || "").in("status", ["rezervisano", "izdato"]).limit(200);
+                (st0 || []).forEach(s => { if (s.rolna_id != null) zauzeteRolne.add(s.rolna_id); });
+            } catch (e) { }
+            const autoIzbor = {};
+            targetIdx.forEach(i => {
+                const izb = alocirajRolne(rolne, layers[i], { ideal, potrebnoM, excludeIds: zauzeteRolne });
+                autoIzbor[i] = izb;
+                (izb || []).forEach(r => { if (r && r.id != null) zauzeteRolne.add(r.id); });
+            });
+            setNalogIzbor(autoIzbor);
+            setDopunaInfo({ nalogId: rn.id, broj: rn.broj_naloga || "", coveredIdx, targetIdx });
+        } catch (e) {
+            msg && msg("Greška pri otvaranju dopune: " + (e.message || e), "err");
+            setNalogModal(false); setDopunaMode(false);
+        }
+        setNalogLoading(false);
+    }
+
+    useEffect(() => {
+        if (dopunaNalog && dopunaNalog.id) {
+            otvoriDopunu(dopunaNalog);
+            onDopunaDone && onDopunaDone();   // potroši prop da se ne okida ponovo
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dopunaNalog && dopunaNalog.id]);
+
+    async function potvrdiDopunaMaterijal() {
+        if (!dopunaInfo) return;
+        const { nalogId, broj, targetIdx } = dopunaInfo;
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const { kolPlus } = orderMetraze(form);
+        const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
+        const multZa = (r) => formatMultiplier(r.sirina, idealnaSir0);
+        const eff = (izb) => (izb || []).reduce((s, r) => s + slobodnoM(r) * multZa(r), 0);
+        const izbZa = (i) => Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
+
+        const nowCovered = [], stillMissing = [], nedovoljno = [];
+        targetIdx.forEach(i => {
+            if (rucniUnos[i]) { nowCovered.push(i); return; }
+            const izb = izbZa(i);
+            if (!izb.length) { stillMissing.push(i); return; }
+            if (kolPlus && eff(izb) < kolPlus - 1) { nedovoljno.push(i); stillMissing.push(i); return; }
+            nowCovered.push(i);
+        });
+        if (nedovoljno.length) { msg && msg("Sloj " + nedovoljno.map(i => i + 1).join(", ") + " nema dovoljno materijala — dodaj još rolni ili ukloni izbor.", "err"); return; }
+        if (!nowCovered.length) { msg && msg("Nijedan sloj nije pokriven — dodeli materijal bar jednom sloju.", "err"); return; }
+
+        setNalogSaving(true);
+        try {
+            const izborData = [];
+            nowCovered.forEach(i => {
+                const l = layers[i];
+                const baza = { sloj: i + 1, materijal: l.material || l.materijal || l.tip || "", oznaka: l.oznaka_materijala || l.oznaka || l.komercijalnaOznaka || "", proizvodjac: l.proizvodjac || "", debljina: l.debljina || l.deb || "", rucni: rucniUnos[i] || false };
+                const izabrane = izbZa(i);
+                if (!izabrane.length) { izborData.push({ ...baza, br_rolne: null, rolna_id: null }); return; }
+                let preostalo = kolPlus;
+                izabrane.forEach((r, k) => {
+                    const ukupno = Number(r.metraza_ost ?? r.metraza) || 0;
+                    const rezPre = Number(r.rezervisano) || 0;
+                    const slob = Math.max(0, ukupno - rezPre);
+                    const mult = multZa(r);
+                    const trebaRollM = kolPlus ? Math.ceil(Math.max(0, preostalo) / mult) : 0;
+                    const alocirano = kolPlus ? Math.round(Math.min(slob, trebaRollM)) : slob;
+                    preostalo = Math.max(0, preostalo - alocirano * mult);
+                    const kgPoM = ukupno > 0 ? (Number(r.kg_neto || r.kg) || 0) / ukupno : 0;
+                    izborData.push({ ...baza, redni_rolne: k + 1, br_rolne: r.br_rolne || null, rolna_id: r.id || null, sirina: r.sirina || null, metraza: ukupno, slobodno_m: slob, rez_pre: rezPre, alocirano_m: alocirano, format_trake: mult, format_ciljna: idealnaSir0, lokacija: r.palet || r.lokacija || null, lot: r.lot || null, snap_vrsta: r.vrsta || r.tip || baza.materijal || "", snap_pod_vrsta: rolnaPodVrsta(r) || "", snap_oznaka: rolnaOznaka(r) || baza.oznaka || "", snap_debljina: Number(r.deb) || Number(baza.debljina) || null, snap_dobavljac: r.dobavljac || "", kg_po_m: kgPoM });
+                });
+            });
+
+            const proizvodNaziv = form.naziv || form.sifra || "";
+            const oznaka = broj + (proizvodNaziv ? " · " + proizvodNaziv : "");
+            const zaRezervaciju = izborData.filter(it => it.rolna_id && !it.rucni && Number(it.alocirano_m) > 0)
+                .filter((it, i, arr) => arr.findIndex(x => x.rolna_id === it.rolna_id) === i);
+            if (zaRezervaciju.length) {
+                const ids = zaRezervaciju.map(it => it.rolna_id);
+                const { data: curRows, error: cErr } = await supabase.from("magacin").select("id, dodeljeno_nalogu").in("id", ids);
+                if (cErr) throw new Error("magacin (čitanje): " + cErr.message);
+                const prethodnoMap = {}; (curRows || []).forEach(r => { prethodnoMap[r.id] = String(r.dodeljeno_nalogu || "").trim(); });
+                await Promise.all(zaRezervaciju.map(item => {
+                    const noviRez = Math.round((Number(item.rez_pre) || 0) + (Number(item.alocirano_m) || 0));
+                    const ukupno = Number(item.metraza) || 0;
+                    const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
+                    const prethodno = prethodnoMap[item.rolna_id] || "";
+                    let dod = oznaka;
+                    if (prethodno && !prethodno.includes(broj)) dod = prethodno + ", " + oznaka;
+                    else if (prethodno) dod = prethodno;
+                    return supabase.from("magacin").update({ status: punoRez ? "Rezervisano" : "Na stanju", dodeljeno_nalogu: dod, rezervisano: noviRez || null }).eq("id", item.rolna_id);
+                }));
+            }
+
+            // Pronađi postojeći materijali_nalozi (po glavni_nalog_id)
+            let materijaliNalogId = null, mpStari = {};
+            try {
+                const { data: mn } = await supabase.from("materijali_nalozi").select("id, parametri")
+                    .filter("parametri->>glavni_nalog_id", "eq", String(nalogId)).limit(1);
+                if (mn && mn[0]) { materijaliNalogId = mn[0].id; mpStari = mn[0].parametri || {}; }
+            } catch (e) { }
+
+            const stavke = izborData.filter(it => it.rolna_id && Number(it.alocirano_m) > 0 && !it.rucni).map(it => ({
+                nalog_ref: broj, materijali_nalog_id: materijaliNalogId, rolna_id: it.rolna_id, br_rolne: it.br_rolne, sloj: it.sloj,
+                vrsta: it.snap_vrsta || null, pod_vrsta: it.snap_pod_vrsta || null, oznaka: it.snap_oznaka || null, debljina: it.snap_debljina, dobavljac: it.snap_dobavljac || null,
+                sirina: Number(it.sirina) || null, idealna_sirina: idealnaSir0 || null, alocirano_m: Number(it.alocirano_m) || 0, kg_po_m: Number(it.kg_po_m) || 0,
+                kg_alocirano: Math.round(((Number(it.kg_po_m) || 0) * (Number(it.alocirano_m) || 0)) * 100) / 100, status: "rezervisano",
+            }));
+            if (stavke.length) { const { error } = await supabase.from("materijal_stavke").insert(stavke); if (error) throw new Error("materijal_stavke: " + error.message); }
+
+            const noviNedodeljeni = stillMissing.map(i => ({ sloj: i + 1, materijal: layers[i].material || layers[i].materijal || layers[i].tip || "", oznaka: layers[i].oznaka_materijala || layers[i].oznaka || "", debljina: layers[i].debljina || layers[i].deb || "" }));
+            const josDelimican = noviNedodeljeni.length > 0;
+
+            // Master parametri (merge)
+            try {
+                const { data: rn0 } = await supabase.from("radni_nalozi").select("parametri").eq("id", nalogId).single();
+                const p0 = (rn0 && rn0.parametri) || {};
+                await supabase.from("radni_nalozi").update({ parametri: { ...p0, delimican_materijal: josDelimican, nedodeljeni_slojevi: noviNedodeljeni } }).eq("id", nalogId);
+            } catch (e) { }
+
+            // materijali_nalozi parametri (merge izabrane_rolne za dopunjene slojeve)
+            if (materijaliNalogId) {
+                try {
+                    const dopunjeniSlojevi = new Set(izborData.map(x => x.sloj));
+                    const staro = (mpStari.izabrane_rolne || []).filter(x => !dopunjeniSlojevi.has(x.sloj));
+                    const merged = [...staro, ...izborData];
+                    await supabase.from("materijali_nalozi").update({ parametri: { ...mpStari, izabrane_rolne: merged, rezervisane_rolne: merged, delimican_materijal: josDelimican, nedodeljeni_slojevi: noviNedodeljeni } }).eq("id", materijaliNalogId);
+                } catch (e) { }
+            }
+
+            // Flip operacija: materijal → ceka_magacin (novi materijal za spremanje);
+            // ako više nema nedodeljenih → otključaj sve „ceka_materijal" → „ceka".
+            await supabase.from("operativni_nalozi").update({ status: "ceka_magacin" }).eq("glavni_nalog_id", nalogId).eq("tip_naloga", "materijal");
+            if (!josDelimican) {
+                const { error: fErr } = await supabase.from("operativni_nalozi").update({ status: "ceka" }).eq("glavni_nalog_id", nalogId).eq("status", "ceka_materijal");
+                if (fErr) throw new Error("operativni_nalozi (otključavanje): " + fErr.message);
+            }
+
+            if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: nalogId } }));
+            setNalogSaved(true);
+            msg && msg(josDelimican
+                ? "✅ Materijal dopunjen i poslat magacioneru. Sloj " + noviNedodeljeni.map(s => s.sloj).join(", ") + " još čeka."
+                : "✅ Materijal dopunjen — nalog kompletan, operacije otključane i poslate magacioneru!");
+        } catch (e) {
+            msg && msg("Greška pri dopuni: " + (e.message || e), "err");
+        }
+        setNalogSaving(false);
+    }
+
     async function generisiNalogeMaterijal() {
         const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
         if (!layers.length) { msg && msg("Unesi bar jedan sloj materijala!", "err"); return; }
@@ -1859,45 +2067,56 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
             // NEMA (kg_neto, deb, dobavljac, oznaka_materijala, datum_prijema su prave).
             // PostgREST na nepostojecu kolonu obori CEO upit, data postane undefined,
             // lista rolni ostane prazna → "Nema odgovarajućih rolni" iako rolna postoji.
-            const MAG_KOLONE = [
-                "id", "br_rolne", "qr_code", "vrsta", "pod_vrsta", "oznaka_materijala",
-                "dobavljac", "deb", "sirina", "metraza", "metraza_ost", "rezervisano",
-                "kg_neto", "lot", "palet", "lokacija", "status", "dodeljeno_nalogu",
-                // datumi su obavezni — rolnaDatum() ih koristi za FIFO redosled
-                "datum_proizvodnje", "datum_prijema", "datum", "created_at",
-            ].join(", ");
-
-            // Paginacija: PostgREST vraca max 1000 redova po upitu.
-            const PAGE = 1000;
-            let rolne = [];
-            for (let od = 0; ; od += PAGE) {
-                const { data, error } = await supabase.from("magacin")
-                    .select(MAG_KOLONE)
-                    .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana"])
-                    .order("sirina")
-                    .range(od, od + PAGE - 1);
-
-                if (error) throw error;              // NE gutamo gresku u tisini
-                if (!data || data.length === 0) break;
-                rolne.push(...data);
-                if (data.length < PAGE) break;
-                if (od > 100000) break;              // sigurnosna kocnica
-            }
+            const rolne = await ucitajMagacinRolne();
 
             setNalogRolne(rolne);
 
-            // Auto-predloži rolnu za svaki sloj
+            // Auto-predloži rolnu za svaki sloj — SEKVENCIJALNO (FIFO): rolna dodeljena jednom
+            // sloju se ne nudi sledećem (duplex od istog materijala → prvi sloj najstarije rolne,
+            // drugi sloj sledeće po redu, nikad iste).
             const autoIzbor = {};
             const ideal = Number(form.idealnaSirinaMaterijala) || 0;
             const potrebnoM = orderMetraze(form).kolPlus;
+            const zauzeteRolne = new Set();
             layers.forEach((layer, i) => {
-                autoIzbor[i] = alocirajRolne(rolne, layer, { ideal, potrebnoM });
+                const izb = alocirajRolne(rolne, layer, { ideal, potrebnoM, excludeIds: zauzeteRolne });
+                autoIzbor[i] = izb;
+                (izb || []).forEach(r => { if (r && r.id != null) zauzeteRolne.add(r.id); });
             });
             setNalogIzbor(autoIzbor);
         } catch (e) {
             msg && msg("Greška pri učitavanju magacina: " + e.message, "err");
         }
         setNalogLoading(false);
+    }
+
+    // ── Pokriće slojeva materijalom (za DELIMIČAN nalog „čeka materijal") ──
+    // Pravilo (dogovoreno): nalog se može poslati i kad NEMA sav materijal,
+    // sve dok je ŠTAMPANI sloj pokriven (štampa kreće odmah). Slojevi bez rolni
+    // su „nedodeljeni" → operacije koje ih traže (kaширanje/rezanje) idu u
+    // status „ceka_materijal" dok administracija ne dopuni materijal.
+    function pokriceInfo() {
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const { kolPlus } = orderMetraze(form);
+        const sir0 = Number(form.idealnaSirinaMaterijala) || 0;
+        const eff = (izb) => (izb || []).reduce((s, r) => s + slobodnoM(r) * formatMultiplier(r.sirina, sir0), 0);
+        const coveredIdx = [], nedodeljeniIdx = [], nepokriveniIdx = [];
+        layers.forEach((_, i) => {
+            if (rucniUnos[i]) { coveredIdx.push(i); return; }
+            const izb = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
+            if (!izb.length) { nedodeljeniIdx.push(i); return; }
+            if (kolPlus && eff(izb) < kolPlus - 1) { nepokriveniIdx.push(i); return; }
+            coveredIdx.push(i);
+        });
+        const opT = operacijeZa(form);
+        const imaStampu = opT.includes("stampa");
+        let printedIdx = layers.map((l, i) => (l.st || l.stampa || l.stampa_se || l["Š"]) ? i : -1).filter(i => i >= 0);
+        if (imaStampu && !printedIdx.length && layers.length) printedIdx = [0]; // štampa postoji ali sloj nije eksplicitno označen → spoljašnji
+        const printedCovered = printedIdx.every(i => coveredIdx.includes(i));
+        const canSend = nepokriveniIdx.length === 0 && coveredIdx.length > 0 &&
+            (imaStampu ? printedCovered : coveredIdx.length > 0);
+        const delimican = nedodeljeniIdx.length > 0;
+        return { layers, coveredIdx, nedodeljeniIdx, nepokriveniIdx, printedIdx, imaStampu, printedCovered, canSend, delimican };
     }
 
     async function potvrdiNalogMaterijal() {
@@ -1912,29 +2131,26 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
         // Efektivno pokriće sloja = Σ (slobodni m × množilac sloja).
         const efPokrice = (izabrane, i) => (izabrane || []).reduce((s, r) => s + slobodnoM(r) * multZa(r, i), 0);
 
-        // ── TVRDA PROVERA — nalog se NE pravi ako rolne nisu izabrane i potrebe pokrivene.
-        //    Ranije je ovde stajao window.confirm koji je dozvoljavao da se nepokriven
-        //    nalog svejedno pošalje magacioneru. To više nije moguće.
-        const bezRolne = [];
-        const nepokriveni = [];
-        layers.forEach((_, i) => {
-            if (rucniUnos[i]) return;                      // ručni unos = svesna odluka operatera
-            const izabrane = Array.isArray(nalogIzbor[i]) ? nalogIzbor[i] : (nalogIzbor[i] ? [nalogIzbor[i]] : []);
-            if (!izabrane.length) { bezRolne.push(i + 1); return; }
-            const zbirEff = efPokrice(izabrane, i);
-            if (zbirEff < kolPlus - 1) nepokriveni.push({ sloj: i + 1, ima: Math.round(zbirEff), treba: Math.round(kolPlus) });
-        });
-
-        if (bezRolne.length) {
-            msg && msg("Nije moguće poslati nalog: sloj " + bezRolne.join(", ") + " nema izabranu rolnu.", "err");
-            return;
-        }
-        if (nepokriveni.length) {
-            const d = nepokriveni.map(x => "sloj " + x.sloj + " (" + x.ima.toLocaleString("sr-RS") + " / " + x.treba.toLocaleString("sr-RS") + " m)").join(", ");
-            msg && msg("Nije moguće poslati nalog — nedovoljno materijala: " + d + ". Dodaj rolne ili smanji količinu.", "err");
-            return;
-        }
+        // ── PROVERA (DELIMIČAN NALOG dozvoljen) ───────────────────────────────
+        //    Nalog se NE šalje ako neki sloj ima rolne ali NEDOVOLJNO (dvosmisleno —
+        //    ili popuni ceo sloj, ili ga ostavi prazan pa ide „čeka materijal").
+        //    Prazan sloj = „nedodeljen"; dozvoljeno sve dok je ŠTAMPANI sloj pokriven.
         if (!layers.length) { msg && msg("Nema slojeva materijala.", "err"); return; }
+        const info = pokriceInfo();
+        if (info.nepokriveniIdx.length) {
+            const d = info.nepokriveniIdx.map(i => "sloj " + (i + 1)).join(", ");
+            msg && msg("Sloj " + d + " ima izabrane rolne ali NEDOVOLJNO. Dodaj još rolni, ili ukloni izbor za taj sloj — pa ide kao „čeka materijal“ (dopuniš ga kasnije).", "err");
+            return;
+        }
+        if (!info.coveredIdx.length) {
+            msg && msg("Nije moguće poslati nalog: bar jedan sloj mora imati materijal.", "err");
+            return;
+        }
+        if (info.imaStampu && !info.printedCovered) {
+            msg && msg("Štampani sloj mora imati materijal da bi se nalog poslao (štampa kreće odmah, ostatak čeka). Dodaj rolne za štampani sloj.", "err");
+            return;
+        }
+        const delimican = info.delimican;
 
         setNalogSaving(true);
 
@@ -1963,6 +2179,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                 parametri: {
                     sifra: form.sifra || "",
                     pis_broj: form.pisBroj || "",
+                    broj_porudzbine: form.brojPorudzbine || "",
                     template: form,
                     porucena_kolicina: kol,
                     kolicina_za_rad: kolPlus,
@@ -1971,6 +2188,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
                         : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
                     datum: new Date().toLocaleDateString("sr-RS"),
+                    // DELIMIČAN nalog („čeka materijal") — koji slojevi još nemaju dodeljen materijal.
+                    delimican_materijal: delimican,
+                    nedodeljeni_slojevi: info.nedodeljeniIdx.map(i => ({
+                        sloj: i + 1,
+                        materijal: layers[i].material || layers[i].materijal || layers[i].tip || "",
+                        oznaka: layers[i].oznaka_materijala || layers[i].oznaka || "",
+                        debljina: layers[i].debljina || layers[i].deb || "",
+                    })),
                 },
                 rezultati: obr ? { obracun: obr } : {},
             }]).select("id").single();
@@ -2020,12 +2245,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     ? [...opTipovi.slice(0, mi + 1), "formatiranje", ...opTipovi.slice(mi + 1)]
                     : ["formatiranje", ...opTipovi];
             }
+            // Operacije koje traže CEO laminat (ne mogu dok fali materijal) kad je nalog delimičan.
+            // Štampa i lakiranje rade na štampanom sloju (koji JE pokriven — uslov iznad), pa kreću odmah.
+            // Materijal/formatiranje rade sa već dodeljenim rolnama.
+            const opCekaMaterijal = (op) => delimican && !["materijal", "formatiranje", "stampa", "lakiranje"].includes(op);
             const ops = opTipovi.map((op, i) => ({
                 ...zajednicko,
                 broj_naloga: broj + "-" + op.toUpperCase(),
                 glavni_nalog_id: master.id,
                 tip_naloga: op,
-                status: op === "materijal" ? "ceka_magacin" : "ceka",
+                status: op === "materijal" ? "ceka_magacin" : (opCekaMaterijal(op) ? "ceka_materijal" : "ceka"),
                 redosled: i + 1,
                 parametri: op === "formatiranje"
                     ? { sifra: form.sifra || "", template: form, formatiranje: formatInfo }
@@ -2187,6 +2416,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     rezervisane_rolne: izborData,   // nalog (NalogLayoutPRO) traži i pod ovim imenom
                     template: form,
                     datum: new Date().toLocaleDateString("sr-RS"),
+                    delimican_materijal: delimican,
+                    nedodeljeni_slojevi: info.nedodeljeniIdx.map(i => ({
+                        sloj: i + 1,
+                        materijal: layers[i].material || layers[i].materijal || layers[i].tip || "",
+                        oznaka: layers[i].oznaka_materijala || layers[i].oznaka || "",
+                        debljina: layers[i].debljina || layers[i].deb || "",
+                    })),
                 },
             };
 
@@ -2248,7 +2484,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
             if (typeof window !== "undefined") {
                 window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
             }
-            msg && msg("✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
+            msg && msg(delimican
+                ? "✅ " + broj + " kreiran (delimičan) — štampani materijal poslat magacioneru. Sloj " + info.nedodeljeniIdx.map(i => i + 1).join(", ") + " čeka materijal; dopuni ga iz Pregleda naloga kad stigne."
+                : "✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
@@ -2612,6 +2850,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
             {/* Broj naloga iz PIS-a — prolazi kroz svaku operaciju (prikazuje se ispod naslova naloga) */}
             <div style={{ marginBottom: 12 }}>
                 <Input label="📋 Broj naloga iz PIS-a" value={form.pisBroj} onChange={v => update("pisBroj", v)} placeholder="npr. PIS-2026-12345" />
+            </div>
+            {/* Broj porudžbine — ide uz PIS broj kroz nalog (folija / kesa / špulna, zajedničko polje) */}
+            <div style={{ marginBottom: 12 }}>
+                <Input label="🧾 Broj porudžbine" value={form.brojPorudzbine} onChange={v => update("brojPorudzbine", v)} placeholder="npr. POR-2026-00123" />
             </div>
             {/* Svrha proizvoda — za šta se koristi (AI i ručna pretraga) */}
             <div style={{ marginBottom: 12 }}>
@@ -3093,6 +3335,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                             <TextArea label="📝 Napomena (kaширanje) — ide na nalog za kaширanje" value={(form.kesa.kasiranje || {}).napomena || ""} onChange={v => update("kesa.kasiranje.napomena", v)} placeholder="napomena za kaширanje..." />
                         )}
                     </Grid>
+                    {(form.kesa.layers || []).length > 1 && (
+                        <Grid cols={3}>
+                            <Input label="Predlog valjka za kaширanje" value={(form.kesa.rezanje || {}).predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("kesa.rezanje.predlogValjkaKasiranja", v)} />
+                        </Grid>
+                    )}
                 </Section>
 
                 <Section title={t("tmpl.opcije")} color={ORANGE}>
@@ -3359,6 +3606,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     <TextArea label="📝 Napomena (materijal) — ide na nalog za materijal" value={form.spulna.materijalNapomena || ""} onChange={v => update("spulna.materijalNapomena", v)} placeholder="napomena za pripremu materijala..." />
                     <TextArea label="📝 Napomena (formatiranje) — ide na nalog za formatiranje" value={(form.spulna.formatiranje || {}).napomena || ""} onChange={v => update("spulna.formatiranje.napomena", v)} placeholder="napomena za formatiranje (rezanje na trake)..." />
                 </Grid>
+                {(form.spulna.layers || []).length > 1 && (
+                    <Grid cols={3}>
+                        <Input label="Predlog valjka za kaширanje" value={(form.spulna.rezanje || {}).predlogValjkaKasiranja || predloziValjakKasiranja(form.idealnaSirinaMaterijala) || ""} onChange={v => update("spulna.rezanje.predlogValjkaKasiranja", v)} />
+                    </Grid>
+                )}
             </Section>
             <SpoolDrawing spulna={form.spulna} update={update} />
         </>}
@@ -3465,14 +3717,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                     return { ...p, [i]: cur.filter(x => String(x.id || x.br_rolne) !== String(r.id || r.br_rolne)) };
                 });
             }
+            // Rolne izabrane u DRUGIM slojevima — ne nude se ovom sloju (duplex od istog materijala).
+            function drugiIzabrani(i) {
+                const s = new Set();
+                layers.forEach((_, j) => { if (j !== i) izabraneZa(j).forEach(r => s.add(String(r.id || r.br_rolne))); });
+                return s;
+            }
             function autoPopuni(i) {
                 // Cilj: prvo NAJBLIŽA idealnoj širina, unutar nje potroši male reslove, pa tek onda šire trake.
                 const cur = izabraneZa(i);
                 const chosen = new Set(cur.map(r => String(r.id || r.br_rolne)));
+                const drugi = drugiIzabrani(i);
                 const mOf = (r) => slobodnoM(r) * multRolne(r, i);   // EFEKTIVNO — uzima množilac formatiranja (šira rolna daje N traka ako je formatiranje uključeno)
                 const bandOf = (r) => Math.floor(Math.max(0, (Number(r.sirina) || 0) - sir) / 25);
                 // pool sortiran: širinska traka → FIFO (najstarija) → metraža (reslovi kad je isti datum)
-                let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)))
+                let pool = kandidatiZaSloj(layers[i]).filter(r => !chosen.has(String(r.id || r.br_rolne)) && !drugi.has(String(r.id || r.br_rolne)))
                     .slice().sort((a, b) => (bandOf(a) - bandOf(b)) || (rolnaDatum(a) - rolnaDatum(b)) || (mOf(a) - mOf(b)));
                 const izabrane = [...cur];
                 let zbir = izabrane.reduce((s, r) => s + mOf(r), 0);
@@ -3498,7 +3757,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                         {/* Modal header */}
                         <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a8a)", padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
                             <div>
-                                <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Nalog za materijal — izbor rolni</div>
+                                <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>{dopunaMode ? "Dopuna materijala — slojevi koji su čekali" : "Nalog za materijal — izbor rolni"}</div>
                                 <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>⚡ {form.naziv || "Proizvod"}</div>
                                 <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>
                                     {nalogBroj && <><b style={{ color: "#fbbf24", fontSize: 14 }}>{nalogBroj}</b> &nbsp;·&nbsp; </>}
@@ -3520,7 +3779,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={() => setNalogModal(false)} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                            <button onClick={() => { setNalogModal(false); setDopunaMode(false); setDopunaInfo(null); }} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
                         </div>
 
                         {/* Scrollable body */}
@@ -3538,9 +3797,23 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                                         </div>
                                     )}
                                     {layers.map((l, i) => {
+                                        // DOPUNA: slojevi koji su VEĆ dodeljeni ranije — prikaži ih zaključano, ne diraju se.
+                                        if (dopunaMode && dopunaInfo && dopunaInfo.coveredIdx.includes(i)) {
+                                            const color0 = COLORS_M[i] || "#64748b";
+                                            return (
+                                                <div key={i} style={{ border: "1.5px solid #bbf7d0", borderLeft: `4px solid ${color0}`, borderRadius: 10, background: "#f0fdf4", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                                                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: color0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 950, fontSize: 13, flexShrink: 0 }}>{i + 1}</div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontWeight: 900, fontSize: 13 }}>{val(l.material || l.materijal || l.tip)} {val(l.oznaka || l.komercijalnaOznaka, "")} {val(l.debljina || l.deb)}µ</div>
+                                                        <div style={{ fontSize: 11, color: "#15803d", fontWeight: 800 }}>✓ Materijal već dodeljen ranije — ne dira se u dopuni.</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
                                         const izabrane = izabraneZa(i);
                                         const idChosen = new Set(izabrane.map(r => String(r.id || r.br_rolne)));
-                                        const dostupne = kandidatiZaSloj(l).filter(r => !idChosen.has(String(r.id || r.br_rolne)));
+                                        const drugiIzb = drugiIzabrani(i);
+                                        const dostupne = kandidatiZaSloj(l).filter(r => !idChosen.has(String(r.id || r.br_rolne)) && !drugiIzb.has(String(r.id || r.br_rolne)));
                                         const g = num(l.gm2 || l.tezina || l.tezinaGm2);
                                         const kgTreb = sirinaM > 0 ? (g * sirinaM * kolPlus / 1000).toFixed(1) : "—";
                                         const skupljeno = skupljenoZa(i);
@@ -3713,27 +3986,64 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme }) {
                                 <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
                                     <div style={{ fontSize: 22 }}>✅</div>
                                     <div>
-                                        <div style={{ fontWeight: 900, fontSize: 13, color: "#059669" }}>Nalog kreiran i poslat magacioneru!</div>
-                                        <div style={{ fontSize: 11, color: "#64748b" }}>Rolne su rezervisane u magacinu. Magacioner vidi nalog sa lokacijama i QR kodovima.</div>
+                                        <div style={{ fontWeight: 900, fontSize: 13, color: "#059669" }}>{dopunaMode ? "Materijal dopunjen!" : "Nalog kreiran i poslat magacioneru!"}</div>
+                                        <div style={{ fontSize: 11, color: "#64748b" }}>{dopunaMode ? "Nove rolne su rezervisane i poslate magacioneru na spremanje. Otključane operacije su sada aktivne." : "Rolne su rezervisane u magacinu. Magacioner vidi nalog sa lokacijama i QR kodovima."}</div>
                                     </div>
-                                    <button onClick={() => setNalogModal(false)} style={{ marginLeft: "auto", background: "#059669", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Zatvori</button>
+                                    <button onClick={() => { setNalogModal(false); setDopunaMode(false); setDopunaInfo(null); }} style={{ marginLeft: "auto", background: "#059669", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Zatvori</button>
                                 </div>
                             ) : (
-                                <>
-                                    <div style={{ fontSize: 12, color: "#64748b" }}>
-                                        {sviIzabrani
-                                            ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
-                                            : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne za sve slojeve</span>}
-                                        &nbsp;·&nbsp; {layers.filter((_, i) => izabraneZa(i).length > 0 || rucniUnos[i]).length} / {layers.length} slojeva
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                        <button onClick={() => setNalogModal(false)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
-                                        <button onClick={potvrdiNalogMaterijal} disabled={nalogSaving || !sviIzabrani}
-                                            style={{ background: sviIzabrani ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: sviIzabrani ? "pointer" : "default", opacity: nalogSaving ? 0.7 : 1 }}>
-                                            {nalogSaving ? "Kreiram nalog..." : "✓ Potvrdi i pošalji magacioneru"}
-                                        </button>
-                                    </div>
-                                </>
+                                (() => {
+                                    // ── DOPUNA MATERIJALA ──
+                                    if (dopunaMode && dopunaInfo) {
+                                        const tgt = dopunaInfo.targetIdx;
+                                        const covNow = tgt.filter(i => rucniUnos[i] || (kolPlus ? pokrivaEff(i) >= kolPlus : izabraneZa(i).length > 0));
+                                        const nedovoljno = tgt.filter(i => !rucniUnos[i] && izabraneZa(i).length > 0 && kolPlus && pokrivaEff(i) < kolPlus);
+                                        const canDop = covNow.length > 0 && nedovoljno.length === 0;
+                                        const svePokr = covNow.length === tgt.length;
+                                        return <>
+                                            <div style={{ fontSize: 12, color: "#64748b" }}>
+                                                {nedovoljno.length
+                                                    ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Sloj {nedovoljno.map(i => i + 1).join(", ")} nema dovoljno — dodaj još rolni</span>
+                                                    : svePokr
+                                                        ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi koji su čekali sada imaju materijal</span>
+                                                        : canDop
+                                                            ? <span style={{ color: "#d97706", fontWeight: 800 }}>⏳ Delimična dopuna — sloj {tgt.filter(i => !covNow.includes(i)).map(i => i + 1).join(", ")} i dalje čeka</span>
+                                                            : <span style={{ color: "#dc2626", fontWeight: 800 }}>Dodeli materijal bar jednom sloju</span>}
+                                                &nbsp;·&nbsp; {covNow.length} / {tgt.length} slojeva dopunjeno
+                                            </div>
+                                            <div style={{ display: "flex", gap: 8 }}>
+                                                <button onClick={() => { setNalogModal(false); setDopunaMode(false); setDopunaInfo(null); }} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
+                                                <button onClick={potvrdiDopunaMaterijal} disabled={nalogSaving || !canDop}
+                                                    style={{ background: canDop ? (svePokr ? "#059669" : "#d97706") : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: canDop ? "pointer" : "default", opacity: nalogSaving ? 0.7 : 1 }}>
+                                                    {nalogSaving ? "Dopunjavam..." : "✓ Potvrdi dopunu materijala"}
+                                                </button>
+                                            </div>
+                                        </>;
+                                    }
+                                    const pinfo = pokriceInfo();
+                                    const nedBr = pinfo.nedodeljeniIdx.map(i => i + 1);
+                                    return <>
+                                        <div style={{ fontSize: 12, color: "#64748b" }}>
+                                            {sviIzabrani
+                                                ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
+                                                : pinfo.canSend
+                                                    ? <span style={{ color: "#d97706", fontWeight: 800 }}>⏳ Delimičan nalog — sloj {nedBr.join(", ")} ide kao „čeka materijal"</span>
+                                                    : pinfo.nepokriveniIdx.length
+                                                        ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Sloj {pinfo.nepokriveniIdx.map(i => i + 1).join(", ")} nema dovoljno — dopuni ili ukloni izbor</span>
+                                                        : pinfo.imaStampu
+                                                            ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Štampani sloj mora imati materijal</span>
+                                                            : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne bar za jedan sloj</span>}
+                                            &nbsp;·&nbsp; {pinfo.coveredIdx.length} / {layers.length} slojeva pokriveno
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8 }}>
+                                            <button onClick={() => setNalogModal(false)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
+                                            <button onClick={potvrdiNalogMaterijal} disabled={nalogSaving || !pinfo.canSend}
+                                                style={{ background: pinfo.canSend ? (pinfo.delimican ? "#d97706" : "#059669") : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: pinfo.canSend ? "pointer" : "default", opacity: nalogSaving ? 0.7 : 1 }}>
+                                                {nalogSaving ? "Kreiram nalog..." : (pinfo.delimican ? "⏳ Pošalji delimično (štampa)" : "✓ Potvrdi i pošalji magacioneru")}
+                                            </button>
+                                        </div>
+                                    </>;
+                                })()
                             )}
                         </div>
                     </div>

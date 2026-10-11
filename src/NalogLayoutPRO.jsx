@@ -204,6 +204,12 @@ function buildD(nalog) {
             try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; }
             return (p && (p.pis_broj || p.pisBroj)) || t.pisBroj || t.pis_broj || od.pisBroj || od.pis_broj || nalog.pis_broj || "";
         })(),
+        // Broj porudžbine — ide uz PIS broj (prikazuje se na istom mestu u nalogu)
+        porudzbina: (function () {
+            var p = nalog.parametri;
+            try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; }
+            return (p && (p.broj_porudzbine || p.brojPorudzbine)) || t.brojPorudzbine || t.broj_porudzbine || od.brojPorudzbine || od.broj_porudzbine || nalog.broj_porudzbine || "";
+        })(),
         tipLabel: (jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
         // Dimenzije: širina × dužina KOMADA (mm). Ako dužina komada nije upisana na početku
         // templejta, prikaži METRAŽU FINALNE ROLNE (izračunatu iz prečnika ili unetu u rezanju).
@@ -231,6 +237,11 @@ function buildD(nalog) {
         kas: {
             tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]), odnos: (folija.kasiranje || {}).odnosLepka,
             nanos: (folija.kasiranje || {}).nanosLepka, broj: (folija.kasiranje || {}).brojKasiranja || Math.max(0, LAY.length - 1),
+            // Širina valjka za kaširanje — iz templejta (predlog valjka); rezerva: razni nazivi
+            valjak: num(rz.predlogValjkaKasiranja) || num(rz.valjakKasiranja) || num((folija.kasiranje || {}).valjak) || num((folija.kasiranje || {}).sirinaValjka)
+                || num((kesa.rezanje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).valjak)
+                || num((spulna.rezanje || {}).predlogValjkaKasiranja) || num((spulna.kasiranje || {}).predlogValjkaKasiranja) || num((spulna.kasiranje || {}).valjak) || num(spulna.predlogValjkaKasiranja)
+                || num(t.predlogValjkaKasiranja) || 0,
         },
         lak: {
             tip: pick(folija.lakiranje || {}, ["tip", "tipLaka", "vrsta"]),
@@ -471,7 +482,7 @@ function komp(l) { if (!l) return ''; var t = [l.n, l.pv, l.oz].filter(Boolean).
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
-function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<div class="qrbox"><img class="hdqr" src="' + D.qr + '" alt="QR"/><div class="cap">SKENIRAJ<br>START · PAUZA · KRAJ</div></div>' : '') + '</div>' + (D.pis ? '<div class="pisbr">📋 PIS nalog: <b>' + esc(D.pis) + '</b></div>' : '') + '</div>'; }
+function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<div class="qrbox"><img class="hdqr" src="' + D.qr + '" alt="QR"/><div class="cap">SKENIRAJ<br>START · PAUZA · KRAJ</div></div>' : '') + '</div>' + ((D.pis || D.porudzbina) ? '<div class="pisbr">' + (D.pis ? '📋 PIS nalog: <b>' + esc(D.pis) + '</b>' : '') + (D.pis && D.porudzbina ? ' &nbsp;·&nbsp; ' : '') + (D.porudzbina ? '🧾 Porudžbina: <b>' + esc(D.porudzbina) + '</b>' : '') + '</div>' : '') + '</div>'; }
 function pageWrap(D, inner, pp) { return '<div class="a4">' + inner + '<div class="pp2">' + esc(D.broj) + '</div><div class="pp">' + esc(pp) + '</div></div>'; }
 function kg(D, l) { return (l.gm2 * D.kgF).toFixed(1); }
 function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
@@ -581,7 +592,7 @@ function pKas(D) {
     return pageWrap(D, hd(D, '🔗', T("nalog.nalog_kasiranje"), c, 'kaširanje') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) +
         '<div class="ulaz"><b>Ulaz:</b> ' + esc(L.map(komp).join(' + ')) + ' — laminat se kašira u ' + Math.max(0, L.length - 1) + ' prolaza.</div>' +
         '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', (Math.max(0, L.length - 1)) + ' kaširanja') + cards + '</div>' +
-        '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' + infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', D.kas.broj) + infoC('Redosled', L.map(komp).join('  /  ')) + infoC('Ukupna debljina', D.TOTu + ' µm') + infoC('', '') + '</div></div>' +
+        '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' + infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', D.kas.broj) + infoC('Širina valjka', D.kas.valjak ? (fmtN(D.kas.valjak) + ' mm') : '—') + infoC('Redosled', L.map(komp).join('  /  ')) + infoC('Ukupna debljina', D.TOTu + ' µm') + '</div></div>' +
         napHtml(D, 'kasiranje') +
         foot('Operater kaširanja', 'Kontrola kvaliteta', 'Predao u rezanje') + '</div>', 'Strana · kaširanje');
 }
@@ -745,6 +756,7 @@ function pKesaKas(D, K) {
         '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', Math.max(0, L.length - 1) + ' kaširanja') + prolazi + '</div>' +
         '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' +
         infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', Math.max(0, L.length - 1)) +
+        infoC('Širina valjka', D.kas.valjak ? (fmtN(D.kas.valjak) + ' mm') : '—') +
         infoC('Redosled', L.map(komp).join('  /  ')) + infoC('Ukupna debljina', D.TOTu + ' µm') +
         infoC('Metara', fmtN(K.mMatPlus) + ' m') + infoC('Ukupno kg', kesaTotalKg(D, K) + ' kg') + '</div></div>' +
         napHtml(D, 'kasiranje') +
@@ -959,7 +971,9 @@ function spInfo(D, S) {
     // Kupac/Proizvod su gore u identBlock — ovde ostaje ostatak.
     return '<div class="info">' + infoC('Šifra', D.sifra) +
         infoC('Materijal', S.materijal) + infoC('Širina materijala', S.sirMat + ' mm') +
-        infoC('Side A / Side B', S.sideA + ' / ' + S.sideB) + infoC('Ukupno m²', fmtN(S.m2Rad) + ' m²') + infoC('Rok', D.rok) + '</div>';
+        infoC('Side A / Side B', S.sideA + ' / ' + S.sideB) + infoC('Ukupno m²', fmtN(S.m2Rad) + ' m²') +
+        ((D.kas && D.kas.valjak) ? infoC('Širina valjka', fmtN(D.kas.valjak) + ' mm') : '') +
+        infoC('Rok', D.rok) + '</div>';
 }
 function spObracun(S) {
     return (S.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + S.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
