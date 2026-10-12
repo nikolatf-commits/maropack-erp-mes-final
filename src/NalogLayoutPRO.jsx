@@ -1308,11 +1308,16 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     var faliHtml = fali.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ Fali: ' + fali.map(function (f) { return f.rolni_kom + '× ' + f.sirina_mm + ' mm × ' + fmtN(f.duzina_m) + ' m — ' + esc(f.razlog); }).join('<br>⚠ ') + '</div>' : '';
 
     var naslov = vrsta === 'materijal' ? 'NALOG ZA MATERIJAL — MATIČNE ROLNE' : 'NALOG ZA REZANJE + PERFORACIJA';
+    // Nalog bez materijala (čeka dopunu): nema matičnih rolni, ali formati + perforacija se vide.
+    var cekaMat = planF.ceka_materijal || matice.length === 0;
+    var cekaBanner = cekaMat ? '<div class="ulaz" style="border-left-color:#f97316;background:#fff7ed;color:#9a3412"><b>⏳ ČEKA MATERIJAL</b> — matična rolna još nije dodeljena. Formati i perforacija su definisani ispod; plan reza po matičnoj rolni se dodaje kad materijal stigne (Dopuni materijal).</div>' : '';
+    var planRezaSek = matice.length ? ('<div class="sec">' + secH(1, c, 'Plan reza po matičnoj rolni', matice.length + ' matičnih') + maticeHtml + '</div>') : '';
     return pageWrap(D, hd(D, '✂️', naslov, c, 'formati') + '<div class="body">' +
         identBlock(D.kupac, 'Folija · formati', D.proizvod) +
         statBlok +
         '<div class="info">' + infoC('Šifra', D.sifra) + infoC('Rok', D.rok) + '</div>' +
-        '<div class="sec">' + secH(1, c, 'Plan reza po matičnoj rolni', matice.length + ' matičnih') + maticeHtml + '</div>' +
+        cekaBanner +
+        planRezaSek +
         (fmtTabela ? '<div class="sec">' + secH(2, c, 'Formati (proizvod)', '') + fmtTabela + '</div>' : '') +
         perfHtml + ostHtml + faliHtml +
         napHtml(D, vrsta === 'materijal' ? 'materijal' : 'rezanje') +

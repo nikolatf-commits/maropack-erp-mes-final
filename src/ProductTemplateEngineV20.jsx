@@ -2233,10 +2233,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         const imaPlan = !!(formatiPlan && formatiPlan.nalozi && formatiPlan.nalozi.length);
         const potrebe = (formatiPlan && formatiPlan.potrebe) || formatiPotrebe();
         const mat = formatiMaterijal();
+        // perfById (perforacija po formatu) — iz plana, ili sklopljeno iz potreba (radi i bez materijala)
+        const perfByIdSafe = (formatiPlan && formatiPlan.perfById) || (function () {
+            const m = {}; (potrebe || []).forEach((p) => { m[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm }; }); return m;
+        })();
         const planZaOp = imaPlan ? {
-            matice: formatiPlan.nalozi, perfById: formatiPlan.perfById, formati: potrebe,
+            matice: formatiPlan.nalozi, perfById: perfByIdSafe, formati: potrebe,
             na_stanje: formatiPlan.na_stanje, fali: formatiPlan.fali, zbirno: formatiPlan.zbirno,
         } : null;
+        // Plan za nalog BEZ materijala (čeka dopunu): bez matičnih rolni, ALI sa formatima i
+        // perforacijom (znaju se iz templejta) — da nalog odmah izgleda kao „REZANJE + PERFORACIJA".
+        const planBezMat = {
+            matice: (formatiPlan && formatiPlan.nalozi) || [], perfById: perfByIdSafe, formati: potrebe,
+            na_stanje: (formatiPlan && formatiPlan.na_stanje) || [], fali: (formatiPlan && formatiPlan.fali) || [],
+            zbirno: (formatiPlan && formatiPlan.zbirno) || {}, ceka_materijal: true,
+        };
 
         // ───────── DOPUNA: nalog već postoji i čeka materijal → dodeli matičnu, otključaj rezanje ─────────
         if (formatiDopuna && formatiDopuna.nalogId) {
@@ -2277,7 +2288,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             msg && msg("Nema matičnih rolni na stanju. Koristi „⏳ Pošalji bez materijala“ pa dopuni kad rolna stigne.", "err"); return;
         }
         const delimican = bezMat || !imaPlan;   // bez dovoljno materijala → čeka dopunu
-        const planCreate = delimican ? null : planZaOp;   // dok čeka materijal → još nema plana rezanja
+        const planCreate = delimican ? planBezMat : planZaOp;   // bez materijala → plan sa formatima+perforacijom (bez matičnih)
         setFormatiSaving(true);
         try {
             const broj = await sledeciBrojNaloga();
