@@ -134,6 +134,31 @@ async function ucitajOperacije(masterIds) {
     return sve;
 }
 
+// Potrošnja materijala po nalogu: iz materijal_stavke (rezervisano/izdato) + iz magacina (iskorišćene rolne).
+async function ucitajPotrosnju(brojevi) {
+    const stavke = [], iskRolne = [];
+    try {
+        const CH = 150;
+        for (let i = 0; i < brojevi.length; i += CH) {
+            const { data } = await supabase.from("materijal_stavke")
+                .select("nalog_ref, alocirano_m, izdato_m, otpad_m").in("nalog_ref", brojevi.slice(i, i + CH));
+            if (data && data.length) stavke.push(...data);
+        }
+    } catch (e) { /* materijal_stavke možda nije dostupna */ }
+    try {
+        const PAGE = 1000;
+        for (let od = 0; od < 60000; od += PAGE) {
+            const { data } = await supabase.from("magacin")
+                .select("dodeljeno_nalogu, metraza, metraza_ost, kg_neto, kg_bruto, status")
+                .not("dodeljeno_nalogu", "is", null).range(od, od + PAGE - 1);
+            if (!data || !data.length) break;
+            iskRolne.push(...data);
+            if (data.length < PAGE) break;
+        }
+    } catch (e) { /* magacin skeniranje nije prošlo */ }
+    return { stavke, iskRolne };
+}
+
 export async function loadDashboardData(timeRange = 30) {
     const days = rangeToDays(timeRange);
     const cutoffDate = dateDaysAgo(days);
@@ -158,6 +183,11 @@ export async function loadDashboardData(timeRange = 30) {
     const saOperacijama = new Set(operacije.map((o) => o.glavni_nalog_id));
     const nalozi = sviMasteri.filter((n) => saOperacijama.has(n.id));
     const siroci = sviMasteri.length - nalozi.length;
+
+    // Potrošnja materijala po nalogu (za pravu "uzeto sa rolni" — m i kg).
+    const brojeviNaloga = nalozi.map((n) => String(n.broj_naloga || n.broj || "").trim()).filter(Boolean);
+    let stavke = [], iskRolne = [];
+    try { const p = await ucitajPotrosnju(brojeviNaloga); stavke = p.stavke; iskRolne = p.iskRolne; } catch (e) { console.warn("Dashboard: potrošnja materijala nije učitana -", e.message); }
     if (siroci > 0) console.warn(`Dashboard: ${siroci} glavnih naloga bez operacija (ostatak brisanja) — ne broje se.`);
 
     // PRAVI izvor rada: radnički ekran (RadnikOperacija) piše u operativni_nalozi i
@@ -187,6 +217,8 @@ export async function loadDashboardData(timeRange = 30) {
         aktivnosti: aktivnostiRes.data || [],
         rad,
         zastojiProd,
+        stavke,
+        iskRolne,
         proizvodi: []
     };
 }
@@ -213,8 +245,44 @@ export function grupisiOperacije(operacije = []) {
     return map;
 }
 
+// ── RAZREŠIVAČ IMENA KORISNIKA ───────────────────────────────────────────────
+// Svuda gde se vidi „ko je radio" treba IME, ne email ni „nepoznati".
+// Poznati korisnici (email → ime). Dopunjuje se iz baze preko setKorisniciImena().
+export const KORISNICI_IME = {
+    "admin@maropack.rs": "Admin",
+    "dunja@maropack.rs": "Dunja",
+    "milan@maropack.rs": "Milan",
+    "tihana@maropack.rs": "Tihana",
+    "jovana@maropack.rs": "Jovana",
+    "jelena@maropack.rs": "Jelena",
+    "magacin@maropack.rs": "Đorđe",
+    "magacin2@maropack.rs": "Mirza",
+    "magacin3@maropack.rs": "Dejan",
+};
+let _dynKorisnici = {};   // email/username → ime (iz baze korisnika)
+export function setKorisniciImena(mapObj) {
+    const m = {};
+    Object.keys(mapObj || {}).forEach((k) => { if (k) m[String(k).trim().toLowerCase()] = mapObj[k]; });
+    _dynKorisnici = m;
+}
+// Pretvori bilo šta (email, username, ime) u ČITLJIVO IME.
+export function imeKorisnika(x) {
+    const s = String(x == null ? "" : x).trim();
+    if (!s) return "";
+    const low = s.toLowerCase();
+    if (_dynKorisnici[low]) return _dynKorisnici[low];
+    if (KORISNICI_IME[low]) return KORISNICI_IME[low];
+    if (s.indexOf("@") < 0) return s;                 // nije email → verovatno već ime
+    const local = low.split("@")[0];
+    if (_dynKorisnici[local]) return _dynKorisnici[local];
+    if (KORISNICI_IME[local + "@maropack.rs"]) return KORISNICI_IME[local + "@maropack.rs"];
+    // email bez poklapanja → lokalni deo, lepo formatiran (nikad pun email)
+    return local.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function getWorkerName(a) {
-    return a?.radnik_ime || a?.radnik || a?.operator || a?.worker || a?.user_name || "Nepoznato";
+    const raw = a?.radnik_ime || a?.radnik || a?.operator || a?.worker || a?.user_name || "";
+    return imeKorisnika(raw) || "Nepoznato";
 }
 
 export function getOrderNumber(n) {
@@ -609,11 +677,28 @@ export function kreatorNaloga(n) {
     let v = pick(n);
     if (!v) v = pick(_pj(n && n.parametri));
     if (!v) v = pick(_pj(n && n.order_data));
-    return String(v || "").trim();
+    return imeKorisnika(String(v || "").trim());   // email/username → ime
 }
+// Potrošnja (uzeto sa rolni) po nalogu: izdato (materijal_stavke) + iskorišćeno (magacin).
+// Vraća mapu masterBroj -> { izdatoM, alociranoM, otpadM, iskorM, iskorKg, uzetoM, uzetoKg }.
+const POTROSENA_ST = ["iskorišćeno", "iskorisceno", "potrošena", "potrosena", "potroseno", "potrošeno", "used"];
+export function buildPotrosnjaPoNalogu(data = {}) {
+    const stavke = data.stavke || [], iskRolne = data.iskRolne || [], konv = konvMapKg(data.nalozi || []);
+    const brojSet = (data.nalozi || []).map((n) => masterBroj(n.broj_naloga || n.broj)).filter(Boolean).sort((a, b) => b.length - a.length);
+    const nadjiBroj = (dod) => { const s = String(dod || ""); for (const b of brojSet) { if (b && s.indexOf(b) >= 0) return b; } return ""; };
+    const jeIsk = (st) => POTROSENA_ST.includes(String(st || "").trim().toLowerCase());
+    const m = {};
+    const get = (b) => m[b] || (m[b] = { izdatoM: 0, alociranoM: 0, otpadM: 0, iskorM: 0, iskorKg: 0 });
+    stavke.forEach((s) => { const b = masterBroj(s.nalog_ref); if (!b) return; const g = get(b); g.izdatoM += safeNumber(s.izdato_m); g.alociranoM += safeNumber(s.alocirano_m); g.otpadM += safeNumber(s.otpad_m); });
+    iskRolne.forEach((r) => { if (!jeIsk(r.status)) return; const b = nadjiBroj(r.dodeljeno_nalogu); if (!b) return; const g = get(b); g.iskorM += safeNumber(r.metraza || r.metraza_ost); g.iskorKg += safeNumber(r.kg_neto || r.kg_bruto); });
+    Object.keys(m).forEach((b) => { const g = m[b]; g.uzetoM = g.iskorM || g.izdatoM || g.alociranoM; g.uzetoKg = g.iskorKg || (konv[b] ? g.uzetoM * konv[b] : 0); });
+    return m;
+}
+
 export function buildNaloziPoKreatoru(data = {}) {
     const nalozi = data.nalozi || [];
     const opMap = grupisiOperacije(data.operacije || []);
+    const potr = buildPotrosnjaPoNalogu(data);   // uzeto sa rolni po nalogu
     const m = {};
     (Array.isArray(nalozi) ? nalozi : []).forEach((n) => {
         const ime = kreatorNaloga(n) || "— Nepoznato";
@@ -621,18 +706,17 @@ export function buildNaloziPoKreatoru(data = {}) {
         // ZAVRŠEN = sve operacije naloga su gotove (isto pravilo kao „GOTOVO" u aplikaciji);
         // ako nema operacija, padni na status master naloga.
         const zavrsen = ops.length > 0 ? ops.every((o) => isFinishedStatus(o.status)) : isFinishedStatus(n.status);
-        // Količina: poručena količina naloga (parametri parsiran), pa izlaz poslednje operacije kao rezerva.
-        const par = _pj(n.parametri);
-        const qty = safeNumber(n.kol ?? n.kolicina ?? n.metraza ?? par.porucena_kolicina ?? par.kolicina_za_rad) || finalnoUradjeno(ops);
-        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, kolicinaM: 0, poslednji: null };
+        const p = potr[masterBroj(n.broj_naloga || n.broj)] || {};
+        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, uzetoM: 0, uzetoKg: 0, poslednji: null };
         const g = m[ime];
         g.broj += 1;
         if (zavrsen) g.zavrseno += 1;
-        g.kolicinaM += qty;
+        g.uzetoM += safeNumber(p.uzetoM);
+        g.uzetoKg += safeNumber(p.uzetoKg);
         const d = n.created_at || n.datum || n.datum_kreiranja;
         if (d && (!g.poslednji || new Date(d) > new Date(g.poslednji))) g.poslednji = d;
     });
-    return Object.values(m).map((x) => ({ ...x, kolicinaM: Math.round(x.kolicinaM), udeoZavrseno: x.broj > 0 ? Math.round((x.zavrseno / x.broj) * 100) : 0 })).sort((a, b) => b.broj - a.broj);
+    return Object.values(m).map((x) => ({ ...x, uzetoM: Math.round(x.uzetoM), uzetoKg: Math.round(x.uzetoKg), udeoZavrseno: x.broj > 0 ? Math.round((x.zavrseno / x.broj) * 100) : 0 })).sort((a, b) => b.broj - a.broj);
 }
 
 // --- ŠKART zbirno po FAZI (preko svih naloga) ---

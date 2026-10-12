@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase.js";
 import QRScannerModal from "../QRScannerModal.jsx";
 
@@ -62,6 +62,38 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
+    // ŽIVO OSVEŽAVANJE — kad administracija dopuni materijal (ili se stanje promeni),
+    // lista i otvoreni nalog se sami ažuriraju, bez ručnog osvežavanja.
+    const openRef = useRef(null);
+    useEffect(() => { openRef.current = open; }, [open]);
+    useEffect(() => {
+        let gasi = false;
+        const osvezi = () => {
+            if (gasi) return;
+            load();                                   // lista naloga
+            const o = openRef.current;
+            if (o) ucitajDetalje(o, true);            // otvoreni nalog (čuva skenirano)
+        };
+        let ch = null;
+        try {
+            ch = supabase.channel("mat-za-naloge-" + Math.random().toString(36).slice(2))
+                .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, osvezi)
+                .on("postgres_changes", { event: "*", schema: "public", table: "materijal_stavke" }, osvezi)
+                .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, osvezi)
+                .subscribe();
+        } catch (e) { /* realtime možda nije uključen — ostaje fallback interval */ }
+        const onEvt = () => osvezi();
+        if (typeof window !== "undefined") window.addEventListener("maropack:nalozi-changed", onEvt);
+        const t = setInterval(osvezi, 15000);         // fallback: svakih 15s
+        return () => {
+            gasi = true;
+            try { supabase.removeChannel(ch); } catch (e) { }
+            if (typeof window !== "undefined") window.removeEventListener("maropack:nalozi-changed", onEvt);
+            clearInterval(t);
+        };
+        /* eslint-disable-next-line */
+    }, []);
+
     async function load() {
         setLoading(true);
         try {
@@ -100,6 +132,12 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
         setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" }); setNedodeljeni([]); setVecIzdato({});
+        await ucitajDetalje(it, false);
+    }
+    // Učitaj rolne + nedodeljene slojeve naloga. merge=true → NE briše skenirano/uneto
+    // (koristi se za ŽIVO osvežavanje kad administracija dopuni materijal, da magacioner
+    //  ne izgubi već skenirane rolne, a nove (dopunjene) se same pojave).
+    async function ucitajDetalje(it, merge) {
         // Delimičan nalog: koji slojevi još nemaju materijal (administracija ih dodeljuje kad stigne).
         try {
             if (it.master?.id) {
@@ -173,9 +211,17 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                         if (String(s.status || "") === "izdato" && preostalo <= 0) { scInit[s.rolna_id] = true; vecInit[s.rolna_id] = true; }
                     }
                 });
-                setAlocMap(aMap); setStavkaMap(sMap); setIzdato(iMap);
-                if (Object.keys(scInit).length) setScanned(scInit);
-                setVecIzdato(vecInit);
+                setAlocMap(aMap); setStavkaMap(sMap);
+                if (merge) {
+                    // sačuvaj ono što je magacioner već skenirao/uneo; dodaj samo nove rolne
+                    setIzdato((prev) => ({ ...iMap, ...prev }));
+                    setScanned((prev) => ({ ...scInit, ...prev }));
+                    setVecIzdato((prev) => ({ ...prev, ...vecInit }));
+                } else {
+                    setIzdato(iMap);
+                    if (Object.keys(scInit).length) setScanned(scInit);
+                    setVecIzdato(vecInit);
+                }
             }
         } catch (e) { }
     }

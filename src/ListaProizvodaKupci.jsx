@@ -213,9 +213,17 @@ export default function ListaProizvodaKupci({ msg }) {
     }, [lista, query]);
 
     const poKupcima = useMemo(() => {
+        // Grupisanje po kupcu — isti kupac se NE sme razdvojiti zbog razmaka ili velikih/malih slova.
+        // Ključ je normalizovan (trim + sažet razmak + mala slova), a prikazuje se prvo zatečeno ime.
         const m = {};
-        filtrirani.forEach((p) => { const k = p.kupac || "Bez kupca"; (m[k] = m[k] || []).push(p); });
-        return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0], "sr"));
+        const norm = (s) => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+        filtrirani.forEach((p) => {
+            const orig = String(p.kupac || "").trim().replace(/\s+/g, " ");
+            const key = norm(orig) || "bez kupca";
+            if (!m[key]) m[key] = { naziv: orig || "Bez kupca", prods: [] };
+            m[key].prods.push(p);
+        });
+        return Object.values(m).map((g) => [g.naziv, g.prods]).sort((a, b) => a[0].localeCompare(b[0], "sr"));
     }, [filtrirani]);
 
     const brKupaca = poKupcima.length;

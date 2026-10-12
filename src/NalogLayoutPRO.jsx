@@ -1329,8 +1329,12 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     {
         const _pf = safeJson(nalog.parametri, {}) || {};
         const _pfo = safeJson(nalog.parametri_operacije, {}) || {};
-        const _planF = _pf.plan_formatiranja || _pfo.plan_formatiranja;
-        if (_planF && (_planF.matice || _pf.formati_rezim || _pfo.formati_rezim) && (vrsta === "materijal" || vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
+        const _tpl = safeJson(_pf.template || _pfo.template || nalog.template, {}) || {};
+        // Plan formatiranja može stići kroz parametre operacije, raspakovan na vrh naloga
+        // (PregledNaloga širi parametri), ili u templejtu — tražimo ga svuda.
+        const _planF = _pf.plan_formatiranja || _pfo.plan_formatiranja || nalog.plan_formatiranja || _tpl.plan_formatiranja;
+        const _formatiRezim = _pf.formati_rezim || _pfo.formati_rezim || nalog.formati_rezim || (_tpl.folija && _tpl.folija.formatiRezim);
+        if (_planF && (_planF.matice || _formatiRezim) && (vrsta === "materijal" || vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
             return pFormatiProdukt(D, nalog, _planF, vrsta);
         }
     }

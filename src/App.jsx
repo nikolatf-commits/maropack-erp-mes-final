@@ -94,6 +94,7 @@ import { buildOrderSourcePack, extractTemplate, extractKalkulacija } from './uti
 
 // ✅ PRO MODULI
 import DashboardPRO from './DashboardPRO.jsx';
+import { imeKorisnika } from './dashboardShared.js';
 import MobileApp from './MobileApp.jsx';
 
 // ✅ AI MODULI
@@ -2329,7 +2330,7 @@ function MainAppContent() {
                                                         <span style={{ background: "#1d4ed820", color: "#1d4ed8", borderRadius: 6, padding: "2px 10px", fontWeight: 800, fontSize: 16 }}>{TIP_LAB[tipNaloga] || "—"}</span>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grKupac}</span>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grProizvod}</span>
-                                                        {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {grKreirao}</span> : null}
+                                                        {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {imeKorisnika(grKreirao)}</span> : null}
                                                         {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
                                                         {grGotov ? (<>
                                                             <span style={{ fontWeight: 900, fontSize: 16, color: "#fff", background: "linear-gradient(135deg,#16a34a,#15803d)", borderRadius: 999, padding: "4px 14px" }}>✅ GOTOVO{grGotovDatum ? " · " + grGotovDatum : ""}</span>
@@ -2366,7 +2367,7 @@ function MainAppContent() {
                                                                             <span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,.9)" }} />
                                                                             {statusStil(n.status).tekst}
                                                                         </span>
-                                                                        {n.radnik && <span style={{ fontSize: 13, color: "#334155", fontWeight: 700 }}>👤 {n.radnik}</span>}
+                                                                        {n.radnik && <span style={{ fontSize: 13, color: "#334155", fontWeight: 700 }}>👤 {imeKorisnika(n.radnik)}</span>}
                                                                     </div>
                                                                     <div style={{ marginTop: 8, fontSize: 10, color: "#64748b", fontWeight: 700 }}>Klikni za PRO pregled / štampu</div>
                                                                 </div>
@@ -2391,7 +2392,7 @@ function MainAppContent() {
                     {page === "lista_proizvoda_kupci" && (<ListaProizvodaKupci msg={msg} />)}
                     {page === "template_engine" && (<div>
                         <NazadDugme setPage={setPage} to="baza_proizvoda_pro" label="Bazu proizvoda PRO" />
-                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} kreiraoIme={userProfile?.ime || user?.email || ""} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} dopunaNalog={dopunaNalog} onDopunaDone={() => setDopunaNalog(null)} />
+                        <ProductTemplateEngineV20 db={db} setDb={setDb} msg={msg} setPage={setPage} kreiraoIme={userProfile?.ime || imeKorisnika(user?.email) || ""} onFormatiraj={(pref) => { setFmtPrefill(pref); setPage("formatiranje_po_potrebi"); }} dopunaNalog={dopunaNalog} onDopunaDone={() => setDopunaNalog(null)} />
                     </div>)}
                     {page === "uvoz_spulna_excel" && (<UvozSpulnaExcel onGotovo={() => { if (typeof msg === "function") msg("Špulne uvezene u bazu proizvoda."); }} />)}
 
