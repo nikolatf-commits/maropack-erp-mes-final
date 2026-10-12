@@ -1345,6 +1345,7 @@ function MainAppContent() {
     const [lErr, setLErr] = useState("");
     const [pregNalog, setPregNalog] = useState(null);
     const [pregPonuda, setPregPonuda] = useState(null);
+    const [samoCekaMat, setSamoCekaMat] = useState(false);   // filter: prikaži samo naloge koji čekaju materijal
     const [stampa, setStampa] = useState(null);
     const [uploading, setUploading] = useState(null);
     const [pdfLoading, setPdfLoading] = useState(false);
@@ -1760,6 +1761,8 @@ function MainAppContent() {
         if (s.indexOf("radi") === 0 || s.indexOf("u toku") === 0 || s.indexOf("u_toku") === 0 || s.indexOf("u proizvodnji") === 0) return { grad: "linear-gradient(135deg,#3b82f6,#2563eb)", traka: "#3b82f6", bg: "#f8fbff", tekst: "U TOKU" };
         if (s.indexOf("sprem") === 0) return { grad: "linear-gradient(135deg,#10b981,#059669)", traka: "#10b981", bg: "#f6fefb", tekst: "SPREMNO" };
         if (s.indexOf("zastoj") === 0 || s.indexOf("pauz") === 0) return { grad: "linear-gradient(135deg,#dc2626,#b91c1c)", traka: "#dc2626", bg: "#fef2f2", tekst: "ZASTOJ" };
+        // nema dovoljno materijala na stanju — čeka dopunu (posebna, jača narandžasta da bode oči)
+        if (s.indexOf("ceka_materijal") === 0 || s.indexOf("čeka_materijal") === 0 || s.indexOf("ceka materijal") >= 0) return { grad: "linear-gradient(135deg,#f97316,#ea580c)", traka: "#f97316", bg: "#fff7ed", tekst: "⏳ ČEKA MATERIJAL" };
         return { grad: "linear-gradient(135deg,#f59e0b,#d97706)", traka: "#f59e0b", bg: "#fffdf7", tekst: "ČEKA" };
     }
     var ICONS = { "box": "📦", "print": "🖨️", "link": "🔗", "cut": "✂️", "circle": "🔵", "star": "✨", "bag": "🛍️", "image": "📐", "roll": "🎞️" };
@@ -2235,7 +2238,17 @@ function MainAppContent() {
                         <div>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
                                 <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>🏭 Glavni nalozi</h2>
-                                <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno" && s.indexOf("stiglo") < 0; }).length} otvorenih / {db.nalozi.length} ukupno</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                    {(function () {
+                                        // Broj GLAVNIH naloga koji čekaju materijal (da se ništa ne propusti).
+                                        var set = {};
+                                        db.nalozi.forEach(function (n) { if (String(n.status || "").toLowerCase().indexOf("ceka_materijal") === 0) { var k = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "x"; set[k] = 1; } });
+                                        var cekaMatBr = Object.keys(set).length;
+                                        if (!cekaMatBr) return null;
+                                        return <button onClick={function () { setSamoCekaMat(function (v) { return !v; }); }} title="Klikni da prikažeš samo naloge koji čekaju materijal" style={{ border: "1px solid #fdba74", background: samoCekaMat ? "#f97316" : "#fff7ed", color: samoCekaMat ? "#fff" : "#c2410c", borderRadius: 999, padding: "5px 12px", fontWeight: 900, fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>⏳ {cekaMatBr} čeka materijal{samoCekaMat ? " · ✕ poništi" : ""}</button>;
+                                    })()}
+                                    <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno" && s.indexOf("stiglo") < 0; }).length} otvorenih / {db.nalozi.length} ukupno</div>
+                                </div>
                             </div>
                             {pregNalog ? (
                                 <PregledNalogaPRO
@@ -2304,8 +2317,13 @@ function MainAppContent() {
                                                 }
                                             }
                                             var tipNaloga = normalizujTipProizvoda((master && (master.tip || master.tip_proizvoda)) || gr[0].tip || gr[0].tip_proizvoda || "folija");
+                                            // ČEKA MATERIJAL — bar jedna operacija nema dovoljno materijala (delimičan nalog).
+                                            var grCekaMat = !grGotov && (gr.some(function (n) { return String(n.status || "").toLowerCase().indexOf("ceka_materijal") === 0; }) || !!(grParam && grParam.delimican_materijal));
+                                            // Koji slojevi čekaju (iz parametara) — da piše tačno šta fali.
+                                            var grNedBr = (grParam && Array.isArray(grParam.nedodeljeni_slojevi)) ? grParam.nedodeljeni_slojevi.map(function (s) { return s && s.sloj; }).filter(Boolean) : [];
+                                            if (samoCekaMat && !grCekaMat) return null;   // filter: samo nalozi koji čekaju materijal
                                             return (
-                                                <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 })}>
+                                                <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 }, grCekaMat ? { borderTop: "4px solid #f97316", background: "#fffaf5" } : {})}>
                                                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{br || 'N/A'}</span>
                                                         <span style={{ background: "#1d4ed820", color: "#1d4ed8", borderRadius: 6, padding: "2px 10px", fontWeight: 800, fontSize: 16 }}>{TIP_LAB[tipNaloga] || "—"}</span>
@@ -2322,6 +2340,7 @@ function MainAppContent() {
                                                             ) : null}
                                                             {grRok ? <span style={{ fontWeight: 900, fontSize: 14, color: "#475569", background: "#e2e8f0", borderRadius: 999, padding: "4px 12px" }}>📅 rok bio: {grRok}</span> : null}
                                                         </>) : (<>
+                                                            {grCekaMat ? <span style={{ fontWeight: 900, fontSize: 15, color: "#fff", background: "linear-gradient(135deg,#f97316,#ea580c)", borderRadius: 999, padding: "4px 14px", boxShadow: "0 2px 6px rgba(234,88,12,.25)" }}>⏳ ČEKA MATERIJAL{grNedBr.length ? " · sloj " + grNedBr.join(", ") : ""}</span> : null}
                                                             {grRok ? <span style={{ fontWeight: 800, fontSize: 16, color: grRokBoja }}>⏰ rok: {grRok}{grRokDana !== null ? (grRokDana < 0 ? " (kasni " + Math.abs(grRokDana) + "d)" : grRokDana === 0 ? " (danas)" : " (za " + grRokDana + "d)") : ""}</span> : null}
                                                             {grZavTekst ? <span style={{ fontWeight: 800, fontSize: 16, color: grZavProbija ? "#b91c1c" : "#0f766e" }} title="Očekivani završetak po aktuelnom planu proizvodnje (Gantt)">🏁 gotov ~ {grZavTekst}</span> : null}
                                                         </>)}

@@ -343,6 +343,7 @@ const defaultForm = {
     sifra: "",
     pisBroj: "",                  // Broj naloga iz PIS-a — prolazi kroz svaku operaciju
     brojPorudzbine: "",           // Broj porudžbine — ide uz PIS broj kroz nalog
+    datumIsporuke: "",            // Datum isporuke (rok) — ide u nalog (radni_nalozi.datum_isporuke) i prikazuje se kod glavnih naloga
     svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
     napomena: "",
     // Napomena PO OPERACIJI — unosi se ovde, povlači se na odgovarajući nalog operacije
@@ -1704,6 +1705,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     const [formatiSaving, setFormatiSaving] = useState(false);
     const [formatiSaved, setFormatiSaved] = useState(false);
     const [formatiBroj, setFormatiBroj] = useState("");
+    const [formatiDopuna, setFormatiDopuna] = useState(null);   // {nalogId, broj} — dopuna materijala formati-naloga
 
     function update(path, value) {
         setForm(prev => {
@@ -1719,7 +1721,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     function setType(t) {
         // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
         // pa se ne prelivaju iz jednog templejta u drugi.
-        const SHARED = ["sifra", "pisBroj", "brojPorudzbine", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        const SHARED = ["sifra", "pisBroj", "brojPorudzbine", "datumIsporuke", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
         setForm(prev => {
             if (t === prev.type) return prev;
             const next = clone(prev);
@@ -1965,6 +1967,30 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             setForm(tpl);
             setNalogBroj(rn.broj_naloga || nalog.broj || "");
             setMasterId(rn.id);
+            // ── FORMATI nalog (rezanje+perforacija iz matične): dopuna ide preko formati-modala ──
+            if (p.formati_rezim) {
+                setNalogModal(false); setDopunaMode(false); setNalogLoading(false);
+                setFormatiDopuna({ nalogId: rn.id, broj: rn.broj_naloga || nalog.broj || "" });
+                setFormatiModal(true); setFormatiSaved(false); setFormatiSaving(false); setFormatiLoading(true); setFormatiPlan(null); setFormatiBroj("");
+                try {
+                    // potrebe (formati) iz sačuvanih parametara (pri kreiranju bez materijala), fallback na template
+                    let potrebe = Array.isArray(p.formati_potrebe) ? p.formati_potrebe : [];
+                    if (!potrebe.length) {
+                        const fmts = (tpl.folija?.formati || []).filter(f => nnum(f.sirina) > 0 && nnum(f.duzina) > 0 && nnum(f.rolni) > 0);
+                        const l0 = (tpl.folija?.layers || [])[0] || {};
+                        const mat0 = { vrsta: l0.material || l0.materijal || l0.vrsta || l0.tip || "", pod_vrsta: l0.pod_vrsta || l0.podvrsta || "", oznaka: l0.oznaka_materijala || l0.oznaka || "", proizvodjac: l0.proizvodjac || "", debljina: l0.debljina || l0.deb || "" };
+                        potrebe = fmts.map((f, i) => ({ id: "F" + (i + 1), materijal: mat0, sirina_mm: nnum(f.sirina), duzina_m: nnum(f.duzina), rolni_kom: Math.max(1, Math.round(nnum(f.rolni))), napomena: f.napomena || "", perforacija: f.perforacija || null, odrediste: "nalog" }));
+                    }
+                    const rolne = await ucitajMagacinRolne();
+                    const rez = predloziFormatiranje(potrebe, rolne, { kerf_mm: 0, bocniOstatakNaStanje: true });
+                    const perfById = {}; potrebe.forEach(pp => { perfById[pp.id] = { perforacija: pp.perforacija, napomena: pp.napomena, sirina_mm: pp.sirina_mm }; });
+                    setFormatiPlan({ ...rez, perfById, potrebe });
+                } catch (e) {
+                    msg && msg("Greška pri dopuni formata: " + (e?.message || e), "err");
+                }
+                setFormatiLoading(false);
+                return;
+            }
             const layers = (tpl.type === "folija" ? tpl.folija?.layers : tpl.type === "kesa" ? tpl.kesa?.layers : tpl.spulna?.layers) || [];
             const nedSloj = new Set((p.nedodeljeni_slojevi || []).map(s => Number(s.sloj)));
             const targetIdx = layers.map((_, i) => i).filter(i => nedSloj.has(i + 1));
@@ -2177,80 +2203,122 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         setFormatiLoading(false);
     }
 
-    async function potvrdiNalogFormati() {
-        if (!formatiPlan || !formatiPlan.nalozi || !formatiPlan.nalozi.length) {
-            msg && msg("Nema matičnih rolni za rezanje — proveri stanje magacina ili formate.", "err"); return;
+    // Rezervacija matičnih rolni za formati-nalog (utrošak_m po matičnoj) + ledger stavke.
+    async function rezervisiMaticneFormati(nalozi, broj, proizvod) {
+        const oznaka = broj + (proizvod ? " · " + proizvod : "");
+        await Promise.all((nalozi || []).map(async (n) => {
+            try {
+                const { data: cur } = await supabase.from("magacin").select("metraza, metraza_ost, rezervisano, dodeljeno_nalogu").eq("id", n.maticna_id).single();
+                const ukupno = Number((cur && (cur.metraza_ost != null ? cur.metraza_ost : cur.metraza)) || 0);
+                const noviRez = Math.min(ukupno, (Number(cur && cur.rezervisano) || 0) + (Number(n.utrosak_m) || 0));
+                const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
+                const prethodno = String((cur && cur.dodeljeno_nalogu) || "").trim();
+                let dod = oznaka;
+                if (prethodno && prethodno.indexOf(broj) === -1) dod = prethodno + ", " + oznaka;
+                else if (prethodno) dod = prethodno;
+                await supabase.from("magacin").update({ status: punoRez ? "Rezervisano" : "Na stanju", dodeljeno_nalogu: dod, rezervisano: noviRez || null }).eq("id", n.maticna_id);
+            } catch (e) { }
+        }));
+        try {
+            const stavke = (nalozi || []).map(n => ({
+                nalog_ref: broj, materijali_nalog_id: null, rolna_id: n.maticna_id, br_rolne: n.br_rolne, sloj: 1,
+                sirina: Number(n.sirina_mm) || null, alocirano_m: Number(n.utrosak_m) || 0, status: "rezervisano",
+            }));
+            if (stavke.length) await supabase.from("materijal_stavke").insert(stavke);
+        } catch (e) { }
+    }
+
+    async function potvrdiNalogFormati(opts = {}) {
+        const bezMat = !!opts.bezMaterijala;
+        const imaPlan = !!(formatiPlan && formatiPlan.nalozi && formatiPlan.nalozi.length);
+        const potrebe = (formatiPlan && formatiPlan.potrebe) || formatiPotrebe();
+        const mat = formatiMaterijal();
+        const planZaOp = imaPlan ? {
+            matice: formatiPlan.nalozi, perfById: formatiPlan.perfById, formati: potrebe,
+            na_stanje: formatiPlan.na_stanje, fali: formatiPlan.fali, zbirno: formatiPlan.zbirno,
+        } : null;
+
+        // ───────── DOPUNA: nalog već postoji i čeka materijal → dodeli matičnu, otključaj rezanje ─────────
+        if (formatiDopuna && formatiDopuna.nalogId) {
+            if (!imaPlan) { msg && msg("Još nema matične rolne na stanju za dopunu — sačekaj da magacioner unese materijal.", "err"); return; }
+            setFormatiSaving(true);
+            try {
+                const nalogId = formatiDopuna.nalogId, broj = formatiDopuna.broj, proizvod = form.naziv || form.sifra || "";
+                // master: skini „čeka materijal", upiši plan
+                try {
+                    const { data: rn0 } = await supabase.from("radni_nalozi").select("parametri").eq("id", nalogId).single();
+                    const p0 = (rn0 && rn0.parametri) || {};
+                    await supabase.from("radni_nalozi").update({ status: "ceka_magacin", parametri: { ...p0, delimican_materijal: false, nedodeljeni_slojevi: [], formati_ceka_materijal: false, plan_formatiranja: { nalozi: formatiPlan.nalozi, na_stanje: formatiPlan.na_stanje, fali: formatiPlan.fali, zbirno: formatiPlan.zbirno, perfById: formatiPlan.perfById } } }).eq("id", nalogId);
+                } catch (e) { }
+                // operacije: materijal → ceka_magacin (spremi matične), perforacija_rezanje → ceka (otključano), upiši plan
+                try {
+                    const { data: ops0 } = await supabase.from("operativni_nalozi").select("id, tip_naloga, parametri").eq("glavni_nalog_id", nalogId);
+                    await Promise.all((ops0 || []).map(async (o) => {
+                        const po = (o && o.parametri) || {};
+                        const noviStatus = o.tip_naloga === "materijal" ? "ceka_magacin" : (o.tip_naloga === "perforacija_rezanje" ? "ceka" : po.__keep);
+                        const upd = { parametri: { ...po, plan_formatiranja: planZaOp } };
+                        if (noviStatus) upd.status = noviStatus;
+                        await supabase.from("operativni_nalozi").update(upd).eq("id", o.id);
+                    }));
+                } catch (e) { }
+                await rezervisiMaticneFormati(formatiPlan.nalozi, broj, proizvod);
+                setFormatiBroj(broj); setFormatiSaved(true); setFormatiDopuna(null);
+                if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: nalogId } }));
+                msg && msg("✅ " + broj + " — materijal dopunjen, rezanje+perforacija otključani. Matične rolne rezervisane magacioneru.");
+            } catch (e) {
+                msg && msg("Greška pri dopuni: " + (e?.message || e), "err");
+            }
+            setFormatiSaving(false);
+            return;
         }
+
+        // ───────── NOVO: sa materijalom (imaPlan) ili BEZ materijala (čeka dopunu) ─────────
+        if (!bezMat && !imaPlan) {
+            msg && msg("Nema matičnih rolni na stanju. Koristi „⏳ Pošalji bez materijala“ pa dopuni kad rolna stigne.", "err"); return;
+        }
+        const delimican = bezMat || !imaPlan;   // bez dovoljno materijala → čeka dopunu
+        const planCreate = delimican ? null : planZaOp;   // dok čeka materijal → još nema plana rezanja
         setFormatiSaving(true);
         try {
             const broj = await sledeciBrojNaloga();
             const proizvod = form.naziv || form.sifra || "";
             const zajednicko = { broj_naloga: broj, tip_proizvoda: "folija", kupac: form.kupac || "", naziv: proizvod, proizvod };
 
-            // Master
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
-                status: "ceka_magacin",
+                status: delimican ? "ceka_materijal" : "ceka_magacin",
+                datum_isporuke: form.datumIsporuke || null,
                 parametri: {
-                    sifra: form.sifra || "",
-                    pis_broj: form.pisBroj || "",
-                    broj_porudzbine: form.brojPorudzbine || "",
-                    template: form,
-                    formati_rezim: true,
-                    kreirao_ime: kreiraoIme || "",
-                    datum: new Date().toLocaleDateString("sr-RS"),
-                    plan_formatiranja: { nalozi: formatiPlan.nalozi, na_stanje: formatiPlan.na_stanje, fali: formatiPlan.fali, zbirno: formatiPlan.zbirno, perfById: formatiPlan.perfById },
+                    sifra: form.sifra || "", pis_broj: form.pisBroj || "", broj_porudzbine: form.brojPorudzbine || "",
+                    datum_isporuke: form.datumIsporuke || "", template: form, formati_rezim: true,
+                    kreirao_ime: kreiraoIme || "", datum: new Date().toLocaleDateString("sr-RS"),
+                    // za dopunu kasnije: sačuvaj formate (potrebe) i stanje „čeka materijal"
+                    formati_potrebe: potrebe,
+                    formati_ceka_materijal: delimican,
+                    delimican_materijal: delimican,
+                    nedodeljeni_slojevi: delimican ? [{ sloj: 1, materijal: mat.vrsta || "", oznaka: mat.oznaka || "", debljina: mat.debljina || "" }] : [],
+                    plan_formatiranja: planCreate,
                 },
-                rezultati: { zbirno: formatiPlan.zbirno },
+                rezultati: { zbirno: (formatiPlan && formatiPlan.zbirno) || null },
             }]).select("id").single();
             if (mErr) throw new Error("radni_nalozi: " + mErr.message);
             const mId = master.id;
 
-            // Operacije: materijal (spremanje matičnih) + perforacija_rezanje (rez + perforacija)
-            const planZaOp = {
-                matice: formatiPlan.nalozi,
-                perfById: formatiPlan.perfById,
-                formati: formatiPlan.potrebe,   // originalni formati (širina/dužina/kom/perforacija/napomena)
-                na_stanje: formatiPlan.na_stanje,
-                fali: formatiPlan.fali,
-                zbirno: formatiPlan.zbirno,
-            };
             const ops = [
-                { ...zajednicko, broj_naloga: broj + "-MATERIJAL", glavni_nalog_id: mId, tip_naloga: "materijal", status: "ceka_magacin", redosled: 1, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planZaOp } },
-                { ...zajednicko, broj_naloga: broj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: "ceka", redosled: 2, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planZaOp } },
+                { ...zajednicko, broj_naloga: broj + "-MATERIJAL", glavni_nalog_id: mId, tip_naloga: "materijal", status: delimican ? "ceka_materijal" : "ceka_magacin", redosled: 1, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } },
+                { ...zajednicko, broj_naloga: broj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: delimican ? "ceka_materijal" : "ceka", redosled: 2, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } },
             ];
             const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
             if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
 
-            // Rezervacija matičnih rolni (utrošak_m po matičnoj) — magacioneru na spremanje
-            const oznaka = broj + (proizvod ? " · " + proizvod : "");
-            await Promise.all(formatiPlan.nalozi.map(async (n) => {
-                try {
-                    const { data: cur } = await supabase.from("magacin").select("metraza, metraza_ost, rezervisano, dodeljeno_nalogu").eq("id", n.maticna_id).single();
-                    const ukupno = Number((cur && (cur.metraza_ost != null ? cur.metraza_ost : cur.metraza)) || 0);
-                    const noviRez = Math.min(ukupno, (Number(cur && cur.rezervisano) || 0) + (Number(n.utrosak_m) || 0));
-                    const punoRez = ukupno > 0 && noviRez >= ukupno - 1;
-                    const prethodno = String((cur && cur.dodeljeno_nalogu) || "").trim();
-                    let dod = oznaka;
-                    if (prethodno && prethodno.indexOf(broj) === -1) dod = prethodno + ", " + oznaka;
-                    else if (prethodno) dod = prethodno;
-                    await supabase.from("magacin").update({ status: punoRez ? "Rezervisano" : "Na stanju", dodeljeno_nalogu: dod, rezervisano: noviRez || null }).eq("id", n.maticna_id);
-                } catch (e) { }
-            }));
-
-            // Ledger: red po matičnoj rolni (sloj 1 = matična)
-            try {
-                const stavke = formatiPlan.nalozi.map(n => ({
-                    nalog_ref: broj, materijali_nalog_id: null, rolna_id: n.maticna_id, br_rolne: n.br_rolne, sloj: 1,
-                    sirina: Number(n.sirina_mm) || null, alocirano_m: Number(n.utrosak_m) || 0, status: "rezervisano",
-                }));
-                if (stavke.length) await supabase.from("materijal_stavke").insert(stavke);
-            } catch (e) { }
+            if (!delimican) await rezervisiMaticneFormati(formatiPlan.nalozi, broj, proizvod);
 
             setFormatiBroj(broj);
             setFormatiSaved(true);
             if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
-            msg && msg("✅ " + broj + " kreiran — nalog za rezanje na formate + perforaciju. Matične rolne rezervisane magacioneru.");
+            msg && msg(delimican
+                ? "✅ " + broj + " kreiran — ⏳ ČEKA MATERIJAL. Kad matična rolna stigne, uradi „Dopuni materijal“ iz Pregleda naloga da otključaš rezanje."
+                : "✅ " + broj + " kreiran — nalog za rezanje na formate + perforaciju. Matične rolne rezervisane magacioneru.");
         } catch (e) {
             msg && msg("Greška: " + (e?.message || e), "err");
         }
@@ -2409,10 +2477,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
                 status: "ceka_magacin",
+                datum_isporuke: form.datumIsporuke || null,
                 parametri: {
                     sifra: form.sifra || "",
                     pis_broj: form.pisBroj || "",
                     broj_porudzbine: form.brojPorudzbine || "",
+                    datum_isporuke: form.datumIsporuke || "",
                     template: form,
                     porucena_kolicina: kol,
                     kolicina_za_rad: kolPlus,
@@ -3095,9 +3165,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             <div style={{ marginBottom: 12 }}>
                 <Input label="📋 Broj naloga iz PIS-a" value={form.pisBroj} onChange={v => update("pisBroj", v)} placeholder="npr. PIS-2026-12345" />
             </div>
-            {/* Broj porudžbine — ide uz PIS broj kroz nalog (folija / kesa / špulna, zajedničko polje) */}
-            <div style={{ marginBottom: 12 }}>
+            {/* Broj porudžbine + Datum isporuke — zajednička polja za folija / kesa / špulna; idu u nalog */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
                 <Input label="🧾 Broj porudžbine" value={form.brojPorudzbine} onChange={v => update("brojPorudzbine", v)} placeholder="npr. POR-2026-00123" />
+                <div>
+                    <label style={labelStyle()}>📅 Datum isporuke (rok)</label>
+                    <input type="date" style={fieldStyle()} value={form.datumIsporuke || ""} onChange={e => update("datumIsporuke", e.target.value)} />
+                </div>
             </div>
             {/* Svrha proizvoda — za šta se koristi (AI i ručna pretraga) */}
             <div style={{ marginBottom: 12 }}>
@@ -4326,11 +4400,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 980, maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
                         <div style={{ background: "linear-gradient(135deg,#0f172a,#0f766e)", padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div>
-                                <div style={{ color: "#99f6e4", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>Rezanje na formate + perforacija</div>
-                                <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>✂️ {form.naziv || "Proizvod"}</div>
-                                <div style={{ color: "#cbd5e1", fontSize: 11, marginTop: 3 }}>{form.kupac}{formatiBroj ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24", fontSize: 13 }}>{formatiBroj}</b></> : null}</div>
+                                <div style={{ color: "#99f6e4", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>{formatiDopuna ? "Dopuna materijala — rezanje na formate" : "Rezanje na formate + perforacija"}</div>
+                                <div style={{ color: "#fff", fontSize: 20, fontWeight: 950 }}>{formatiDopuna ? "⏳ " : "✂️ "}{form.naziv || "Proizvod"}</div>
+                                <div style={{ color: "#cbd5e1", fontSize: 11, marginTop: 3 }}>{form.kupac}{(formatiBroj || (formatiDopuna && formatiDopuna.broj)) ? <> &nbsp;·&nbsp; <b style={{ color: "#fbbf24", fontSize: 13 }}>{formatiBroj || formatiDopuna.broj}</b></> : null}</div>
                             </div>
-                            <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); }} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer" }}>×</button>
+                            <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); setFormatiDopuna(null); }} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", borderRadius: 8, width: 36, height: 36, fontSize: 18, cursor: "pointer" }}>×</button>
                         </div>
 
                         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
@@ -4389,22 +4463,42 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                             )}
                         </div>
 
-                        <div style={{ borderTop: "1px solid #e2e8f0", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc" }}>
+                        <div style={{ borderTop: "1px solid #e2e8f0", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", flexWrap: "wrap", gap: 8 }}>
                             {formatiSaved ? (
                                 <>
-                                    <div style={{ fontWeight: 900, fontSize: 13, color: "#059669" }}>✅ Nalog kreiran — matične rolne rezervisane magacioneru.</div>
-                                    <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); }} style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Zatvori</button>
+                                    <div style={{ fontWeight: 900, fontSize: 13, color: "#059669" }}>{formatiDopuna ? "✅ Materijal dopunjen — rezanje otključano." : "✅ Nalog kreiran."}</div>
+                                    <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); setFormatiDopuna(null); }} style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Zatvori</button>
                                 </>
                             ) : (
                                 <>
                                     <div style={{ fontSize: 12, color: "#64748b" }}>{formatiPlan ? <>Matičnih: <b>{z.maticnih}</b> · otpad ukupno <b>{fmt(z.otpad_mm_m)}</b> mm·m{z.fali_rolni ? <span style={{ color: "#dc2626", fontWeight: 800 }}> · fali {z.fali_rolni} rolni</span> : null}</> : ""}</div>
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                        <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); }} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
-                                        <button onClick={potvrdiNalogFormati} disabled={formatiSaving || formatiLoading || !(formatiPlan && formatiPlan.nalozi && formatiPlan.nalozi.length)}
-                                            style={{ background: (formatiPlan && formatiPlan.nalozi && formatiPlan.nalozi.length && !formatiSaving) ? "#0f766e" : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: "pointer" }}>
-                                            {formatiSaving ? "Kreiram…" : "✓ Kreiraj nalog (rezanje + perforacija)"}
-                                        </button>
-                                    </div>
+                                    {(() => {
+                                        // JEDNO dugme koje se prilagođava (kao kod folije/kese/špulne):
+                                        //  • pokriveno (ima dovoljno matičnih, bez „fali") → Kreiraj nalog (sa materijalom)
+                                        //  • nije pokriveno (nema/fali) → Pošalji bez materijala (čeka dopunu)
+                                        const pokriveno = !!(formatiPlan && formatiPlan.nalozi && formatiPlan.nalozi.length && !(formatiPlan.fali && formatiPlan.fali.length));
+                                        const busy = formatiSaving || formatiLoading;
+                                        // DOPUNA: može samo kad je sad pokriveno (materijal stigao)
+                                        if (formatiDopuna) {
+                                            return <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                                <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); setFormatiDopuna(null); }} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
+                                                <button onClick={() => potvrdiNalogFormati()} disabled={busy || !pokriveno}
+                                                    title={pokriveno ? "" : "Još nema dovoljno matične rolne na stanju."}
+                                                    style={{ background: (pokriveno && !busy) ? "#0f766e" : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: pokriveno ? "pointer" : "default" }}>
+                                                    {formatiSaving ? "Dopunjavam…" : "📦 Dopuni materijal"}
+                                                </button>
+                                            </div>;
+                                        }
+                                        // KREIRANJE: jedno dugme — sa materijalom ili bez (čeka dopunu)
+                                        return <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                            <button onClick={() => { setFormatiModal(false); setFormatiPlan(null); setFormatiDopuna(null); }} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
+                                            <button onClick={() => potvrdiNalogFormati({ bezMaterijala: !pokriveno })} disabled={busy}
+                                                title={pokriveno ? "Kreiraj nalog — matične rolne se rezervišu magacioneru." : "Nema dovoljno materijala — nalog se kreira kao „čeka materijal“; dopuniš ga kad rolna stigne."}
+                                                style={{ background: busy ? "#94a3b8" : (pokriveno ? "#0f766e" : "#f97316"), color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: "pointer" }}>
+                                                {formatiSaving ? "Kreiram…" : (pokriveno ? "✓ Kreiraj nalog (rezanje + perforacija)" : "⏳ Pošalji bez materijala (čeka dopunu)")}
+                                            </button>
+                                        </div>;
+                                    })()}
                                 </>
                             )}
                         </div>

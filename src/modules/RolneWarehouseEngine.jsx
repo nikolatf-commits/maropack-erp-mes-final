@@ -1047,7 +1047,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     async function loadPovrati() {
         try {
             if (!supabase || supabase.__notConfigured) return;
-            const { data } = await supabase.from("povrati_magacin").select("*").order("created_at", { ascending: false }).limit(1000);
+            // SVE povrate (bez limita 1000) — paginacija kroz celu tabelu.
+            const data = await fetchAllRows(supabase, "povrati_magacin", (q) => q.order("created_at", { ascending: false }));
             setPovratiDb((data || []).map((r) => ({
                 vreme: uLokalno(r.created_at),
                 operater: r.operater || "—",
@@ -1307,8 +1308,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         if (!loadedFromSupabase) safeWrite(LS_ROLNE, sourceRolls);
         try {
             if (!supabase?.__notConfigured) {
-                const { data: hist, error: hErr } = await supabase.from(HISTORY_TABLE).select("*").order("created_at", { ascending: false }).limit(HISTORY_SYNC_LIMIT);
-                if (hErr) throw hErr;
+                // SVA istorija (bez limita) — paginacija kroz celu tabelu da povuče sve do sada.
+                const hist = await fetchAllRows(supabase, HISTORY_TABLE, (q) => q.order("created_at", { ascending: false }));
                 const imeMap = await loadOperateriMap();
                 setHistory((Array.isArray(hist) ? hist : []).map((h) => mapIstorijaRow(h, imeMap)));
             } else {
@@ -1650,13 +1651,21 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const PER_PAGE = 50;
     const [rollPage, setRollPage] = useState(1);
     const [histPage, setHistPage] = useState(1);
+    const [histSearch, setHistSearch] = useState("");   // pretraga istorije — radi na CELOJ učitanoj istoriji
     useEffect(() => { setRollPage(1); }, [filter, columnFilters, rangeFilters, multiSel]);
+    useEffect(() => { setHistPage(1); }, [histSearch]);
     const rollPages = Math.max(1, Math.ceil(sortedRolls.length / PER_PAGE));
     const rollPageC = Math.min(rollPage, rollPages);
     const pagedRolls = useMemo(() => sortedRolls.slice((rollPageC - 1) * PER_PAGE, rollPageC * PER_PAGE), [sortedRolls, rollPageC]);
-    const histPages = Math.max(1, Math.ceil((history ? history.length : 0) / PER_PAGE));
+    // Pretraga istorije po svim poljima (broj rolne, događaj, opis, operater, vreme) — cela baza, ne samo stranica.
+    const filteredHistory = useMemo(() => {
+        const q = String(histSearch || "").trim().toLowerCase();
+        if (!q) return history || [];
+        return (history || []).filter((h) => [h.qr, h.event, h.opis, h.operater, h.vreme, h.stanje].join(" ").toLowerCase().includes(q));
+    }, [history, histSearch]);
+    const histPages = Math.max(1, Math.ceil(filteredHistory.length / PER_PAGE));
     const histPageC = Math.min(histPage, histPages);
-    const pagedHistory = useMemo(() => (history || []).slice((histPageC - 1) * PER_PAGE, histPageC * PER_PAGE), [history, histPageC]);
+    const pagedHistory = useMemo(() => filteredHistory.slice((histPageC - 1) * PER_PAGE, histPageC * PER_PAGE), [filteredHistory, histPageC]);
 
     // Istorija POVRATA (rolne vraćene kroz „Povrat u magacin") + filter po broju rolne
     const [povratSearch, setPovratSearch] = useState("");
@@ -1675,7 +1684,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             ...izLoga.filter((h) => !seen.has(kljuc(h))),
             ...izIstorije.filter((h) => !seen.has(kljuc(h)) && !izLoga.some((l) => (l.vreme === h.vreme && l.qr === h.qr))),
         ];
-        return spojeno.filter((h) => !q || String(h.qr || "").toLowerCase().includes(q));
+        return spojeno.filter((h) => !q || [h.qr, h.opis, h.operater, h.vreme, h.lokacija].join(" ").toLowerCase().includes(q));
     }, [povratiDb, povratLog, history, povratSearch]);
     const povratPages = Math.max(1, Math.ceil(povratHistory.length / PER_PAGE));
     const povratPageC = Math.min(povratPage, povratPages);
@@ -2733,8 +2742,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             meta,
         };
         setHistory((prev) => {
-            const h = [entry, ...(Array.isArray(prev) ? prev : [])].slice(0, HISTORY_SYNC_LIMIT);
-            safeWrite(LS_HISTORY, h);
+            // Zadrži SVU istoriju u prikazu; u localStorage keširaj samo poslednjih HISTORY_SYNC_LIMIT (da ne naraste).
+            const h = [entry, ...(Array.isArray(prev) ? prev : [])];
+            safeWrite(LS_HISTORY, h.slice(0, HISTORY_SYNC_LIMIT));
             return h;
         });
 
@@ -3718,9 +3728,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
                 {activeTab === "istorija" && (
                     <div style={card}>
-                        <div style={{ fontWeight: 950, marginBottom: 10 }}>🕘 Istorija rolni</div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}><b>Istorija rolni</b><button onClick={reload} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>Osveži</button></div>
-                        {history.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>Još nema istorije.</div> :
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}><b>🕘 Istorija rolni</b><button onClick={reload} style={{ ...btn, background: "#e0f2fe", color: "#0369a1" }}>Osveži</button></div>
+                        <input value={histSearch} onChange={(e) => setHistSearch(e.target.value)} placeholder="Pretraga cele istorije: broj rolne, događaj, opis, operater, datum…" style={{ ...input, marginBottom: 10 }} />
+                        {filteredHistory.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>{histSearch ? "Nema zapisa za tu pretragu." : "Još nema istorije."}</div> :
                             pagedHistory.map((h, i) => (
                                 <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "10px 0", fontSize: 13 }}>
                                     <div style={{ color: "#64748b" }}>{h.vreme} · <span style={{ color: "#0369a1", fontWeight: 900 }}>👷 {h.operater || "—"}</span></div>
@@ -3728,14 +3738,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                     <div style={{ color: "#475569" }}>{h.opis}</div>
                                 </div>
                             ))}
-                        <Pager page={histPageC} pages={histPages} onGo={setHistPage} info={(history ? history.length : 0) + " zapisa · prikaz " + (history && history.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, history ? history.length : 0)} />
+                        <Pager page={histPageC} pages={histPages} onGo={setHistPage} info={filteredHistory.length + (histSearch ? " nađeno" : " zapisa") + " · prikaz " + (filteredHistory.length ? (histPageC - 1) * PER_PAGE + 1 : 0) + "–" + Math.min(histPageC * PER_PAGE, filteredHistory.length)} />
                     </div>
                 )}
 
                 {activeTab === "istorija_povrata" && (
                     <div style={card}>
                         <div style={{ fontWeight: 950, marginBottom: 10 }}>↩️ Istorija povrata</div>
-                        <input value={povratSearch} onChange={(e) => setPovratSearch(e.target.value)} placeholder="Filter po broju rolne (ROLNA-2026…)" style={{ ...input, marginBottom: 10 }} />
+                        <input value={povratSearch} onChange={(e) => setPovratSearch(e.target.value)} placeholder="Pretraga cele istorije povrata: broj rolne, opis, operater, lokacija…" style={{ ...input, marginBottom: 10 }} />
                         {povratHistory.length === 0 ? <div style={{ color: "#64748b", padding: 16, textAlign: "center" }}>Nema povrata{povratSearch ? " za tu pretragu" : ""}.</div> :
                             pagedPovrat.map((h, i) => (
                                 <div key={i} style={{ borderTop: "1px solid #e2e8f0", padding: "10px 0", fontSize: 13 }}>

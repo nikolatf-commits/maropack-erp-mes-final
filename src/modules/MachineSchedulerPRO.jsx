@@ -29,6 +29,67 @@ function ensureStampa(list) {
     return fali.length ? [...fali, ...arr] : list;
 }
 
+// v54: RADNE SMENE PO MAŠINI.
+// Standardno: radnim danom (pon–pet) 2 smene, vikendom 0 (mašina ne radi).
+// Izuzetak — KAŠIRKA i štampa „Maropack Karint" rade SAMO vikendom (subota+nedelja) po 2 smene,
+//            a radnim danom (pon–pet) ne rade (0 smena).
+// Sve se može izmeniti klikom na karticu mašine → „Uredi" (polja Smene radni dan / Smene vikend).
+const DEF_SMENE_RADNIM = 2;             // sve mašine rade 2 smene dnevno
+const DEF_SMENE_VIKEND = 0;             // vikendom po defaultu ne rade (osim izuzetaka)
+// 1 smena = 8h, ali svaka smena ima 1h pauze → efektivan rad 7h = 420 min.
+// Dakle dnevni kapacitet = 2 smene × 420 = 840 min (14h).
+const SMENA_MIN = 420;
+function jeVikendMasina(m) {
+    const id = String(m && m.id || '').toLowerCase();
+    const naziv = String(m && m.name || '').toLowerCase();
+    return (m && m.type === 'kasiranje') || id.includes('maropack') || naziv.includes('maropack');
+}
+// Popuni podrazumevane smene ako nisu zadate (ne gazi ručno sačuvane vrednosti).
+function primeniSmene(list) {
+    return (Array.isArray(list) ? list : []).map(m => {
+        const o = { ...m };
+        const vikendOnly = jeVikendMasina(o);   // Maropack Karint + kaширka: samo vikendom
+        if (o.smeneRadnim === undefined || o.smeneRadnim === null || o.smeneRadnim === '') o.smeneRadnim = vikendOnly ? 0 : DEF_SMENE_RADNIM;
+        if (o.smeneVikend === undefined || o.smeneVikend === null || o.smeneVikend === '') o.smeneVikend = vikendOnly ? 2 : DEF_SMENE_VIKEND;
+        return o;
+    });
+}
+// Broj smena za dati dan: vikend (ned=0, sub=6) → smeneVikend, radni dan → smeneRadnim.
+function smeneZaDan(machine, date) {
+    const dow = date.getDay();
+    const vikend = dow === 0 || dow === 6;
+    const r = Number(vikend ? (machine && machine.smeneVikend) : (machine && machine.smeneRadnim));
+    if (Number.isFinite(r) && r >= 0) return r;
+    return vikend ? DEF_SMENE_VIKEND : DEF_SMENE_RADNIM;
+}
+// Raspoložive smene na toj mašini od danas do roka (uključivo), po kalendaru (vikend/radni).
+function brojSmenaDoRoka(machine, rokDate) {
+    if (!rokDate || Number.isNaN(rokDate.getTime())) return null;
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const kraj = new Date(rokDate); kraj.setHours(0, 0, 0, 0);
+    if (kraj < d) return 0;
+    let smene = 0, guard = 0;
+    for (let cur = new Date(d); cur <= kraj && guard < 3660; cur.setDate(cur.getDate() + 1), guard++) smene += smeneZaDan(machine, cur);
+    return smene;
+}
+
+// Redosled faza jednog naloga (štampa → lakiranje → kaширanje → formatiranje → rezanje …).
+const REDOSLED_FAZA = { stampa: 1, lakiranje: 2, kasiranje: 3, formatiranje: 4, rezanje: 5, kese: 6, spulne: 7, ostalo: 9 };
+// Kad se faza završi: krećući od datuma „od", troši dnevni kapacitet mašine (smene × 420),
+// preskačući dane kad mašina ne radi (npr. kaширka radnim danom). Vraća datum završetka ili null.
+function zavrsiFazu(machine, minuti, odDatuma) {
+    const cur = new Date(odDatuma); cur.setHours(0, 0, 0, 0);
+    let preostalo = Math.max(0, Number(minuti) || 0);
+    if (preostalo <= 0) return cur;
+    let guard = 0;
+    while (preostalo > 0 && guard < 4000) {
+        const kap = smeneZaDan(machine, cur) * SMENA_MIN;
+        if (kap > 0) { preostalo -= kap; if (preostalo <= 0) return new Date(cur); }
+        cur.setDate(cur.getDate() + 1); guard++;
+    }
+    return null;   // mašina nikad ne radi — ne može se završiti
+}
+
 // v52: TRAJANJE NALOGA NA KONKRETNOJ MAŠINI.
 // Formula: setup mašine (min) + metri / brzina mašine (m/min).
 // Ako nalog ima ručno uneto trajanje (trajanje_min u bazi), ono ima prednost.
@@ -108,8 +169,9 @@ function MachineEditModal({ machine, onClose, onSave }) {
                 <button style={{ ...styles.btn, background: '#f1f5f9' }} onClick={onClose}>×</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-                {[['name', 'Naziv'], ['code', 'Šifra'], ['status', 'Status'], ['maxWidth', 'Max širina mm'], ['minWidth', 'Min širina mm'], ['maxDiameter', 'Max Ø mm'], ['core', 'Hilzna'], ['speed', 'Brzina'], ['setupMin', 'Setup min']].map(([k, l]) => <label key={k} style={{ fontSize: 12, color: '#64748b', fontWeight: 900 }}>{l}<input style={styles.input} value={m[k] ?? ''} onChange={e => set(k, e.target.value)} /></label>)}
+                {[['name', 'Naziv'], ['code', 'Šifra'], ['status', 'Status'], ['maxWidth', 'Max širina mm'], ['minWidth', 'Min širina mm'], ['maxDiameter', 'Max Ø mm'], ['core', 'Hilzna'], ['speed', 'Brzina'], ['setupMin', 'Setup min'], ['smeneRadnim', 'Smene radni dan'], ['smeneVikend', 'Smene vikend (sub+ned)']].map(([k, l]) => <label key={k} style={{ fontSize: 12, color: '#64748b', fontWeight: 900 }}>{l}<input style={styles.input} value={m[k] ?? ''} onChange={e => set(k, e.target.value)} /></label>)}
             </div>
+            <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b' }}>Smene po danu: radnim danom „Smene radni dan", subotom i nedeljom „Smene vikend". 1 smena = 8h sa 1h pauze → efektivan rad 7h (420 min). 2 smene = 14h dnevno. Vikend = 0 znači da mašina vikendom ne radi.</div>
             <label style={{ display: 'block', marginTop: 12, fontSize: 12, color: '#64748b', fontWeight: 900 }}>Mogućnosti / karakteristike<textarea style={{ ...styles.input, minHeight: 80 }} value={(m.capabilities || []).join(', ')} onChange={e => set('capabilities', e.target.value.split(',').map(x => x.trim()).filter(Boolean))} /></label>
             <label style={{ display: 'block', marginTop: 12, fontSize: 12, color: '#64748b', fontWeight: 900 }}>Napomena<textarea style={{ ...styles.input, minHeight: 80 }} value={m.note || ''} onChange={e => set('note', e.target.value)} /></label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
@@ -210,8 +272,8 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     useEffect(() => {
         (async () => {
             const ucitane = await loadMachines();
-            const sve = ensureStampa(ucitane);
-            if (sve !== ucitane) await saveMachines(sve);   // štamparije upisane trajno
+            const sve = primeniSmene(ensureStampa(ucitane));
+            if (JSON.stringify(sve) !== JSON.stringify(ucitane)) await saveMachines(sve);   // štamparije + smene upisane trajno
             setMachines(sve);
             setPlan(await loadProductionPlan()); setTrace(getTraceLog());
         })();
@@ -219,6 +281,42 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
     const orderMap = useMemo(() => Object.fromEntries(orders.map(o => [o.id, o])), [orders]);
     const plannedIds = useMemo(() => new Set(Object.values(plan).flat()), [plan]);
+    // Koja operacija je na kojoj mašini (za računanje vremena po nalogu)
+    const orderMachine = useMemo(() => { const m = {}; Object.entries(plan).forEach(([mid, ids]) => (ids || []).forEach(id => { m[id] = mid; })); return m; }, [plan]);
+    const machineById = useMemo(() => Object.fromEntries(machines.map(m => [m.id, m])), [machines]);
+    // Predstavnik po tipu operacije — za neraspoređenu fazu uzmemo prvu mašinu tog tipa
+    // (zbog njenog rasporeda smena: npr. kaширka radi samo vikendom).
+    const machineByType = useMemo(() => { const m = {}; machines.forEach(x => { if (!m[x.type]) m[x.type] = x; }); return m; }, [machines]);
+    // UKUPNO VREME I PROJEKCIJA ZAVRŠETKA PO NALOGU.
+    // Faze idu REDOM (štampa → kaширanje → rezanje), svaka na svojoj mašini sa svojim smenama.
+    // Ne sabira se samo zbir minuta: kaширanje može da napreduje tek vikendom, pa „gotov"
+    // zavisi od redosleda i kalendara smena svake mašine. Rezultat: ukupno min, broj faza, datum „gotov".
+    const nalogUkupno = useMemo(() => {
+        const danas = new Date(); danas.setHours(0, 0, 0, 0);
+        const grupe = {};
+        orders.forEach(o => {
+            if (o.status === 'zavrseno') return;                 // završene faze se ne računaju
+            const ref = canonRef(o.id);
+            (grupe[ref] = grupe[ref] || []).push(o);
+        });
+        const acc = {};
+        Object.entries(grupe).forEach(([ref, ops]) => {
+            const sorted = [...ops].sort((a, b) => (REDOSLED_FAZA[a.opTip] || 9) - (REDOSLED_FAZA[b.opTip] || 9));
+            let cursor = new Date(danas), min = 0, faza = 0, gotov = new Date(danas), ok = true;
+            sorted.forEach(o => {
+                const mach = machineById[orderMachine[o.id]] || machineByType[o.opTip] || null;
+                const d = calcDurationMin(mach, o);
+                min += d; faza += 1;
+                if (!ok) return;
+                const kraj = zavrsiFazu(mach, d, cursor);        // završetak ove faze (po kalendaru mašine)
+                if (!kraj) { ok = false; gotov = null; return; }
+                gotov = kraj;
+                cursor = new Date(kraj); cursor.setDate(cursor.getDate() + 1);   // sledeća faza kreće sutradan
+            });
+            acc[ref] = { min, faza, gotovDatum: gotov };
+        });
+        return acc;
+    }, [orders, orderMachine, machineById, machineByType]);
     // FIX: iz "Nalozi za raspored" izbaci i ZAVRŠENE naloge (ne samo one koji su na mašini) —
     // završena operacija se više ne raspoređuje, pa ne treba da visi u bazenu.
     const unplanned = orders.filter(o => !plannedIds.has(o.id) && o.status !== 'zavrseno');
@@ -226,7 +324,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const totals = useMemo(() => {
         const poId = Object.fromEntries(machines.map(m => [m.id, m]));
         let minutes = 0;
-        Object.entries(plan).forEach(([mid, ids]) => (ids || []).forEach(id => { minutes += calcDurationMin(poId[mid], orderMap[id]); }));
+        Object.entries(plan).forEach(([mid, ids]) => (ids || []).forEach(id => { const o = orderMap[id]; if (o && o.status !== 'zavrseno') minutes += calcDurationMin(poId[mid], o); }));
         return { machines: machines.length, active: machines.filter(m => m.status === 'aktivna').length, planned: plannedIds.size, minutes };
     }, [machines, plannedIds, plan, orderMap]);
 
@@ -273,7 +371,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const next = machines.map(x => x.id === m.id ? { ...m, maxWidth: Number(m.maxWidth), minWidth: Number(m.minWidth), maxDiameter: Number(m.maxDiameter), speed: Number(m.speed), setupMin: Number(m.setupMin) } : x);
         setMachines(next); await saveMachines(next); await logTrace('machine_updated', { machineId: m.id, machine: m.name }); setEditing(null); setTrace(getTraceLog()); msg?.('✅ Mašina sačuvana');
     };
-    const resetMachines = async () => { const next = ensureStampa(DEFAULT_MACHINES); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 3 štamparije'); };
+    const resetMachines = async () => { const next = primeniSmene(ensureStampa(DEFAULT_MACHINES)); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 3 štamparije + smene'); };
 
     return <div style={styles.page}>
         <div style={styles.hero}>
@@ -327,8 +425,14 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
                         {shownMachines.map(machine => {
-                            const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(Boolean);
+                            // ZAVRŠENE operacije se SKLANJAJU sa trake mašine (klik „Završeno" ili QR) —
+                            // ne prikazuju se i ne ulaze u opterećenje smene.
+                            const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(o => o && o.status !== 'zavrseno');
                             const load = assigned.reduce((s, o) => s + calcDurationMin(machine, o), 0);
+                            // Dnevni kapacitet = smene na RADNOM danu mašine × 420 min.
+                            // Za vikend-mašine (rade samo sub+ned) uzima se vikend broj smena.
+                            const smeneDan = Math.max(Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM), Number(machine.smeneVikend ?? DEF_SMENE_VIKEND));
+                            const kapDan = Math.max(1, smeneDan) * SMENA_MIN;
                             return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
                                     <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
@@ -343,7 +447,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                     <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.speed}</b><br /><span style={{ color: '#64748b' }}>brzina</span></div>
                                     <div style={{ background: '#f8fafc', borderRadius: 10, padding: 8 }}><b>{machine.setupMin}</b><br /><span style={{ color: '#64748b' }}>setup</span></div>
                                 </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}
+                                    {(() => { const sr = Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM); const sv = Number(machine.smeneVikend ?? DEF_SMENE_VIKEND); return <span style={{ fontSize: 10.5, fontWeight: 900, borderRadius: 6, padding: '2px 7px', background: sv > 0 ? '#ecfeff' : '#f1f5f9', color: sv > 0 ? '#0e7490' : '#475569', border: '1px solid ' + (sv > 0 ? '#a5f3fc' : '#e2e8f0') }}>🕑 smene (8h/1h pauza): radni {sr > 0 ? sr : '—'} · vikend {sv > 0 ? sv : '—'}</span>; })()}
+                                </div>
                                 <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
                                     {assigned.length === 0 && <div style={{ color: '#94a3b8', fontWeight: 900, textAlign: 'center', padding: 22 }}>Prevuci nalog ovde</div>}
                                     {/* v52: numerisan RED ČEKANJA — vidi se ko je 1., 5., 10. na mašini; ▲▼ menja redosled */}
@@ -351,12 +457,19 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                         let cum = 0; return assigned.map((o, i) => {
                                             const dur = calcDurationMin(machine, o);
                                             cum += dur;
-                                            // v53: rok vs kapacitet — koliko SMENA treba da nalog dođe na red i završi se
-                                            // (zbir minuta do njega uključivo ÷ 480) prema danima do roka.
+                                            // v54: rok vs kapacitet — koliko SMENA (po 420 efektivnih min) treba
+                                            // za ceo nalog, prema raspoloživim smenama do roka (uz vikend raspored).
                                             const rokD = o.rok ? new Date(o.rok) : null;
-                                            const smenaTreba = Math.ceil(cum / 480);
-                                            const danaDoRoka = rokD && !Number.isNaN(rokD.getTime()) ? Math.floor((rokD.getTime() - Date.now()) / 86400000) + 1 : null;
-                                            const probijaRok = danaDoRoka !== null && smenaTreba > Math.max(0, danaDoRoka);
+                                            // v54: „gotov" za CEO nalog = projekcija kroz sve faze REDOM, svaka na svojoj mašini.
+                                            const uk = nalogUkupno[canonRef(o.id)] || { min: dur, faza: 1, gotovDatum: null };
+                                            const gotovD = uk.gotovDatum || null;
+                                            const fmtD = (dt) => dt ? dt.toLocaleDateString('sr-RS') : '—';
+                                            const probijaRok = (() => {
+                                                if (!rokD || Number.isNaN(rokD.getTime())) return false;
+                                                if (!gotovD) return true;                 // ne može da se završi (mašina ne radi)
+                                                const r = new Date(rokD); r.setHours(0, 0, 0, 0);
+                                                return gotovD.getTime() > r.getTime();     // projektovan završetak posle roka
+                                            })();
                                             // v53: blokada redosleda — prethodna operacija istog naloga nije gotova
                                             const blokada = nadjiBlokadu(canonRef(o.id), o.opTip === 'rezanje' ? 'perforacija_rezanje' : (o.opTip === 'kese' ? 'kesa' : (o.opTip === 'spulne' ? 'spulna' : o.opTip)), opStatusi);
                                             const b = OP_BOJA[o.opTip] || '#64748b';
@@ -365,6 +478,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                                 <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
+                                                    <div style={{ fontSize: 10.5, color: '#7c3aed', fontWeight: 800 }}>ceo nalog ≈ {uk.min.toLocaleString('sr-RS')} min · {uk.faza} faza · gotov ~ {fmtD(gotovD)}</div>
                                                     <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '—' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
                                                 </div>
                                                 <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
@@ -374,15 +488,15 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                                 </div>
                                                 <button onClick={() => removeFromMachine(o.id)} style={{ border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', padding: '3px 7px' }}>×</button>
                                                 {(probijaRok || blokada) && <div style={{ position: 'absolute', right: 8, bottom: -7, display: 'flex', gap: 4 }}>
-                                                    {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok ({smenaTreba} smena / {Math.max(0, danaDoRoka)} d)</span>}
+                                                    {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok (gotov ~ {fmtD(gotovD)} / rok {rokD ? new Date(rokD).toLocaleDateString('sr-RS') : '—'} · ceo nalog)</span>}
                                                     {blokada && <span style={{ fontSize: 9, fontWeight: 900, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>⏳ čeka {OP_LABELE[blokada] || blokada}</span>}
                                                 </div>}
                                             </div>;
                                         });
                                     })()}
                                 </div>
-                                <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / 480 * 100)}%`, height: '100%', background: load > 420 ? '#dc2626' : '#2563eb' }} /></div>
-                                <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / smena 480 min · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
+                                <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / kapDan * 100)}%`, height: '100%', background: load > kapDan ? '#dc2626' : '#2563eb' }} /></div>
+                                <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / dan {kapDan} min ({Math.max(1, smeneDan)} smene × 7h{smeneDan && Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM) === 0 ? ' · samo vikend' : ''}) · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
                             </div>;
                         })}
                     </div>
