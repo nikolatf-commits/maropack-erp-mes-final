@@ -1158,12 +1158,110 @@ function pFormat(D, nalog) {
         foot('Operater formatirke', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formatiranje');
 }
 
+/* ---------- FORMATI (folija: matična → rezanje na formate + perforacija) ---------- */
+// Mapira perforaciju iz editora (tip/odVrha/odDna/linije/pozLeve…) u oblik koji perf() crta.
+function perfFromConfig(pf, width) {
+    pf = pf || {};
+    var perfSir = num(pf.sirina) || num(width) || 840;
+    var sirovLinije = Array.isArray(pf.linije) ? pf.linije : (function () {
+        var pL = String(pf.pozLeve || "").split(/[,;\s]+/).map(function (x) { return parseFloat(x); }).filter(function (x) { return !isNaN(x); });
+        var pR = String(pf.pozDesne || "").split(/[,;\s]+/).map(function (x) { return parseFloat(x); }).filter(function (x) { return !isNaN(x); });
+        return pL.map(function (p) { return { poz: p, strana: "leva", razmak: "" }; }).concat(pR.map(function (p) { return { poz: p, strana: "desna", razmak: "" }; }));
+    })();
+    var linije = (sirovLinije || []).filter(function (l) { return l && String(l.poz) !== "" && !isNaN(parseFloat(l.poz)); }).map(function (l) {
+        var poz = parseFloat(l.poz);
+        return { mm: l.strana === "desna" ? (perfSir - poz) : poz, poz: poz, strana: l.strana, razmak: (l.razmak === "" || l.razmak == null) ? "" : Number(l.razmak) };
+    });
+    return {
+        N: num(pf.kolone || pf.brojKolona) || (linije.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
+        oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: perfSir, Hm: num(pf.visina) || 600,
+        tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
+    };
+}
+// Jedan segment reza: matična širina + trake (plave = format/proizvod, sive = bočni ostatak → stanje).
+function formatiBar(sirinaMat, trake) {
+    var total = Number(sirinaMat) || 1;
+    var X0 = 50, X1 = 660, scale = (X1 - X0) / total, topY = 20, h = 50;
+    var o = '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + h + '" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>';
+    var x = X0;
+    (trake || []).forEach(function (t) {
+        var w = Number(t.sirina_mm) || 0, sPx = w * scale, stanje = t.potreba_id == null;
+        var fill = stanje ? '#f1f5f9' : '#dbeafe', stroke = stanje ? '#94a3b8' : '#1d4ed8', txt = stanje ? '#475569' : '#1d4ed8';
+        o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>';
+        o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="10" font-weight="900" fill="' + txt + '">' + w + '</text>';
+        if (stanje) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h + 11) + '" text-anchor="middle" font-size="8" font-weight="800" fill="#94a3b8">→ stanje</text>';
+        x += sPx;
+    });
+    if (x < X1 - 0.5) { o += '<rect x="' + x + '" y="' + topY + '" width="' + (X1 - x) + '" height="' + h + '" fill="#fee2e2"/>'; o += '<text x="' + ((x + X1) / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#b91c1c">otpad</text>'; }
+    o += dimH(X0, X1, topY - 12, total + ' mm');
+    return '<svg viewBox="0 0 710 100" width="100%" style="max-width:600px;background:#fff">' + o + '</svg>';
+}
+function pFormatiProdukt(D, nalog, planF, vrsta) {
+    var c = '#0f766e';
+    var matice = Array.isArray(planF.matice) ? planF.matice : [];
+    var formati = Array.isArray(planF.formati) ? planF.formati : [];
+    var z = planF.zbirno || {};
+    var naStanje = Array.isArray(planF.na_stanje) ? planF.na_stanje : [];
+    var fali = Array.isArray(planF.fali) ? planF.fali : [];
+    var utrosakUk = matice.reduce(function (s, m) { return s + (Number(m.utrosak_m) || 0); }, 0);
+
+    var statBlok = '<div class="stats">' +
+        stat('Matičnih rolni', matice.length, 'kom', '#0f766e') +
+        stat('Utrošak', fmtN(utrosakUk), 'm', '#2563eb') +
+        stat('Formata', formati.length, 'kom', '#7c3aed') +
+        stat('Iskorišćenje', (z.iskoriscenje_pct != null ? z.iskoriscenje_pct : '—'), '%', (Number(z.iskoriscenje_pct) >= 90 ? '#16a34a' : '#d97706')) + '</div>';
+
+    var maticeHtml = matice.map(function (m) {
+        var segs = (m.plan_reza || []).map(function (s) {
+            return '<div style="margin:8px 0">' +
+                '<div style="font-size:11px;font-weight:900;color:#334155;margin-bottom:4px">Segment ' + fmtN(s.duzina_m) + ' m' + (Number(s.otpad_mm) > 0 ? ' · otpad ' + s.otpad_mm + ' mm' : '') + '</div>' +
+                formatiBar(m.sirina_mm, s.trake) + '</div>';
+        }).join('');
+        return '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8fafc;margin-bottom:10px"><div style="font-weight:900;color:#0f766e;margin-bottom:6px">Matična ' + esc(m.br_rolne || m.maticna_id) + ' · ' + m.sirina_mm + ' mm · utrošak ' + fmtN(m.utrosak_m) + ' m</div>' + segs + '</div>';
+    }).join('');
+
+    var fmtRedovi = formati.map(function (f, i) {
+        var p = f.perforacija;
+        var perfTxt = p ? (String(p.tip) === 'rupe' ? 'makro (rupe)' : 'mikro (linija)') : '—';
+        return '<tr><td>' + (i + 1) + '</td><td class="n">' + f.sirina_mm + ' mm</td><td class="n">' + fmtN(f.duzina_m) + ' m</td><td class="n">' + (f.rolni_kom || '—') + '</td><td>' + perfTxt + '</td><td>' + esc(f.napomena || '') + '</td></tr>';
+    }).join('');
+    var fmtTabela = formati.length ? '<table>' + th(['#', { t: 'Širina', n: 1 }, { t: 'Dužina', n: 1 }, { t: 'Rolni', n: 1 }, 'Perforacija', 'Napomena'], c) + '<tbody>' + fmtRedovi + '</tbody></table>' : '';
+
+    var perfHtml = formati.filter(function (f) { return !!f.perforacija; }).map(function (f) {
+        var svg = perf({ perf: perfFromConfig(f.perforacija, f.sirina_mm) }, 560, 760);
+        return '<div class="sec"><div style="font-weight:900;color:#9a3412;margin-bottom:6px">Perforacija — format ' + f.sirina_mm + ' mm (' + (String(f.perforacija.tip) === 'rupe' ? 'makro · rupe' : 'mikro · linija') + ')</div><div class="framed" style="padding:10px">' + svg + '</div></div>';
+    }).join('');
+
+    var ostHtml = naStanje.length ? '<div class="ulaz">Bočni ostaci → na stanje: ' + naStanje.map(function (s) { return s.sirina_mm + ' mm × ' + fmtN(s.duzina_m) + ' m'; }).join(' · ') + '</div>' : '';
+    var faliHtml = fali.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ Fali: ' + fali.map(function (f) { return f.rolni_kom + '× ' + f.sirina_mm + ' mm × ' + fmtN(f.duzina_m) + ' m — ' + esc(f.razlog); }).join('<br>⚠ ') + '</div>' : '';
+
+    var naslov = vrsta === 'materijal' ? 'NALOG ZA MATERIJAL — MATIČNE ROLNE' : 'NALOG ZA REZANJE + PERFORACIJA';
+    return pageWrap(D, hd(D, '✂️', naslov, c, 'formati') + '<div class="body">' +
+        identBlock(D.kupac, 'Folija · formati', D.proizvod) +
+        statBlok +
+        '<div class="info">' + infoC('Šifra', D.sifra) + infoC('Rok', D.rok) + '</div>' +
+        '<div class="sec">' + secH(1, c, 'Plan reza po matičnoj rolni', matice.length + ' matičnih') + maticeHtml + '</div>' +
+        (fmtTabela ? '<div class="sec">' + secH(2, c, 'Formati (proizvod)', '') + fmtTabela + '</div>' : '') +
+        perfHtml + ostHtml + faliHtml +
+        napHtml(D, vrsta === 'materijal' ? 'materijal' : 'rezanje') +
+        foot(vrsta === 'materijal' ? 'Pripremio (magacioner)' : 'Operater rezanja', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formati');
+}
+
 function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     LANG = lang || 'sr';
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
     if (vrsta === "formatiranje") return pFormat(D, nalog);
+    // FOLIJA FORMATI — matična → rezanje na formate + perforacija (plan u parametri.plan_formatiranja).
+    {
+        const _pf = safeJson(nalog.parametri, {}) || {};
+        const _pfo = safeJson(nalog.parametri_operacije, {}) || {};
+        const _planF = _pf.plan_formatiranja || _pfo.plan_formatiranja;
+        if (_planF && (_planF.matice || _pf.formati_rezim || _pfo.formati_rezim) && (vrsta === "materijal" || vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
+            return pFormatiProdukt(D, nalog, _planF, vrsta);
+        }
+    }
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
         // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
