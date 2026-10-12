@@ -2288,7 +2288,7 @@ function MainAppContent() {
                                                 || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])); if (v) return v; } return ""; })()
                                                 || "";
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
-                                            var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || gr[0].rok_isporuke || "";
+                                            var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || (grParam && grParam.datum_isporuke) || gr[0].rok_isporuke || (function () { var p0 = parseParam(gr[0]); return p0 && p0.datum_isporuke; })() || "";
                                             var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";
                                             var grRokDana = (grRokRaw && !isNaN(new Date(grRokRaw).getTime())) ? Math.ceil((new Date(grRokRaw).setHours(23, 59, 59, 0) - Date.now()) / 86400000) : null;
                                             var grRokBoja = grRokDana === null ? "#b45309" : (grRokDana < 0 ? "#b91c1c" : grRokDana <= 3 ? "#dc2626" : grRokDana <= 7 ? "#b45309" : "#166534");

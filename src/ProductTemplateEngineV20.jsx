@@ -2287,7 +2287,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
                 status: delimican ? "ceka_materijal" : "ceka_magacin",
-                datum_isporuke: form.datumIsporuke || null,
                 parametri: {
                     sifra: form.sifra || "", pis_broj: form.pisBroj || "", broj_porudzbine: form.brojPorudzbine || "",
                     datum_isporuke: form.datumIsporuke || "", template: form, formati_rezim: true,
@@ -2477,7 +2476,6 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
                 status: "ceka_magacin",
-                datum_isporuke: form.datumIsporuke || null,
                 parametri: {
                     sifra: form.sifra || "",
                     pis_broj: form.pisBroj || "",
