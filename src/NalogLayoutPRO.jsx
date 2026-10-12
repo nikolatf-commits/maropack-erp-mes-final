@@ -1339,7 +1339,10 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         // (PregledNaloga širi parametri), ili u templejtu — tražimo ga svuda.
         const _planF = _pf.plan_formatiranja || _pfo.plan_formatiranja || nalog.plan_formatiranja || _tpl.plan_formatiranja;
         const _formatiRezim = _pf.formati_rezim || _pfo.formati_rezim || nalog.formati_rezim || (_tpl.folija && _tpl.folija.formatiRezim);
-        if (_planF && (_planF.matice || _formatiRezim) && (vrsta === "materijal" || vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
+        // SAMO rezanje/perforacija ide na formati prikaz. NALOG ZA MATERIJAL (potreba materijala)
+        // izgleda kao standardni materijal nalog (struktura materijala + rezervisane role) — kao
+        // kod folije/kese/špulne, pa „materijal" pada kroz na standardni pMat ispod.
+        if (_planF && (_planF.matice || _formatiRezim) && (vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
             return pFormatiProdukt(D, nalog, _planF, vrsta);
         }
     }
