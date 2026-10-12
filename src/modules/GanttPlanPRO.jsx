@@ -1,27 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  MAROPACK — GanttPlanPRO  [v1]
+//  MAROPACK — GanttPlanPRO  [v2]
 //  Kalendar mašina: pretvara plan (red čekanja po mašini) u DATUME.
 //
-//  Režim rada: 2 smene = 960 min/dan (06–22h), pon–pet, vikend se preskače.
+//  v2 — RASPORED SMENA PO MAŠINI: svaka mašina radi po svom kalendaru
+//  (pon–pet 2 smene; kaширka i „Maropack Karint" SAMO subota+nedelja). Zato kalendar
+//  prikazuje i nedelju, a zauzetost se računa prema kapacitetu TE mašine za taj dan.
 //  Vreme naloga: ručno trajanje → setup + metri ÷ brzina → fallback.
-//  ZAVISNOSTI: operacija ne počinje pre završetka prethodne operacije ISTOG
-//  naloga (ma na kojoj mašini bila) — a nalozi bez čekanja "uskaču u rupu".
-//  Datumi se NIGDE ne čuvaju: uvek se izračunaju iz plana → svako prevlačenje,
-//  promena redosleda ili brzine mašine odmah pomera sve trake (live).
+//  ZAVISNOSTI: operacija ne počinje pre završetka prethodne operacije ISTOG naloga.
+//  Datumi se NIGDE ne čuvaju: uvek se izračunaju iz plana (live).
 //
 //  Renderuje ga MachineSchedulerPRO kao tab "Kalendar" (isti podaci i drag/drop).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
 import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, jeGotovZaSledecu, jeStiglo, jePoslato, canonRef, OP_LABELE } from "../utils/nalogMetrika.js";
 
-import { radnoSada, izracunajRaspored, jeRadni, kapacitetDana, DAN_MIN, DAN_OD, dateToWm, wmToDate } from "../utils/planRaspored.js";
+import { radnoSada, izracunajRaspored, jeRadni, kapacitetDana, kapacitetDanaMasine, DAN_MIN, DAN_OD } from "../utils/planRaspored.js";
 
 // Boje operacija (UI).
 const OP_BOJA = { stampa: "#2563eb", lakiranje: "#7c3aed", kasiranje: "#0891b2", rezanje: "#dc2626", formatiranje: "#ea580c", kese: "#16a34a", spulne: "#9333ea", ostalo: "#64748b" };
 
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
-// Radna nedelja pon–SUB puni ekran; klizač na dnu vodi u sledeće nedelje (6 unapred).
-// Širina dana se računa iz širine kontejnera; strelice ‹ › listaju nedelje.
+// Prikazuje se cela nedelja (pon–NED); klizač na dnu vodi u sledeće nedelje.
 const IME_PX = 210, RED_PX = 134;
 
 export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, dragStart, dropToMachine }) {
@@ -30,20 +29,16 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
     const [danPomak, setDanPomak] = useState(0);     // pomeranje po danima (dnevni prikaz)
     const [prikaziPrazne, setPrikaziPrazne] = useState(false); // prazne mašine samo na zahtev
     const [grupa, setGrupa] = useState('sve');
-    // širina dana = (širina kontejnera − kolona imena) ÷ 5 radnih dana; prati resize
     const wrapRef = React.useRef(null);
     const [sirina, setSirina] = useState(1100);
     useEffect(() => {
         const meri = () => { if (wrapRef.current) setSirina(wrapRef.current.clientWidth); };
         meri(); window.addEventListener('resize', meri); return () => window.removeEventListener('resize', meri);
     }, []);
-    const DAN_PX = Math.max(140, Math.floor((sirina - IME_PX) / 6)); // pon–sub (6 dana) pune širine
-    const DAN_PX_JEDAN = Math.max(640, sirina - IME_PX - 4);         // dnevni prikaz: jedan dan preko cele širine
+    const DAN_PX = Math.max(132, Math.floor((sirina - IME_PX) / 6.5)); // cela nedelja (7 dana), scroll za ostatak
+    const DAN_PX_JEDAN = Math.max(640, sirina - IME_PX - 4);           // dnevni prikaz: jedan dan preko cele širine
     const jeDan = prikaz === 'dan';
-    const VIK_PX = 0;      // nedelja se ne prikazuje; subota JESTE radna (1 smena)
-    const NEDELJA = 1;
-    // "sada" se osvežava na minut — bez ovoga bi kalendar ostao usidren u trenutak
-    // otvaranja ekrana, pa bi posle sat vremena svi startovi bili u prošlosti.
+    // "sada" se osvežava na minut
     const [minut, setMinut] = useState(0);
     useEffect(() => { const t = setInterval(() => setMinut((x) => x + 1), 60000); return () => clearInterval(t); }, []);
     const sidro = useMemo(() => radnoSada(), [minut]);
@@ -52,21 +47,23 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         () => izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }),
         [machines, plan, orderMap, opStatusi, sidro]
     );
+    const poId = useMemo(() => { const o = {}; machines.forEach((m) => { o[m.id] = m; }); return o; }, [machines]);
 
-    // vidljivi opseg: ponedeljak tekuće nedelje + offset, NEDELJA nedelja (default 1)
+    // vidljivi opseg: ponedeljak tekuće nedelje + offset. Prikazuje se CELA nedelja (pon–ned).
     const dani = useMemo(() => {
-        // DNEVNI prikaz: jedna kolona = izabrani dan, razvučen preko cele širine (kolone su sati)
         if (jeDan) {
             const dd = new Date(sidro); dd.setDate(dd.getDate() + danPomak); dd.setHours(6, 0, 0, 0);
-            return { lista: [{ datum: dd, x: IME_PX, w: DAN_PX_JEDAN, subota: dd.getDay() === 6 }], ukupno: IME_PX + DAN_PX_JEDAN };
+            const vik = dd.getDay() === 0 || dd.getDay() === 6;
+            return { lista: [{ datum: dd, x: IME_PX, w: DAN_PX_JEDAN, subota: vik }], ukupno: IME_PX + DAN_PX_JEDAN };
         }
         const start = new Date(sidro);
-        start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7);
+        start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + nedelja * 7); // ponedeljak
         start.setHours(6, 0, 0, 0);
         const out = []; let x = IME_PX; const d = new Date(start);
-        // 6 nedelja unapred: prva staje na ekran, ostale se dohvataju klizačem na dnu
+        // 6 nedelja × 7 dana (uključujući vikend) — prva nedelja staje na ekran, ostalo klizačem
         for (let i = 0; i < 6 * 7; i++) {
-            if (jeRadni(d)) { out.push({ datum: new Date(d), x, w: DAN_PX, subota: d.getDay() === 6 }); x += DAN_PX; }
+            const vik = d.getDay() === 0 || d.getDay() === 6;
+            out.push({ datum: new Date(d), x, w: DAN_PX, subota: vik }); x += DAN_PX;
             d.setDate(d.getDate() + 1);
         }
         return { lista: out, ukupno: x };
@@ -77,14 +74,14 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         if (!jeDan || !dani.lista.length) return null;
         const c = dani.lista[0];
         const s = new Date(c.datum); s.setHours(6, 0, 0, 0);
-        const cap = kapacitetDana(c.datum) || DAN_MIN;
+        const cap = DAN_MIN;
         const e = new Date(c.datum); e.setHours(0, 0, 0, 0); e.setMinutes(DAN_OD + cap);
         return { s, e, cap };
     }, [jeDan, dani]);
     const satiRuler = useMemo(() => {
         if (!jeDan || !dani.lista.length) return [];
         const c = dani.lista[0];
-        const cap = kapacitetDana(c.datum) || DAN_MIN;
+        const cap = DAN_MIN;
         const arr = [];
         for (let mm = 0; mm <= cap; mm += 60) {
             arr.push({ x: c.x + (mm / cap) * c.w, label: String(6 + mm / 60).padStart(2, '0') + ':00' });
@@ -92,10 +89,11 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
         return arr;
     }, [jeDan, dani]);
 
+    // Pozicija datuma na mreži (unutar-dnevna frakcija po referentnom danu DAN_MIN).
     const xOd = (dat) => {
         for (const c of dani.lista) {
             const od = new Date(c.datum); od.setHours(6, 0, 0, 0);
-            const cap = kapacitetDana(c.datum) || DAN_MIN;
+            const cap = DAN_MIN;
             const doD = new Date(c.datum); doD.setHours(0, 0, 0, 0); doD.setMinutes(DAN_OD + cap);
             if (dat < od) return c.x;
             if (dat <= doD) return c.x + Math.min(1, Math.max(0, (dat - od) / (cap * 60000))) * c.w;
@@ -107,29 +105,28 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
     const fmtD = (d) => d.toLocaleDateString("sr-RS", { weekday: "short", day: "numeric", month: "numeric" });
     const fmtT = (d) => fmtD(d) + " ~" + d.toLocaleTimeString("sr-RS", { hour: "2-digit", minute: "2-digit" });
 
-    // zauzetost po mašini po danu
+    // zauzetost po mašini po danu — po KALENDARU te mašine (vikend mašine rade sub/ned)
     const zauzetost = useMemo(() => {
         const z = {};
         raspored.forEach((s) => {
             if (s.eksterno) return;
-            let a = dateToWm(sidro, s.start), b = dateToWm(sidro, s.end);
-            // hodaj po radnim danima od starta do kraja i sabiraj minute po danu
-            let wm = a;
-            while (wm < b) {
-                const danStart = wmToDate(sidro, wm);
-                const cap = kapacitetDana(danStart) || DAN_MIN;
-                const dan0 = new Date(danStart); dan0.setHours(0, 0, 0, 0);
-                // koliko wm-minuta ostaje do kraja tog radnog dana
-                const minuloDanas = (danStart.getHours() * 60 + danStart.getMinutes()) - DAN_OD;
-                const doKrajaDana = Math.max(0, cap - minuloDanas);
-                const uzmi = Math.min(doKrajaDana, b - wm);
-                const k = s.masinaId + "|" + dan0.getTime();
-                z[k] = (z[k] || 0) + uzmi;
-                wm += uzmi > 0 ? uzmi : 1;
+            const m = poId[s.masinaId];
+            const start = s.start, end = s.end;
+            if (!(start instanceof Date) || !(end instanceof Date)) return;
+            let d = new Date(start); d.setHours(0, 0, 0, 0); let g = 0;
+            while (d <= end && g++ < 400) {
+                const cap = kapacitetDanaMasine(m, d);
+                if (cap > 0) {
+                    const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0); dayStart.setMinutes(DAN_OD);
+                    const dayEnd = new Date(d); dayEnd.setHours(0, 0, 0, 0); dayEnd.setMinutes(DAN_OD + cap);
+                    const ov = Math.max(0, Math.min(end.getTime(), dayEnd.getTime()) - Math.max(start.getTime(), dayStart.getTime())) / 60000;
+                    if (ov > 0) { const k = s.masinaId + "|" + new Date(d).setHours(0, 0, 0, 0); z[k] = (z[k] || 0) + ov; }
+                }
+                d.setDate(d.getDate() + 1);
             }
         });
         return z;
-    }, [raspored, sidro]);
+    }, [raspored, poId]);
 
     const probijaUk = raspored.filter((s) => s.probija).length;
     const zauzeteId = useMemo(() => new Set(raspored.map((s) => s.masinaId)), [raspored]);
@@ -143,7 +140,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
             <div style={{ ...kartica, padding: 12, marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={chip}>U planu: <b style={{ color: "#1d4ed8" }}>{raspored.length}</b></span>
                 <span style={{ ...chip, ...(probijaUk ? { borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" } : {}) }}>⚠ Probija rok: <b>{probijaUk}</b></span>
-                <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>pon–pet 2 smene · subota 1 smena · klizač na dnu za sledeće nedelje · datumi uživo</span>
+                <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>pon–pet 2 smene · kaширka i „Maropack Karint" rade samo vikendom · datumi uživo</span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <label style={{ ...chip, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
                         <input type="checkbox" checked={prikaziPrazne} onChange={(e) => setPrikaziPrazne(e.target.checked)} style={{ accentColor: "#1d4ed8" }} />
@@ -190,7 +187,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                             const jeDanas = new Date(c.datum).setHours(0, 0, 0, 0) === danas.getTime();
                             return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", padding: "9px 10px", borderLeft: "1px solid #eef1f5", textAlign: "center", fontSize: 13, fontWeight: 900, color: jeDanas ? "#1d4ed8" : (c.subota ? "#b45309" : "#334155"), background: jeDanas ? "#eff6ff" : (c.subota ? "#fffbeb" : undefined) }}>
                                 {c.datum.toLocaleDateString("sr-RS", { weekday: "long" }).toUpperCase()}
-                                <div style={{ color: c.subota ? "#d97706" : "#94a3b8", fontWeight: 700, fontSize: 11, marginTop: 2 }}>{c.datum.getDate()}. {c.datum.toLocaleDateString("sr-RS", { month: "short" })}{jeDanas ? " · danas" : (c.subota ? " · 1 smena" : "")}</div>
+                                <div style={{ color: c.subota ? "#d97706" : "#94a3b8", fontWeight: 700, fontSize: 11, marginTop: 2 }}>{c.datum.getDate()}. {c.datum.toLocaleDateString("sr-RS", { month: "short" })}{jeDanas ? " · danas" : (c.subota ? " · vikend" : "")}</div>
                             </div>;
                         })}
                     </div>
@@ -212,9 +209,8 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                     {vidljive.map((m) => {
                         const moji = raspored.filter((s) => s.masinaId === m.id).sort((a, b) => a.start - b.start);
                         // dnevni prikaz: prikaži trake koje se preklapaju sa danom — uključujući period ČEKANJA
-                        // (mašina "čeka prethodnu" traje od cekaOdWm do starta, pa red nije prazan tog dana)
                         const mojiV = (jeDan && danBounds) ? moji.filter((s) => {
-                            const vidljivOd = (s.cekaOdWm !== null && s.cekaOdWm !== undefined) ? wmToDate(sidro, s.cekaOdWm) : s.start;
+                            const vidljivOd = s.cekaOd || s.start;
                             return vidljivOd < danBounds.e && s.end > danBounds.s;
                         }) : moji;
                         return (
@@ -232,7 +228,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                         {mojiV.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
                                             const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
-                                            const cx1 = s.cekaOdWm !== null ? xOd(wmToDate(sidro, s.cekaOdWm)) - IME_PX : null;
+                                            const cx1 = s.cekaOd ? xOd(s.cekaOd) - IME_PX : null;
                                             return (
                                                 <React.Fragment key={s.o.id + i}>
                                                     {cx1 !== null && x1 - cx1 > 8 && (
@@ -271,7 +267,7 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                     {dani.lista.map((c, i) => {
                                         const dat = new Date(c.datum); dat.setHours(0, 0, 0, 0);
                                         const min = zauzetost[m.id + "|" + dat.getTime()] || 0;
-                                        const cap = kapacitetDana(c.datum) || DAN_MIN;
+                                        const cap = kapacitetDanaMasine(m, c.datum) || DAN_MIN;
                                         const pct = Math.round(min / cap * 100);
                                         const st = pct === 0 ? { color: "#cbd5e1" } : pct < 60 ? { background: "#f0fdf4", color: "#15803d" } : pct <= 90 ? { background: "#fffbeb", color: "#b45309" } : { background: "#fef2f2", color: "#dc2626" };
                                         return <div key={i} style={{ width: c.w, flex: "0 0 " + c.w + "px", height: 23, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, borderLeft: "1px solid #f1f5f9", ...st }}>{pct ? pct + "%" : "—"}</div>;

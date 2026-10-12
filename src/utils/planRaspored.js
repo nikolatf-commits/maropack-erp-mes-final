@@ -1,43 +1,99 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  MAROPACK — planRaspored.js  [v1]
+//  MAROPACK — planRaspored.js  [v2]
 //  ČIST proračun plana proizvodnje (bez React-a): red čekanja po mašinama → DATUMI.
-//  JEDAN izvor istine — koriste ga:
-//    - GanttPlanPRO (vizuelni plan)   → import "../utils/planRaspored.js"
-//    - agentAlati (AI agent)          → import "../utils/planRaspored.js"
-//  Time AI daje ISTE termine kao Gantt (ne čita više praznu tabelu plan_proizvodnje).
+//  JEDAN izvor istine — koriste ga GanttPlanPRO i agentAlati.
 //
-//  Režim: 2 smene = 960 min/dan (06–22h), pon–pet; subota 1 smena (480), nedelja 0.
+//  v2 — RASPORED SMENA PO MAŠINI (ne globalno):
+//    • Svaka mašina ima svoj kalendar: radnim danom `smeneRadnim` (default 2),
+//      vikendom `smeneVikend` (default 0). 1 smena = 8h sa 1h pauze = 420 min efektivno.
+//    • Mašine koje rade SAMO vikendom (kaширka, štampa „Maropack Karint") dobijaju
+//      posao isključivo subotom/nedeljom; ostale pon–pet.
+//    • Motor radi u REALNOM VREMENU (Date), svaka mašina napreduje kroz SVOJ kalendar,
+//      pa se faze poštuju i kad su na mašinama sa različitim radnim danima.
 //  Zavisnosti: operacija ne kreće pre nego što je prethodna GOTOVA ZA SLEDEĆU
-//  (za štampu/eksterno lakiranje = "stiglo iz štamparije"). Datumi se ne čuvaju —
-//  računaju se u letu iz plana, pa svaka izmena plana odmah pomera termine.
+//  (za štampu/eksterno lakiranje = „stiglo iz štamparije"; interna štampa = „završeno").
 // ─────────────────────────────────────────────────────────────────────────────
 import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, jeGotovZaSledecu, jeStiglo, jePoslato, canonRef } from "./nalogMetrika.js";
 
-// ── radni kalendar ───────────────────────────────────────────────────────────
+// ── radni kalendar (konstante) ───────────────────────────────────────────────
 export const DAN_OD = 6 * 60;          // radni dan počinje 06:00
-export const SMENA = 480;
-export const DAN_MIN = 2 * SMENA;      // referentni pun dan (za zauzetost %)
-// Kapacitet dana: pon–pet 2 smene (960), subota 1 smena (480), nedelja 0.
-export const jeRadni = (d) => { const x = d.getDay(); return x >= 1 && x <= 6; };
-export const kapacitetDana = (d) => { const x = d.getDay(); if (x === 0) return 0; if (x === 6) return SMENA; return 2 * SMENA; };
+export const SMENA = 420;              // efektivnih min po smeni (8h − 1h pauza)
+export const DAN_MIN = 2 * SMENA;      // referentni pun dan (2 smene = 840 min) za zauzetost %
+export const DEF_SMENE_RADNIM = 2;
+export const DEF_SMENE_VIKEND = 0;
+
+// Da li mašina radi SAMO vikendom (fallback kad polja smena nisu zadata).
+export function jeVikendMasina(machine) {
+    const id = String(machine && machine.id || "").toLowerCase();
+    const naziv = String(machine && machine.name || "").toLowerCase();
+    return (machine && machine.type === "kasiranje") || id.includes("maropack") || naziv.includes("maropack");
+}
+// Broj smena date mašine za dati dan (vikend = ned/sub).
+export function smeneMasine(machine, date) {
+    const dow = date.getDay();                 // 0=ned … 6=sub
+    const vik = dow === 0 || dow === 6;
+    const r = Number(vik ? (machine && machine.smeneVikend) : (machine && machine.smeneRadnim));
+    if (Number.isFinite(r) && r >= 0) return r;
+    // fallback kad mašina nema upisane smene:
+    if (jeVikendMasina(machine)) return vik ? 2 : 0;     // kaширka/Maropack: samo vikend
+    return vik ? DEF_SMENE_VIKEND : DEF_SMENE_RADNIM;    // ostale: pon–pet 2 smene
+}
+export function kapacitetDanaMasine(machine, date) { return smeneMasine(machine, date) * SMENA; }
+export function radniMasine(machine, date) { return kapacitetDanaMasine(machine, date) > 0; }
+
+// ── GENERIČKI kalendar (default mašina pon–pet) — za „sada" i legacy pozive ───
+export const jeRadni = (d) => { const x = d.getDay(); return x >= 1 && x <= 5; };          // pon–pet
+export const kapacitetDana = (d) => (jeRadni(d) ? DAN_MIN : 0);                            // 840 / 0
 
 export function pocetakRadnog(d) { const x = new Date(d); x.setHours(6, 0, 0, 0); return x; }
-export function sledeciRadni(d) { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (!jeRadni(x)); return pocetakRadnog(x); }
 
-// "sada" ugurano u radno vreme (pre 06 → 06 danas; posle 22 ili vikend → sledeći radni 06)
+// „sada" — trenutno vreme, samo gurnuto na 06:00 ako je ranije (vikend se NE preskače;
+// svaka mašina ima svoj kalendar pa sama odluči kad joj je prvi radni trenutak).
 export function radnoSada() {
     const n = new Date();
-    if (!jeRadni(n)) return sledeciRadni(n);
     const min = n.getHours() * 60 + n.getMinutes();
-    if (min < DAN_OD) return pocetakRadnog(n);
-    if (min >= DAN_OD + DAN_MIN) return sledeciRadni(n);
+    if (min < DAN_OD) n.setHours(6, 0, 0, 0);
     return n;
 }
 
-// radni-minuti (wm) od sidra → Date
+// ── per-mašina kretanje kroz realno vreme ────────────────────────────────────
+export function sledeciRadniMasine(machine, d) {
+    const x = new Date(d); let g = 0;
+    do { x.setDate(x.getDate() + 1); g++; } while (!radniMasine(machine, x) && g < 800);
+    return pocetakRadnog(x);
+}
+// Gurni datum u radni prozor baš te mašine (preskoči njene neradne dane / van-smenske sate).
+export function radnoSadaMasine(machine, from) {
+    let n = new Date(from); let g = 0;
+    while (g++ < 800) {
+        if (!radniMasine(machine, n)) { n = sledeciRadniMasine(machine, n); continue; }
+        const cap = kapacitetDanaMasine(machine, n);
+        const min = n.getHours() * 60 + n.getMinutes();
+        if (min < DAN_OD) { n = pocetakRadnog(n); break; }
+        if (min >= DAN_OD + cap) { n = sledeciRadniMasine(machine, n); continue; }
+        break;
+    }
+    return n;
+}
+// Dodaj `minutes` efektivnih radnih minuta na `start`, kroz kalendar mašine → Date kraja.
+export function dodajMinuteMasine(machine, start, minutes) {
+    let d = radnoSadaMasine(machine, start);
+    let ost = Math.max(0, Math.round(Number(minutes) || 0));
+    let g = 0;
+    while (g++ < 4000) {
+        const cap = kapacitetDanaMasine(machine, d);
+        const min = d.getHours() * 60 + d.getMinutes();
+        const doKraja = DAN_OD + cap - min;
+        if (ost <= doKraja) return new Date(d.getTime() + ost * 60000);
+        ost -= doKraja; d = sledeciRadniMasine(machine, d);
+    }
+    return d;
+}
+
+// ── legacy wm (radni-minuti) helperi — zadržani zbog starih poziva ───────────
+export function sledeciRadni(d) { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (!jeRadni(x)); return pocetakRadnog(x); }
 export function wmToDate(sidro, wm) {
-    let d = new Date(sidro);
-    let ost = Math.max(0, Math.round(wm));
+    let d = new Date(sidro); let ost = Math.max(0, Math.round(wm));
     for (; ;) {
         if (!jeRadni(d)) { d = sledeciRadni(d); continue; }
         const cap = kapacitetDana(d);
@@ -47,7 +103,6 @@ export function wmToDate(sidro, wm) {
         ost -= doKraja; d = sledeciRadni(d);
     }
 }
-// Date → radni-minuti od sidra (datum pre sidra → 0)
 export function dateToWm(sidro, dat) {
     if (!(dat instanceof Date) || Number.isNaN(dat.getTime()) || dat <= sidro) return 0;
     let d = new Date(sidro), wm = 0;
@@ -65,22 +120,20 @@ export const OP2KEY = { rezanje: "perforacija_rezanje", kese: "kesa", spulne: "s
 export const KEY2SUF = { materijal: "MATERIJAL", stampa: "STAMPA", lakiranje: "LAKIRANJE", kasiranje: "KASIRANJE", perforacija_rezanje: "PERFORACIJA_REZANJE", formatiranje: "FORMATIRANJE", kesa: "KESA", spulna: "SPULNA" };
 export const POVRATAK_IZ_STAMPARIJE_DANA = 2; // pretpostavka kad nema ručnog datuma
 
-// Da li prethodna EKSTERNA operacija (štampa / eksterno lakiranje) čeka fizički POVRATAK
-// iz štamparije? Ako jeste (poslata ili tamo završena, a nije "stiglo") — nizvodna operacija
-// se planira sa pretpostavljenim povratkom, ne kao "van plana".
+// Da li prethodna EKSTERNA štampa / eksterno lakiranje čeka fizički POVRATAK iz štamparije?
+// Interna štampa („završeno") NE čeka povratak — odmah pušta sledeću operaciju.
 export function cekaPovratakIzStamparije(pKljuc, statusP) {
     const s = String(statusP || "");
-    if (jeStiglo(s)) return false;                     // već stiglo → ne čeka
-    if (jePoslato(s)) return true;                     // poslato u štampariju
-    if (pKljuc === "stampa" && jeGotov(s)) return true; // štampa "završena u štampariji", čeka povratak
-    return false;
+    if (jeStiglo(s)) return false;     // već se vratilo
+    if (jePoslato(s)) return true;     // poslato u štampariju, čeka povratak
+    return false;                      // interno završeno → ne čeka
 }
 
 export function minutaOd(iso) { const d = new Date(iso); return Number.isNaN(d.getTime()) ? 0 : Math.max(0, Math.round((Date.now() - d.getTime()) / 60000)); }
 
-// ── ENGINE: čista funkcija plan → raspored sa datumima ───────────────────────
+// ── ENGINE: plan → raspored sa datumima (realno vreme, kalendar po mašini) ────
 export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }) {
-    const poId = {}; machines.forEach((m) => { poId[m.id] = m; });
+    const sidroD = (sidro instanceof Date) ? sidro : radnoSada();
     const trajanje = (m, o) => {
         if (!o) return 0;
         const rucno = Number(o.trajanjeRucno || 0);
@@ -99,77 +152,83 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
         }
         return null;
     };
+    const POVRATAK_MS = POVRATAK_IZ_STAMPARIJE_DANA * 24 * 3600000;
 
-    let kraj = {};                       // orderId → wm kraja (procena iz prošlog prolaza)
+    let kraj = {};                       // orderId → END Date (ms)
     let rezultat = [];
     for (let prolaz = 0; prolaz < 12; prolaz++) {
         const noviKraj = {}; rezultat = [];
         machines.forEach((m) => {
             const red = ((plan[m.id] || []).map((id) => orderMap[id]).filter((o) => o && o.status !== "zavrseno"));
-            let t = 0;                   // wm slobodna mašina
+            let tDate = radnoSadaMasine(m, sidroD);   // mašina slobodna od (u svom kalendaru)
             const ostalo = red.slice();
             while (ostalo.length) {
-                // spremnost svakog kandidata (zavisnost od prethodne operacije)
                 const info = ostalo.map((o) => {
-                    let ready = 0, ceka = null, vanPlana = false, pretpostavka = false;
+                    let readyDate = sidroD, ceka = null, vanPlana = false, pretpostavka = false;
                     const p = prethodna(o);
                     if (p) {
                         ceka = p;
                         const predId = canonRef(o.id) + "-" + KEY2SUF[p];
                         const statusP = String((opStatusi[canonRef(o.id)] || {})[p] || "");
                         if (cekaPovratakIzStamparije(p, statusP)) {
-                            // eksterna operacija još NIJE stigla iz štamparije → pretpostavi povratak
-                            const baza = (kraj[predId] !== undefined) ? kraj[predId] : 0;
-                            ready = baza + POVRATAK_IZ_STAMPARIJE_DANA * DAN_MIN; pretpostavka = true;
-                        } else if (kraj[predId] !== undefined) {
-                            ready = kraj[predId];
+                            const baza = kraj[predId] ? kraj[predId].getTime() : sidroD.getTime();
+                            readyDate = new Date(baza + POVRATAK_MS); pretpostavka = true;
+                        } else if (kraj[predId]) {
+                            readyDate = kraj[predId];
                         } else {
                             vanPlana = true; // prethodna postoji, nije gotova, a nije u planu
                         }
                     }
                     if (String(o.statusRaw || "").indexOf("poslato") === 0) {
                         // sama operacija je u eksternoj štampariji
-                        return { o, ready: 0, dur: POVRATAK_IZ_STAMPARIJE_DANA * DAN_MIN, ceka: null, vanPlana: false, pretpostavka: true, eksterno: true };
+                        return { o, readyDate: sidroD, dur: 0, ceka: null, vanPlana: false, pretpostavka: true, eksterno: true };
                     }
                     let dur = trajanje(m, o);
                     if (o.status === "u_radu" && o.start_ts) dur = Math.max(10, dur - minutaOd(o.start_ts));
-                    return { o, ready, dur, ceka, vanPlana, pretpostavka, eksterno: false };
+                    return { o, readyDate, dur, ceka, vanPlana, pretpostavka, eksterno: false };
                 });
-                // uskoči u rupu: prvi po redu koji je SPREMAN; ako niko nije — najraniji spreman
-                let idx = info.findIndex((x) => x.ready <= t);
+                // uskoči u rupu: prvi po redu koji je SPREMAN (readyDate ≤ tDate); inače najraniji spreman
+                let idx = info.findIndex((x) => x.readyDate <= tDate);
                 let usko = false;
-                if (idx === -1) idx = info.reduce((best, x, i) => (x.ready < info[best].ready ? i : best), 0);
+                if (idx === -1) idx = info.reduce((best, x, i) => (x.readyDate < info[best].readyDate ? i : best), 0);
                 else if (idx > 0) usko = true;
                 if (idx === -1) idx = 0;
                 const izabran = info[idx];
-                if (idx > 0 && info[0].ready > t) usko = true;
-                const start = Math.max(t, izabran.ready);
-                const cekaOd = izabran.ready > t ? t : null;
-                const end = start + izabran.dur;
+                if (idx > 0 && info[0].readyDate > tDate) usko = true;
+
+                const startRaw = (izabran.readyDate > tDate) ? izabran.readyDate : tDate;
+                const startDate = izabran.eksterno ? new Date(startRaw) : radnoSadaMasine(m, startRaw);
+                const cekaOd = (izabran.readyDate > tDate) ? new Date(tDate) : null;   // mašina slobodna dok čeka
+                const endDate = izabran.eksterno
+                    ? new Date(startDate.getTime() + POVRATAK_MS)
+                    : dodajMinuteMasine(m, startDate, izabran.dur);
+
                 rezultat.push({
                     masinaId: m.id, o: izabran.o,
-                    startWm: start, endWm: end,
-                    cekaOdWm: cekaOd, ceka: izabran.ceka,
+                    startDate, endDate, cekaOd, ceka: izabran.ceka,
                     vanPlana: izabran.vanPlana, pretpostavka: izabran.pretpostavka,
                     eksterno: izabran.eksterno, uskok: usko && !izabran.ceka,
                 });
-                noviKraj[izabran.o.id] = end;
-                t = end;
+                noviKraj[izabran.o.id] = endDate;
+                tDate = endDate;
                 ostalo.splice(ostalo.indexOf(izabran.o), 1);
             }
         });
-        const isto = Object.keys(noviKraj).length === Object.keys(kraj).length
-            && Object.keys(noviKraj).every((k) => kraj[k] === noviKraj[k]);
+        const kljuceviIsti = Object.keys(noviKraj).length === Object.keys(kraj).length
+            && Object.keys(noviKraj).every((k) => kraj[k] && noviKraj[k] && kraj[k].getTime() === noviKraj[k].getTime());
         kraj = noviKraj;
-        if (isto) break;
+        if (kljuceviIsti) break;
     }
-    // wm → datumi + rok
+    // finalni oblik + rok (realni datumi)
     return rezultat.map((s) => {
-        const start = wmToDate(sidro, s.startWm), end = wmToDate(sidro, s.endWm);
+        const start = s.startDate, end = s.endDate;
         let rokD = null, probija = false, kasniDana = 0;
         if (s.o.rok) {
             const r = new Date(s.o.rok);
-            if (!Number.isNaN(r.getTime())) { r.setHours(22, 0, 0, 0); rokD = r; probija = end > r; if (probija) kasniDana = Math.max(1, Math.ceil((dateToWm(sidro, end) - dateToWm(sidro, r)) / DAN_MIN)); }
+            if (!Number.isNaN(r.getTime())) {
+                r.setHours(22, 0, 0, 0); rokD = r; probija = end > r;
+                if (probija) kasniDana = Math.max(1, Math.ceil((end.getTime() - r.getTime()) / (24 * 3600000)));
+            }
         }
         return { ...s, start, end, rokD, probija, kasniDana };
     });

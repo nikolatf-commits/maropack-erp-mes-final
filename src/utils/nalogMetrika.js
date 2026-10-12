@@ -195,7 +195,11 @@ export const jePoslato = (status) => /^poslato/i.test(String(status || ""));
 //  - interne operacije (materijal, kaширanje, rezanje, kese, špulne): "završeno"
 export function jeGotovZaSledecu(status, opKljucStr) {
     const s = String(status || "");
-    if (opKljucStr === "stampa") return jeStiglo(s);
+    if (opKljucStr === "stampa") {
+        if (jeStiglo(s)) return true;      // eksterna štampa se vratila iz štamparije
+        if (jePoslato(s)) return false;    // poslato u štampariju — još nije stiglo
+        return jeGotov(s);                 // IN-HOUSE štampa: „završeno" je dovoljno da sledeća krene
+    }
     if (opKljucStr === "lakiranje") {
         if (jeStiglo(s)) return true;      // eksterno lakiranje se vratilo
         if (jePoslato(s)) return false;    // poslato u štampariju, još nije stiglo
