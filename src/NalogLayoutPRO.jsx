@@ -700,10 +700,12 @@ function kesaD(nalog) {
     // koje templejt NIKAD nije upisivao, pa je nalog ignorisao izbor orijentacije.
     const orient = k.orijentacija || (t && t.kesa && t.kesa.orijentacija) || "sirina";
     const Lfull = H + KL + FA;                                 // dužina + klapna + falta
-    const poprecnoMm = orient === "duzina" ? Lfull : W;        // staje po širini materijala (× ban)
-    // DUPLO PLATNO: kesa ima PREDNJI I ZADNJI zid → dimenzija UZ traku se DUPLIRA (×2).
-    //   Po širini: dužina ×2, klapna ×1, FALTA ×2 (dno na oba zida). Po dužini: širina ×2.
-    const uzduznoMm = orient === "duzina" ? (2 * W) : (2 * H + KL + 2 * FA);  // troši metražu
+    // DUPLO PLATNO (prednji + zadnji zid) se dobija iz PRESAVIJENE folije / creva:
+    // dupliranje ide u ŠIRINU materijala (ban × 2), a NE u dužinu trake (metraža ×1).
+    // Tako je matična rolna i kg isti (dužina×širina = oba zida), a ban/metraža realni
+    // (ranije: ×2 u dužini → duplo metara i dupli ban).
+    const poprecnoMm = orient === "duzina" ? (2 * Lfull) : (2 * W);  // staje po širini materijala (presavijeno ×2, × ban)
+    const uzduznoMm = orient === "duzina" ? W : (H + KL + FA);       // troši metražu (bez ×2)
     const korakK = uzduznoMm;
     const smer = orient;                                       // za prikaz (povratna kompatibilnost)
     // Ban: ručni ima prednost; inače auto iz širine materijala (isto kao templejt).
@@ -743,7 +745,7 @@ function kesaInfo(D, K) {
 }
 function kesaObracun(K) {
     return (K.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + K.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
-        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + (K.smer === 'duzina' ? ('2 × ' + K.W + ' (širina, duplo platno)') : ('2 × ' + K.H + ' (dužina) + ' + K.KL + ' (klapna) + 2 × ' + K.FA + ' (falta)')) + ' = <b>' + K.korakK + ' mm</b> &nbsp;·&nbsp; ' +
+        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + (K.smer === 'duzina' ? (K.W + ' (širina kese)') : (K.H + ' (dužina) + ' + K.KL + ' (klapna) + ' + K.FA + ' (falta)')) + ' = <b>' + K.korakK + ' mm</b> <span style="color:#64748b">(duplo platno u širini/banu, ne u dužini)</span> &nbsp;·&nbsp; ' +
         fmtN(K.kom) + ' kom × ' + (K.korakK / 1000).toFixed(3) + ' m = ' + fmtN(K.mTrake) + ' m trake &divide; ' + K.ban + ' = ' + fmtN(K.mMat) + ' m &nbsp;·&nbsp; +' + K.skart + '% škart = <b>' + fmtN(K.mMatPlus) + ' m matične rolne</b> (širina ' + K.sirMat + ' mm)</div>';
 }
 function kesaTotalKg(D, K) { return D.LAY.reduce(function (a, l) { return a + l.gm2 * K.kgF; }, 0).toFixed(1); }

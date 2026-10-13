@@ -78,6 +78,15 @@ export const KESA_OPCIJE = [
 
     { k: "poprecni_var", l: "Poprečni var", tip: "lista", vals: ["DA", "3mm"], crtez: "poprecni_var" },
 
+    // Perforacija za otkinuti NA TELU KESE (različito od „na rolni") — bira se pozicija
+    // (vrh/sredina/dno klapne ili telo kese) i opciono tačna mera (mm od vrha).
+    // Prikazuje se kao crvena isprekidana linija na skici kese.
+    {
+        k: "perf_telo", l: "Perforacija za otkinuti", tip: "lista",
+        vals: ["Na vrhu klapne", "Na sredini klapne", "Na dnu klapne", "Na telu kese"],
+        pos: ["odVrha"], crtez: "perf_telo"
+    },
+
     { k: "hrana", l: "Pakovanje za hranu", tip: "danet", food: true },
 
     {
@@ -146,7 +155,7 @@ export const POS_LBL = {
 export const KESA_GRUPE = [
     { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["adh_traka", "duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
     { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
-    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "poprecni_var"] },
+    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "poprecni_var", "perf_telo"] },
     { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati"] },
 ];
 
@@ -168,7 +177,12 @@ export function toCrtezKesa(kesa = {}) {
             stdPos.stampa = { ...(pos[o.k] || {}) };
             stampaText = (txt[o.k] || {}).motiv || "";
         }
-        if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa") {
+        // Perforacija za otkinuti na telu: pored mere (odVrha) nosi i izabranu POZICIJU
+        // (vrh/sredina/dno klapne, telo) — crtež je koristi da odredi gde ide linija.
+        if (o.k === "perf_telo") {
+            stdPos.perf_telo = { ...(pos[o.k] || {}), pozicija: sel[o.k] || "" };
+        }
+        if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa" && o.k !== "perf_telo") {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }
     });
