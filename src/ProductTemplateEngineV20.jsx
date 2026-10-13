@@ -2424,10 +2424,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         let printedIdx = layers.map((l, i) => (l.st || l.stampa || l.stampa_se || l["Š"]) ? i : -1).filter(i => i >= 0);
         if (imaStampu && !printedIdx.length && layers.length) printedIdx = [0]; // štampa postoji ali sloj nije eksplicitno označen → spoljašnji
         const printedCovered = printedIdx.every(i => coveredIdx.includes(i));
-        const canSend = nepokriveniIdx.length === 0 && coveredIdx.length > 0 &&
-            (imaStampu ? printedCovered : coveredIdx.length > 0);
+        // Nalog se MOŽE poslati i BEZ ikakvog materijala (ceo „čeka materijal") i DELIMIČNO
+        // (deo slojeva pokriven). Ovo je isti tok kao kod folije — bitno je samo da nijedan
+        // sloj nije DVOSMISLEN: sloj koji ima rolne ali NEDOVOLJNO se blokira (ili ga dopuni,
+        // ili ukloni izbor pa ceo sloj ide kao „čeka materijal").
+        //  • printedCovered → štampa kreće odmah; inače i štampa čeka (vidi op-status dole).
+        const sveCeka = coveredIdx.length === 0 && nepokriveniIdx.length === 0 && nedodeljeniIdx.length > 0;
+        const canSend = nepokriveniIdx.length === 0 && (coveredIdx.length > 0 || nedodeljeniIdx.length > 0);
         const delimican = nedodeljeniIdx.length > 0;
-        return { layers, coveredIdx, nedodeljeniIdx, nepokriveniIdx, printedIdx, imaStampu, printedCovered, canSend, delimican };
+        return { layers, coveredIdx, nedodeljeniIdx, nepokriveniIdx, printedIdx, imaStampu, printedCovered, canSend, delimican, sveCeka };
     }
 
     async function potvrdiNalogMaterijal() {
@@ -2453,15 +2458,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             msg && msg("Sloj " + d + " ima izabrane rolne ali NEDOVOLJNO. Dodaj još rolni, ili ukloni izbor za taj sloj — pa ide kao „čeka materijal“ (dopuniš ga kasnije).", "err");
             return;
         }
-        if (!info.coveredIdx.length) {
-            msg && msg("Nije moguće poslati nalog: bar jedan sloj mora imati materijal.", "err");
-            return;
-        }
-        if (info.imaStampu && !info.printedCovered) {
-            msg && msg("Štampani sloj mora imati materijal da bi se nalog poslao (štampa kreće odmah, ostatak čeka). Dodaj rolne za štampani sloj.", "err");
+        if (!info.canSend) {
+            msg && msg("Nalog se ne može poslati — proveri izbor rolni po slojevima.", "err");
             return;
         }
         const delimican = info.delimican;
+        const imaCov = info.coveredIdx.length > 0;                  // ima bar jedan pokriven sloj
+        const stampaMoze = info.imaStampu ? info.printedCovered : true;  // štampa može odmah ako je štampani sloj pokriven
 
         setNalogSaving(true);
 
@@ -2486,7 +2489,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
-                status: "ceka_magacin",
+                status: imaCov ? "ceka_magacin" : "ceka_materijal",
                 parametri: {
                     sifra: form.sifra || "",
                     pis_broj: form.pisBroj || "",
@@ -2557,16 +2560,27 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     ? [...opTipovi.slice(0, mi + 1), "formatiranje", ...opTipovi.slice(mi + 1)]
                     : ["formatiranje", ...opTipovi];
             }
-            // Operacije koje traže CEO laminat (ne mogu dok fali materijal) kad je nalog delimičan.
-            // Štampa i lakiranje rade na štampanom sloju (koji JE pokriven — uslov iznad), pa kreću odmah.
-            // Materijal/formatiranje rade sa već dodeljenim rolnama.
-            const opCekaMaterijal = (op) => delimican && !["materijal", "formatiranje", "stampa", "lakiranje"].includes(op);
+            // Status operacija kod delimičnog / „čeka materijal" naloga:
+            //  • materijal → ceka_magacin ako ima bar jedan pokriven sloj (magacioner sprema
+            //    rezervisane rolne); ako NEMA ništa pokriveno → ceka_materijal (nema šta da sprema
+            //    dok ne stigne materijal — ne prikazuje se magacioneru).
+            //  • štampa / lakiranje → kreću odmah SAMO ako je štampani sloj pokriven (stampaMoze);
+            //    kad nema matičnog/štampanog materijala, i štampa čeka.
+            //  • formatiranje → radi sa već dodeljenim rolnama (ceka) ako ih ima; inače čeka.
+            //  • kaширanje / rezanje / izrada kese / špulna → traže ceo laminat → čekaju materijal.
+            const opStatusZa = (op) => {
+                if (op === "materijal") return imaCov ? "ceka_magacin" : "ceka_materijal";
+                if (!delimican) return "ceka";
+                if (op === "formatiranje") return imaCov ? "ceka" : "ceka_materijal";
+                if (op === "stampa" || op === "lakiranje") return stampaMoze ? "ceka" : "ceka_materijal";
+                return "ceka_materijal";
+            };
             const ops = opTipovi.map((op, i) => ({
                 ...zajednicko,
                 broj_naloga: broj + "-" + op.toUpperCase(),
                 glavni_nalog_id: master.id,
                 tip_naloga: op,
-                status: op === "materijal" ? "ceka_magacin" : (opCekaMaterijal(op) ? "ceka_materijal" : "ceka"),
+                status: opStatusZa(op),
                 redosled: i + 1,
                 parametri: op === "formatiranje"
                     ? { sifra: form.sifra || "", template: form, formatiranje: formatInfo }
@@ -2792,7 +2806,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     : Promise.resolve(),
                 opMatId
                     ? supabase.from("operativni_nalozi").update({
-                        status: "ceka_magacin",
+                        // Ako nema nijednog pokrivenog sloja (ceo nalog čeka materijal),
+                        // materijal op ostaje „ceka_materijal" — ne prikazuje se magacioneru
+                        // dok dopuna ne doveze rolne. Inače ide na spremanje.
+                        status: imaCov ? "ceka_magacin" : "ceka_materijal",
                         parametri_operacije: {
                             materijali_nalog_id: nalogId,
                             izabrane_rolne: izborData,
@@ -2807,9 +2824,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (typeof window !== "undefined") {
                 window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj, masterId: mId } }));
             }
-            msg && msg(delimican
-                ? "✅ " + broj + " kreiran (delimičan) — štampani materijal poslat magacioneru. Sloj " + info.nedodeljeniIdx.map(i => i + 1).join(", ") + " čeka materijal; dopuni ga iz Pregleda naloga kad stigne."
-                : "✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!");
+            msg && msg(!delimican
+                ? "✅ " + broj + " kreiran — rolne rezervisane i poslate magacioneru!"
+                : (imaCov
+                    ? "✅ " + broj + " kreiran (delimičan) — pokriveni materijal poslat magacioneru. Sloj " + info.nedodeljeniIdx.map(i => i + 1).join(", ") + " čeka materijal; dopuni ga iz Pregleda naloga kad stigne."
+                    : "✅ " + broj + " kreiran — ⏳ ČEKA MATERIJAL (nema rolni na stanju). Kad materijal stigne, uradi „Dopuni materijal“ iz Pregleda naloga da rezervišeš rolne i otključaš operacije."));
         } catch (e) {
             msg && msg("Greška: " + e.message, "err");
         }
@@ -4369,24 +4388,31 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                     }
                                     const pinfo = pokriceInfo();
                                     const nedBr = pinfo.nedodeljeniIdx.map(i => i + 1);
+                                    // Labela i boja dugmeta po stvarnom pokriću (ne po „ima izabranu rolnu"):
+                                    //  • nepokriven sloj (ima rolne ali nedovoljno) → blokira
+                                    //  • sve pokriveno → zeleno „Potvrdi i pošalji"
+                                    //  • deo pokriven → narandžasto „Pošalji delimično (štampa)"
+                                    //  • ništa pokriveno → narandžasto „Pošalji bez materijala (čeka dopunu)"
+                                    const btnLabel = nalogSaving ? "Kreiram nalog..."
+                                        : !pinfo.delimican ? "✓ Potvrdi i pošalji magacioneru"
+                                            : pinfo.sveCeka ? "⏳ Pošalji bez materijala (čeka dopunu)"
+                                                : "⏳ Pošalji delimično (štampa)";
                                     return <>
                                         <div style={{ fontSize: 12, color: "#64748b" }}>
-                                            {sviIzabrani
-                                                ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
-                                                : pinfo.canSend
-                                                    ? <span style={{ color: "#d97706", fontWeight: 800 }}>⏳ Delimičan nalog — sloj {nedBr.join(", ")} ide kao „čeka materijal"</span>
-                                                    : pinfo.nepokriveniIdx.length
-                                                        ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Sloj {pinfo.nepokriveniIdx.map(i => i + 1).join(", ")} nema dovoljno — dopuni ili ukloni izbor</span>
-                                                        : pinfo.imaStampu
-                                                            ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Štampani sloj mora imati materijal</span>
-                                                            : <span style={{ color: "#dc2626", fontWeight: 800 }}>Izaberi rolne bar za jedan sloj</span>}
+                                            {pinfo.nepokriveniIdx.length
+                                                ? <span style={{ color: "#dc2626", fontWeight: 800 }}>Sloj {pinfo.nepokriveniIdx.map(i => i + 1).join(", ")} nema dovoljno — dodaj još rolni ili ukloni izbor (pa ide kao „čeka materijal")</span>
+                                                : !pinfo.delimican
+                                                    ? <span style={{ color: "#059669", fontWeight: 800 }}>✓ Svi slojevi pokriveni</span>
+                                                    : pinfo.sveCeka
+                                                        ? <span style={{ color: "#d97706", fontWeight: 800 }}>⏳ Ceo nalog čeka materijal — kreira se kao „čeka materijal", dopuniš kad rolna stigne</span>
+                                                        : <span style={{ color: "#d97706", fontWeight: 800 }}>⏳ Delimičan nalog — sloj {nedBr.join(", ")} ide kao „čeka materijal"</span>}
                                             &nbsp;·&nbsp; {pinfo.coveredIdx.length} / {layers.length} slojeva pokriveno
                                         </div>
                                         <div style={{ display: "flex", gap: 8 }}>
                                             <button onClick={() => setNalogModal(false)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 8, padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
                                             <button onClick={potvrdiNalogMaterijal} disabled={nalogSaving || !pinfo.canSend}
                                                 style={{ background: pinfo.canSend ? (pinfo.delimican ? "#d97706" : "#059669") : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 900, fontSize: 13, cursor: pinfo.canSend ? "pointer" : "default", opacity: nalogSaving ? 0.7 : 1 }}>
-                                                {nalogSaving ? "Kreiram nalog..." : (pinfo.delimican ? "⏳ Pošalji delimično (štampa)" : "✓ Potvrdi i pošalji magacioneru")}
+                                                {btnLabel}
                                             </button>
                                         </div>
                                     </>;
