@@ -556,12 +556,13 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 node.style.overflow = prevOverflow;
                 node.style.height = prevHeight;
                 const imgData = canvas.toDataURL("image/png");
-                // "contain" uklapanje: sačuvaj razmeru, stani i po širini i po visini
+                // Svaki nalog = TAČNO JEDNA A4 strana. Popuni punu širinu; ako je sadržaj viši
+                // od strane, uklopi ga na jednu stranu (po visini) — ostaje cela operacija na 1 strani.
                 const ratio = canvas.width / canvas.height;
                 let w = maxW, h = w / ratio;
-                if (h > maxH) { h = maxH; w = h * ratio; }
+                if (h > maxH) { h = maxH; w = h * ratio; }   // viši od A4 → stani na jednu stranu
                 const x = (pageW - w) / 2;
-                const y = (pageH - h) / 2;   // vertikalno centrirano na strani
+                const y = (pageH - h) / 2;
                 if (i > 0) pdf.addPage();
                 pdf.addImage(imgData, "PNG", x, y, w, h, undefined, "FAST");
             }

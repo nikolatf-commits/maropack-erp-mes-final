@@ -1051,22 +1051,20 @@ const SP_LEGENDA = [
 
 function pSpulna(D, S) {
     const c = '#7c3aed';
-    return pageWrap(D, hd(D, '🧵', 'NALOG ZA ŠPULNU — TEHNIČKE KARAKTERISTIKE', c, '2/2') + '<div class="body">' + identBlock(D.kupac, (D.tipLabel || 'Špulna'), D.proizvod) + spStat(D, S) + spInfo(D, S) +
+    return pageWrap(D, hd(D, '🧵', 'NALOG ZA ŠPULNU — TEHNIČKE KARAKTERISTIKE', c, '2/2') + '<div class="body compact">' + identBlock(D.kupac, (D.tipLabel || 'Špulna'), D.proizvod) + spStat(D, S) + spInfo(D, S) +
 
         '<div class="sec">' + secH(1, c, 'Dimenzije špulne', 'iz templejta') + '<div class="info">' +
         infoC('W — širina trake', S.W + ' mm') + infoC('da — spoljni Ø hilzne', S.Da + ' mm') + infoC('di — unutrašnji Ø hilzne', S.Di + ' mm') + infoC('C — zazor', S.C + ' mm') +
         infoC('G — gap', S.G + ' mm') + infoC('T — širina hilzne', S.Tw + ' mm') + infoC('D — max Ø špulne', S.D + ' mm') + infoC('Max metara / špulni', fmtN(S.maxM) + ' m') + '</div></div>' +
 
         '<div class="sec">' + secH(2, c, 'Tehnički prikaz (skica)', 'iz templejta') +
-        '<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:14;align-items:center">' +
-        '<div class="framed" style="padding:10px"><img src="' + SPULNA_SKICA + '" alt="Tehnički crtež špulne" style="width:100%;height:auto;display:block"/></div>' +
-        '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:11px;font-weight:950;color:#334155;margin-bottom:7px">LEGENDA</div>' +
-        '<table style="width:100%;border-collapse:collapse;font-size:10px;border:0"><tbody>' +
-        SP_LEGENDA.map(function (r) {
-            return '<tr><td style="width:58px;padding:5px 4px;border-bottom:1px solid #eef2f7;font-weight:950;color:#0f172a">' + esc(r[0]) + '</td>' +
-                '<td style="padding:5px 4px;border-bottom:1px solid #eef2f7;color:#475569;font-weight:700">' + esc(r[1]) + '</td></tr>';
-        }).join('') + '</tbody></table></div></div></div>' +
+        '<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:12px;align-items:center">' +
+        '<div class="framed" style="padding:6px;display:flex;align-items:center;justify-content:center"><img src="' + SPULNA_SKICA + '" alt="Tehnički crtež špulne" style="max-width:100%;max-height:148px;width:auto;height:auto;display:block"/></div>' +
+        '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px">' +
+        '<div style="font-size:10px;font-weight:950;color:#334155;margin-bottom:5px;letter-spacing:.3px">LEGENDA</div>' +
+        '<div class="sp-leg">' + SP_LEGENDA.map(function (r) {
+            return '<div class="r"><span class="k">' + esc(r[0]) + '</span><span class="d">' + esc(r[1]) + '</span></div>';
+        }).join('') + '</div></div></div></div>' +
 
         '<div class="sec">' + secH(3, c, 'Količine', '') + '<table>' +
         th(['Stavka', { t: 'Poručeno', n: 1 }, { t: 'Za rad', n: 1 }, 'Jed.'], c) + '<tbody>' +
@@ -1412,6 +1410,18 @@ const V6_CSS = `
 .nv6 .info .c .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
 .nv6 .info .c .v{font-size:12.5px;font-weight:800;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.3;text-align:center;min-width:0}
 .nv6 .sec{margin-top:20px;max-width:100%;overflow:hidden}
+.nv6 .body.compact .sec{margin-top:9px}
+.nv6 .body.compact .stats{margin-top:8px}
+.nv6 .body.compact .info{margin-top:6px}
+.nv6 .body.compact .stat{padding:6px 8px}
+.nv6 .body.compact .info .c{padding:5px 8px}
+.nv6 .body.compact table th,.nv6 .body.compact table td{padding:3px 6px}
+.nv6 .body.compact .sec-h{margin-bottom:6px}
+.nv6 .body.compact .ulaz{padding:7px 10px;margin-top:8px}
+.nv6 .sp-leg{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px}
+.nv6 .sp-leg .r{display:flex;gap:6px;font-size:9px;line-height:1.2;padding:2px 0;border-bottom:1px solid #eef2f7}
+.nv6 .sp-leg .k{font-weight:950;color:#0f172a;min-width:34px;flex:0 0 auto}
+.nv6 .sp-leg .d{color:#475569;font-weight:700}
 .nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}
 .nv6 .sec-h .tt{font-size:13.5px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}

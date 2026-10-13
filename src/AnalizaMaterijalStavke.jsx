@@ -5,6 +5,16 @@ import { calculateGm2 } from "./data/materialMaster.js";
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+// IVIČNI OTPAD (mm) = ostatak širine POSLE sečenja što više CELIH traka idealne širine.
+// Npr. rolna 1340 mm, format 335 mm → 4 trake × 335 = 1340 → otpad 0 (a NE 1340−335=1005).
+function ivicniOtpadMm(koriscena, idealna) {
+    const kor = num(koriscena), ide = num(idealna);
+    if (kor <= 0 || ide <= 0) return 0;
+    const traka = Math.floor(kor / ide + 1e-6);   // koliko CELIH traka stane u rolnu
+    if (traka < 1) return 0;                        // ne staje ni jedna traka → ivični otpad se ne računa
+    return Math.max(0, kor - traka * ide);          // leftover posle svih celih traka
+}
+
 // ------- helper-i za IDEALNU širinu iz templejta naloga -------
 function _parse(v) { if (v == null) return {}; if (typeof v === "object") return v; try { return JSON.parse(v) || {}; } catch (e) { return {}; } }
 // Iz jednog reda radni_nalozi/operativni_nalozi izvuci IDEALNU širinu materijala.
@@ -186,11 +196,11 @@ export default function AnalizaMaterijalStavke({ msg }) {
             g.potroseno += utro;
             g.kg += num(r.kg);
             g.rolni += 1;
-            if (kor > 0 && ide > 0 && kor > ide) g.otpadKg += num(r.kg) * ((kor - ide) / kor);
+            if (kor > 0) { const om = ivicniOtpadMm(kor, ide); if (om > 0) g.otpadKg += num(r.kg) * (om / kor); }
         });
         return Object.values(m).map((x) => {
-            const otpadMm = (x.koriscena && x.idealna) ? Math.max(0, x.koriscena - x.idealna) : 0;
-            const otpadPct = (x.koriscena && x.idealna) ? (otpadMm / x.koriscena) * 100 : 0;
+            const otpadMm = ivicniOtpadMm(x.koriscena, x.idealna);
+            const otpadPct = (x.koriscena > 0) ? (otpadMm / x.koriscena) * 100 : 0;
             return { ...x, otpadMm, otpadPct };
         }).filter((x) => x.kg > 0 || x.potroseno > 0)
             // prvo materijali sa najvećim otpadom (kg), pa po potrošnji
@@ -205,7 +215,8 @@ export default function AnalizaMaterijalStavke({ msg }) {
         let otpadKg = 0, saOtpadom = 0;
         rows.forEach((r) => {
             const kor = num(r.koriscena_sirina), ide = num(r.idealna_sirina);
-            if (kor > 0 && ide > 0 && kor > ide) { otpadKg += num(r.kg) * ((kor - ide) / kor); saOtpadom += 1; }
+            const om = ivicniOtpadMm(kor, ide);
+            if (kor > 0 && om > 0) { otpadKg += num(r.kg) * (om / kor); saOtpadom += 1; }
         });
         return {
             plan: izdato,
