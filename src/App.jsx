@@ -1825,14 +1825,23 @@ function MainAppContent() {
     };
     const mojEmail = String(user?.email || "").trim().toLowerCase();
     const dozvolaRegex = PRISTUP_PO_EMAILU[mojEmail] || null;
+    // Dodatne POJEDINAČNE kartice po emailu — vide se i kad njihova grupa NIJE u dozvoli.
+    // (Primer korišćenja: "neki@maropack.rs": ["dashboard_pro"]. Trenutno prazno.)
+    const EXTRA_KARTICE_PO_EMAILU = {};
+    const extraKartice = EXTRA_KARTICE_PO_EMAILU[mojEmail] || [];
 
     const samoMagacinRola = userProfile?.uloga === "radnik" && !radnikVidiKartice && !dozvolaRegex;
     // Kartice koje radnik (i kad vidi meni) NE sme da vidi — AI asistent i Sistem (admin/sistem).
     const SAKRIJ_ZA_RADNIKA = /ai|asisten|agent|sistem|system|pode[šs]|settings|admin/i;
     const jeRadnik = userProfile?.uloga === "radnik";
     const navGroups = dozvolaRegex
-        // granularni pristup po email-u → SAMO dozvoljene grupe (Baza proizvoda, Proizvodnja, Magacin)
-        ? navGroupsAll.filter(function (g) { return dozvolaRegex.test(String(g.label || "") + " " + String(g.key || "")); })
+        // granularni pristup po email-u → dozvoljene grupe (Baza proizvoda, Proizvodnja, Magacin)
+        // + eventualne pojedinačne „extra" kartice (grupa se tada svede SAMO na te kartice).
+        ? navGroupsAll.map(function (g) {
+            if (dozvolaRegex.test(String(g.label || "") + " " + String(g.key || ""))) return g;   // cela grupa dozvoljena
+            const it = (g.items || []).filter(function (x) { return extraKartice.includes(x.k); });
+            return it.length ? { ...g, items: it } : null;                                          // grupa svedena na dozvoljene kartice
+        }).filter(Boolean)
         : samoMagacinRola
         // običan radnik → SAMO Magacin
         ? navGroupsAll
