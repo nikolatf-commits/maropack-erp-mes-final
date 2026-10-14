@@ -1859,11 +1859,13 @@ function MainAppContent() {
     const mozeDashboard = dozvoljeneKartice.has("dashboard_pro") || dozvoljeneKartice.has("manager_dashboard") || dozvoljeneKartice.has("finansije_kpi");
     // Default stranica je "dashboard_pro"; korisnik bez pristupa Dashboard-u (npr. Bojan/Tihana…)
     // bi inače pao baš na nju jer se stranica crta bez provere. Preusmeri ga na prvu dozvoljenu.
+    // Preusmerenje → „Glavni nalozi" ako korisnik ima tu karticu, inače prva dozvoljena.
+    const pocetnaKartica = dozvoljeneKartice.has("nalozi") ? "nalozi" : prvaKartica;
     useEffect(function () {
         if (!mozeDashboard && (page === "dashboard_pro" || page === "manager_dashboard" || page === "finansije_kpi")) {
-            setPage(prvaKartica);
+            setPage(pocetnaKartica);
         }
-    }, [page, mozeDashboard, prvaKartica]);
+    }, [page, mozeDashboard, pocetnaKartica]);
     const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
     // Puna aplikacija NA TELEFONU je privilegija: admin i manager uvek, ostalima je
     // admin uključuje kolonom telefon_pun_pristup (boolean) u profilu korisnika.
