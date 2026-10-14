@@ -17,15 +17,20 @@
 export const FOOD_TEXT =
     "PAKOVANJE ZA HRANU — upotreba rukavica, mrežica za kosu, bez dlaka, mrva, mrlja, prljavštine, prašine, buba, drugih insekata i drugih stranih tela. Kutija mora biti obložena čistom folijom.";
 
+// Pozicije na telu kese (zajedničke za ADH, duplofan, perforaciju za otkinuti…).
+// Biraju se iz padajuće liste; crtež ih koristi da odredi gde ide element.
+export const POZICIJE_KESE = ["Na vrhu klapne", "Na sredini klapne", "Na dnu klapne", "Na telu kese"];
+
 export const KESA_OPCIJE = [
     // ADH lepljiva traka (ponovo-zatvorljiva) — čekira se sama za tipove sa klapnom,
     // ali korisnik može da je isključi, i tada NESTAJE sa skice.
-    { k: "adh_traka", l: "ADH lepljiva traka (ponovo-zatvorljiva)", tip: "danet", crtez: "adh_traka" },
+    // posList → padajuća „Pozicija" (vrh/sredina/dno klapne, telo); opciono „Od vrha (mm)".
+    { k: "adh_traka", l: "ADH lepljiva traka (ponovo-zatvorljiva)", tip: "danet", posList: POZICIJE_KESE, pos: ["odVrha"], crtez: "adh_traka" },
 
     {
         k: "duplofan", l: "Duplofan traka", tip: "lista",
         vals: ["Obična", "Permanentna", "Permanentna bezbedna za hranu", "Široka"],
-        pos: ["odVrha"], crtez: "duplofan"
+        posList: POZICIJE_KESE, pos: ["odVrha"], crtez: "duplofan"
     },
 
     {
@@ -198,6 +203,7 @@ export function toCrtezKesa(kesa = {}) {
         if (!opt[o.k] || o.food) return;
         const p = pos[o.k] || {}, t = txt[o.k] || {}, extra = [];
         let v = o.tip === "danet" ? "DA" : (sel[o.k] || "");
+        if (p.pozicija) extra.push(String(p.pozicija));   // izabrana pozicija (ADH, duplofan…)
         if (p.odstojanje) extra.push(String(p.odstojanje));
         if (p.odVrha) extra.push(p.odVrha + " mm od vrha");
         if (p.odDna) extra.push(p.odDna + " mm od dna");

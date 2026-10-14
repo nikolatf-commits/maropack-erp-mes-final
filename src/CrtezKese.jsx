@@ -67,6 +67,10 @@ export function kesaToConfig(kesa = {}) {
         luft: !!(o.okrugla_zumba || o.busene_rupe),
         stampa: !!o.stampa,          // ŠTAMPA — samo ako je čekirana (ranije: podrazumevano DA → curilo na skicu)
         perf: o.mikroperforacija ? "heiss" : (o.poprecna_perf ? "easy" : (o.abreiss ? "abreiss" : "none")),
+        // Nezavisne zastavice — da se SVE perforacije iscrtaju kad ih ima više.
+        mikroPerf: !!o.mikroperforacija,   // perforacija vrućim iglama
+        poprecnaPerf: !!o.poprecna_perf,   // poprečna perforacija
+        abreiss: !!o.abreiss,              // perforirana za otkinuti NA ROLNI
         komore: base.komore || 1,    // broj komora = tip kese
         duplofan: !!o.duplofan,
         anleger: !!o.anleger,
@@ -96,7 +100,7 @@ const DEFAULTS = {
     tip: "", vrh: "otvor", klTip: "rect", dno: "ravno",
     adh: false, euroloch: false, luft: false, stampa: false,
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
-    poprecniVar: false, perfTelo: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
+    poprecniVar: false, perfTelo: false, mikroPerf: false, poprecnaPerf: false, abreiss: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     bocnaFalta: false, bocnaMm: 0, vakuum: false,
     positions: {},
     stampaText: "",
@@ -119,7 +123,11 @@ function buildSvgPro(c, u, lang = "sr") {
     const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
     const bocna = !!c.bocnaFalta, vakuum = !!c.vakuum, bocnaMm = num(c.bocnaMm);
     const legend = (c.legend || []).filter((l) => l && l.n);
-    const W = 520, H = 1075;
+    const W = 520;
+    // Visina se prilagođava broju redova legende da se poslednji red NE seče.
+    // Legenda: 2 kolone, prvi red na y≈945, korak 32 px, podnaslov + pad ≈ 14 px.
+    const _halfLeg = Math.ceil(legend.length / 2);
+    const H = Math.max(1075, 945 + (_halfLeg > 0 ? (_halfLeg - 1) * 32 : 0) + 22);
     const s = Math.min(215 / sirina, 320 / duzina);
     const bw = sirina * s, bh = duzina * s;
     const kl = vrh === "klapna" ? Math.min(klMm * s, 64) : (vrh === "header" ? Math.min(extraMm * s, 52) : 0);
@@ -183,20 +191,24 @@ function buildSvgPro(c, u, lang = "sr") {
     // ── Perforacija za otkinuti NA TELU KESE ──────────────────────────────
     // Pozicija iz liste (vrh/sredina/dno klapne, telo) ili tačna mera „od vrha" (mm).
     // „Od vrha" se meri od samog vrha (vrha klapne ako je ima, inače vrha tela).
-    const ptp = (P.perf_telo || {});
     const topY = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const hasFlap = kl > 0;
-    let perfTeloY = null;
-    if (c.perfTelo) {
-        if (has(ptp, "odVrha")) perfTeloY = topY + mm(ptp.odVrha);
-        else switch (String(ptp.pozicija || "")) {
-            case "Na sredini klapne": perfTeloY = hasFlap ? ky + kl * 0.5 : y0 + bh * 0.08; break;
-            case "Na dnu klapne": perfTeloY = y0; break;
-            case "Na telu kese": perfTeloY = y0 + bh * 0.18; break;
-            default: perfTeloY = hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6; break; // Na vrhu klapne
+    // Pozicija (vrh/sredina/dno klapne, telo kese) + opciona mera „od vrha" (mm) → Y na skici.
+    // Zajedničko za perforaciju za otkinuti, ADH i duplofan. null = nije zadata pozicija.
+    const posToY = (p) => {
+        if (!p) return null;
+        if (has(p, "odVrha")) return Math.max(topY + 2, Math.min(y1 - 3, topY + mm(p.odVrha)));
+        let yy;
+        switch (String(p.pozicija || "")) {
+            case "Na vrhu klapne": yy = hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6; break;
+            case "Na sredini klapne": yy = hasFlap ? ky + kl * 0.5 : y0 + bh * 0.08; break;
+            case "Na dnu klapne": yy = y0; break;
+            case "Na telu kese": yy = y0 + bh * 0.18; break;
+            default: return null;
         }
-        perfTeloY = Math.max(topY + 2, Math.min(y1 - 3, perfTeloY));
-    }
+        return Math.max(topY + 2, Math.min(y1 - 3, yy));
+    };
+    const perfTeloY = c.perfTelo ? (posToY(P.perf_telo) != null ? posToY(P.perf_telo) : (hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6)) : null;
     if (c.stampa) {
         g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
         const dz = c.stampaDizajn || null;
@@ -227,7 +239,39 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     // OPCIJE (adh traka, eurozumba, ...) se crtaju POSLE slike štampe, da je "pregaze"
     // i ostanu vidljive — ranije su išle pre slike pa ih je slika prekrivala.
-    if (c.adh && (vrh === "klapna" || vrh === "header")) { const ay = ky + Math.max(kl * .5, 6); g += `<rect x="${q(kx0 + 7)}" y="${q(ay)}" width="${q(kx1 - kx0 - 14)}" height="4" rx="1.5" fill="#fde2e2" stroke="${ACC}" stroke-width=".9"/>`; }
+    // ADH traka — na izabranoj poziciji (vrh/sredina/dno klapne, telo); default = sredina klapne.
+    if (c.adh) {
+        let ay = posToY(P.adh_traka);
+        if (ay == null && (vrh === "klapna" || vrh === "header")) ay = ky + Math.max(kl * .5, 6);
+        if (ay != null) {
+            const onFlap = ay < y0;
+            const xA = onFlap ? kx0 + 7 : x0 + 7, xB = onFlap ? kx1 - 7 : x1 - 7;
+            g += `<rect x="${q(xA)}" y="${q(ay - 2)}" width="${q(xB - xA)}" height="4" rx="1.5" fill="#fde2e2" stroke="${ACC}" stroke-width=".9"/>`;
+        }
+    }
+    // Duplofan traka — na izabranoj poziciji; default = malo ispod sredine klapne (da ne gazi ADH).
+    if (c.duplofan) {
+        const dy = posToY(P.duplofan) != null ? posToY(P.duplofan) : (hasFlap ? ky + Math.max(8, kl * .65) : y0 + 12);
+        const onFlap = dy < y0;
+        const xA = onFlap ? kx0 + 7 : x0 + 7, xB = onFlap ? kx1 - 7 : x1 - 7;
+        g += `<rect x="${q(xA)}" y="${q(dy - 3)}" width="${q(xB - xA)}" height="6" rx="1.5" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>`;
+        g += `<line x1="${q(xA)}" y1="${q(dy - 1)}" x2="${q(xB)}" y2="${q(dy - 1)}" stroke="#6366f1" stroke-width=".5"/><line x1="${q(xA)}" y1="${q(dy + 1)}" x2="${q(xB)}" y2="${q(dy + 1)}" stroke="#6366f1" stroke-width=".5"/>`;
+    }
+    // Perforacije — svaka svoja linija (mogu koegzistirati):
+    //  • za otkinuti NA ROLNI (abreiss) — pri vrhu, crvena
+    //  • perforacija vrućim iglama (mikro) — ispod klapne, ljubičasta (sitan dash)
+    //  • poprečna perforacija — malo niže, ljubičasta
+    if (c.abreiss) g += `<line x1="${q(x0 - 6)}" y1="${q(topY + 2)}" x2="${q(x1 + 6)}" y2="${q(topY + 2)}" stroke="${ACC}" stroke-width="1" stroke-dasharray="2 3"/>`;
+    if (c.mikroPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .10)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .10)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="1 2"/>`;
+    if (c.poprecnaPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .16)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .16)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 3"/>`;
+    // UTOR (žleb) — kratka isprekidana vertikala na desnoj strani.
+    if (c.falznut) { const uy = y0 + bh * .38; g += `<line x1="${q(x1 - 10)}" y1="${q(uy - 10)}" x2="${q(x1 - 10)}" y2="${q(uy + 10)}" stroke="${SUB}" stroke-width="1.2" stroke-dasharray="3 2"/>`; }
+    // Otvor na dnu kese — mali krug pri dnu.
+    if (c.otvorDno) g += `<circle cx="${q(cx)}" cy="${q(y1 - 8)}" r="3.5" fill="#fff" stroke="${INK}" stroke-width="1.4"/>`;
+    // Ojačanje — traka uz levu ivicu.
+    if (c.ojacanje) g += `<rect x="${q(x0 + 2)}" y="${q(y0 + 6)}" width="4" height="${q(bh - 12)}" fill="#fed7aa" stroke="${AMB}" stroke-width=".8"/>`;
+    // Bočni var — zaptivne trake uz obe bočne ivice.
+    if (c.bocniVar) g += `<rect x="${q(x0)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/><rect x="${q(x1 - 4)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/>`;
     if (c.euroloch) g += euroPath(ex, ey, eW);
     const pvY = y0 + bh * .62;
     if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
@@ -241,23 +285,24 @@ function buildSvgPro(c, u, lang = "sr") {
     const anchor = (key) => {
         switch (key) {
             case "euroloch": case "eurozumba": return [ex + eW / 2, ey];
-            case "adh": case "adh_traka": return [kx1 - 9, ky + Math.max(kl * .5, 6)];
+            case "adh": case "adh_traka": { const ay = posToY(P.adh_traka); return [kx1 - 9, ay != null ? ay : ky + Math.max(kl * .5, 6)]; }
             case "stampa": return [px + pw, py + ph * .4];
             case "poprecniVar": case "poprecni_var": return [x1 - 3.5, pvY];
             case "bocniVar": case "bocni_var": return [x1 - 3.5, y0 + bh * .82];
             case "faltna": case "falta_dno": return [cx + 30, y1 - 3 - f];
             case "anleger": return [x1 - 12, y0 + 7];
-            case "duplofan": return [kx0 + 12, ky + 4];
-            case "falznut": case "utor": return [x1 - 3.5, y0 + bh * .38];
+            case "duplofan": { const dy = posToY(P.duplofan); return [kx0 + 12, dy != null ? dy : (hasFlap ? ky + Math.max(8, kl * .65) : y0 + 12)]; }
+            case "abreiss": return [cx, topY + 2];
+            case "falznut": case "utor": return [x1 - 10, y0 + bh * .38];
             case "luft": case "okrugla_zumba": return [cx, y0 + 16];
             case "kosa_klapna": case "ukosena_klapna": case "klapna": return [kx1 - 12, ky + 4];
-            case "perf_otkinuti": case "perf_igle": case "poprecna_perf": case "mikroperforacija": return [cx, ky + kl + 6];
+            case "perf_igle": case "mikroperforacija": return [cx, y0 + bh * .10];
+            case "poprecna_perf": return [cx, y0 + bh * .16];
             case "perf_telo": return [cx, perfTeloY != null ? perfTeloY : (ky + kl + 6)];
-            case "otvor_dno": return [cx, y1 - 4];
+            case "otvor_dno": return [cx, y1 - 8];
             case "var_dno": case "toplotni_var": case "kontinualni_var": return [cx + 20, y1 - 6];
-            case "ojacanje": return [x0 + 6, y0 + bh * .5];
+            case "ojacanje": return [x0 + 4, y0 + bh * .5];
             case "busene_rupe": return [cx, y0 + 20];
-            case "utor": case "falznut": return [x1 - 3.5, y0 + bh * .38];
             default: return [x1 - 4, y0 + bh * .5];
         }
     };

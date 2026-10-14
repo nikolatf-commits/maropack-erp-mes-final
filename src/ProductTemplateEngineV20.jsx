@@ -730,7 +730,7 @@ function ToggleButton({ active, children, onClick }) {
 // Režim folije: matična rolna se reže na više užih formata. Svaki format:
 // širina × dužina × broj rolni + (opciono) perforacija (rupe=makro / linija=mikro + ivice).
 let _FMT_UID = 1;
-const noviFormat = (p = {}) => ({ _id: _FMT_UID++, sirina: "", duzina: "", rolni: "", napomena: "", perforacija: null, ...p });
+const noviFormat = (p = {}) => ({ _id: _FMT_UID++, sirina: "", duzina: "", rolni: "", palete: "", kolNaPaleti: "", napomena: "", perforacija: null, ...p });
 function FormatiFolije({ formati = [], onChange }) {
     const rows = Array.isArray(formati) ? formati : [];
     const nn = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
@@ -765,6 +765,8 @@ function FormatiFolije({ formati = [], onChange }) {
                                     <label style={lab}>Ukupno</label>
                                     <input readOnly value={ukupno ? ukupno.toLocaleString("sr-RS") + " m" : "—"} style={{ width: "100%", padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 9, background: "#f8fafc", fontWeight: 900, color: "#0f172a", boxSizing: "border-box" }} />
                                 </div>
+                                <Input label="Palete" type="number" value={r.palete} onChange={(v) => patch(r._id, { palete: v })} />
+                                <Input label="Količina na paleti" value={r.kolNaPaleti} onChange={(v) => patch(r._id, { kolNaPaleti: v })} />
                             </Grid>
                             <div style={{ marginTop: 10 }}>
                                 <Input label="Napomena (ide na nalog uz ovaj format)" value={r.napomena} onChange={(v) => patch(r._id, { napomena: v })} />
@@ -1984,11 +1986,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         const fmts = (tpl.folija?.formati || []).filter(f => nnum(f.sirina) > 0 && nnum(f.duzina) > 0 && nnum(f.rolni) > 0);
                         const l0 = (tpl.folija?.layers || [])[0] || {};
                         const mat0 = { vrsta: l0.material || l0.materijal || l0.vrsta || l0.tip || "", pod_vrsta: l0.pod_vrsta || l0.podvrsta || "", oznaka: l0.oznaka_materijala || l0.oznaka || "", proizvodjac: l0.proizvodjac || "", debljina: l0.debljina || l0.deb || "" };
-                        potrebe = fmts.map((f, i) => ({ id: "F" + (i + 1), materijal: mat0, sirina_mm: nnum(f.sirina), duzina_m: nnum(f.duzina), rolni_kom: Math.max(1, Math.round(nnum(f.rolni))), napomena: f.napomena || "", perforacija: f.perforacija || null, odrediste: "nalog" }));
+                        potrebe = fmts.map((f, i) => ({ id: "F" + (i + 1), materijal: mat0, sirina_mm: nnum(f.sirina), duzina_m: nnum(f.duzina), rolni_kom: Math.max(1, Math.round(nnum(f.rolni))), napomena: f.napomena || "", perforacija: f.perforacija || null, palete: f.palete || "", kolNaPaleti: f.kolNaPaleti || "", odrediste: "nalog" }));
                     }
                     const rolne = await ucitajMagacinRolne();
                     const rez = predloziFormatiranje(potrebe, rolne, { kerf_mm: 0, bocniOstatakNaStanje: true });
-                    const perfById = {}; potrebe.forEach(pp => { perfById[pp.id] = { perforacija: pp.perforacija, napomena: pp.napomena, sirina_mm: pp.sirina_mm }; });
+                    const perfById = {}; potrebe.forEach(pp => { perfById[pp.id] = { perforacija: pp.perforacija, napomena: pp.napomena, sirina_mm: pp.sirina_mm, palete: pp.palete || "", kolNaPaleti: pp.kolNaPaleti || "" }; });
                     setFormatiPlan({ ...rez, perfById, potrebe });
                 } catch (e) {
                     msg && msg("Greška pri dopuni formata: " + (e?.message || e), "err");
@@ -2183,6 +2185,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             rolni_kom: Math.max(1, Math.round(nnum(f.rolni))),
             napomena: f.napomena || "",
             perforacija: f.perforacija || null,   // nosi se do naloga (po formatu)
+            palete: f.palete || "",               // palete (ručno) — ide na nalog za rezanje
+            kolNaPaleti: f.kolNaPaleti || "",      // količina na paleti (ručno) — ide na nalog
             odrediste: "nalog",                   // format = proizvod naloga (ne bočni ostatak)
         }));
     }
@@ -2199,7 +2203,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const rolne = await ucitajMagacinRolne();
             const rez = predloziFormatiranje(potrebe, rolne, { kerf_mm: 0, bocniOstatakNaStanje: true });
             // zakači perforaciju i napomenu po potreba_id (za prikaz na nalogu)
-            const perfById = {}; potrebe.forEach(p => { perfById[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm }; });
+            const perfById = {}; potrebe.forEach(p => { perfById[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm, palete: p.palete || "", kolNaPaleti: p.kolNaPaleti || "" }; });
             setFormatiPlan({ ...rez, perfById, potrebe });
         } catch (e) {
             msg && msg("Greška pri predlogu formatiranja: " + (e?.message || e), "err");
@@ -2240,7 +2244,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         const mat = formatiMaterijal();
         // perfById (perforacija po formatu) — iz plana, ili sklopljeno iz potreba (radi i bez materijala)
         const perfByIdSafe = (formatiPlan && formatiPlan.perfById) || (function () {
-            const m = {}; (potrebe || []).forEach((p) => { m[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm }; }); return m;
+            const m = {}; (potrebe || []).forEach((p) => { m[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm, palete: p.palete || "", kolNaPaleti: p.kolNaPaleti || "" }; }); return m;
         })();
         const planZaOp = imaPlan ? {
             matice: formatiPlan.nalozi, perfById: perfByIdSafe, formati: potrebe,
@@ -3594,6 +3598,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                 <option value="Pojedinačno u kesu" />
                             </datalist>
                         </div>
+                        <div>
+                            <label style={labelStyle()}>Palete</label>
+                            <input type="number" style={fieldStyle()} value={form.folija.rezanje.palete || ""}
+                                onChange={e => update("folija.rezanje.palete", e.target.value)} placeholder="broj paleta" />
+                        </div>
+                        <div>
+                            <label style={labelStyle()}>Količina na paleti</label>
+                            <input style={fieldStyle()} value={form.folija.rezanje.kolNaPaleti || ""}
+                                onChange={e => update("folija.rezanje.kolNaPaleti", e.target.value)} placeholder="unosi se ručno" />
+                        </div>
                     </div>
                     <div style={{ marginTop: 4 }}>
                         <RollPreview folija={form.folija} idealna={form.idealnaSirinaMaterijala} />
@@ -3761,6 +3775,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                     )}
                                                     {op.tip === "broj" && (
                                                         <input type="number" placeholder={op.l + " (" + (op.jed || "") + ")"} value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()} />
+                                                    )}
+                                                    {(op.posList || []).length > 0 && (
+                                                        <select value={pos.pozicija || ""} onChange={e => setOpt({ pos: { pozicija: e.target.value } })} style={fieldStyle()}>
+                                                            <option value="">Pozicija na kesi…</option>
+                                                            {op.posList.map(pz => <option key={pz} value={pz}>{pz}</option>)}
+                                                        </select>
                                                     )}
                                                     {(op.pos || []).length > 0 && (
                                                         <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(op.pos.length, 4)}, 1fr)`, gap: 6 }}>

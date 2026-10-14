@@ -120,15 +120,27 @@ function perforacija(p) {
     const tip = normalizeTip(nested.type || p.tip);
     const sek = nested[tip] || nested.folija || nested.kesa || nested.spulna || nested.spulne || {};
     const k = sek.kpdf || nested.kpdf || p.kpdf || {};
-    // varijante: kpdf.enabled, ili product.perforacija.tip != "Nema", ili operacije
-    const perfTip = (p.perforacija && p.perforacija.tip) || k.tip;
-    const ima = !!(k.enabled) || (perfTip && perfTip !== "Nema") || sek.poprecna_perf || p.poprecna_perf || sek.mikroperforacija || p.mikroperforacija;
+    const opt = sek.options || {};
+    // PerforacijaEditor vrednost; nema === true → EKSPLICITNO bez perforacije.
+    const pf = sek.perforacija || p.perforacija || {};
+    if (pf && (pf.nema === true || pf.bez === true)) return { ima: false, opis: "" };
+    const pfTip = (pf && pf.tip) || "";
+    // VAŽNO: kpdf.tip ima default "KPDF" na SVAKOM proizvodu → NE sme da znači „ima perforaciju".
+    // Perforacija postoji samo kad je STVARNO uključena:
+    //  • KPDF: kpdf.enabled === true
+    //  • eksplicitan perforacija.tip koji nije „Nema"/prazno
+    //  • čekirana poprečna / mikro / telo perforacija (folija ili kesa opcije)
+    const ima = !!(k.enabled)
+        || (pfTip && pfTip !== "Nema" && pfTip !== "—")
+        || !!sek.poprecna_perf || !!p.poprecna_perf
+        || !!sek.mikroperforacija || !!p.mikroperforacija
+        || !!opt.poprecna_perf || !!opt.perf_igle || !!opt.perf_otkinuti || !!opt.perf_telo;
     if (!ima) return { ima: false, opis: "" };
-    const delovi = [
-        (perfTip && perfTip !== "Nema") ? perfTip : "perforacija",
-        k.odnos || (p.perforacija && p.perforacija.odnos) || "",
-        (k.pozicija || (p.perforacija && p.perforacija.pozicija)) ? ("poz. " + (k.pozicija || p.perforacija.pozicija)) : "",
-    ].filter(Boolean);
+    // Opis: eksplicitni tip ima prednost; inače KPDF samo kad je uključen.
+    const opisTip = (pfTip && pfTip !== "Nema") ? pfTip : (k.enabled ? (k.tip || "KPDF") : "perforacija");
+    const odnos = (pf && pf.odnos) || (k.enabled ? k.odnos : "") || "";
+    const poz = (pf && pf.pozicija) || (k.enabled ? k.pozicija : "") || "";
+    const delovi = [opisTip, odnos, poz ? ("poz. " + poz) : ""].filter(Boolean);
     return { ima: true, opis: delovi.join(" · ") };
 }
 

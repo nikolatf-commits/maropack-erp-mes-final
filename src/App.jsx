@@ -240,6 +240,7 @@ const USERS = [
     { id: 4, ime: "Dunja", uloga: "radnik", pass: "dunja123" },
     { id: 5, ime: "Tihana", uloga: "radnik", pass: "tihana123" },
     { id: 6, ime: "Milan", uloga: "radnik", pass: "milan123" },
+    { id: 7, ime: "Bojan", uloga: "radnik", pass: "bojan123" },
 ];
 
 const PREVODI = {
@@ -1820,6 +1821,7 @@ function MainAppContent() {
         "jelena@maropack.rs": SVE_PROIZVODNJA,
         "jovana@maropack.rs": SVE_PROIZVODNJA,
         "tihana@maropack.rs": SVE_PROIZVODNJA,
+        "bojan@maropack.rs": SVE_PROIZVODNJA,
     };
     const mojEmail = String(user?.email || "").trim().toLowerCase();
     const dozvolaRegex = PRISTUP_PO_EMAILU[mojEmail] || null;

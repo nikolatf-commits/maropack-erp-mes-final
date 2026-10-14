@@ -262,6 +262,7 @@ function buildD(nalog) {
             duzinaRolne: eDuzinaRolne, autoPrecnik, autoDuzina, debUm,
             hilzna: nHilzna, smer: fr.smerOdmotavanja || st.smerOdmotavanja || "Na glavu",
             nacinPakovanja: rz.nacinPakovanja || fr.nacinPakovanja || "",
+            palete: rz.palete || "", kolNaPaleti: rz.kolNaPaleti || "",
         },
         perf: (function () {
             // Perforacija 1:1 kao u editoru: lista linija (pozicija + strana + razmak po liniji).
@@ -663,7 +664,7 @@ function pRez(D) {
     const c = COLp; const lanes = D.rez.lanes.length ? D.rez.lanes : Array.from({ length: D.rez.brojTraka || 0 }, function () { return D.rez.sirinaTrake; }); return pageWrap(D, hd(D, '✂️', (D.imaPerforaciju ? 'NALOG ZA PERFORACIJU I REZANJE' : 'NALOG ZA REZANJE'), c, 'rezanje') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod, spojMaterijala(D.LAY)) + statRow(D, stat('Ukupno metara', fmtN(D.ukupnoMetara), 'm', '#7c3aed')) +
         '<div class="ulaz"><b>Ulaz:</b> kaširana rolna, ulazna širina ' + D.sirinaMat + ' mm → ' + (D.rez.brojTraka || '—') + ' traka po ' + (D.rez.sirinaTrake || '—') + ' mm.</div>' +
         '<div class="sec">' + secH(1, c, 'Prikaz rezanja (po širini)', 'iz templejta') + '<div class="fig"><div class="cap">Raspored traka po širini</div>' + rezSvg(D) + '</div></div>' +
-        '<div class="sec">' + secH(2, c, 'Plan rezanja', 'iz templejta') + '<div class="info">' + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Broj traka', D.rez.brojTraka || '—') + infoC('Širina trake', (D.rez.sirinaTrake || '—') + ' mm') + infoC('Otpad', (D.rez.otpad || 0) + ' mm') + infoC('Prečnik rolne', D.rez.precnik + ' mm' + (D.rez.autoPrecnik ? ' (auto)' : '')) + infoC('Dužina rolne', (D.rez.duzinaRolne ? fmtN(D.rez.duzinaRolne) : fmtN(D.rez.duzina)) + ' m' + (D.rez.autoDuzina ? ' (auto)' : '')) + infoC('Hilzna', D.rez.hilzna + ' mm') + infoC('Smer', D.rez.smer) + '</div></div>' +
+        '<div class="sec">' + secH(2, c, 'Plan rezanja', 'iz templejta') + '<div class="info">' + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Broj traka', D.rez.brojTraka || '—') + infoC('Širina trake', (D.rez.sirinaTrake || '—') + ' mm') + infoC('Otpad', (D.rez.otpad || 0) + ' mm') + infoC('Prečnik rolne', D.rez.precnik + ' mm' + (D.rez.autoPrecnik ? ' (auto)' : '')) + infoC('Dužina rolne', (D.rez.duzinaRolne ? fmtN(D.rez.duzinaRolne) : fmtN(D.rez.duzina)) + ' m' + (D.rez.autoDuzina ? ' (auto)' : '')) + infoC('Hilzna', D.rez.hilzna + ' mm') + infoC('Smer', D.rez.smer) + (D.rez.palete ? infoC('Palete', esc(D.rez.palete)) : '') + (D.rez.kolNaPaleti ? infoC('Količina na paleti', esc(D.rez.kolNaPaleti)) : '') + '</div></div>' +
         (D.rez.nacinPakovanja ? '<div class="ulaz" style="border-left-color:#16a34a;background:#f0fdf4;color:#166534;margin-top:12px"><b>📦 Način pakovanja:</b> ' + esc(D.rez.nacinPakovanja) + '</div>' : '') +
         (lanes.length ? '<div class="sec">' + secH(3, c, 'Trake', '') + '<table>' + th(['Traka', { t: 'Širina', n: 1 }, { t: 'Metara', n: 1 }, { t: 'Kom', n: 1 }, 'Perforacija'], c) + '<tbody>' + lanes.map(function (lw, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + lw + ' mm</td><td class="n">' + fmtN(D.rez.duzina) + '</td><td class="n">' + fmtN(D.komPoTraci) + '</td><td>' + (D.imaPerforaciju ? (esc(D.perf.tip) + ' · ' + D.perf.N + ' kol.') : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
         '<div class="ulaz" style="margin-top:16px">🖼 <b>Izgled na finalnoj rolni</b>' + (D.imaPerforaciju ? ' i <b>perforacija (kotirano)</b> su na posebnim stranama.' : ' je na posebnoj strani. (Bez perforacije.)') + '</div>' +
@@ -1292,12 +1293,18 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
         return '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8fafc;margin-bottom:10px"><div style="font-weight:900;color:#0f766e;margin-bottom:6px">Matična ' + esc(m.br_rolne || m.maticna_id) + ' · ' + m.sirina_mm + ' mm · utrošak ' + fmtN(m.utrosak_m) + ' m</div>' + segs + '</div>';
     }).join('');
 
+    // Palete / količina na paleti po formatu — iz perfById (ključ = format id ili po širini).
+    var palBy = {};
+    Object.keys(perfById).forEach(function (id) { var e = perfById[id] || {}; if (e.sirina_mm != null) palBy[String(e.sirina_mm)] = e; });
     var fmtRedovi = formati.map(function (f, i) {
         var p = f.perforacija;
         var perfTxt = p ? (String(p.tip) === 'rupe' ? 'makro (rupe)' : 'mikro (linija)') : '—';
-        return '<tr><td>' + (i + 1) + '</td><td class="n">' + f.sirina_mm + ' mm</td><td class="n">' + fmtN(f.duzina_m) + ' m</td><td class="n">' + (f.rolni_kom || '—') + '</td><td>' + perfTxt + '</td><td>' + esc(f.napomena || '') + '</td></tr>';
+        var pe = (f.id && perfById[f.id]) || palBy[String(f.sirina_mm)] || {};
+        var pal = (f.palete != null && f.palete !== '') ? f.palete : (pe.palete || '');
+        var knp = (f.kolNaPaleti != null && f.kolNaPaleti !== '') ? f.kolNaPaleti : (pe.kolNaPaleti || '');
+        return '<tr><td>' + (i + 1) + '</td><td class="n">' + f.sirina_mm + ' mm</td><td class="n">' + fmtN(f.duzina_m) + ' m</td><td class="n">' + (f.rolni_kom || '—') + '</td><td class="n">' + (pal !== '' ? esc(String(pal)) : '—') + '</td><td class="n">' + (knp !== '' ? esc(String(knp)) : '—') + '</td><td>' + perfTxt + '</td><td>' + esc(f.napomena || '') + '</td></tr>';
     }).join('');
-    var fmtTabela = formati.length ? '<table>' + th(['#', { t: 'Širina', n: 1 }, { t: 'Dužina', n: 1 }, { t: 'Rolni', n: 1 }, 'Perforacija', 'Napomena'], c) + '<tbody>' + fmtRedovi + '</tbody></table>' : '';
+    var fmtTabela = formati.length ? '<table>' + th(['#', { t: 'Širina', n: 1 }, { t: 'Dužina', n: 1 }, { t: 'Rolni', n: 1 }, { t: 'Palete', n: 1 }, { t: 'Kol/paleti', n: 1 }, 'Perforacija', 'Napomena'], c) + '<tbody>' + fmtRedovi + '</tbody></table>' : '';
 
     var perfHtml = formati.filter(function (f) { return !!f.perforacija; }).map(function (f) {
         var svg = perf({ perf: perfFromConfig(f.perforacija, f.sirina_mm) }, 560, 760);

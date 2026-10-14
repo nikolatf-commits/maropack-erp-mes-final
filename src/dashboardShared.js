@@ -255,6 +255,7 @@ export const KORISNICI_IME = {
     "tihana@maropack.rs": "Tihana",
     "jovana@maropack.rs": "Jovana",
     "jelena@maropack.rs": "Jelena",
+    "bojan@maropack.rs": "Bojan",
     "magacin@maropack.rs": "Đorđe",
     "magacin2@maropack.rs": "Mirza",
     "magacin3@maropack.rs": "Dejan",
@@ -546,9 +547,34 @@ export function kgPoMetruNaloga(n) {
     const t = (tData && Object.keys(tData).length) ? tData : tpl;
     const folija = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
     const rzn = folija.rezanje || {};
-    const sirina = safeNumber(rzn.sirinaMaterijala) || safeNumber(t.idealnaSirinaMaterijala) || safeNumber(od.idealnaSirinaMaterijala) || 0;
-    let layers = (Array.isArray(od.materijali) && od.materijali.length) ? od.materijali : (Array.isArray(folija.layers) ? folija.layers : []);
-    let gsm = layers.reduce((s, l) => s + (safeNumber(l.gm2) || safeNumber(l.gsm) || safeNumber(l.tezina)), 0);
+    // Plan formatiranja (formati nalozi) — širina formata kad nema širine matične.
+    const planF = _pj(par.plan_formatiranja) || {};
+    const formati = (Array.isArray(folija.formati) && folija.formati) ||
+        (Array.isArray(planF.formati) && planF.formati) ||
+        (Array.isArray(planF.nalozi) && planF.nalozi) ||
+        (Array.isArray(planF.potrebe) && planF.potrebe) || [];
+    const fmt0 = formati[0] || {};
+    // ── ŠIRINA (mm): matična → idealna → traka → format → sirina ──
+    const sirina =
+        safeNumber(rzn.sirinaMaterijala) ||
+        safeNumber(folija.idealnaSirinaMaterijala) ||
+        safeNumber(t.idealnaSirinaMaterijala) ||
+        safeNumber(od.idealnaSirinaMaterijala) ||
+        safeNumber(rzn.sirinaTrake) ||
+        safeNumber(folija.dimenzijaSirina) || safeNumber(t.dimenzijaSirina) ||
+        safeNumber(fmt0.sirina) || safeNumber(fmt0.sirina_mm) || safeNumber(fmt0.sirina_formata) ||
+        safeNumber(folija.sirina) || safeNumber(t.sirina) || safeNumber(od.sirina) || safeNumber(n.sirina) ||
+        0;
+    // ── LAYERS / GRAMAŽA (g/m²) ── iz više izvora; fallback: debljina(µm) × koeficijent(gustina) = g/m²
+    let layers =
+        (Array.isArray(od.materijali) && od.materijali.length && od.materijali) ||
+        (Array.isArray(folija.layers) && folija.layers.length && folija.layers) ||
+        (Array.isArray(n.materijali_struktura) && n.materijali_struktura.length && n.materijali_struktura) ||
+        (Array.isArray(od.materijali_struktura) && od.materijali_struktura.length && od.materijali_struktura) ||
+        (Array.isArray(par.materijali_struktura) && par.materijali_struktura.length && par.materijali_struktura) || [];
+    const gsmLayer = (l) => safeNumber(l.gm2) || safeNumber(l.gsm) || safeNumber(l.tezina) || safeNumber(l.tezinaGm2) ||
+        (safeNumber(l.debljina || l.deb) * safeNumber(l.koeficijent || l.koef));
+    let gsm = layers.reduce((s, l) => s + gsmLayer(l), 0);
     if (!gsm) gsm = safeNumber(t.gm2) || safeNumber(folija.gm2) || 0;
     if (!sirina || !gsm) return 0;
     return (sirina * gsm) / 1000000;

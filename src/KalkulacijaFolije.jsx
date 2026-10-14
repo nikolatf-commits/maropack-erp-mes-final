@@ -187,7 +187,7 @@ function mapTemplateLayerToFolijaMaterial(layer, fallbackSirina) {
         sirinaMm: sirina,
         spoj_materijala: layer.spoj_materijala || layer.spojMaterijala || layer.spoj || "",
         broj_spojeva: layer.broj_spojeva || layer.brojSpojeva || layer.spojeva || "",
-        stampa: !!(layer.stampa || layer.stamp || layer.Š),
+        stampa: !!(layer.stampa || layer.st || layer.stampa_se || layer.stamp || layer.Š),
         lakira: !!(layer.lakira || layer.lak || layer.L)
     };
 }
@@ -324,29 +324,45 @@ export default function KalkulacijaFolijeSmart({ setPage } = {}) {
                             : [];
             const fallbackSirina = Number(
                 folija.rezanje?.sirinaMaterijala ||
+                folija.idealnaSirinaMaterijala ||      // glavno polje širine u templejtu
+                tpl.idealnaSirinaMaterijala ||         // (top-level) — ranije se NIJE čitalo → širina 0
                 folija.rezanje?.sirinaTrake ||
                 folija.sirina ||
                 tpl.sirina ||
-                layers[0]?.sirina ||
                 layers[0]?.idealna_sirina ||
+                layers[0]?.idealnaSirina ||
+                layers[0]?.sirina ||
                 0
             );
-            const fallbackMetraza = Number(String(
+            // Poručena količina (nalog). Folija: porucenaKolicina je u METRIMA → Nalog (x1000m) = m / 1000.
+            const porucenoM = Number(String(
+                folija.porucenaKolicina ||
+                tpl.porucenaKolicina ||
                 folija.rezanje?.duzinaRolne ||
                 folija.finalRoll?.duzina ||
                 folija.maxMetara ||
                 tpl.metraza ||
                 tpl.duzina ||
                 ""
-            ).replace(/[^0-9.]/g, ""));
+            ).replace(/[^0-9.]/g, "")) || 0;
 
             setNaziv(tpl.naziv || folija.naziv || "");
             setKupac(tpl.kupac || "");
 
-            if (folija.rezanje?.sirinaTrake) setSirina(Number(folija.rezanje.sirinaTrake) || fallbackSirina || 0);
-            else if (fallbackSirina) setSirina(fallbackSirina);
+            // „Širina (mm)" = ŠIRINA TRAKE (gotove trake) — tako je traženo.
+            // Ako templejt nema širinu trake, pada na idealnu širinu materijala (fallbackSirina).
+            const sirinaTrake = Number(
+                folija.rezanje?.sirinaTrake ||
+                folija.sirinaTrake ||
+                folija.dimenzijaSirina ||
+                tpl.dimenzijaSirina ||
+                0
+            );
+            setSirina(sirinaTrake || fallbackSirina || 0);
 
-            // metraza je BAZA = 1000 m i ne menja se iz templejta (pun nalog ide u „Nalog (x1000m)“)
+            // metraza je BAZA = 1000 m i ne menja se iz templejta (pun nalog ide u „Nalog (x1000m)“).
+            // Poručena količina (m) iz templejta → Nalog (x1000m) = m / 1000. Ranije se nije punilo → nalog 0.
+            if (porucenoM > 0) setNalog(porucenoM / 1000);
 
             if (layers.length > 0) {
                 const mapped = layers
