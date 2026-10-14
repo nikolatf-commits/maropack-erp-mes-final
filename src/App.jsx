@@ -1852,6 +1852,18 @@ function MainAppContent() {
             ? navGroupsAll.filter(function (g) { return !SAKRIJ_ZA_RADNIKA.test(String(g.label || "") + " " + String(g.key || "")); })
             // svi ostali (admin/manager/…) → pun meni
             : navGroupsAll;
+    // Dozvoljene kartice (stranice) za ovog korisnika — iz vidljivog menija.
+    const dozvoljeneKartice = (function () { const s = new Set(); navGroups.forEach(function (g) { (g.items || []).forEach(function (it) { s.add(it.k); }); }); return s; })();
+    const prvaKartica = (navGroups[0] && navGroups[0].items && navGroups[0].items[0] && navGroups[0].items[0].k) || "nalozi";
+    // Dashboard grupa (Dashboard PRO, Menadžerski, Finansije+KPI) — vidi je samo ko ima pristup.
+    const mozeDashboard = dozvoljeneKartice.has("dashboard_pro") || dozvoljeneKartice.has("manager_dashboard") || dozvoljeneKartice.has("finansije_kpi");
+    // Default stranica je "dashboard_pro"; korisnik bez pristupa Dashboard-u (npr. Bojan/Tihana…)
+    // bi inače pao baš na nju jer se stranica crta bez provere. Preusmeri ga na prvu dozvoljenu.
+    useEffect(function () {
+        if (!mozeDashboard && (page === "dashboard_pro" || page === "manager_dashboard" || page === "finansije_kpi")) {
+            setPage(prvaKartica);
+        }
+    }, [page, mozeDashboard, prvaKartica]);
     const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
     // Puna aplikacija NA TELEFONU je privilegija: admin i manager uvek, ostalima je
     // admin uključuje kolonom telefon_pun_pristup (boolean) u profilu korisnika.
@@ -2416,9 +2428,9 @@ function MainAppContent() {
                     {page === "potrosni_materijal" && (<PotrosniMaterijal msg={msg} korisnik={userProfile?.ime || user?.email || ""} />)}
 
                     {/* ✅ DRUGI PRO MODULI */}
-                    {page === "dashboard_pro" && <DashboardPRO setPage={setPage} />}
-                    {page === "manager_dashboard" && <ManagerDashboard />}
-                    {page === "finansije_kpi" && <FinansijeKPI_PRO db={db} msg={msg} />}
+                    {page === "dashboard_pro" && mozeDashboard && <DashboardPRO setPage={setPage} />}
+                    {page === "manager_dashboard" && mozeDashboard && <ManagerDashboard />}
+                    {page === "finansije_kpi" && mozeDashboard && <FinansijeKPI_PRO db={db} msg={msg} />}
                     {page === "mobile" && <MobileApp setPage={setPage} />}
 
                     {/* 🤖 AI MODULI */}
