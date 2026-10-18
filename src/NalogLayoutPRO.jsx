@@ -764,11 +764,14 @@ function pKesaMat(D, K) {
         '<tr class="tot"><td colspan="9" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + kesaTotalKg(D, K) + '</td></tr></tbody></table></div>' +
 
         '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'razdvojeno po operaciji') + '<table>' +
-        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolneGrupno(rolne, function (r, i) {
             const l = D.LAY[(r.sloj && r.sloj > 0) ? r.sloj - 1 : i] || {};
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
-        }, 8) + '</tbody></table></div>' +
+            // Širina rolne: ako je šira od IDEALNE → crveno (ima ivični otpad)
+            var vSir = num(r.sir) || num(l.sirina) || 0;
+            var sirCell = vSir ? ((D.idealnaSir && vSir > D.idealnaSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
+        }, 9) + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
 
@@ -1037,11 +1040,15 @@ function pSpMat(D, S) {
         '<tr class="tot"><td colspan="8" style="text-align:right">UKUPNO (' + fmtN(S.m2Rad) + ' m²)</td><td class="n">' + fmtN(S.kg) + '</td></tr></tbody></table></div>' +
 
         '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'razdvojeno po operaciji') + '<table>' +
-        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
+        th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolneGrupno(rolne, function (r, i) {
             const l = D.LAY[(r.sloj && r.sloj > 0) ? r.sloj - 1 : i] || {};
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || S.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—')) + '</td></tr>';
-        }, 8) + '</tbody></table></div>' +
+            // Širina rolne: ako je šira od matične/idealne → crveno (ima ivični otpad)
+            var vSir = num(r.sir) || num(l.sirina) || 0;
+            var refSir = num(D.idealnaSir) || num(S.sirMat) || 0;
+            var sirCell = vSir ? ((refSir && vSir > refSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || S.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—')) + '</td></tr>';
+        }, 9) + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
 
@@ -1390,20 +1397,20 @@ const V6_CSS = `
 .nv6 .a4{width:794px;min-height:1123px;background:#fff;margin:0 auto 26px;box-shadow:0 14px 40px rgba(0,0,0,.18);position:relative;overflow:hidden;display:flex;flex-direction:column;overflow:hidden}
 .nv6 .pp{position:absolute;bottom:12px;right:20px;font-size:10px;color:#94a3b8;font-weight:700}
 .nv6 .pp2{position:absolute;bottom:12px;left:20px;font-size:10px;color:#94a3b8;font-weight:700}
-.nv6 .hd{position:relative;padding:20px 26px;color:#fff;overflow:hidden}
-.nv6 .hd .pisbr{margin-top:8px;display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 12px;font-size:13px;font-weight:800;letter-spacing:.3px}
+.nv6 .hd{position:relative;padding:13px 26px;color:#fff;overflow:hidden}
+.nv6 .hd .pisbr{margin-top:6px;display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:4px 11px;font-size:13px;font-weight:800;letter-spacing:.3px}
 .nv6 .hd .pisbr b{font-size:14px;font-weight:950}
 .nv6 .hd-top{display:flex;justify-content:space-between;align-items:flex-start}
 .nv6 .brand{display:flex;align-items:center;gap:12px}
-.nv6 .mono{width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-weight:950;font-size:18px}
+.nv6 .mono{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-weight:950;font-size:15px}
 .nv6 .co{font-size:10px;letter-spacing:2px;font-weight:800;opacity:.72}
 .nv6 .nm{font-size:14px;font-weight:900}
-.nv6 .docmeta{text-align:right;font-size:11px;line-height:1.7}
+.nv6 .docmeta{text-align:right;font-size:11px;line-height:1.45}
 .nv6 .docmeta b{font-size:13px}
 .nv6 .docmeta .k{opacity:.6;margin-right:5px}
-.nv6 .title{margin-top:14px;display:flex;align-items:center;gap:11px}
-.nv6 .title .ic{font-size:24px}
-.nv6 .title .big{font-size:23px;font-weight:950}
+.nv6 .title{margin-top:9px;display:flex;align-items:center;gap:11px}
+.nv6 .title .ic{font-size:19px}
+.nv6 .title .big{font-size:19px;font-weight:950;line-height:1.15}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
 .nv6 .body{padding:20px 26px;flex:1;display:flex;flex-direction:column}
 .nv6 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:16px}
@@ -1471,9 +1478,9 @@ const V6_CSS = `
 .nv6 .meta-strip .m{flex:1;min-width:90px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;text-align:center}
 .nv6 .meta-strip .m b{display:block;font-size:8.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;font-weight:800}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
-.nv6 .hdqr{width:104px;height:104px;background:#fff;border-radius:8px;padding:6px;display:block}
+.nv6 .hdqr{width:74px;height:74px;background:#fff;border-radius:7px;padding:5px;display:block}
 .nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
-.nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
+.nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:2px;text-align:center;line-height:1.2}
 @media print{
   @page{ size:A4; margin:8mm; }
   html,body{ background:#fff!important; margin:0!important; padding:0!important; width:auto!important; height:auto!important; overflow:visible!important; }
