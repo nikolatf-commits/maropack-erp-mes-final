@@ -116,6 +116,11 @@ export const KESA_OPCIJE = [
             "U kutiju ide 500 kom", "U kutiju ide 1000 kom", "U kutiju ide 5000 kom",
             "U bunt ide 20 kom", "U bunt ide 25 kom", "U bunt ide 50 kom", "U bunt ide 75 kom",
             "U bunt ide 100 kom", "U bunt ide 200 kom", "U bunt ide 250 kom",
+        ],
+        // Dve ćelije: koliko komada ide u kutiju i koliko u bunt — prikazuje se na nalogu.
+        tekstPolja: [
+            { k: "kutija", l: "U kutiju (kom)" },
+            { k: "bunt", l: "U bunt (kom)" },
         ]
     },
 

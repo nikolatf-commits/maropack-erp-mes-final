@@ -817,7 +817,13 @@ function pKesa(D, K) {
         if (p.levo) extra.push(p.levo + ' mm levo');
         if (p.sirina && p.visina) extra.push(p.sirina + '×' + p.visina + ' mm');
         const tt = txtV || {};
-        Object.keys(tt).forEach(function (kk) { if (tt[kk]) extra.push(String(tt[kk])); });
+        if (op.k === 'pakovati') {
+            // Pakovati: dve ćelije — koliko u kutiju i koliko u bunt (sa labelama na nalogu).
+            if (tt.kutija) extra.push('U kutiju ' + tt.kutija + ' kom');
+            if (tt.bunt) extra.push('U bunt ' + tt.bunt + ' kom');
+        } else {
+            Object.keys(tt).forEach(function (kk) { if (tt[kk]) extra.push(String(tt[kk])); });
+        }
         return { glavno: glavno, sub: extra.join(' · ') };
     }
 

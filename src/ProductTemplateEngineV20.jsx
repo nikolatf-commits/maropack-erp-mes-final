@@ -164,9 +164,10 @@ function rangirajRolne(rolne, layer, opts = {}) {
             const okS = !samoDostupne || !ZAUZETO.test(String(r.status || ""));
             // Mora imati slobodnih metara (metraza_ost − rezervisano).
             const okRez = !samoDostupne || slobodnoM(r) > 0;
-            // Pod vrsta i oznaka: uparuj kad rolna ima tu vrednost; ako je nema, ne odbacuj.
+            // POD-VRSTA: kad je sloj traži, rolna MORA imati TAČNO tu pod-vrstu.
+            // (Rolna bez upisane pod-vrste ili sa drugom — se odbacuje.)
             const rp = rolnaPodVrsta(r), ro = rolnaOznaka(r);
-            const okPV = !podv || !String(rp).trim() || txtEq(rp, podv);
+            const okPV = !podv || txtEq(rp, podv);
             // OZNAKA: kad sloj traži oznaku (npr. FXCWP), rolna MORA imati istu oznaku.
             // (Ranije je rolna bez oznake — ili sa drugom — mogla da prođe; sada mora da se poklopi.)
             const okOZ = !ozn || (String(ro).trim() !== "" && txtEq(ro, ozn));
@@ -1667,7 +1668,9 @@ function SmartFolijaTemplateEngine({ form, update }) {
 }
 
 function makeProductMasterIdFromTemplate(source = {}) {
-    const seed = [source.kupac, source.naziv, source.sifra, source.type].filter(Boolean).join('-') || String(Date.now());
+    // source._t (ako je zadat) ulazi u seed → „Sačuvaj kao novi" dobija JEDINSTVEN id/QR,
+    // čak i kad su kupac/naziv/šifra/tip isti kao kod originala.
+    const seed = [source.kupac, source.naziv, source.sifra, source.type, source._t].filter(Boolean).join('-') || String(Date.now());
     let h = 0;
     for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
     return 'PROD-' + Math.abs(h).toString().padStart(6, '0').slice(0, 6);
@@ -2941,7 +2944,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         try {
             const aktivni = record.data?.[record.tip] || {};
             const layers = aktivni.layers || [];
-            const productMasterId = record.product_master_id || makeProductMasterIdFromTemplate(record.data);
+            // „Sačuvaj kao novi" → UVEK svež, jedinstven product_master_id (i QR), da se NE poklopi sa originalom.
+            const productMasterId = (mode === "new")
+                ? makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() })
+                : (record.product_master_id || makeProductMasterIdFromTemplate(record.data));
             const templateId = (mode === "new") ? ('TPL-' + Date.now()) : (record.template_id || record.id || ('TPL-' + Date.now()));
             const payload = {
                 tip: record.tip,
@@ -2980,9 +2986,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     if (pos && pos[0] && pos[0].id) existingDbId = pos[0].id;
                 } catch (e) { /* ignore */ }
             }
-            const payloadZaUpis = (mode === "new")
-                ? { ...payload, naziv: record.naziv, product_master_id: makeProductMasterIdFromTemplate({ ...record.data, _t: Date.now() }), template_id: templateId }
-                : payload;
+            // product_master_id / qr_token / template_id su već tačni (svež za „new"), payload je kompletan.
+            const payloadZaUpis = payload;
             // ROBUSTAN UPIS: ako tabela `proizvodi` nema neku kolonu, PostgREST odbije CEO upis i
             // templejt se NE sačuva. Izbacimo kolonu koju baza prijavi kao nepoznatu i pokušamo ponovo,
             // dok upis ne prođe. Ceo form ostaje u `res.template` i `standardi.record.data` (dva nosioca).
@@ -3010,7 +3015,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             // Osveži form sa novim/ažuriranim db_id da naredni "Sačuvaj izmene" ide na pravi red.
             const noviRed = Array.isArray(data) ? data[0] : data;
             if (noviRed && noviRed.id) {
-                setForm(f => ({ ...f, db_id: noviRed.id, template_id: templateId, template_locked: true }));
+                // Posle „Sačuvaj kao novi" form pokazuje na NOVI red (db_id + novi product_master_id),
+                // da naredni „Sačuvaj izmene" ide na novi templejt, a ne na original.
+                setForm(f => ({ ...f, db_id: noviRed.id, template_id: templateId, product_master_id: productMasterId, template_locked: true }));
             }
             msg && msg(mode === "new" ? "✓ Sačuvan NOVI templejt" : (existingDbId ? "✓ Izmene sačuvane" : "✓ Templejt sačuvan"));
             await loadTemplates();

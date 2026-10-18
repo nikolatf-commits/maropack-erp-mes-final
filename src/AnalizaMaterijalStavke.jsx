@@ -229,8 +229,9 @@ export default function AnalizaMaterijalStavke({ msg }) {
     }, [rows]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
-    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
-    const filtSir = useMemo(() => !q.trim() ? poSirini : poSirini.filter((x) => [x.nalog, x.proizvod, x.vrsta, x.pod_vrsta, x.oznaka, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poSirini, q]);
+    // Pretraga po SVIM parametrima: Vrsta · Pod-vrsta · Oznaka · Deb. · Širina · Dobavljač.
+    const filtMat = useMemo(() => !q.trim() ? poMaterijalu : poMaterijalu.filter((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.debljina, x.sirina, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poMaterijalu, q]);
+    const filtSir = useMemo(() => !q.trim() ? poSirini : poSirini.filter((x) => [x.nalog, x.proizvod, x.vrsta, x.pod_vrsta, x.oznaka, x.debljina, x.koriscena, x.dobavljac].some((k) => String(k || "").toLowerCase().includes(q.toLowerCase()))), [poSirini, q]);
 
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));

@@ -197,7 +197,13 @@ function buildSvgPro(c, u, lang = "sr") {
     // Zajedničko za perforaciju za otkinuti, ADH i duplofan. null = nije zadata pozicija.
     const posToY = (p) => {
         if (!p) return null;
-        if (has(p, "odVrha")) return Math.max(topY + 2, Math.min(y1 - 3, topY + mm(p.odVrha)));
+        if (has(p, "odVrha")) {
+            // Mala mera (npr. 5 mm) u razmeri je svega par piksela, pa element „zalepi" za sam vrh.
+            // Zato garantujemo minimalan VIDLJIV razmak od vrha (≈ pozicija „na vrhu klapne"),
+            // a za veće mere se ponaša po razmeri.
+            const minY = hasFlap ? ky + Math.max(5, kl * 0.22) : y0 + 7;
+            return Math.max(minY, Math.min(y1 - 3, topY + mm(p.odVrha)));
+        }
         let yy;
         switch (String(p.pozicija || "")) {
             case "Na vrhu klapne": yy = hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6; break;

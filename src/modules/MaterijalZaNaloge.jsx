@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase.js";
 import QRScannerModal from "../QRScannerModal.jsx";
 
@@ -9,6 +9,8 @@ import QRScannerModal from "../QRScannerModal.jsx";
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
 function vrstaColor(v) { const x = String(v || "").toUpperCase(); if (x.includes("PET")) return "#3b82f6"; if (x.includes("ALU")) return "#9aa3af"; if (x.includes("OPA") || x.includes("CPP")) return "#14b8a6"; if (x.includes("BOPP") || x.includes("PE") || x.includes("LDPE")) return "#f59e0b"; if (x.includes("PAPIR")) return "#d4a574"; return "#64748b"; }
 function qrCode(raw) { const s = String(raw || "").trim(); if (s.includes("|")) { const p = s.split("|"); return p[p.length - 1].trim(); } return s; }
+// Operacija kojoj pripada materijal datog SLOJA: sloj 1 = štampa, sloj 2 = 1. kaширanje, sloj 3 = 2. kaширanje…
+function opZaSloj(sloj) { var k = Number(sloj) || 1; if (k <= 1) return "Materijal za štampu"; return "Materijal za " + (k - 1) + ". kaширanje"; }
 
 // Parsiranje QR lokacije (isti format kao u magacinu): direktna "LOK:..." ili delovi MAGACIN/RED/POLICA/POZICIJA
 function parseLokacijaQr(orig) {
@@ -60,6 +62,38 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
+    // ŽIVO OSVEŽAVANJE — kad administracija dopuni materijal (ili se stanje promeni),
+    // lista i otvoreni nalog se sami ažuriraju, bez ručnog osvežavanja.
+    const openRef = useRef(null);
+    useEffect(() => { openRef.current = open; }, [open]);
+    useEffect(() => {
+        let gasi = false;
+        const osvezi = () => {
+            if (gasi) return;
+            load();                                   // lista naloga
+            const o = openRef.current;
+            if (o) ucitajDetalje(o, true);            // otvoreni nalog (čuva skenirano)
+        };
+        let ch = null;
+        try {
+            ch = supabase.channel("mat-za-naloge-" + Math.random().toString(36).slice(2))
+                .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, osvezi)
+                .on("postgres_changes", { event: "*", schema: "public", table: "materijal_stavke" }, osvezi)
+                .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, osvezi)
+                .subscribe();
+        } catch (e) { /* realtime možda nije uključen — ostaje fallback interval */ }
+        const onEvt = () => osvezi();
+        if (typeof window !== "undefined") window.addEventListener("maropack:nalozi-changed", onEvt);
+        const t = setInterval(osvezi, 15000);         // fallback: svakih 15s
+        return () => {
+            gasi = true;
+            try { supabase.removeChannel(ch); } catch (e) { }
+            if (typeof window !== "undefined") window.removeEventListener("maropack:nalozi-changed", onEvt);
+            clearInterval(t);
+        };
+        /* eslint-disable-next-line */
+    }, []);
+
     async function load() {
         setLoading(true);
         try {
@@ -98,6 +132,12 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function openNalog(it) {
         setOpen(it); setScanned({}); setRolls([]); setManual(""); setAlocMap({}); setStavkaMap({}); setIzdato({}); setMode("spremi");
         setLokacija(""); setLocParts({ magacin: "", red: "", polica: "", pozicija: "" }); setNedodeljeni([]); setVecIzdato({});
+        await ucitajDetalje(it, false);
+    }
+    // Učitaj rolne + nedodeljene slojeve naloga. merge=true → NE briše skenirano/uneto
+    // (koristi se za ŽIVO osvežavanje kad administracija dopuni materijal, da magacioner
+    //  ne izgubi već skenirane rolne, a nove (dopunjene) se same pojave).
+    async function ucitajDetalje(it, merge) {
         // Delimičan nalog: koji slojevi još nemaju materijal (administracija ih dodeljuje kad stigne).
         try {
             if (it.master?.id) {
@@ -129,7 +169,14 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const { data, error } = await supabase.from("magacin").select("*")
                     .ilike("dodeljeno_nalogu", "%" + broj + "%").limit(60);
                 if (error) throw error;
-                (data || []).forEach((r) => { mapa[r.id] = r; });
+                // VAŽNO: ilike "%broj%" može uhvatiti rolnu po DELU teksta ili deljenu rolnu
+                // (ovaj nalog je samo jedan od više). Zadržavamo SAMO rolne kojima dodeljeno_nalogu
+                // sadrži TAČAN broj ovog naloga (token pre „ · proizvod", delovi razdvojeni zarezom).
+                const tacanBroj = (dodeljeno) => String(dodeljeno || "").split(",").some((part) => {
+                    const tok = part.trim().split("·")[0].trim();
+                    return tok === broj;
+                });
+                (data || []).filter((r) => tacanBroj(r.dodeljeno_nalogu)).forEach((r) => { mapa[r.id] = r; });
 
                 // dopuna iz ledgera (materijal_stavke.nalog_ref = broj naloga)
                 const { data: st0, error: sErr } = await supabase.from("materijal_stavke")
@@ -159,9 +206,11 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const { data: st } = await supabase.from("materijal_stavke").select("*").in("rolna_id", ids).in("status", ["rezervisano", "izdato"]).order("created_at", { ascending: true });
                 const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
                 (st || []).forEach((s) => {
-                    // preferiraj stavku ovog naloga (nalog_ref sadržan u dodeljeno_nalogu rolne)
+                    // Alokaciju (planirano) uzimamo SAMO iz stavke OVOG naloga (nalog_ref === broj).
+                    // Ranije je fallback (aMap == null) hvatao stavku DRUGOG naloga, pa je rolna
+                    // koja ne pripada nalogu dobijala tuđe „planirano".
                     const pripada = !broj || String(s.nalog_ref || "") === broj;
-                    if (pripada || aMap[s.rolna_id] == null) {
+                    if (pripada) {
                         aMap[s.rolna_id] = num(s.alocirano_m);
                         sMap[s.rolna_id] = s;
                         const preostalo = Math.round(Math.max(0, num(s.alocirano_m) - num(s.izdato_m)));
@@ -171,9 +220,17 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                         if (String(s.status || "") === "izdato" && preostalo <= 0) { scInit[s.rolna_id] = true; vecInit[s.rolna_id] = true; }
                     }
                 });
-                setAlocMap(aMap); setStavkaMap(sMap); setIzdato(iMap);
-                if (Object.keys(scInit).length) setScanned(scInit);
-                setVecIzdato(vecInit);
+                setAlocMap(aMap); setStavkaMap(sMap);
+                if (merge) {
+                    // sačuvaj ono što je magacioner već skenirao/uneo; dodaj samo nove rolne
+                    setIzdato((prev) => ({ ...iMap, ...prev }));
+                    setScanned((prev) => ({ ...scInit, ...prev }));
+                    setVecIzdato((prev) => ({ ...prev, ...vecInit }));
+                } else {
+                    setIzdato(iMap);
+                    if (Object.keys(scInit).length) setScanned(scInit);
+                    setVecIzdato(vecInit);
+                }
             }
         } catch (e) { }
     }
@@ -327,7 +384,19 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     </div>
                 </div>}
 
-                {rolls.map((r) => {
+                {(() => {
+                    // Rolne razdvojene PO OPERACIJI (sloju): materijal za štampu, za 1. kaширanje, 2. kaширanje…
+                    const groups = {}, order = [];
+                    rolls.forEach((rr) => { const sl = Number((stavkaMap[rr.id] || {}).sloj) || Number(rr.sloj) || 1; if (!groups[sl]) { groups[sl] = []; order.push(sl); } groups[sl].push(rr); });
+                    order.sort((a, b) => a - b);
+                    const viseOp = order.length > 1;
+                    return order.map((sl) => {
+                        const lista = groups[sl];
+                        const doneG = lista.filter((x) => scanned[x.id]).length;
+                        return (
+                            <React.Fragment key={"grp" + sl}>
+                                {viseOp && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 2px 7px", padding: "8px 12px", background: "#eef4ff", border: "1px solid #c7d7f5", borderRadius: 12, fontWeight: 900, fontSize: 13.5, color: "#1e3a8a" }}><span>📦 {opZaSloj(sl)}</span><span style={{ fontSize: 12.5, color: doneG === lista.length ? "#15803d" : "#1e3a8a" }}>{doneG}/{lista.length}</span></div>}
+                                {lista.map((r) => {
                     const on = !!scanned[r.id];
                     const aloc = alocRolne(r);
                     const ostatak = num(r.metraza_ost ?? r.metraza);
@@ -353,7 +422,11 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                             )}
                         </div>
                     );
-                })}
+                                })}
+                            </React.Fragment>
+                        );
+                    });
+                })()}
 
                 {nedodeljeni.length > 0 && nedodeljeni.map((s, i) => (
                     <div key={"ned" + i} style={{ ...card, marginBottom: 9, borderLeft: "5px dashed #f59e0b", background: "#fffbeb" }}>

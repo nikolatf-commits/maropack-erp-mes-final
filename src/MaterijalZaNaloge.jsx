@@ -169,7 +169,14 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const { data, error } = await supabase.from("magacin").select("*")
                     .ilike("dodeljeno_nalogu", "%" + broj + "%").limit(60);
                 if (error) throw error;
-                (data || []).forEach((r) => { mapa[r.id] = r; });
+                // VAŽNO: ilike "%broj%" može uhvatiti rolnu po DELU teksta ili deljenu rolnu
+                // (ovaj nalog je samo jedan od više). Zadržavamo SAMO rolne kojima dodeljeno_nalogu
+                // sadrži TAČAN broj ovog naloga (token pre „ · proizvod", delovi razdvojeni zarezom).
+                const tacanBroj = (dodeljeno) => String(dodeljeno || "").split(",").some((part) => {
+                    const tok = part.trim().split("·")[0].trim();
+                    return tok === broj;
+                });
+                (data || []).filter((r) => tacanBroj(r.dodeljeno_nalogu)).forEach((r) => { mapa[r.id] = r; });
 
                 // dopuna iz ledgera (materijal_stavke.nalog_ref = broj naloga)
                 const { data: st0, error: sErr } = await supabase.from("materijal_stavke")
@@ -199,9 +206,11 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const { data: st } = await supabase.from("materijal_stavke").select("*").in("rolna_id", ids).in("status", ["rezervisano", "izdato"]).order("created_at", { ascending: true });
                 const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
                 (st || []).forEach((s) => {
-                    // preferiraj stavku ovog naloga (nalog_ref sadržan u dodeljeno_nalogu rolne)
+                    // Alokaciju (planirano) uzimamo SAMO iz stavke OVOG naloga (nalog_ref === broj).
+                    // Ranije je fallback (aMap == null) hvatao stavku DRUGOG naloga, pa je rolna
+                    // koja ne pripada nalogu dobijala tuđe „planirano".
                     const pripada = !broj || String(s.nalog_ref || "") === broj;
-                    if (pripada || aMap[s.rolna_id] == null) {
+                    if (pripada) {
                         aMap[s.rolna_id] = num(s.alocirano_m);
                         sMap[s.rolna_id] = s;
                         const preostalo = Math.round(Math.max(0, num(s.alocirano_m) - num(s.izdato_m)));
