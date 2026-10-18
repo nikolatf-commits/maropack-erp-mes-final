@@ -16,6 +16,7 @@ let LANG = "sr";
 // Korona tretman (folija) — postavlja se u buildPagesHTML iz templejta i provlači
 // se na SVE naloge preko identBlock (prikazuje se samo kad je uneto).
 let KORONA = null;
+let _PID2 = 0; // jedinstven id za SVG pattern (mikro perforacija na nalogu)
 function T(k, f) { return translate(LANG, k, f); }
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
 function val(v, f = "—") { return v === undefined || v === null || v === "" ? f : v; }
@@ -286,6 +287,8 @@ function buildD(nalog) {
                 N: num(pf.kolone || pf.brojKolona) || (linije.length || lanes.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
                 oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: perfSir, Hm: num(pf.visina) || 600,
                 tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
+                // ZONA mikro perforacije — margine od leve/desne ivice + gustina (gušća/ređa)
+                odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "gusca",
             };
         })(),
     };
@@ -361,6 +364,32 @@ function perf(D, mw, mh) {
     const P = D.perf, oV = P.oV, oD = P.oD, Wm = P.Wm || 840, Hm = P.Hm || 600;
     const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm;
     const yT = WEBY0 + oV * sy, yB = WEBY1 - oD * sy;
+
+    // ── MIKRO PERFORACIJA (ZONA): popuni traku između leve i desne ivice
+    //    tačkicama u SMAKNUTIM redovima; gušća = sitnije/gušće, ređa = krupnije/ređe.
+    if (String(P.tip) === 'mikro_zona') {
+        const oLmm = num(P.odLeveIvice), oRmm = num(P.odDesneIvice);
+        const xLz = WEBX0 + oLmm * sx, xRz = WEBX1 - oRmm * sx, zT = WEBY0, zB = WEBY1;
+        const c = "#8b5cf6", redja = String(P.gustina) === 'redja';
+        const step = redja ? 13 : 7, r = redja ? 1.8 : 1.4, pid = 'mpzn' + (_PID2++);
+        let z = "";
+        if (xRz > xLz + 2) {
+            z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="' + c + '10" stroke="' + c + '" stroke-width="1.6" stroke-dasharray="7 4"/>';
+            z += '<defs><pattern id="' + pid + '" width="' + step + '" height="' + (step * 2) + '" patternUnits="userSpaceOnUse">'
+                + '<circle cx="' + (step / 2) + '" cy="' + (step / 2) + '" r="' + r + '" fill="' + c + '"/>'
+                + '<circle cx="0" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
+                + '<circle cx="' + step + '" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
+                + '</pattern></defs>';
+            z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="url(#' + pid + ')"/>';
+        } else {
+            z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + ((zT + zB) / 2) + '" text-anchor="middle" font-size="12.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Ivice se preklapaju</text>';
+        }
+        z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (zT - 24) + '" text-anchor="middle" font-size="12" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ' + (redja ? 'REĐA' : 'GUŠĆA') + '</text>';
+        if (oLmm > 0) z += dimH(WEBX0, xLz, WEBY0 - 8, oLmm + ' mm', null, c);
+        if (oRmm > 0) z += dimH(xRz, WEBX1, WEBY0 - 8, oRmm + ' mm', null, c);
+        if (xRz > xLz + 2) { const zonaMm = Math.max(0, Math.round(Wm - oLmm - oRmm)); z += dimH(xLz, xRz, WEBY1 + 20, 'zona ' + zonaMm + ' mm', null, c); }
+        return sW(rp(mw > 320) + z, mw, mh, '0 0 600 760');
+    }
     const gGlob = num(P.razmak) || 5, rupe = String(P.tip) === 'rupe';
     const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
     const lin = Array.isArray(P.linije) ? P.linije : [];
@@ -679,7 +708,16 @@ function pRez(D) {
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
 }
 
-function pPerfBig(D) { return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + esc(D.perf.tip) + ' · ' + ((D.perf.linije && D.perf.linije.length) ? (D.perf.linije.length + ' linija') : (D.perf.N + ' kolona')) + ' · sve mere u mm</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip"><div class="m"><b>Tip</b>' + esc(D.perf.tip) + '</div><div class="m"><b>Kolona</b>' + D.perf.N + '</div><div class="m"><b>Od vrha</b>' + D.perf.oV + ' mm</div><div class="m"><b>Od dna</b>' + D.perf.oD + ' mm</div><div class="m"><b>Od ivica</b>' + D.perf.oL + ' mm</div></div></div>', 'Strana · perforacija (prilog)'); }
+function pPerfBig(D) {
+    const P = D.perf, zona = String(P.tip) === 'mikro_zona';
+    const sub = zona
+        ? ('Mikro perforacija (zona) · ' + (String(P.gustina) === 'redja' ? 'ređa' : 'gušća') + ' · sve mere u mm')
+        : (esc(P.tip) + ' · ' + ((P.linije && P.linije.length) ? (P.linije.length + ' linija') : (P.N + ' kolona')) + ' · sve mere u mm');
+    const meta = zona
+        ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + (String(P.gustina) === 'redja' ? 'Ređa' : 'Gušća') + '</div><div class="m"><b>Od leve</b>' + num(P.odLeveIvice) + ' mm</div><div class="m"><b>Od desne</b>' + num(P.odDesneIvice) + ' mm</div><div class="m"><b>Zona</b>' + Math.max(0, Math.round((P.Wm || 0) - num(P.odLeveIvice) - num(P.odDesneIvice))) + ' mm</div>')
+        : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div><div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>');
+    return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + sub + '</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip">' + meta + '</div></div>', 'Strana · perforacija (prilog)');
+}
 
 
 /* ============================ KESA ============================ */
@@ -1229,6 +1267,7 @@ function perfFromConfig(pf, width) {
         N: num(pf.kolone || pf.brojKolona) || (linije.length || 8), oV: num(pf.odVrha) || 50, oD: num(pf.odDna) || 50,
         oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: perfSir, Hm: num(pf.visina) || 600,
         tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
+        odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "gusca",
     };
 }
 // Jedan segment reza: matična širina + trake (plave = format/proizvod, sive = bočni ostatak → stanje).
