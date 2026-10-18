@@ -13,6 +13,9 @@ import { toCrtezKesa, KESA_OPCIJE, KESA_GRUPE, KESA_TIP_PRESET, FOOD_TEXT, opcij
 
 /* ---------- helpers ---------- */
 let LANG = "sr";
+// Korona tretman (folija) — postavlja se u buildPagesHTML iz templejta i provlači
+// se na SVE naloge preko identBlock (prikazuje se samo kad je uneto).
+let KORONA = null;
 function T(k, f) { return translate(LANG, k, f); }
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
 function val(v, f = "—") { return v === undefined || v === null || v === "" ? f : v; }
@@ -225,6 +228,9 @@ function buildD(nalog) {
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
         // Idealna širina materijala (iz proizvoda/templejta) — da se uporedi sa stvarno korišćenom rolnom
         idealnaSir: num(t.idealnaSirinaMaterijala) || num(od.idealnaSirinaMaterijala) || 0,
+        // Korona tretman (folija) — provlači se na sve naloge
+        koronaTretman: t.koronaTretman || t.korona || od.koronaTretman || nalog.korona_tretman || "",
+        koronaNapomena: t.koronaNapomena || od.koronaNapomena || nalog.korona_napomena || "",
         metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         // Dizajn NA FINALNOJ ROLNI (rezanje): ista slika kao štampa, ali rotacija koju je
@@ -461,6 +467,7 @@ function identBlock(kupac, tip, proizvod, materijal) {
         '<div class="ir tip"><div class="ik">Tip</div><div class="iv">' + esc(tip || '—') + '</div></div>' +
         '<div class="ir prod"><div class="ik">' + esc(T("nalog.proizvod", "Proizvod")) + '</div><div class="iv">' + esc(proizvod || '—') + '</div></div>' +
         (materijal ? '<div class="ir mat"><div class="ik">' + esc(materijal.labela || 'Materijal') + '</div><div class="iv">' + materijal.html + '</div></div>' : '') +
+        ((KORONA && (KORONA.t || KORONA.n)) ? '<div class="ir kor"><div class="ik">🔆 Korona tretman</div><div class="iv">' + (KORONA.t ? '<b>' + esc(KORONA.t) + '</b>' : '') + (KORONA.t && KORONA.n ? ' <span style="color:#64748b">· ' + esc(KORONA.n) + '</span>' : (KORONA.n ? esc(KORONA.n) : '')) + '</div></div>' : '') +
         '</div>';
 }
 
@@ -1349,6 +1356,8 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     const D = buildD(nalog);
     D.qr = qr || "";
     D.rolne = citajRolne(nalog);
+    // Korona tretman se provlači na sve stranice naloga (preko identBlock-a).
+    KORONA = (D.koronaTretman || D.koronaNapomena) ? { t: D.koronaTretman, n: D.koronaNapomena } : null;
     if (vrsta === "formatiranje") return pFormat(D, nalog);
     // FOLIJA FORMATI — matična → rezanje na formate + perforacija (plan u parametri.plan_formatiranja).
     {
@@ -1420,6 +1429,8 @@ const V6_CSS = `
 .nv6 .ident .iv{font-size:13px;font-weight:800;color:#334155}
 .nv6 .ident .ir.tip .iv{color:#0e7490;font-weight:900}
 .nv6 .ident .ir.prod .iv{font-size:19px;font-weight:900;color:#0f172a;line-height:1.15}
+.nv6 .ident .ir.kor .ik{color:#b45309}
+.nv6 .ident .ir.kor .iv{font-size:12.5px;color:#92400e}
 .nv6 .ident .ir.mat .iv{font-size:12px;font-weight:700;color:#334155;line-height:1.35}
 .nv6 .ident .ir.mat .ik{color:#7c3aed}
 .nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:11px 10px;position:relative;overflow:hidden;text-align:center;min-width:0}

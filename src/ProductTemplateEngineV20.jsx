@@ -3287,6 +3287,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     onChange={v => update("idealnaSirinaMaterijala", v)} placeholder="npr. 750" />
                 <TextArea label="Napomena" value={form.napomena || ""} onChange={v => update("napomena", v)} placeholder="interna napomena..." />
             </div>
+            {/* Korona tretman — folija (provlači se na SVE naloge) */}
+            {form.type === "folija" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
+                    <Input label="🔆 Korona tretman" value={form.koronaTretman || ""}
+                        onChange={v => update("koronaTretman", v)} placeholder="npr. 38 dyne, obe strane" />
+                    <Input label="Napomena za korona tretman" value={form.koronaNapomena || ""}
+                        onChange={v => update("koronaNapomena", v)} placeholder="napomena za korona tretman — ide na sve naloge" />
+                </div>
+            )}
             {/* AUTO KALKULACIJA — FOLIJA (poštuje broj traka, radi za kom/kg/m) */}
             {form.type === "folija" && (() => {
                 const ob = folijaObracun(form);

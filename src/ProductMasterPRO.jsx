@@ -389,10 +389,12 @@ function tdStyle(center = false) {
 //          (radi odmah, ali je vidljivo samo na tom računaru/pregledaču).
 // =====================================================================
 const DOK_BUCKET = "dokumentacija";
+// Word MIME/ext — dozvoljeno pored PDF i slika na svim tipovima dokumenata.
+const WORD_ACCEPT = ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DOK_TIPOVI = [
-    { k: "kpdf", l: "KPDF", icon: "📄", accept: "application/pdf,image/*" },
-    { k: "tehnicki", l: "Tehnički list", icon: "📋", accept: "application/pdf,image/*" },
-    { k: "slike", l: "Slike / crteži", icon: "🖼️", accept: "image/*,application/pdf" },
+    { k: "kpdf", l: "KPDF", icon: "📄", accept: "application/pdf,image/*," + WORD_ACCEPT },
+    { k: "tehnicki", l: "Tehnički list", icon: "📋", accept: "application/pdf,image/*," + WORD_ACCEPT },
+    { k: "slike", l: "Slike / crteži", icon: "🖼️", accept: "image/*,application/pdf," + WORD_ACCEPT },
 ];
 function fileToDataURL(file) {
     return new Promise((resolve, reject) => {
@@ -411,6 +413,11 @@ function writeLocalDocs(product, docs) {
 }
 function isPdfDoc(d) {
     return String(d?.mime || "").includes("pdf") || /^data:application\/pdf/i.test(String(d?.url || "")) || /\.pdf($|\?|#|;)/i.test(String(d?.url || ""));
+}
+function isWordDoc(d) {
+    const m = String(d?.mime || "").toLowerCase();
+    if (m.includes("word") || m.includes("officedocument.wordprocessing") || m === "application/msword") return true;
+    return /\.docx?($|\?|#|;)/i.test(String(d?.url || "")) || /\.docx?$/i.test(String(d?.naziv || ""));
 }
 function downloadDoc(d) {
     try { const a = document.createElement("a"); a.href = d.url; a.download = d.naziv || "dokument"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { window.open(d.url, "_blank"); }
@@ -834,7 +841,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                         </Card>}
                         {tab === "final" && <Card style={{ boxShadow: "none", padding: 16 }}><SectionTitle title="Finalna rolna / smer odmotavanja" /><InfoRow label="Smer" value={selected.finalnaRolna.smer} /><InfoRow label="Hilzna" value={selected.finalnaRolna.hilzna} /><InfoRow label="Prečnik" value={selected.finalnaRolna.precnik} /><InfoRow label="Dužina" value={selected.finalnaRolna.duzina} /></Card>}
                         {tab === "dok" && <>
-                            <SectionTitle title="Dokumentacija" note="Učitaj KPDF, tehnički list i slike/crteže (PDF ili slika). Otvaranje je u A4 prikazu, sa štampom i preuzimanjem." />
+                            <SectionTitle title="Dokumentacija" note="Učitaj KPDF, tehnički list i slike/crteže (PDF, Word ili slika). PDF i slike se otvaraju u A4 prikazu sa štampom; Word se preuzima." />
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}>
                                 {DOK_TIPOVI.map(t => (
                                     <DocCardPro key={t.k} tip={t} list={(docs || []).filter(d => d.tip === t.k)} loading={docsLoad} uploading={uploadingTip === t.k} onUpload={handleUpload} onOpen={setViewDoc} onDelete={handleDeleteDoc} />
@@ -890,7 +897,7 @@ function DocCardPro({ tip, list, loading, uploading, onUpload, onOpen, onDelete 
             {loading ? <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 12 }}>Učitavam…</div>
                 : (list || []).length === 0 ? <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 12 }}>Nije dodat.</div>
                     : list.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 10px" }}>
-                        <span style={{ fontSize: 15 }}>{isPdfDoc(d) ? "📕" : "🖼️"}</span>
+                        <span style={{ fontSize: 15 }}>{isPdfDoc(d) ? "📕" : isWordDoc(d) ? "📘" : "🖼️"}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.naziv}</div>
                             <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>{d.source === "local" ? "lokalno" : "server"}{d.created_at ? " · " + new Date(d.created_at).toLocaleDateString("sr-RS") : ""}</div>
@@ -899,7 +906,7 @@ function DocCardPro({ tip, list, loading, uploading, onUpload, onOpen, onDelete 
                         <button title="Obriši dokument" onClick={() => onDelete(d)} style={miniBtn(RED)}>✕</button>
                     </div>)}
         </div>
-        <button disabled={uploading} onClick={() => inputRef.current && inputRef.current.click()} style={{ ...btnStyle(uploading ? "#eef2f7" : "#fff", uploading ? "#94a3b8" : "#334155", "#cbd5e1"), marginTop: 14 }}>{uploading ? "Učitavam…" : "➕ Dodaj (PDF / slika)"}</button>
+        <button disabled={uploading} onClick={() => inputRef.current && inputRef.current.click()} style={{ ...btnStyle(uploading ? "#eef2f7" : "#fff", uploading ? "#94a3b8" : "#334155", "#cbd5e1"), marginTop: 14 }}>{uploading ? "Učitavam…" : "➕ Dodaj (PDF / Word / slika)"}</button>
     </Card>;
 }
 function miniBtn(color) { return { border: "1px solid " + color + "55", background: color + "12", color, borderRadius: 8, padding: "6px 9px", fontWeight: 900, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }; }
@@ -923,6 +930,7 @@ function dataUrlToBlobUrl(dataUrl) {
 // --- A4 prikaz dokumenta (modal) sa štampom i preuzimanjem ---
 function DokViewerA4({ doc, onClose }) {
     const pdf = isPdfDoc(doc);
+    const word = isWordDoc(doc);
     // PDF: data: -> blob: (da se otvori normalno, ne sićušno u tamnom okviru)
     const src = useMemo(() => {
         if (!doc || !doc.url) return "";
@@ -937,16 +945,26 @@ function DokViewerA4({ doc, onClose }) {
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ color: "#fff", fontWeight: 900, fontSize: 15, flex: 1, minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.naziv}</div>
                 <button onClick={() => window.open(src, "_blank")} style={viewerBtn("rgba(255,255,255,.2)", "#fff")}>↗️ Novi tab</button>
-                <button onClick={() => printDoc(doc)} style={viewerBtn("#fff", "#0f172a")}>🖨️ Štampaj</button>
+                {!word && <button onClick={() => printDoc(doc)} style={viewerBtn("#fff", "#0f172a")}>🖨️ Štampaj</button>}
                 <button onClick={() => downloadDoc(doc)} style={viewerBtn("#2563eb", "#fff")}>⬇️ Preuzmi</button>
                 <button onClick={onClose} style={viewerBtn("rgba(255,255,255,.2)", "#fff")}>✕ Zatvori</button>
             </div>
-            <div style={{ width: "100%", background: "#fff", borderRadius: 6, boxShadow: "0 20px 60px rgba(0,0,0,.4)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: pdf ? undefined : "210 / 297" }}>
-                {pdf
-                    ? <iframe title={doc.naziv} src={pdfSrc} style={{ border: 0, width: "100%", height: "90vh", display: "block", background: "#525659" }} />
-                    : <img src={src} alt={doc.naziv} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />}
+            <div style={{ width: "100%", background: "#fff", borderRadius: 6, boxShadow: "0 20px 60px rgba(0,0,0,.4)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: (pdf || word) ? undefined : "210 / 297" }}>
+                {word
+                    ? <div style={{ padding: "48px 24px", textAlign: "center", width: "100%" }}>
+                        <div style={{ fontSize: 56 }}>📘</div>
+                        <div style={{ fontSize: 16, fontWeight: 950, color: "#0f172a", marginTop: 12, wordBreak: "break-word" }}>{doc.naziv}</div>
+                        <div style={{ fontSize: 13, color: "#64748b", fontWeight: 700, marginTop: 10, maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>Word dokument se ne može prikazati u pregledaču. Preuzmi ga ili otvori u novom tabu da se otvori u Word-u.</div>
+                        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18, flexWrap: "wrap" }}>
+                            <button onClick={() => downloadDoc(doc)} style={viewerBtn("#2563eb", "#fff")}>⬇️ Preuzmi Word</button>
+                            <button onClick={() => window.open(src, "_blank")} style={viewerBtn("#eef2f7", "#0f172a")}>↗️ Otvori u novom tabu</button>
+                        </div>
+                    </div>
+                    : pdf
+                        ? <iframe title={doc.naziv} src={pdfSrc} style={{ border: 0, width: "100%", height: "90vh", display: "block", background: "#525659" }} />
+                        : <img src={src} alt={doc.naziv} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />}
             </div>
-            <div style={{ color: "rgba(255,255,255,.7)", fontSize: 11, marginTop: 10, fontWeight: 700 }}>A4 prikaz · ako je prazno/sitno, otvori „↗️ Novi tab" · klikni van papira za zatvaranje</div>
+            <div style={{ color: "rgba(255,255,255,.7)", fontSize: 11, marginTop: 10, fontWeight: 700 }}>{word ? 'Word dokument · preuzmi ili otvori u novom tabu · klikni van papira za zatvaranje' : 'A4 prikaz · ako je prazno/sitno, otvori „↗️ Novi tab" · klikni van papira za zatvaranje'}</div>
         </div>
     </div>;
 }
