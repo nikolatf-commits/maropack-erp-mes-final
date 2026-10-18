@@ -2196,8 +2196,10 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
 
     async function generisiNalogFormati() {
         const mat = formatiMaterijal();
-        if (!mat.vrsta || !(mat.oznaka) || !(mat.debljina)) {
-            msg && msg("Za formate: u sekciji Materijali (prvi red) izaberi vrstu, oznaku i debljinu matične rolne.", "err"); return;
+        // Oznaka je opciona (dodela materijala je koristi samo kad je uneta).
+        if (!mat.vrsta || !(mat.debljina)) {
+            const fale = []; if (!mat.vrsta) fale.push("vrstu"); if (!mat.debljina) fale.push("debljinu");
+            msg && msg("Za formate: u sekciji Materijali (prvi red) izaberi " + fale.join(" i ") + " matične rolne.", "err"); return;
         }
         const potrebe = formatiPotrebe();
         if (!potrebe.length) { msg && msg("Dodaj bar jedan format (širina, dužina, broj rolni).", "err"); return; }
@@ -2364,13 +2366,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (!(ob.m2Rad > 0)) { msg && msg("Unesi poručenu količinu špulne (m²/kom/kg/m)!", "err"); return; }
             if (ob.greske.length) { msg && msg(ob.greske[0], "err"); return; }
         } else if (!(Number(form.porucenaKolicina) > 0)) { msg && msg("Unesi poručenu količinu (m)!", "err"); return; }
-        // Svaki sloj mora imati vrstu, oznaku i debljinu
-        const nepotpun = layers.findIndex(l =>
-            !(l.vrsta || l.material || l.tip) ||
-            !(l.oznaka_materijala || l.oznaka) ||
-            !(l.debljina || l.deb)
-        );
-        if (nepotpun !== -1) { msg && msg(`Sloj ${nepotpun + 1}: izaberi vrstu, oznaku i debljinu materijala!`, "err"); return; }
+        // Svaki sloj mora imati VRSTU i DEBLJINU. Oznaka je OPCIONA —
+        // kod dodele materijala se i tako koristi samo ako je uneta
+        // (dodela ide po vrsti + pod-vrsti, a oznaka samo kad postoji).
+        // Poruka imenuje TAČNO ono što fali, da ne traži polja koja su već uneta.
+        let nepotpun = -1, falePolja = "";
+        for (let i = 0; i < layers.length; i++) {
+            const l = layers[i] || {};
+            const fale = [];
+            if (!(l.vrsta || l.material || l.tip)) fale.push("vrstu");
+            if (!(l.debljina || l.deb)) fale.push("debljinu");
+            if (fale.length) { nepotpun = i; falePolja = fale.join(" i "); break; }
+        }
+        if (nepotpun !== -1) { msg && msg(`Sloj ${nepotpun + 1}: izaberi ${falePolja} materijala!`, "err"); return; }
 
         setNalogLoading(true);
         setNalogModal(true);
