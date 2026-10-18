@@ -159,6 +159,42 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         const brojOp = String(it.op?.broj_naloga || "").trim().replace(SUFIKS, "");
         const broj = brojMaster || brojOp;
 
+        // ── DOZVOLJENE ROLNE = TAČNO one koje je administracija izabrala na nalogu.
+        // Izvor: materijali_nalozi.parametri.izabrane_rolne — ISTI izvor koji se štampa
+        // na nalogu (NalogLayoutPRO). Magacin (dodeljeno_nalogu) i ledger (materijal_stavke)
+        // mogu da nose ZAOSTALE rezervacije rolni koje su kasnije uklonjene iz izbora
+        // (npr. preračun pre konačnog izbora). Takve rolne NE smeju da se prikažu
+        // magacioneru — zato ovde uzimamo konačan izbor i filtriramo po njemu.
+        let dozvId = null, dozvBr = null;
+        try {
+            if (broj) {
+                let izabrane = null;
+                const { data: mn } = await supabase.from("materijali_nalozi")
+                    .select("parametri").filter("parametri->>broj_naloga", "eq", broj).limit(1);
+                if (mn && mn[0] && mn[0].parametri) izabrane = mn[0].parametri.izabrane_rolne || mn[0].parametri.rezervisane_rolne;
+                if (!izabrane && it.master?.id != null) {
+                    const { data: mn2 } = await supabase.from("materijali_nalozi")
+                        .select("parametri").filter("parametri->>glavni_nalog_id", "eq", String(it.master.id)).limit(1);
+                    if (mn2 && mn2[0] && mn2[0].parametri) izabrane = mn2[0].parametri.izabrane_rolne || mn2[0].parametri.rezervisane_rolne;
+                }
+                if (Array.isArray(izabrane) && izabrane.length) {
+                    dozvId = new Set(); dozvBr = new Set();
+                    izabrane.forEach((x) => {
+                        if (!x) return;
+                        if (x.rolna_id != null) dozvId.add(String(x.rolna_id));
+                        const b = x.br_rolne || x.qr || x.qr_code || x.qr_kod;
+                        if (b) dozvBr.add(String(b).toUpperCase().trim());
+                    });
+                }
+            }
+        } catch (e) { /* bez filtera ako izbor nije dostupan (stariji nalozi) */ }
+        const naIzboru = (r) => {
+            if (!dozvId || (!dozvId.size && !(dozvBr && dozvBr.size))) return true; // nema izbora → ne filtriraj
+            if (dozvId.has(String(r.id))) return true;
+            const b = String(r.br_rolne || "").toUpperCase().trim(), q = String(r.qr_code || "").toUpperCase().trim();
+            return (dozvBr && (dozvBr.has(b) || dozvBr.has(q)));
+        };
+
         // Rolne su vezane za BROJ NALOGA:  magacin.dodeljeno_nalogu = "MP-2026-0008 · PROIZVOD"
         // (ranije je bilo vezano za šifru proizvoda, pa su dva naloga sa istim
         //  proizvodom delila iste rolne — magacioner je istu rolnu mogao izdati dvaput)
@@ -191,7 +227,9 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     (mr || []).forEach((r) => { mapa[r.id] = r; });
                 }
             }
-            rows = Object.values(mapa);
+            // Zadrži SAMO rolne koje su na konačnom izboru naloga (ako izbor postoji).
+            // Ovo izbacuje zaostale rezervacije (rolne koje se ne nalaze na štampanom nalogu).
+            rows = Object.values(mapa).filter(naIzboru);
         } catch (e) {
             // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
             // isto kao da nalog stvarno nema rolne. Sada se vidi.
