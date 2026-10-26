@@ -62,6 +62,7 @@ function createDisabledSupabaseClient() {
     storage: { from() { return { upload: () => Promise.resolve({ data: null, error: notConfiguredError() }), getPublicUrl: () => ({ data: { publicUrl: '' } }) }; } },
     auth: {
       async getSession() { return { data: { session: null }, error: notConfiguredError() }; },
+      async refreshSession() { return { data: { session: null }, error: notConfiguredError() }; },
       onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
       async getUser() { return { data: { user: null }, error: notConfiguredError() }; },
       async signInWithPassword() { return { data: null, error: notConfiguredError() }; },
@@ -70,6 +71,23 @@ function createDisabledSupabaseClient() {
   };
 }
 
+// Auth opcije eksplicitno — da sesija OPSTANE i da se token POUZDANO sam osvežava:
+//  - persistSession:   čuva sesiju u localStorage (preživi osvežavanje stranice)
+//  - autoRefreshToken: Supabase sam obnavlja access token pre isteka (podrazumevano 1h)
+//  - detectSessionInUrl: pokupi token iz URL-a posle login redirecta
+//  - storageKey:       jedinstven ključ za ovu app (da se ne sudara sa drugim app na istom domenu)
+// Ranije se createClient zvao bez opcija — ponašanje je bilo podrazumevano, ali bez
+// jedinstvenog storageKey-a i bez eksplicitne garancije; sada je jasno i stabilno.
+const browserStorage = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : undefined;
+
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: browserStorage,
+        storageKey: 'maropack-auth',
+      },
+    })
   : createDisabledSupabaseClient();

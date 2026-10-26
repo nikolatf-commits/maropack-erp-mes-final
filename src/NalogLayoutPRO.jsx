@@ -20,6 +20,16 @@ let _PID2 = 0; // jedinstven id za SVG pattern (mikro perforacija na nalogu)
 function T(k, f) { return translate(LANG, k, f); }
 function num(v) { return Number(String(v ?? 0).toString().replace(/\s/g, "").replace(",", ".")) || 0; }
 function val(v, f = "—") { return v === undefined || v === null || v === "" ? f : v; }
+// Širina rolne je CRVENA (ivični otpad) SAMO kad posle rezanja na cele trake
+// (idealne/ciljne širine) ostane stvarni višak. Matična rolna koja je čist
+// višekratnik (npr. 1440 = 3×480, otpad 0) NIJE otpad → ostaje crna.
+function sirImaOtpad(vSir, refSir) {
+    vSir = num(vSir); refSir = num(refSir);
+    if (!vSir || !refSir) return false;
+    var n = Math.floor((vSir + 0.5) / refSir);
+    if (n < 1) return false;
+    return (vSir - n * refSir) > 3;
+}
 function pick(o, ks, f = "") { for (const k of ks) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; return f; }
 function fmtN(n) { const x = Number(n || 0); return Number.isFinite(x) ? x.toLocaleString("sr-RS", { maximumFractionDigits: 1 }) : "—"; }
 
@@ -471,8 +481,8 @@ function napHtml(D, op) {
     if (!parts.length) return "";
     // Napomena je VAŽNA — veća, podebljana, sa jasnim naslovom i debelom crvenom ivicom,
     // da je operater ne previdi.
-    return '<div class="ulaz nap" style="font-size:15.5px;line-height:1.45;border-left:7px solid #dc2626;background:#fef2f2;color:#991b1b;margin-top:14px;padding:12px 16px;border-radius:0 10px 10px 0;box-shadow:0 1px 4px rgba(220,38,38,.12)">'
-        + '<div style="font-size:11px;font-weight:950;letter-spacing:1.2px;text-transform:uppercase;color:#dc2626;margin-bottom:5px">📝 Napomena</div>'
+    return '<div class="ulaz nap" style="font-size:19px;line-height:1.4;border-left:9px solid #dc2626;background:#fef2f2;color:#991b1b;margin-top:14px;padding:14px 18px;border-radius:0 12px 12px 0;box-shadow:0 2px 6px rgba(220,38,38,.16)">'
+        + '<div style="font-size:14px;font-weight:950;letter-spacing:1.4px;text-transform:uppercase;color:#dc2626;margin-bottom:6px">📝 NAPOMENA</div>'
         + '<div style="font-weight:800">' + parts.join(' · ') + '</div>'
         + '</div>';
 }
@@ -566,7 +576,7 @@ function pMat(D) {
     const c = COLm; return pageWrap(D, hd(D, '📦', T("nalog.nalog_materijal"), c, 'materijal') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statRow(D) + infoBlock(D) +
         '<div class="ulaz"><b>Obračun:</b> Poručeno <b>' + fmtN(D.zadatoV) + ' ' + esc(D.jedinica) + '</b> &rarr; ' + fmtN(D.kolicina) + ' m trake &divide; ' + D.N + ' traka = ' + fmtN(D.metriMat) + ' m matične &nbsp;·&nbsp; +' + (D.skartPct || 5) + '% škart = <b>' + fmtN(D.metriMatPlus) + ' m</b> &nbsp;·&nbsp; materijal <b>' + fmtN(Math.round(D.kgPlus || 0)) + ' kg</b> (širina ' + D.sirinaMat + ' mm)</div>' +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Koef.', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno', n: 1 }, { t: 'Kg', n: 1 }, 'Št.'], c) + '<tbody>' + matRows(D, true) + '<tr class="tot"><td colspan="10" style="text-align:right">UKUPNO (' + D.TOTu + ' µm)</td><td class="n">' + totalKg(D) + '</td><td></td></tr></tbody></table></div>' +
-        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'razdvojeno po operaciji') + '<table class="rl">' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizv.', { t: 'Deb. (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + rolneGrupno((Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, lot: '—', lok: '—' }; })), function (r, ri) {
+        '<div class="sec">' + secH(2, c, 'Rezervisane role iz magacina', 'razdvojeno po operaciji') + '<table class="rl">' + th(['QR rolne', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizv.', { t: 'Deb. (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Metara', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' + rolneGrupno((Array.isArray(D.rolne) && D.rolne.length ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, pv: l.pv, oz: l.oz, pr: l.pr, u: l.u, sir: num(l.sirina) || num(D.sirinaMat) || 0, lot: '—', lok: '—' }; })), function (r, ri) {
             // Sve rezervisane rolne su za neki SLOJ. Ako rolni fale snapshot podaci materijala
             // (vrsta/oznaka/debljina…), povuci ih iz odgovarajućeg sloja (r.sloj), a ako nema —
             // iz prvog sloja (kod jednoslojne folije su sve rolne isti materijal).
@@ -576,14 +586,18 @@ function pMat(D) {
             var vPV = r.pv || Lr.pv || '';
             var vOZ = r.oz || Lr.oz || '';
             var vPR = r.pr || Lr.pr || '';
-            var vU = r.u || Lr.u || '';
+            // Debljina/širina = ISKLJUČIVO stvarna vrednost rezervisane rolne (snapshot).
+            // NE dopunjavati iz strukture/matične širine: ako je tražena rolna 760/29 a
+            // izabrana 820/32, struktura bi prikazala pogrešnih 760/29. Bolje „—" nego laž.
+            // (Kod placeholder-a bez rezervacija synthetic red već nosi planiranu širinu.)
+            var vU = num(r.u) || 0;
             // Metara rolne = koliko TA rolna ima (fizička dužina / preostalo); fallback na alocirano.
             var mNaRolni = r.rolnaM || r.alok || 0;
             var vKG = (r.kg != null) ? r.kg : (Lr.gm2 && mNaRolni ? +(Lr.gm2 * (D.sirinaMat / 1000) * mNaRolni / 1000).toFixed(1) : null);
             // Širina rolne: ako je šira od IDEALNE → crveno (ima ivični otpad)
-            var vSir = num(r.sir) || num(Lr.sirina) || 0;
-            var sirCell = vSir ? ((D.idealnaSir && vSir > D.idealnaSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (mNaRolni ? fmtN(mNaRolni) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }, 11) + '</tbody></table></div>' +
+            var vSir = num(r.sir) || 0;
+            var sirCell = vSir ? ((D.idealnaSir && sirImaOtpad(vSir, D.idealnaSir)) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(vN || '—') + '</td><td>' + esc(vPV || '—') + '</td><td>' + esc(vOZ || '—') + '</td><td>' + esc(vPR || '—') + '</td><td class="n">' + (vU ? (vU + ' µm') : '—') + '</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + (mNaRolni ? fmtN(mNaRolni) : '—') + '</td><td class="n">' + (vKG != null ? fmtN(vKG) : '—') + '</td></tr>'; }, 11) + '</tbody></table></div>' +
         (function () {
             // POREĐENJE: idealna širina (iz proizvoda) vs stvarno korišćena rolna → ivični otpad + preporuka za poruku
             var ideal = num(D.idealnaSir);
@@ -804,7 +818,7 @@ function kesaTotalKg(D, K) { return D.LAY.reduce(function (a, l) { return a + l.
 /* 1/4 materijal */
 function pKesaMat(D, K) {
     const c = COLm;
-    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; });
+    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, oz: l.oz, u: l.u, sir: num(l.sirina) || num(K.sirMat) || 0, lot: '—', lok: '—' }; });
     return pageWrap(D, hd(D, '📦', 'NALOG ZA MATERIJAL', c, '1/4') + '<div class="body">' + identBlock(D.kupac, kesaTipLabel(K.tip), D.proizvod) + kesaStat(D, K) + kesaInfo(D, K) + kesaObracun(K) +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' +
         th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
@@ -817,10 +831,12 @@ function pKesaMat(D, K) {
         th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolneGrupno(rolne, function (r, i) {
             const l = D.LAY[(r.sloj && r.sloj > 0) ? r.sloj - 1 : i] || {};
-            // Širina rolne: ako je šira od IDEALNE → crveno (ima ivični otpad)
-            var vSir = num(r.sir) || num(l.sirina) || 0;
-            var sirCell = vSir ? ((D.idealnaSir && vSir > D.idealnaSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
+            // Debljina/širina = ISKLJUČIVO stvarna vrednost rolne (snapshot), bez dopune iz
+            // strukture — tražena rolna (npr. 760/29) ≠ izabrana (820/32). Bolje „—" nego laž.
+            var vU = num(r.u) || 0;
+            var vSir = num(r.sir) || 0;
+            var sirCell = vSir ? ((D.idealnaSir && sirImaOtpad(vSir, D.idealnaSir)) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (vU ? (vU + ' µm') : '—') + '</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
         }, 9) + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
@@ -1080,7 +1096,7 @@ function spObracun(S) {
 /* 1/3 — materijal */
 function pSpMat(D, S) {
     const c = COLm;
-    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, oz: l.oz, u: l.u, lot: '—', lok: '—' }; });
+    const rolne = (Array.isArray(D.rolne) && D.rolne.length) ? D.rolne : D.LAY.map(function (l, li) { return { qr: '—', sloj: li + 1, n: l.n, oz: l.oz, u: l.u, sir: num(l.sirina) || num(S.sirMat) || 0, lot: '—', lok: '—' }; });
     return pageWrap(D, hd(D, '📦', 'NALOG ZA MATERIJAL', c, '1/2') + '<div class="body">' + identBlock(D.kupac, (D.tipLabel || 'Špulna'), D.proizvod) + spStat(D, S) + spInfo(D, S) + spObracun(S) +
         '<div class="sec">' + secH(1, c, 'Struktura materijala po sloju', 'iz templejta / kalkulacije') + '<table>' +
         th(['Sloj', 'Vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'g/m²', n: 1 }, { t: 'Širina', n: 1 }, { t: 'Potrebno (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
@@ -1093,11 +1109,14 @@ function pSpMat(D, S) {
         th(['QR rolne', 'Vrsta', 'Oznaka', { t: 'Debljina (µm)', n: 1 }, { t: 'Širina', n: 1 }, 'LOT', 'Lokacija', { t: 'Alocirano (m)', n: 1 }, { t: 'Kg', n: 1 }], c) + '<tbody>' +
         rolneGrupno(rolne, function (r, i) {
             const l = D.LAY[(r.sloj && r.sloj > 0) ? r.sloj - 1 : i] || {};
+            // Debljina/širina = ISKLJUČIVO stvarna vrednost rolne (snapshot), bez dopune iz
+            // strukture — tražena rolna (npr. 760/29) ≠ izabrana (820/32). Bolje „—" nego laž.
+            var vU = num(r.u) || 0;
             // Širina rolne: ako je šira od matične/idealne → crveno (ima ivični otpad)
-            var vSir = num(r.sir) || num(l.sirina) || 0;
+            var vSir = num(r.sir) || 0;
             var refSir = num(D.idealnaSir) || num(S.sirMat) || 0;
-            var sirCell = vSir ? ((refSir && vSir > refSir) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
-            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (r.u || '—') + ' µm</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || S.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—')) + '</td></tr>';
+            var sirCell = vSir ? ((refSir && sirImaOtpad(vSir, refSir)) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (vU ? (vU + ' µm') : '—') + '</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || S.metriMat) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? fmtN(l.gm2 * S.kgF) : '—')) + '</td></tr>';
         }, 9) + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
 }
@@ -1145,8 +1164,7 @@ function pSpulna(D, S) {
         '<div class="sec">' + secH(4, c, 'Pakovanje proizvoda', '') + '<div class="info">' +
         infoC('Pakovanje u kutije', S.kutija) + infoC('Rolni po paleti', S.poPaleti) + infoC('Broj paleta', S.palete.toFixed(1)) +
         infoC('Tip namotavanja', S.smer) + infoC('Smer namotavanja', S.smerNamotavanja) + infoC('Težina bruto', S.tezinaBruto ? S.tezinaBruto + ' kg' : '—') +
-        infoC('Side A', S.sideA) + infoC('Side B', S.sideB) + '</div>' +
-        (S.napomena ? '<div class="ulaz nap" style="font-size:15.5px;line-height:1.45;border-left:7px solid #dc2626;background:#fef2f2;color:#991b1b;margin-top:12px;padding:12px 16px;border-radius:0 10px 10px 0;box-shadow:0 1px 4px rgba(220,38,38,.12)"><div style="font-size:11px;font-weight:950;letter-spacing:1.2px;text-transform:uppercase;color:#dc2626;margin-bottom:5px">📝 Napomena</div><div style="font-weight:800">' + esc(S.napomena) + '</div></div>' : '') + '</div>' +
+        infoC('Side A', S.sideA) + infoC('Side B', S.sideB) + '</div></div>' +
 
         napHtml(D, 'spulna') +
         foot('Operater namotavanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana 2 · špulna');
@@ -1456,8 +1474,8 @@ const V6_CSS = `
 .nv6 .hd-top{display:flex;justify-content:space-between;align-items:flex-start}
 .nv6 .brand{display:flex;align-items:center;gap:12px}
 .nv6 .mono{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-weight:950;font-size:15px}
-.nv6 .co{font-size:10px;letter-spacing:2px;font-weight:800;opacity:.72}
-.nv6 .nm{font-size:14px;font-weight:900}
+.nv6 .co{font-size:11px;letter-spacing:2px;font-weight:800;opacity:.72}
+.nv6 .nm{font-size:15px;font-weight:900}
 .nv6 .docmeta{text-align:right;font-size:11px;line-height:1.45}
 .nv6 .docmeta b{font-size:13px}
 .nv6 .docmeta .k{opacity:.6;margin-right:5px}
@@ -1465,28 +1483,28 @@ const V6_CSS = `
 .nv6 .title .ic{font-size:19px}
 .nv6 .title .big{font-size:19px;font-weight:950;line-height:1.15}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
-.nv6 .body{padding:20px 26px;flex:1;display:flex;flex-direction:column}
+.nv6 .body{padding:15px 26px;flex:1;display:flex;flex-direction:column}
 .nv6 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:16px}
 .nv6 .ident{margin-bottom:14px}
-.nv6 .ident .ir{display:flex;gap:12px;align-items:baseline;padding:3px 0}
-.nv6 .ident .ik{min-width:92px;font-size:9.5px;font-weight:900;color:var(--mut);text-transform:uppercase;letter-spacing:.3px}
-.nv6 .ident .iv{font-size:13px;font-weight:800;color:#334155}
+.nv6 .ident .ir{display:flex;gap:12px;align-items:baseline;padding:2px 0}
+.nv6 .ident .ik{min-width:92px;font-size:11px;font-weight:900;color:var(--mut);text-transform:uppercase;letter-spacing:.3px}
+.nv6 .ident .iv{font-size:15px;font-weight:800;color:#334155}
 .nv6 .ident .ir.tip .iv{color:#0e7490;font-weight:900}
-.nv6 .ident .ir.prod .iv{font-size:19px;font-weight:900;color:#0f172a;line-height:1.15}
+.nv6 .ident .ir.prod .iv{font-size:22px;font-weight:900;color:#0f172a;line-height:1.15}
 .nv6 .ident .ir.kor .ik{color:#b45309}
-.nv6 .ident .ir.kor .iv{font-size:12.5px;color:#92400e}
-.nv6 .ident .ir.mat .iv{font-size:12px;font-weight:700;color:#334155;line-height:1.35}
+.nv6 .ident .ir.kor .iv{font-size:14px;color:#92400e}
+.nv6 .ident .ir.mat .iv{font-size:13.5px;font-weight:700;color:#334155;line-height:1.35}
 .nv6 .ident .ir.mat .ik{color:#7c3aed}
-.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:11px 10px;position:relative;overflow:hidden;text-align:center;min-width:0}
+.nv6 .stat{border:1px solid var(--line);border-radius:10px;padding:8px 10px;position:relative;overflow:hidden;text-align:center;min-width:0}
 .nv6 .stat .bar{position:absolute;left:0;top:0;bottom:0;width:4px}
-.nv6 .stat .l{font-size:9px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.25}
-.nv6 .stat .v{font-size:17px;font-weight:900;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.2;text-align:center;white-space:normal}
-.nv6 .stat .u{font-size:10px;color:var(--mut)}
+.nv6 .stat .l{font-size:10.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.25}
+.nv6 .stat .v{font-size:20px;font-weight:900;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.2;text-align:center;white-space:normal}
+.nv6 .stat .u{font-size:11px;color:var(--mut)}
 .nv6 .info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:9px;overflow:hidden}
-.nv6 .info .c{padding:10px 13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;text-align:center}
-.nv6 .info .c .l{font-size:9.5px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
-.nv6 .info .c .v{font-size:12.5px;font-weight:800;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.3;text-align:center;min-width:0}
-.nv6 .sec{margin-top:20px;max-width:100%;overflow:hidden}
+.nv6 .info .c{padding:7px 13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;text-align:center}
+.nv6 .info .c .l{font-size:11px;color:var(--mut);font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:center}
+.nv6 .info .c .v{font-size:14.5px;font-weight:800;margin-top:3px;word-break:normal;overflow-wrap:break-word;line-height:1.3;text-align:center;min-width:0}
+.nv6 .sec{margin-top:13px;max-width:100%;overflow:hidden}
 .nv6 .body.compact .sec{margin-top:9px}
 .nv6 .body.compact .stats{margin-top:8px}
 .nv6 .body.compact .info{margin-top:6px}
@@ -1499,33 +1517,33 @@ const V6_CSS = `
 .nv6 .sp-leg .r{display:flex;gap:6px;font-size:9px;line-height:1.2;padding:2px 0;border-bottom:1px solid #eef2f7}
 .nv6 .sp-leg .k{font-weight:950;color:#0f172a;min-width:34px;flex:0 0 auto}
 .nv6 .sp-leg .d{color:#475569;font-weight:700}
-.nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
-.nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}
-.nv6 .sec-h .tt{font-size:13.5px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
+.nv6 .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.nv6 .sec-h .no{width:20px;height:20px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900}
+.nv6 .sec-h .tt{font-size:15.5px;font-weight:900;letter-spacing:.5px;text-transform:uppercase}
 .nv6 .sec-h .rule{flex:1;height:1px;background:var(--line)}
-.nv6 .sec-h .src{font-size:9px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
-.nv6 table{width:100%;border-collapse:collapse;font-size:11px;table-layout:auto;max-width:100%}
-.nv6 th{text-align:left;padding:6px 6px;font-size:9px;text-transform:uppercase;letter-spacing:0;font-weight:800;word-break:normal;overflow-wrap:normal;hyphens:none}
-.nv6 td{padding:6px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:normal;overflow-wrap:break-word;hyphens:none;line-height:1.35}
+.nv6 .sec-h .src{font-size:10px;font-weight:800;color:#16a34a;background:#dcfce7;border-radius:5px;padding:2px 7px}
+.nv6 table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto;max-width:100%}
+.nv6 th{text-align:left;padding:4px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0;font-weight:800;word-break:normal;overflow-wrap:normal;hyphens:none}
+.nv6 td{padding:4px 6px;border-top:1px solid #eef1f5;font-weight:600;word-break:normal;overflow-wrap:break-word;hyphens:none;line-height:1.35}
 .nv6 td.n,.nv6 th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Uža tabela (10 kolona — rezervisane rolne): manji font i razmak da ceo red stane na A4 */
-.nv6 table.rl{font-size:9.5px}
+.nv6 table.rl{font-size:11px}
 .nv6 table.rl th,.nv6 table.rl td{padding:4px 4px}
 .nv6 table.rl td:first-child,.nv6 table.rl th:first-child{word-break:break-all}
 .nv6 tbody tr:nth-child(even){background:#fbfcfe}
 .nv6 tr.tot td{border-top:2px solid #d6dbe3;font-weight:900;background:#f5f8fc}
-.nv6 tr.grp td{font-weight:900;background:#eef4ff;color:#1e3a8a;border-top:2px solid #c7d7f5;border-bottom:1px solid #c7d7f5;letter-spacing:.3px;font-size:10px;padding:6px 6px}
+.nv6 tr.grp td{font-weight:900;background:#eef4ff;color:#1e3a8a;border-top:2px solid #c7d7f5;border-bottom:1px solid #c7d7f5;letter-spacing:.3px;font-size:11.5px;padding:6px 6px}
 .nv6 .dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .nv6 .fig{border:1px solid var(--line);border-radius:10px;padding:14px;background:linear-gradient(180deg,#fcfdff,#f5f8fc);text-align:center}
 .nv6 .fig .cap{font-size:10px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .nv6 .chips{display:flex;gap:9px;flex-wrap:wrap}
 .nv6 .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;word-break:normal;overflow-wrap:break-word;font-size:11.5px;font-weight:800}
 .nv6 .chip .sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.1)}
-.nv6 .ulaz{font-size:12.5px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px;word-break:normal;overflow-wrap:break-word;line-height:1.5}
+.nv6 .ulaz{font-size:14px;color:#0c4a6e;background:#eff8ff;border-left:3px solid #38bdf8;border-radius:0 7px 7px 0;padding:9px 12px;margin-bottom:14px;word-break:normal;overflow-wrap:break-word;line-height:1.5}
 .nv6 .foot{display:flex;gap:16px;margin-top:auto;padding-top:14px}
-.nv6 .sign{flex:1;font-size:10px;color:var(--mut);text-align:center}
+.nv6 .sign{flex:1;font-size:11px;color:var(--mut);text-align:center}
 .nv6 .sign .line{border-top:1px solid #94a3b8;padding-top:5px;margin-top:26px;font-weight:700;color:#475569}
-.nv6 .cap2{font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--mut);text-align:center;margin-bottom:4px}
+.nv6 .cap2{font-size:12px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--mut);text-align:center;margin-bottom:4px}
 .nv6 .bigttl{text-align:center;font-size:21px;font-weight:950;margin:4px 0 2px}
 .nv6 .bigsub{text-align:center;font-size:12px;color:var(--mut);margin-bottom:12px}
 .nv6 .framed{flex:1;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;padding:16px;background:linear-gradient(180deg,#fcfdff,#f3f7fc)}

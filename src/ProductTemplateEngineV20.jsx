@@ -2083,7 +2083,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     preostalo = Math.max(0, preostalo - alocirano * mult);
                     if (r.id != null && alocirano > 0) usedPerRoll[r.id] = vecUzeto + alocirano;
                     const kgPoM = ukupno > 0 ? (Number(r.kg_neto || r.kg) || 0) / ukupno : 0;
-                    izborData.push({ ...baza, redni_rolne: k + 1, br_rolne: r.br_rolne || null, rolna_id: r.id || null, sirina: r.sirina || null, metraza: ukupno, slobodno_m: slob, rez_pre: rezPre, alocirano_m: alocirano, format_trake: mult, format_ciljna: idealnaSir0, lokacija: r.palet || r.lokacija || null, lot: r.lot || null, snap_vrsta: r.vrsta || r.tip || baza.materijal || "", snap_pod_vrsta: rolnaPodVrsta(r) || "", snap_oznaka: rolnaOznaka(r) || baza.oznaka || "", snap_debljina: Number(r.deb) || Number(baza.debljina) || null, snap_dobavljac: r.dobavljac || "", kg_po_m: kgPoM });
+                    izborData.push({ ...baza, redni_rolne: k + 1, br_rolne: r.br_rolne || null, rolna_id: r.id || null, sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, snap_sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, metraza: ukupno, slobodno_m: slob, rez_pre: rezPre, alocirano_m: alocirano, format_trake: mult, format_ciljna: idealnaSir0, lokacija: r.palet || r.lokacija || null, lot: r.lot || null, snap_vrsta: r.vrsta || r.tip || baza.materijal || "", snap_pod_vrsta: rolnaPodVrsta(r) || "", snap_oznaka: rolnaOznaka(r) || baza.oznaka || "", snap_debljina: Number(r.deb) || Number(r.debljina) || Number(r.snap_debljina) || null, snap_dobavljac: r.dobavljac || "", kg_po_m: kgPoM });
                 });
             });
 
@@ -2659,7 +2659,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         redni_rolne: k + 1,
                         br_rolne: r.br_rolne || null,
                         rolna_id: r.id || null,
-                        sirina: r.sirina || null,
+                        sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null,
+                        snap_sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null,
                         metraza: ukupno,
                         slobodno_m: slob,
                         rez_pre: rezPre,
@@ -2674,7 +2675,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         snap_vrsta: r.vrsta || r.tip || baza.materijal || "",
                         snap_pod_vrsta: rolnaPodVrsta(r) || "",
                         snap_oznaka: rolnaOznaka(r) || baza.oznaka || "",
-                        snap_debljina: Number(r.deb) || Number(baza.debljina) || null,
+                        snap_debljina: Number(r.deb) || Number(r.debljina) || Number(r.snap_debljina) || null,
                         snap_dobavljac: r.dobavljac || "",
                         kg_po_m: kgPoM,
                     });
