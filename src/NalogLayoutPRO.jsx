@@ -1456,10 +1456,10 @@ const V6_CSS = `
 .nv6 .a4{width:794px;min-height:1123px;background:#fff;margin:0 auto 26px;box-shadow:0 14px 40px rgba(0,0,0,.18);position:relative;overflow:hidden;display:flex;flex-direction:column;overflow:hidden}
 .nv6 .pp{position:absolute;bottom:12px;right:20px;font-size:10px;color:#94a3b8;font-weight:700}
 .nv6 .pp2{position:absolute;bottom:12px;left:20px;font-size:10px;color:#94a3b8;font-weight:700}
-.nv6 .hd{position:relative;padding:13px 26px;color:#fff;overflow:hidden}
+.nv6 .hd{position:relative;padding:12px 26px;color:#fff;overflow:hidden}
 .nv6 .hd .pisbr{margin-top:7px;display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:9px;padding:7px 15px;font-size:16px;font-weight:800;letter-spacing:.3px}
 .nv6 .hd .pisbr b{font-size:18px;font-weight:950}
-.nv6 .hd-top{display:flex;justify-content:space-between;align-items:flex-start}
+.nv6 .hd-top{display:flex;justify-content:space-between;align-items:flex-start;padding-right:122px}
 .nv6 .brand{display:flex;align-items:center;gap:12px}
 .nv6 .mono{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-weight:950;font-size:15px}
 .nv6 .co{font-size:11px;letter-spacing:2px;font-weight:800;opacity:.72}
@@ -1467,7 +1467,7 @@ const V6_CSS = `
 .nv6 .docmeta{text-align:right;font-size:13.5px;line-height:1.5}
 .nv6 .docmeta b{font-size:16px}
 .nv6 .docmeta .k{opacity:.6;margin-right:5px}
-.nv6 .title{margin-top:9px;display:flex;align-items:center;gap:11px}
+.nv6 .title{margin-top:6px;display:flex;align-items:center;gap:11px;padding-right:122px}
 .nv6 .title .ic{font-size:19px}
 .nv6 .title .big{font-size:19px;font-weight:950;line-height:1.15}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
@@ -1540,7 +1540,7 @@ const V6_CSS = `
 .nv6 .meta-strip .m b{display:block;font-size:8.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;font-weight:800}
 .nv6 .badge{margin-left:auto;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800}
 .nv6 .hdqr{width:104px;height:104px;background:#fff;border-radius:8px;padding:6px;display:block}
-.nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
+.nv6 .qrbox{position:absolute;top:13px;right:24px;display:flex;flex-direction:column;align-items:center;margin-left:0;z-index:2}
 .nv6 .qrbox .cap{font-size:9.5px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:3px;text-align:center;line-height:1.25}
 @media print{
   /* margin:0 → cela A4 površina je za nalog (sadržaj ima svoj unutrašnji razmak),
