@@ -1330,6 +1330,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 // SVA istorija (bez limita) — paginacija kroz celu tabelu da povuče sve do sada.
                 const hist = await fetchAllRows(supabase, HISTORY_TABLE, (q) => q.order("created_at", { ascending: false }));
                 const imeMap = await loadOperateriMap();
+                operateriMapRef.current = imeMap || {};   // keš za inkrementalni realtime (nova istorija)
                 setHistory((Array.isArray(hist) ? hist : []).map((h) => mapIstorijaRow(h, imeMap)));
             } else {
                 setHistory(safeRead(LS_HISTORY, []));
@@ -1346,6 +1347,55 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const reloadRef = React.useRef(reload);
     useEffect(() => { reloadRef.current = reload; });
 
+    // Keš mape operatera (id -> ime) za inkrementalnu istoriju.
+    const operateriMapRef = React.useRef({});
+
+    // ── INKREMENTALNI REALTIME ──────────────────────────────────────────────
+    // Ranije je SVAKA realtime promena okidala pun SELECT cele tabele (fetchAllRows
+    // magacin ~1151 red + cela istorija) × svaki uređaj → CPU/Disk IO na Supabase
+    // skakao do 90%+. Sada primenjujemo SAMO promenjeni red u memoriji:
+    //   INSERT → dodaj red, UPDATE → zameni red (ili ukloni ako je status „obrisano"),
+    //   DELETE → ukloni red. Pun reload ostaje samo na (re)konekciju i povratak u app.
+    function applyRealtime(payload) {
+        try {
+            const ev = payload?.eventType || payload?.type;
+            const tbl = payload?.table;
+
+            if (tbl === HISTORY_TABLE) {
+                // Istorija: najčešće INSERT (nova stavka kretanja). Dodaj je na vrh.
+                if (ev === "INSERT" && payload.new) {
+                    const row = mapIstorijaRow(payload.new, operateriMapRef.current || {});
+                    setHistory((prev) => [row, ...(Array.isArray(prev) ? prev : [])]);
+                }
+                // UPDATE/DELETE istorije su retki — pokupi ih sledeći pun reload (focus/reconnect).
+                return;
+            }
+
+            // magacin
+            if (ev === "DELETE") {
+                const id = payload.old?.id;
+                if (id != null) setRolne((prev) => (Array.isArray(prev) ? prev.filter((r) => String(r.id) !== String(id)) : prev));
+                return;
+            }
+            if (payload.new) {
+                const mapped = mapDbRollToEngine(payload.new);
+                const jeObrisana = normalizeStatus(mapped.status) === "obrisano";
+                setRolne((prev) => {
+                    const arr = Array.isArray(prev) ? prev : [];
+                    const i = arr.findIndex((r) => String(r.id) === String(mapped.id));
+                    if (jeObrisana) return i >= 0 ? arr.filter((_, j) => j !== i) : arr;
+                    if (i >= 0) { const copy = arr.slice(); copy[i] = mapped; return copy; }
+                    return [mapped, ...arr];
+                });
+            }
+        } catch (e) {
+            // Ako inkrementalna primena zakaže (neočekivan oblik reda) — jednom povuci pun reload.
+            try { reloadRef.current?.(); } catch (_) { /* noop */ }
+        }
+    }
+    const applyRealtimeRef = React.useRef(applyRealtime);
+    useEffect(() => { applyRealtimeRef.current = applyRealtime; });
+
     // REALTIME SYNC + OTPORNOST: telefon i desktop gledaju istu public.magacin tabelu.
     // 1) realtime kanal gura promene na sve uredjaje,
     // 2) na povratak taba/aplikacije u fokus radi reload (hvata promene propustene dok je veza spavala),
@@ -1357,15 +1407,25 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         let channel = null;
         let retryTimer = null;
         let cancelled = false;
-        const safeReload = () => { try { reloadRef.current?.(); } catch (e) { /* noop */ } };
+        // DEBOUNCE reload-a: magacin i istorija se menjaju u rafalu (svaka rolna = više
+        // promena), a svaki pun reload je SELECT cele tabele = puno Disk IO na Supabase.
+        // Bez ovoga, više uređaja × mnogo promena potroši „Disk IO budžet" → baza postaje
+        // spora/neodaziva → „Failed to fetch" i zaglavljivanje. Rafal sažimamo u jedno
+        // osvežavanje ~1.2s posle poslednje promene.
+        let debTimer = null;
+        const safeReload = () => {
+            if (cancelled) return;
+            if (debTimer) clearTimeout(debTimer);
+            debTimer = setTimeout(() => { debTimer = null; try { reloadRef.current?.(); } catch (e) { /* noop */ } }, 1200);
+        };
 
         const subscribe = () => {
             if (cancelled) return;
             try { if (channel) supabase.removeChannel(channel); } catch (e) { /* noop */ }
             channel = supabase
                 .channel("magacin_rolne_sync")
-                .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, safeReload)
-                .on("postgres_changes", { event: "*", schema: "public", table: HISTORY_TABLE }, safeReload)
+                .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, (p) => { try { applyRealtimeRef.current?.(p); } catch (e) { safeReload(); } })
+                .on("postgres_changes", { event: "*", schema: "public", table: HISTORY_TABLE }, (p) => { try { applyRealtimeRef.current?.(p); } catch (e) { safeReload(); } })
                 .subscribe((status) => {
                     if (status === "SUBSCRIBED") {
                         safeReload(); // posle (ponovnog) povezivanja uvek povuci sveze stanje
@@ -1384,11 +1444,14 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         document.addEventListener("visibilitychange", onVisible);
         window.addEventListener("focus", safeReload);
         window.addEventListener("online", onOnline);
-        const pollTimer = setInterval(safeReload, 60000);
+        // Sigurnosna sinhronizacija je sada retka (inkrementalni realtime drži stanje svežim,
+        // a focus/visibility/reconnect rade pun reload). 60s → 300s = mnogo manje SELECT-ova cele tabele.
+        const pollTimer = setInterval(safeReload, 300000);
 
         return () => {
             cancelled = true;
             if (retryTimer) clearTimeout(retryTimer);
+            if (debTimer) clearTimeout(debTimer);
             clearInterval(pollTimer);
             document.removeEventListener("visibilitychange", onVisible);
             window.removeEventListener("focus", safeReload);
