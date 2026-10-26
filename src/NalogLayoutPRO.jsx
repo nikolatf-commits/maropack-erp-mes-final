@@ -721,7 +721,8 @@ function pRez(D) {
         '<div class="sec">' + secH(1, c, 'Prikaz rezanja (po širini)', 'iz templejta') + '<div class="fig"><div class="cap">Raspored traka po širini</div>' + rezSvg(D) + '</div></div>' +
         '<div class="sec">' + secH(2, c, 'Plan rezanja', 'iz templejta') + '<div class="info">' + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Broj traka', D.rez.brojTraka || '—') + infoC('Širina trake', (D.rez.sirinaTrake || '—') + ' mm') + infoC('Otpad', (D.rez.otpad || 0) + ' mm') + infoC('Prečnik rolne', D.rez.precnik + ' mm' + (D.rez.autoPrecnik ? ' (auto)' : '')) + infoC('Dužina rolne', (D.rez.duzinaRolne ? fmtN(D.rez.duzinaRolne) : fmtN(D.rez.duzina)) + ' m' + (D.rez.autoDuzina ? ' (auto)' : '')) + infoC('Hilzna', D.rez.hilzna + ' mm') + infoC('Smer', D.rez.smer) + (D.rez.palete ? infoC('Palete', esc(D.rez.palete)) : '') + (D.rez.kolNaPaleti ? infoC('Količina na paleti', esc(D.rez.kolNaPaleti)) : '') + '</div></div>' +
         (D.rez.nacinPakovanja ? '<div class="ulaz" style="border-left-color:#16a34a;background:#f0fdf4;color:#166534;margin-top:12px"><b>📦 Način pakovanja:</b> ' + esc(D.rez.nacinPakovanja) + '</div>' : '') +
-        (lanes.length ? '<div class="sec">' + secH(3, c, 'Trake', '') + '<table>' + th(['Traka', { t: 'Širina', n: 1 }, { t: 'Metara', n: 1 }, { t: 'Kom', n: 1 }, 'Perforacija'], c) + '<tbody>' + lanes.map(function (lw, i) { return '<tr><td><span class="dot-c" style="background:#c7d2fe"></span>' + (i + 1) + '</td><td class="n">' + lw + ' mm</td><td class="n">' + fmtN(D.rez.duzina) + '</td><td class="n">' + fmtN(D.komPoTraci) + '</td><td>' + (D.imaPerforaciju ? (esc(D.perf.tip) + ' · ' + D.perf.N + ' kol.') : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
+        // Sekcija „Trake" uklonjena na zahtev — podaci o trakama su već u „Plan rezanja"
+        // i na prikazu rezanja po širini, pa je tabela bila suvišna.
         '<div class="ulaz" style="margin-top:16px">🖼 <b>Izgled na finalnoj rolni</b>' + (D.imaPerforaciju ? ' i <b>perforacija (kotirano)</b> su na posebnim stranama.' : ' je na posebnoj strani. (Bez perforacije.)') + '</div>' +
         napHtml(D, 'rezanje') +
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
@@ -972,20 +973,7 @@ function pKesa(D, K) {
             ? '<div style="padding:8px 12px;text-align:center;border-top:1.5px solid #334155"><div style="color:#b91c1c;font-weight:900;font-size:10px;line-height:1.35">' + esc(FOOD_TEXT) + '</div></div>'
             : '') +
         '<div style="padding:7px 12px;border-top:1.5px solid #334155;font-style:italic;color:#475569;font-size:8.5px;line-height:1.3">' + esc(OP_INSTR) + '</div>' +
-        '<div style="display:grid;grid-template-columns:1.3fr 1fr;border-top:1.5px solid #334155">' +
-        '<div style="padding:9px 12px">' +
-        '<div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Zastoji na mašini</div>' +
-        zln('<span>Od</span>' + LN + '<span>do</span>' + LN + '<span>Razlog:</span>' + LN) +
-        zln('<span>Od</span>' + LN + '<span>do</span>' + LN + '<span>Razlog:</span>' + LN) +
-        zln('<span>Od</span>' + LN + '<span>do</span>' + LN + '<span>Razlog:</span>' + LN) +
-        zln('<span>Od</span>' + LN + '<span>do</span>' + LN + '<span>Razlog:</span>' + LN) +
-        '</div>' +
-        '<div style="padding:9px 12px;border-left:1.5px solid #334155">' +
-        '<div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Škart</div>' +
-        zln('<span>Škart štampe/laminacije:</span>' + LN) +
-        zln('<span>Tehnološki škart:</span>' + LN) +
-        zln('<span>Ukupan škart:</span>' + LN) +
-        '</div></div>' +
+        // Blok „Zastoji na mašini" + „Škart" uklonjen na zahtev (kesa nalog).
         '<div style="border-top:1.5px solid #334155"><div style="background:#f1f5f9;text-align:center;font-weight:900;font-size:11px;padding:6px">NAPOMENA OPERATERA</div><div style="height:44px"></div></div>' +
         '</div>';
 
