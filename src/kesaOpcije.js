@@ -66,7 +66,7 @@ export const KESA_OPCIJE = [
     {
         k: "eurozumba", l: "Eurozumba", tip: "lista",
         vals: ["MALA(30x10x5)", "SREDNJA(32x10x5)", "VELIKA(35x12x5)", "SPECIJALNA"],
-        pos: ["odVrha", "odDna", "levo"], crtez: "eurozumba"
+        pos: ["odVrha", "odDna", "levo"], rot: true, crtez: "eurozumba"
     },
 
     { k: "utor", l: "UTOR", tip: "lista", vals: ["205"], crtez: "utor" },
@@ -74,12 +74,17 @@ export const KESA_OPCIJE = [
     { k: "perf_igle", l: "Perforacija vrućim iglama", tip: "danet", crtez: "mikroperforacija" },
 
     {
-        k: "okrugla_zumba", l: "Okrugla zumba", tip: "danet",
-        tekstPolja: [{ k: "velicina_pozicija", l: "Veličina i pozicija (npr. dm=6 mm, 67,5 mm od desne…)" }],
+        // Više okruglih zumbi (euro rupa) — svaka sa pozicijom od ivica + prečnikom.
+        k: "okrugla_zumba", l: "Okrugla zumba", tip: "rupe",
+        rupaPolja: [["odVrha", "Od vrha"], ["odDna", "Od dna"], ["odLeve", "Od leve"], ["odDesne", "Od desne"], ["precnik", "Ø rupe"]],
         crtez: "okrugla_zumba"
     },
 
     { k: "poprecna_perf", l: "Poprečna perforacija", tip: "danet", crtez: "poprecna_perf" },
+
+    // Unakrsna perforacija — linija sa X-markerima preko cele širine, na zadatoj visini
+    // (koliko od vrha ILI od dna). Prikazuje se na skici i na nalozima.
+    { k: "unakrsna_perf", l: "Unakrsna perforacija", tip: "danet", pos: ["odVrha", "odDna"], crtez: "unakrsna_perf" },
 
     { k: "poprecni_var", l: "Poprečni var", tip: "lista", vals: ["DA", "3mm"], crtez: "poprecni_var" },
 
@@ -165,7 +170,7 @@ export const POS_LBL = {
 export const KESA_GRUPE = [
     { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["adh_traka", "duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
     { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
-    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "poprecni_var", "perf_telo"] },
+    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "unakrsna_perf", "poprecni_var", "perf_telo"] },
     { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati"] },
 ];
 
@@ -192,6 +197,11 @@ export function toCrtezKesa(kesa = {}) {
         if (o.k === "perf_telo") {
             stdPos.perf_telo = { ...(pos[o.k] || {}), pozicija: sel[o.k] || "" };
         }
+        // Okrugle zumbe — lista rupa (pozicija od ivica + prečnik) ide na crtež.
+        if (o.k === "okrugla_zumba") {
+            const rupe = Array.isArray((pos[o.k] || {}).rupe) ? (pos[o.k] || {}).rupe : [];
+            stdPos.okrugla_zumba = { rupe };
+        }
         if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa" && o.k !== "perf_telo") {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }
@@ -208,6 +218,21 @@ export function toCrtezKesa(kesa = {}) {
         if (!opt[o.k] || o.food) return;
         const p = pos[o.k] || {}, t = txt[o.k] || {}, extra = [];
         let v = o.tip === "danet" ? "DA" : (sel[o.k] || "");
+        // Okrugle zumbe: sažet opis svake rupe (prečnik + pozicija od ivica).
+        if (o.k === "okrugla_zumba") {
+            const rupe = Array.isArray(p.rupe) ? p.rupe.filter(r => r && (r.precnik || r.odVrha || r.odDna || r.odLeve || r.odDesne)) : [];
+            v = rupe.length ? (rupe.length + (rupe.length === 1 ? " rupa" : " rupe")) : "DA";
+            rupe.forEach((r, ri) => {
+                const d = [];
+                if (r.precnik) d.push("Ø" + r.precnik);
+                if (r.odVrha) d.push(r.odVrha + " od vrha");
+                else if (r.odDna) d.push(r.odDna + " od dna");
+                if (r.odLeve) d.push(r.odLeve + " od leve");
+                else if (r.odDesne) d.push(r.odDesne + " od desne");
+                if (d.length) extra.push("R" + (ri + 1) + ": " + d.join(", "));
+            });
+        }
+        if (p.okrenuto) extra.push("okrenuto 180°");      // eurozumba okrenuta
         if (p.pozicija) extra.push(String(p.pozicija));   // izabrana pozicija (ADH, duplofan…)
         if (p.odstojanje) extra.push(String(p.odstojanje));
         if (p.odVrha) extra.push(p.odVrha + " mm od vrha");

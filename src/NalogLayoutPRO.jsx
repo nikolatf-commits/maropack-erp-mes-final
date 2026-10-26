@@ -469,7 +469,12 @@ function napHtml(D, op) {
     if (o) parts.push(esc(o));
     if (g && g !== o) parts.push(esc(g));
     if (!parts.length) return "";
-    return '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c;margin-top:12px"><b>📝 Napomena:</b> ' + parts.join(' · ') + '</div>';
+    // Napomena je VAŽNA — veća, podebljana, sa jasnim naslovom i debelom crvenom ivicom,
+    // da je operater ne previdi.
+    return '<div class="ulaz nap" style="font-size:15.5px;line-height:1.45;border-left:7px solid #dc2626;background:#fef2f2;color:#991b1b;margin-top:14px;padding:12px 16px;border-radius:0 10px 10px 0;box-shadow:0 1px 4px rgba(220,38,38,.12)">'
+        + '<div style="font-size:11px;font-weight:950;letter-spacing:1.2px;text-transform:uppercase;color:#dc2626;margin-bottom:5px">📝 Napomena</div>'
+        + '<div style="font-weight:800">' + parts.join(' · ') + '</div>'
+        + '</div>';
 }
 function statRow(D, extra) {
     var jed = (D.jedinica || 'm');
@@ -1141,7 +1146,7 @@ function pSpulna(D, S) {
         infoC('Pakovanje u kutije', S.kutija) + infoC('Rolni po paleti', S.poPaleti) + infoC('Broj paleta', S.palete.toFixed(1)) +
         infoC('Tip namotavanja', S.smer) + infoC('Smer namotavanja', S.smerNamotavanja) + infoC('Težina bruto', S.tezinaBruto ? S.tezinaBruto + ' kg' : '—') +
         infoC('Side A', S.sideA) + infoC('Side B', S.sideB) + '</div>' +
-        (S.napomena ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c;margin-top:10px"><b>Napomena:</b> ' + esc(S.napomena) + '</div>' : '') + '</div>' +
+        (S.napomena ? '<div class="ulaz nap" style="font-size:15.5px;line-height:1.45;border-left:7px solid #dc2626;background:#fef2f2;color:#991b1b;margin-top:12px;padding:12px 16px;border-radius:0 10px 10px 0;box-shadow:0 1px 4px rgba(220,38,38,.12)"><div style="font-size:11px;font-weight:950;letter-spacing:1.2px;text-transform:uppercase;color:#dc2626;margin-bottom:5px">📝 Napomena</div><div style="font-weight:800">' + esc(S.napomena) + '</div></div>' : '') + '</div>' +
 
         napHtml(D, 'spulna') +
         foot('Operater namotavanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana 2 · špulna');
@@ -1532,7 +1537,9 @@ const V6_CSS = `
 .nv6 .qrbox{display:flex;flex-direction:column;align-items:center;margin-left:12px}
 .nv6 .qrbox .cap{font-size:8px;font-weight:900;color:#fff;opacity:.9;letter-spacing:.3px;margin-top:2px;text-align:center;line-height:1.2}
 @media print{
-  @page{ size:A4; margin:8mm; }
+  /* margin:0 → cela A4 površina je za nalog (sadržaj ima svoj unutrašnji razmak),
+     pa se nalog NE skuplja da stane unutar margina — popuni ceo papir u punoj veličini. */
+  @page{ size:A4; margin:0; }
   html,body{ background:#fff!important; margin:0!important; padding:0!important; width:auto!important; height:auto!important; overflow:visible!important; }
   /* Boje MORAJU da izađu na štampi (bez ovoga štampač izbeli pozadine/trake) */
   .nv6, .nv6 *{ -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; color-adjust:exact!important; }
@@ -1555,7 +1562,9 @@ const V6_CSS = `
     background:#fff!important; }
   .nv6{ position:static!important; background:#fff!important; padding:0!important; margin:0!important; width:100%!important; }
   /* Puna širina A4 (unutar 8mm margina), bez isecanja sadržaja po ivicama */
-  .nv6 .a4{ box-shadow:none!important; margin:0!important; width:100%!important; max-width:100%!important; min-height:auto!important; border-radius:0!important; overflow:visible!important; page-break-after:always; break-after:page; }
+  /* .a4 = TAČNO cela A4 strana (210×297mm) → nalog u punoj veličini popunjava ceo papir,
+     bez skupljanja. min-height:297mm + body flex:1 gura podnožje na dno strane. */
+  .nv6 .a4{ box-shadow:none!important; margin:0 auto!important; width:210mm!important; max-width:210mm!important; min-height:297mm!important; border-radius:0!important; overflow:hidden!important; page-break-after:always; break-after:page; }
   .nv6:last-child .a4:last-child{ page-break-after:auto; break-after:auto; }
   /* Ne prelamaj sekcije, tabele-redove i kartice preko dve strane */
   .nv6 .sec, .nv6 .stat, .nv6 .c, .nv6 tr{ page-break-inside:avoid; break-inside:avoid; }

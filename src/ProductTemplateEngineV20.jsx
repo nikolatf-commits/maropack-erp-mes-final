@@ -184,13 +184,13 @@ function rangirajRolne(rolne, layer, opts = {}) {
                 const wb = (Number(b.sirina) || 0) >= (ideal - sirinaTolerancija) ? 0 : 1;
                 if (wa !== wb) return wa - wb;
             }
-            // 1) ŠIRINA prvo: rolne iste/najbliže idealnoj (i tik iznad) → pa progresivno šire.
-            //    Grupišemo u trake od 25 mm da FIFO odlučuje UNUTAR iste širine.
+            // 1) PRVENSTVENO PO IDEALNOJ ŠIRINI: tačno idealna širina MORA da ide prva,
+            //    pa najbliža iznad (najmanji bočni otpad), pa progresivno šire.
+            //    Širina ima prednost nad FIFO — tek kad je ista širina, FIFO odlučuje.
             if (ideal) {
-                const BAND = 25;
-                const ba = Math.floor(Math.max(0, (Number(a.sirina) || 0) - ideal) / BAND);
-                const bb = Math.floor(Math.max(0, (Number(b.sirina) || 0) - ideal) / BAND);
-                if (ba !== bb) return ba - bb;   // uža/bliža idealnoj traka prva, šire kasnije
+                const exc = (r) => { const d = (Number(r.sirina) || 0) - ideal; return Math.abs(d) <= sirinaTolerancija ? 0 : Math.max(0, d); };
+                const ea = exc(a), eb = exc(b);
+                if (ea !== eb) return ea - eb;   // idealna (otpad 0) prva, pa najbliža iznad, pa šire
             }
             // 2) FIFO — najstarija rolna prva (unutar iste širinske trake)
             const da = rolnaDatum(a), db = rolnaDatum(b);
@@ -227,11 +227,11 @@ function alocirajRolne(rolne, layer, opts = {}) {
     // Isti skup kao padajuća lista (samoDostupne: false) — da Auto kombinuje sve što vidiš u listi.
     const matched = rangirajRolne(rolne, layer, { ideal, samoDostupne: false, potrebnoM });
     const redosled = [...matched].sort((a, b) => {
-        if (ideal) {                                   // 0) ŠIRINA prva — bliža idealnoj (traka 25mm) pre širih
-            const BAND = 25;
-            const ba = Math.floor(Math.max(0, (Number(a.sirina) || 0) - ideal) / BAND);
-            const bb = Math.floor(Math.max(0, (Number(b.sirina) || 0) - ideal) / BAND);
-            if (ba !== bb) return ba - bb;
+        if (ideal) {                                   // 0) ŠIRINA prva — IDEALNA širina ima prvenstvo,
+            //    pa najbliža iznad (najmanji otpad), pa šire. Tek unutar iste širine ide FIFO.
+            const exc = (r) => { const d = (Number(r.sirina) || 0) - ideal; return Math.abs(d) <= 1 ? 0 : Math.max(0, d); };
+            const ea = exc(a), eb = exc(b);
+            if (ea !== eb) return ea - eb;
         }
         const ma = rolnaMetraza(a), mb = rolnaMetraza(b);
         const da = rolnaDatum(a), db = rolnaDatum(b);
@@ -362,6 +362,8 @@ const defaultForm = {
         dimenzija: "",
         // Režim „formati" — matična rolna se reže na više užih formata + perforacija po formatu.
         formatiRezim: false,
+        // Formati + štampa: neki formati-proizvodi SE štampaju → pravi se i nalog za štampu.
+        formatiStampa: false,
         formati: [],
         layers: [
             { material: "", debljina: "", sirina: "", kg: "", metara: "" },
@@ -766,7 +768,7 @@ function FormatiFolije({ formati = [], onChange }) {
                                     <label style={lab}>Ukupno</label>
                                     <input readOnly value={ukupno ? ukupno.toLocaleString("sr-RS") + " m" : "—"} style={{ width: "100%", padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 9, background: "#f8fafc", fontWeight: 900, color: "#0f172a", boxSizing: "border-box" }} />
                                 </div>
-                                <Input label="Palete" type="number" value={r.palete} onChange={(v) => patch(r._id, { palete: v })} />
+                                <Input label="Palete" value={r.palete} onChange={(v) => patch(r._id, { palete: v })} />
                                 <Input label="Količina na paleti" value={r.kolNaPaleti} onChange={(v) => patch(r._id, { kolNaPaleti: v })} />
                             </Grid>
                             <div style={{ marginTop: 10 }}>
@@ -1872,9 +1874,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     //   kaširanje → samo ako ima više od jednog sloja
     // (Primer iz baze: MP-2026-0007 = materijal · stampa · perforacija_rezanje — bez kaširanja.)
     function operacijeZa(form) {
-        // Režim „formati": matična rolna → rezanje na formate + perforacija. Bez štampe/kaширanja.
+        // Režim „formati": matična rolna → rezanje na formate + perforacija.
+        // Kaширanja nema; štampa SE DODAJE kad je format označen da se štampa.
         if (form.type === "folija" && form.folija?.formatiRezim) {
-            return ["materijal", "perforacija_rezanje"];
+            const imaStampuF = !!form.folija.formatiStampa;
+            return ["materijal", ...(imaStampuF ? ["stampa"] : []), "perforacija_rezanje"];
         }
         const L = (form.type === "folija" ? form.folija?.layers
             : form.type === "kesa" ? form.kesa?.layers
@@ -2328,9 +2332,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (mErr) throw new Error("radni_nalozi: " + mErr.message);
             const mId = master.id;
 
+            // Štampa (opciono): neki formati-proizvodi SE štampaju → ide nalog za štampu
+            // ODMAH posle materijala, pre perforacije/rezanja (kao kod folije).
+            const imaStampuF = !!(form.folija && form.folija.formatiStampa);
             const ops = [
                 { ...zajednicko, broj_naloga: broj + "-MATERIJAL", glavni_nalog_id: mId, tip_naloga: "materijal", status: delimican ? "ceka_materijal" : "ceka_magacin", redosled: 1, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } },
-                { ...zajednicko, broj_naloga: broj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: delimican ? "ceka_materijal" : "ceka", redosled: 2, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } },
+                ...(imaStampuF ? [{ ...zajednicko, broj_naloga: broj + "-STAMPA", glavni_nalog_id: mId, tip_naloga: "stampa", status: delimican ? "ceka_materijal" : "ceka", redosled: 2, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } }] : []),
+                { ...zajednicko, broj_naloga: broj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: delimican ? "ceka_materijal" : "ceka", redosled: imaStampuF ? 3 : 2, parametri: { sifra: form.sifra || "", template: form, formati_rezim: true, plan_formatiranja: planCreate } },
             ];
             const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
             if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
@@ -3427,13 +3435,41 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     </label>
                     {form.folija.formatiRezim && (
                         <>
+                            <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, color: "#1d4ed8", cursor: "pointer", margin: "4px 0 12px" }}>
+                                <input type="checkbox" checked={!!form.folija.formatiStampa}
+                                    onChange={e => update("folija.formatiStampa", e.target.checked)}
+                                    style={{ width: 20, height: 20, accentColor: "#1d4ed8" }} />
+                                🖨️ Ovaj format se i štampa — napravi i nalog za štampu
+                            </label>
                             <div style={{ fontSize: 12, color: "#64748b", margin: "0 0 12px" }}>
-                                Materijal matične rolne uzmi iz sekcije „Materijali" iznad (prvi red). Formati i perforacija su ispod. Štampa/lakiranje/kaширanje su sakriveni jer se ne rade.
+                                Materijal matične rolne uzmi iz sekcije „Materijali" iznad (prvi red). Formati i perforacija su ispod.
+                                {form.folija.formatiStampa ? " Pošto se štampa, popuni i parametre štampanja (odmah ispod)." : " Štampa/lakiranje/kaширanje su sakriveni jer se ne rade."}
                             </div>
                             <FormatiFolije formati={form.folija.formati || []} onChange={v => update("folija.formati", v)} />
                         </>
                     )}
                 </Section>
+
+                {/* Parametri štampanja — vidljivi i u „formati" režimu kad je označeno da se format štampa. */}
+                {form.folija.formatiRezim && form.folija.formatiStampa && (
+                    <Section title={t("tmpl.stampa_param")} color={BLUE}>
+                        <Grid cols={4}>
+                            {Object.keys(form.folija.stampa).filter(k => k !== "dizajn" && k !== "boje" && k !== "napomena").map(k => (
+                                <Input key={k} label={k} value={form.folija.stampa[k]} onChange={v => update(`folija.stampa.${k}`, v)} />
+                            ))}
+                        </Grid>
+                        <div style={{ marginTop: 10 }}>
+                            <TextArea label="📝 Napomena (štampa) — ide na nalog za štampu" value={form.folija.stampa.napomena || ""} onChange={v => update("folija.stampa.napomena", v)} placeholder="napomena za štampu..." />
+                        </div>
+                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                            <BojeStampeEditor value={form.folija.stampa.boje} onChange={v => update("folija.stampa.boje", v)} />
+                        </div>
+                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                            <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
+                            <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
+                        </div>
+                    </Section>
+                )}
 
                 {!form.folija.formatiRezim && (<>
                 <Section title={t("tmpl.stampa_param")} color={BLUE}>
@@ -3624,8 +3660,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         </div>
                         <div>
                             <label style={labelStyle()}>Palete</label>
-                            <input type="number" style={fieldStyle()} value={form.folija.rezanje.palete || ""}
-                                onChange={e => update("folija.rezanje.palete", e.target.value)} placeholder="broj paleta" />
+                            <input style={fieldStyle()} value={form.folija.rezanje.palete || ""}
+                                onChange={e => update("folija.rezanje.palete", e.target.value)} placeholder="npr. 2 EUR palete / miks" />
                         </div>
                         <div>
                             <label style={labelStyle()}>Količina na paleti</label>
@@ -3816,12 +3852,45 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                             ))}
                                                         </div>
                                                     )}
+                                                    {op.rot && (
+                                                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: "#334155", cursor: "pointer" }}>
+                                                            <input type="checkbox" checked={!!pos.okrenuto} onChange={e => setOpt({ pos: { okrenuto: e.target.checked } })} /> ↻ Okreni 180°
+                                                        </label>
+                                                    )}
                                                     {(op.tekstPolja || []).map(tp => (
                                                         <div key={tp.k}>
                                                             <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{tp.l}</label>
                                                             <input value={txt[tp.k] || ""} onChange={e => setOpt({ txt: { [tp.k]: e.target.value } })} style={fieldStyle()} />
                                                         </div>
                                                     ))}
+                                                    {op.tip === "rupe" && (() => {
+                                                        const rupe = Array.isArray(pos.rupe) ? pos.rupe : [];
+                                                        const setRupe = (arr) => setOpt({ pos: { rupe: arr } });
+                                                        const polja = op.rupaPolja || [["odVrha", "Od vrha"], ["odDna", "Od dna"], ["odLeve", "Od leve"], ["odDesne", "Od desne"], ["precnik", "Ø rupe"]];
+                                                        return (
+                                                            <div style={{ display: "grid", gap: 6 }}>
+                                                                {rupe.length === 0 && <div style={{ fontSize: 11, color: "#94a3b8" }}>Nema rupa — dodaj prvu.</div>}
+                                                                {rupe.map((r, ri) => (
+                                                                    <div key={ri} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 6, background: "#fff" }}>
+                                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                                                            <span style={{ fontSize: 10, fontWeight: 800, color: "#0ea5e9" }}>Rupa {ri + 1}</span>
+                                                                            <button type="button" onClick={() => setRupe(rupe.filter((_, i) => i !== ri))} style={{ border: "none", background: "none", color: "#dc2626", fontWeight: 900, cursor: "pointer", fontSize: 12 }}>✕</button>
+                                                                        </div>
+                                                                        <div style={{ display: "grid", gridTemplateColumns: `repeat(${polja.length}, 1fr)`, gap: 4 }}>
+                                                                            {polja.map(([pk, pl]) => (
+                                                                                <div key={pk}>
+                                                                                    <label style={{ fontSize: 8.5, color: "#64748b", fontWeight: 700, display: "block" }}>{pl}</label>
+                                                                                    <input value={r[pk] || ""} placeholder="mm" onChange={e => { const a = rupe.map((x, i) => i === ri ? { ...x, [pk]: e.target.value } : x); setRupe(a); }} style={{ ...fieldStyle(), padding: 5, fontSize: 12 }} />
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                                <button type="button" onClick={() => setRupe([...rupe, { odVrha: "", odDna: "", odLeve: "", odDesne: "", precnik: "" }])} style={{ border: "1px dashed #0ea5e9", background: "#f0f9ff", color: "#0369a1", borderRadius: 8, padding: 6, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>+ Dodaj rupu</button>
+                                                                <div style={{ fontSize: 9.5, color: "#94a3b8" }}>Za svaku rupu: pozicija od ivica (leva/desna + vrh/dno) i prečnik. Prikazuje se na crtežu i nalogu.</div>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                     {op.food && (
                                                         <div style={{ fontSize: 11, color: "#065f46", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "6px 8px", lineHeight: 1.4 }}>{FOOD_TEXT}</div>
                                                     )}

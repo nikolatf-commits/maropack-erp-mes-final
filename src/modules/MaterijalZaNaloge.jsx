@@ -68,11 +68,19 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     useEffect(() => { openRef.current = open; }, [open]);
     useEffect(() => {
         let gasi = false;
+        // DEBOUNCE: magacin/stavke/nalozi se menjaju u rafalu (skeniranje rolni po celoj
+        // fabrici). Bez ovoga svaka promena pokreće pun reload → na telefonu se nagomila
+        // i zakuca. Zato rafal promena sažimamo u JEDNO osvežavanje ~0.9s posle poslednje.
+        let deb = null;
         const osvezi = () => {
             if (gasi) return;
-            load();                                   // lista naloga
-            const o = openRef.current;
-            if (o) ucitajDetalje(o, true);            // otvoreni nalog (čuva skenirano)
+            if (deb) clearTimeout(deb);
+            deb = setTimeout(() => {
+                if (gasi) return;
+                load();                               // lista naloga
+                const o = openRef.current;
+                if (o) ucitajDetalje(o, true);        // otvoreni nalog (čuva skenirano)
+            }, 900);
         };
         let ch = null;
         try {
@@ -165,7 +173,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         // mogu da nose ZAOSTALE rezervacije rolni koje su kasnije uklonjene iz izbora
         // (npr. preračun pre konačnog izbora). Takve rolne NE smeju da se prikažu
         // magacioneru — zato ovde uzimamo konačan izbor i filtriramo po njemu.
-        let dozvId = null, dozvBr = null;
+        let dozvId = null, dozvBr = null, izabraneArr = [];
         try {
             if (broj) {
                 let izabrane = null;
@@ -178,6 +186,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     if (mn2 && mn2[0] && mn2[0].parametri) izabrane = mn2[0].parametri.izabrane_rolne || mn2[0].parametri.rezervisane_rolne;
                 }
                 if (Array.isArray(izabrane) && izabrane.length) {
+                    izabraneArr = izabrane;
                     dozvId = new Set(); dozvBr = new Set();
                     izabrane.forEach((x) => {
                         if (!x) return;
@@ -188,11 +197,13 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 }
             }
         } catch (e) { /* bez filtera ako izbor nije dostupan (stariji nalozi) */ }
+        const normB = (x) => String(x || "").toUpperCase().trim();
         const naIzboru = (r) => {
             if (!dozvId || (!dozvId.size && !(dozvBr && dozvBr.size))) return true; // nema izbora → ne filtriraj
             if (dozvId.has(String(r.id))) return true;
-            const b = String(r.br_rolne || "").toUpperCase().trim(), q = String(r.qr_code || "").toUpperCase().trim();
-            return (dozvBr && (dozvBr.has(b) || dozvBr.has(q)));
+            // poklapanje po SVIM mogućim identifikatorima rolne (broj/QR/id), normalizovano
+            const kand = [r.br_rolne, r.qr_code, r.qr, r.id].map(normB).filter(Boolean);
+            return !!(dozvBr && kand.some((k) => dozvBr.has(k)));
         };
 
         // Rolne su vezane za BROJ NALOGA:  magacin.dodeljeno_nalogu = "MP-2026-0008 · PROIZVOD"
@@ -208,9 +219,13 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 // VAŽNO: ilike "%broj%" može uhvatiti rolnu po DELU teksta ili deljenu rolnu
                 // (ovaj nalog je samo jedan od više). Zadržavamo SAMO rolne kojima dodeljeno_nalogu
                 // sadrži TAČAN broj ovog naloga (token pre „ · proizvod", delovi razdvojeni zarezom).
+                // Rolna deljena na više naloga: dodeljeno_nalogu = "MP-A · prodA, MP-B · prodB".
+                // Zadrži rolnu ako BILO KOJI deo (razdvojen zarezom) nosi TAČNO ovaj broj naloga.
+                // Robusno na separator (· • ili razmak) da deljena rolna ne otpadne.
                 const tacanBroj = (dodeljeno) => String(dodeljeno || "").split(",").some((part) => {
-                    const tok = part.trim().split("·")[0].trim();
-                    return tok === broj;
+                    const p = part.trim();
+                    const tok = p.split(/[·•]/)[0].trim();
+                    return tok === broj || p === broj || p.startsWith(broj + " ") || p.startsWith(broj + "·");
                 });
                 (data || []).filter((r) => tacanBroj(r.dodeljeno_nalogu)).forEach((r) => { mapa[r.id] = r; });
 
@@ -229,7 +244,44 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             }
             // Zadrži SAMO rolne koje su na konačnom izboru naloga (ako izbor postoji).
             // Ovo izbacuje zaostale rezervacije (rolne koje se ne nalaze na štampanom nalogu).
-            rows = Object.values(mapa).filter(naIzboru);
+            const sve = Object.values(mapa);
+            const filtrirane = sve.filter(naIzboru);
+            // SIGURNOSNA MREŽA: ako bi filter po izboru sakrio SVE rolne a rezervacije postoje,
+            // znači da izbor NIJE sinhronizovan sa rezervacijama (ili je u drugom formatu) —
+            // tada NE sakrivamo ništa, nego prikažemo rezervisane rolne. Magacioner nikad
+            // ne sme da ostane bez prikaza kad nalog stvarno ima rezervisane rolne.
+            rows = (filtrirane.length === 0 && sve.length > 0) ? sve : filtrirane;
+
+            // ── RUČNE ROLNE (ručni unos u kancelariji) ──────────────────────────
+            // Sloj unet preko „Ručni unos" se NE rezerviše iz magacina (nema ga u
+            // magacin/ledger), pa nalog izgleda „bez materijala". Ali po dogovoru:
+            // magacioner takvu rolnu PRONALAZI SAM PO BROJU. Zato je dodajemo iz
+            // izbora naloga kao karticu „ručno — pronađi po broju", da nalog bude
+            // upotrebljiv a ne prazan. (Ove rolne ne diraju bazu pri spremanju/izdavanju.)
+            try {
+                if (Array.isArray(izabraneArr) && izabraneArr.length) {
+                    const imaId = new Set(rows.map((r) => String(r.id)));
+                    const imaBr = new Set(rows.map((r) => normB(r.br_rolne)).filter(Boolean));
+                    izabraneArr.forEach((x, idx) => {
+                        if (!x) return;
+                        const br = x.br_rolne || x.qr || x.qr_code || x.qr_kod;
+                        const st = String(x.status || "").toLowerCase();
+                        const jeRucna = x.rucni === true || st.includes("ruč") || st.includes("ruc");
+                        if (!jeRucna) return;                                   // prikazuj SAMO ručne ovde
+                        if (!br) return;
+                        if (x.rolna_id != null && imaId.has(String(x.rolna_id))) return; // već prikazana
+                        if (imaBr.has(normB(br))) return;                        // već prikazana po broju
+                        rows.push({
+                            id: "rucni-" + (x.rolna_id != null ? x.rolna_id : (normB(br) + "-" + idx)),
+                            br_rolne: br, qr_code: br, rucni: true,
+                            vrsta: x.snap_vrsta || x.vrsta || "", oznaka_materijala: x.snap_oznaka || x.oznaka || "",
+                            deb: x.snap_debljina || x.debljina || "", sirina: x.sirina || x.snap_sirina || "",
+                            sloj: Number(x.sloj) || 1, lokacija: "", metraza_ost: 0,
+                            _alok: Number(x.alocirano_m) || 0,
+                        });
+                    });
+                }
+            } catch (e) { /* ručne rolne su samo informativne */ }
         } catch (e) {
             // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
             // isto kao da nalog stvarno nema rolne. Sada se vidi.
@@ -239,10 +291,13 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         setRolls(rows);
         // Alokacija po rolni iz ledgera (materijal_stavke) — koliko ovaj nalog drži na svakoj rolni
         try {
-            const ids = rows.map((r) => r.id).filter((x) => x != null);
+            // Ručne rolne (synthetic id "rucni-…") NISU u ledgeru — izostavi ih iz upita,
+            // a njihovo „planirano" uzmi direktno iz izbora naloga.
+            const ids = rows.map((r) => r.id).filter((x) => x != null && !String(x).startsWith("rucni-"));
+            const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
+            rows.forEach((r) => { if (r.rucni && r._alok != null) { aMap[r.id] = num(r._alok); iMap[r.id] = String(Math.round(num(r._alok))); } });
             if (ids.length) {
                 const { data: st } = await supabase.from("materijal_stavke").select("*").in("rolna_id", ids).in("status", ["rezervisano", "izdato"]).order("created_at", { ascending: true });
-                const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
                 (st || []).forEach((s) => {
                     // Alokaciju (planirano) uzimamo SAMO iz stavke OVOG naloga (nalog_ref === broj).
                     // Ranije je fallback (aMap == null) hvatao stavku DRUGOG naloga, pa je rolna
@@ -258,17 +313,18 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                         if (String(s.status || "") === "izdato" && preostalo <= 0) { scInit[s.rolna_id] = true; vecInit[s.rolna_id] = true; }
                     }
                 });
-                setAlocMap(aMap); setStavkaMap(sMap);
-                if (merge) {
-                    // sačuvaj ono što je magacioner već skenirao/uneo; dodaj samo nove rolne
-                    setIzdato((prev) => ({ ...iMap, ...prev }));
-                    setScanned((prev) => ({ ...scInit, ...prev }));
-                    setVecIzdato((prev) => ({ ...prev, ...vecInit }));
-                } else {
-                    setIzdato(iMap);
-                    if (Object.keys(scInit).length) setScanned(scInit);
-                    setVecIzdato(vecInit);
-                }
+            }
+            // Primeni mape i kad nalog ima SAMO ručne rolne (ids prazno) — da se vidi „planirano".
+            setAlocMap(aMap); setStavkaMap(sMap);
+            if (merge) {
+                // sačuvaj ono što je magacioner već skenirao/uneo; dodaj samo nove rolne
+                setIzdato((prev) => ({ ...iMap, ...prev }));
+                setScanned((prev) => ({ ...scInit, ...prev }));
+                setVecIzdato((prev) => ({ ...prev, ...vecInit }));
+            } else {
+                setIzdato(iMap);
+                if (Object.keys(scInit).length) setScanned(scInit);
+                setVecIzdato(vecInit);
             }
         } catch (e) { }
     }
@@ -310,7 +366,8 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         setSaving(true);
         try {
             await supabase.from("operativni_nalozi").update({ status: "spremljeno" }).eq("id", open.op.id);
-            const ids = rolls.filter((r) => scanned[r.id]).map((r) => r.id);
+            // Ručne rolne (synthetic id) se NE upisuju u magacin — magacioner ih nalazi po broju.
+            const ids = rolls.filter((r) => scanned[r.id] && !r.rucni).map((r) => r.id);
             if (ids.length) { try { await supabase.from("magacin").update({ pripremljeno: true, ...(lokacija ? { lokacija } : {}) }).in("id", ids); } catch (e) { } }
             msg && msg("Nalog spremljen.", "ok");
             setOpen(null); load();
@@ -325,6 +382,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         try {
             for (const r of rolls) {
                 if (!scanned[r.id]) continue;
+                if (r.rucni) continue;   // ručna rolna — van sistema, ne skida se iz magacina
                 const izdM = Math.round(Math.max(0, num(izdato[r.id] ?? alocRolne(r))));
                 if (izdM <= 0) continue;
                 const ukupno = num(r.metraza_ost ?? r.metraza);
@@ -443,13 +501,15 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                 <span style={{ width: 13, height: 13, borderRadius: "50%", background: vrstaColor(r.vrsta) }} />
                                 <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 900, fontSize: 14 }}>{r.br_rolne || r.qr_code}</div>
+                                    <div style={{ fontWeight: 900, fontSize: 14 }}>{r.br_rolne || r.qr_code}{r.rucni && <span style={{ ...pill("#fef3c7", "#92400e"), marginLeft: 7, verticalAlign: "middle" }}>✍ RUČNO</span>}</div>
                                     <div style={{ fontSize: 12, color: "#64748b" }}>{(r.vrsta || "") + (r.oznaka_materijala ? " · " + r.oznaka_materijala : "") + (r.deb ? " · " + r.deb + "µ" : "")}</div>
-                                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>📍 {r.lokacija || "—"} · š {r.sirina || "—"} mm · na rolni {fmt(ostatak)} m · <b style={{ color: "#0f766e" }}>planirano {fmt(aloc)} m</b></div>
+                                    {r.rucni
+                                        ? <div style={{ fontSize: 11, color: "#b45309", marginTop: 2, fontWeight: 700 }}>✍ Ručni unos — pronađi rolnu po broju (nije rezervisana iz magacina) · š {r.sirina || "—"} mm · <b style={{ color: "#0f766e" }}>planirano {fmt(aloc)} m</b></div>
+                                        : <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>📍 {r.lokacija || "—"} · š {r.sirina || "—"} mm · na rolni {fmt(ostatak)} m · <b style={{ color: "#0f766e" }}>planirano {fmt(aloc)} m</b></div>}
                                 </div>
                                 <span style={pill(on ? "#dcfce7" : "#fef3c7", on ? "#15803d" : "#a16207")}>{vecIzdato[r.id] ? "✓ izdato ranije" : (on ? "✓ skenirano" : "⏳ skeniraj")}</span>
                             </div>
-                            {on && !vecIzdato[r.id] && (
+                            {on && !vecIzdato[r.id] && !r.rucni && (
                                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
                                     <span style={{ fontSize: 12.5, fontWeight: 800, color: "#475569" }}>📤 Izdaj (m):</span>
                                     <input type="number" value={izdato[r.id] ?? String(Math.round(aloc))} onChange={(e) => setIzdato((p) => ({ ...p, [r.id]: e.target.value }))}

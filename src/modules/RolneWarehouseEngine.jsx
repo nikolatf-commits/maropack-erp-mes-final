@@ -55,13 +55,32 @@ const FALLBACK_MATERIAL_DROPDOWNS = {
 
 // Supabase/PostgREST vraca najvise 1000 redova po upitu. Sve sto cita celu
 // tabelu MORA da ide kroz paginaciju, inace se podaci tiho seku.
+// Privremene mrežne greške (Failed to fetch, timeout, reset) su čest uzrok
+// „ne mogu da učitam stanje rolni" — dovoljan je jedan zastoj Wi-Fi/5G usred
+// paginacije. Zato svaku stranicu probamo više puta sa malim razmakom; prava
+// greška (npr. kolona ne postoji) se NE ponavlja i odmah se javi.
+function _jePrivremena(e) {
+    const m = String((e && (e.message || e.msg)) || e || "").toLowerCase();
+    return m.includes("failed to fetch") || m.includes("load failed") || m.includes("networkerror")
+        || m.includes("network error") || m.includes("timeout") || m.includes("timed out")
+        || m.includes("connection") || m.includes("econn") || m.includes("fetch");
+}
 async function fetchAllRows(client, table, tweak) {
     const PAGE = 1000;
     const all = [];
     for (let od = 0; ; od += PAGE) {
-        let q = client.from(table).select("*");
-        if (typeof tweak === "function") q = tweak(q);
-        const { data, error } = await q.range(od, od + PAGE - 1);
+        let data = null, error = null;
+        for (let pok = 0; pok < 4; pok++) {
+            try {
+                let q = client.from(table).select("*");
+                if (typeof tweak === "function") q = tweak(q);
+                const res = await q.range(od, od + PAGE - 1);
+                data = res.data; error = res.error;
+            } catch (ex) { error = ex; data = null; }
+            if (!error) break;                         // uspeh
+            if (!_jePrivremena(error) || pok === 3) break; // prava greška ili iscrpljeni pokušaji
+            await new Promise((r) => setTimeout(r, 400 * (pok + 1))); // 0.4s → 0.8s → 1.2s
+        }
         if (error) throw error;
         if (!data || data.length === 0) break;
         all.push(...data);
@@ -1085,7 +1104,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     }
     const togglePoruceno = (m) => { const k = porucKljuc(m); const cur = porucStatus[k] || {}; const novo = !cur.poruceno; upsertPoruc(m, novo ? { poruceno: true, ko_poruceno: reserverName, poruceno_ts: new Date().toISOString() } : { poruceno: false, ko_poruceno: null, poruceno_ts: null, kw: null, stiglo: false }); };
     const setPorucKW = (m, kw) => upsertPoruc(m, { kw });
-    const toggleStiglo = (m) => { const k = porucKljuc(m); const cur = porucStatus[k] || {}; if (!cur.poruceno) return; upsertPoruc(m, { stiglo: true, ko_stiglo: reserverName, stiglo_ts: new Date().toISOString() }); };
+    const toggleStiglo = (m) => { const k = porucKljuc(m); const cur = porucStatus[k] || {}; if (!cur.poruceno) return; const novo = !cur.stiglo; upsertPoruc(m, novo ? { stiglo: true, ko_stiglo: reserverName, stiglo_ts: new Date().toISOString() } : { stiglo: false, ko_stiglo: null, stiglo_ts: null }); };
     const [filter, setFilter] = useState("");
     const [columnFilters, setColumnFilters] = useState({ datum: "", datum_proizvodnje: "", vrsta: "", pod_vrsta: "", oznaka: "", proizvodjac: "", debljina: "", sirina: "", duzina: "", kg: "", lot: "", lokacija: "", status: "" });
     // Napredni filter: opsezi od-do (debljina, širina, kg, metraža)
@@ -4036,11 +4055,13 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                             <thead><tr style={{ background: "#fef3c7" }}>{["Materijal", "Proizvođač", "Širina", "Na stanju kg", "Minimum kg", "Manjak kg", "Poručeno", "Stiže (KW)", "Stiglo"].map((h) => <th key={h} style={{ padding: 9, textAlign: "left", borderBottom: "1px solid #fcd34d", color: "#92400e" }}>{h}</th>)}</tr></thead>
-                            <tbody>{stats.ispodMinimuma.filter((m) => !(porucStatus[porucKljuc(m)]?.stiglo)).map((m) => {
+                            <tbody>{[...stats.ispodMinimuma].sort((a, b) => (porucStatus[porucKljuc(a)]?.stiglo ? 1 : 0) - (porucStatus[porucKljuc(b)]?.stiglo ? 1 : 0)).map((m) => {
                                 const ps = porucStatus[porucKljuc(m)] || {};
-                                const rowBg = ps.poruceno ? "#fffbeb" : "#fef2f2";
-                                return <tr key={m.id} style={{ borderBottom: "1px solid #fde68a", background: rowBg }}>
-                                    <td style={{ padding: 9 }}><b>{materialDisplayName(m)}</b> {ps.poruceno ? <span style={{ fontSize: 10, fontWeight: 900, color: "#a16207", background: "#fef9c3", padding: "2px 7px", borderRadius: 999 }}>✓ poručeno</span> : <span style={{ fontSize: 10, fontWeight: 900, color: "#b91c1c", background: "#fee2e2", padding: "2px 7px", borderRadius: 999 }}>✗ fali</span>}</td>
+                                // Red OSTAJE vidljiv i kad je „stiglo" čekirano (zeleno, blago zasenčeno,
+                                // na dnu) — da čekiranje stoji i vidi se, umesto da nestane.
+                                const rowBg = ps.stiglo ? "#f0fdf4" : (ps.poruceno ? "#fffbeb" : "#fef2f2");
+                                return <tr key={m.id} style={{ borderBottom: "1px solid #fde68a", background: rowBg, opacity: ps.stiglo ? 0.72 : 1 }}>
+                                    <td style={{ padding: 9 }}><b>{materialDisplayName(m)}</b> {ps.stiglo ? <span style={{ fontSize: 10, fontWeight: 900, color: "#15803d", background: "#dcfce7", padding: "2px 7px", borderRadius: 999 }}>✓ stiglo</span> : ps.poruceno ? <span style={{ fontSize: 10, fontWeight: 900, color: "#a16207", background: "#fef9c3", padding: "2px 7px", borderRadius: 999 }}>✓ poručeno</span> : <span style={{ fontSize: 10, fontWeight: 900, color: "#b91c1c", background: "#fee2e2", padding: "2px 7px", borderRadius: 999 }}>✗ fali</span>}</td>
                                     <td style={{ padding: 9 }}>{m.proizvodjac || "—"}</td>
                                     <td style={{ padding: 9 }}>{number(m.sirina) > 0 ? number(m.sirina) + " mm" : "sve"}</td>
                                     <td style={{ padding: 9 }}>{fmt(m.naStanju, 2)}</td>
@@ -4051,7 +4072,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                         {ps.poruceno && ps.ko_poruceno ? <div style={{ fontSize: 10.5, color: "#a16207", fontWeight: 800, marginTop: 3 }}>👤 {ps.ko_poruceno}</div> : null}
                                     </td>
                                     <td style={{ padding: 9 }}><input value={ps.kw || ""} onChange={(e) => setPorucKW(m, e.target.value)} disabled={!ps.poruceno} placeholder="KW 34" style={{ width: 84, padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: 7, fontWeight: 700, background: ps.poruceno ? "#fff" : "#f1f5f9" }} /></td>
-                                    <td style={{ padding: 9 }}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, cursor: ps.poruceno ? "pointer" : "not-allowed", opacity: ps.poruceno ? 1 : 0.5 }}><input type="checkbox" disabled={!ps.poruceno} onChange={() => toggleStiglo(m)} /> stiglo</label></td>
+                                    <td style={{ padding: 9 }}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, cursor: ps.poruceno ? "pointer" : "not-allowed", opacity: ps.poruceno ? 1 : 0.5 }}><input type="checkbox" checked={!!ps.stiglo} disabled={!ps.poruceno} onChange={() => toggleStiglo(m)} /> stiglo</label></td>
                                 </tr>;
                             })}</tbody>
                         </table>

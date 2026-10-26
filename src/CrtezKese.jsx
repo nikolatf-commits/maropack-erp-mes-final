@@ -78,6 +78,7 @@ export function kesaToConfig(kesa = {}) {
         bocniVar: !!o.bocni_var,
         poprecniVar: !!(o.poprecni_var || o.kontinualni_var || o.toplotni_var),
         perfTelo: !!o.perf_telo,        // perforacija za otkinuti NA TELU (pozicija u positions.perf_telo)
+        unakrsnaPerf: !!o.unakrsna_perf, // unakrsna perforacija (pozicija u positions.unakrsna_perf: odVrha/odDna)
         otvorDno: !!o.otvor_dno,
         ojacanje: !!o.ojacanje,
         pakovanjeTrn: !!o.pakovanje_trn,
@@ -100,7 +101,7 @@ const DEFAULTS = {
     tip: "", vrh: "otvor", klTip: "rect", dno: "ravno",
     adh: false, euroloch: false, luft: false, stampa: false,
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
-    poprecniVar: false, perfTelo: false, mikroPerf: false, poprecnaPerf: false, abreiss: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
+    poprecniVar: false, perfTelo: false, unakrsnaPerf: false, mikroPerf: false, poprecnaPerf: false, abreiss: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     bocnaFalta: false, bocnaMm: 0, vakuum: false,
     positions: {},
     stampaText: "",
@@ -215,6 +216,12 @@ function buildSvgPro(c, u, lang = "sr") {
         return Math.max(topY + 2, Math.min(y1 - 3, yy));
     };
     const perfTeloY = c.perfTelo ? (posToY(P.perf_telo) != null ? posToY(P.perf_telo) : (hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6)) : null;
+    // Unakrsna perforacija — Y iz pozicije (od vrha od vrha tela, ili od dna).
+    const unakrsnaY = c.unakrsnaPerf ? (() => {
+        const uv = P.unakrsna_perf || {};
+        const uy = has(uv, "odVrha") ? topY + mm(uv.odVrha) : (has(uv, "odDna") ? y1 - mm(uv.odDna) : y0 + bh * .5);
+        return Math.max(y0 + 4, Math.min(y1 - 4, uy));
+    })() : null;
     if (c.stampa) {
         g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
         const dz = c.stampaDizajn || null;
@@ -278,13 +285,66 @@ function buildSvgPro(c, u, lang = "sr") {
     if (c.ojacanje) g += `<rect x="${q(x0 + 2)}" y="${q(y0 + 6)}" width="4" height="${q(bh - 12)}" fill="#fed7aa" stroke="${AMB}" stroke-width=".8"/>`;
     // Bočni var — zaptivne trake uz obe bočne ivice.
     if (c.bocniVar) g += `<rect x="${q(x0)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/><rect x="${q(x1 - 4)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/>`;
-    if (c.euroloch) g += euroPath(ex, ey, eW);
+    if (c.euroloch) { const ep = euroPath(ex, ey, eW); g += (eV.okrenuto ? `<g transform="rotate(180 ${q(ex)} ${q(ey)})">${ep}</g>` : ep); }
     const pvY = y0 + bh * .62;
     if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
     // Perforacija za otkinuti na telu — crvena isprekidana linija preko cele širine.
     if (c.perfTelo && perfTeloY != null) g += `<line x1="${q(x0 - 6)}" y1="${q(perfTeloY)}" x2="${q(x1 + 6)}" y2="${q(perfTeloY)}" stroke="${ACC}" stroke-width="1.3" stroke-dasharray="3 3"/>`;
+    // Unakrsna perforacija — linija sa X-markerima preko cele širine na zadatoj visini.
+    if (c.unakrsnaPerf && unakrsnaY != null) {
+        const UC = "#0ea5e9";
+        g += `<line x1="${q(x0 - 6)}" y1="${q(unakrsnaY)}" x2="${q(x1 + 6)}" y2="${q(unakrsnaY)}" stroke="${UC}" stroke-width="1.1" stroke-dasharray="2 3"/>`;
+        const nX = 8; for (let i = 0; i <= nX; i++) { const xx = x0 + (x1 - x0) * i / nX; g += `<path d="M ${q(xx - 2)} ${q(unakrsnaY - 2)} L ${q(xx + 2)} ${q(unakrsnaY + 2)} M ${q(xx - 2)} ${q(unakrsnaY + 2)} L ${q(xx + 2)} ${q(unakrsnaY - 2)}" stroke="${UC}" stroke-width=".9"/>`; }
+    }
     if (c.anleger) g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 5)}" width="${q(bw - 16)}" height="5" rx="2" fill="#dbeafe" stroke="${BLUE}" stroke-width=".9"/>`;
-    if (c.luft) g += `<circle cx="${q(cx)}" cy="${q(y0 + 16)}" r="4.5" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
+    // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno) + prečnikom.
+    {
+        const ozRupe = Array.isArray((P.okrugla_zumba || {}).rupe)
+            ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne")))
+            : [];
+        const topRef = (vrh === "klapna" || vrh === "header") ? ky : y0;
+        if (ozRupe.length) {
+            // 1) izračunaj poziciju svake rupe
+            const pts = ozRupe.map((r, ri) => {
+                const rad = Math.max(2.5, (has(r, "precnik") ? mm(r.precnik) : 9) / 2);
+                let hx = has(r, "odLeve") ? x0 + mm(r.odLeve) : (has(r, "odDesne") ? x1 - mm(r.odDesne) : cx);
+                let hy = has(r, "odVrha") ? topRef + mm(r.odVrha) : (has(r, "odDna") ? y1 - mm(r.odDna) : topRef + 16);
+                hx = Math.max(x0 + rad, Math.min(x1 - rad, hx));
+                hy = Math.max(topRef + rad, Math.min(y1 - rad, hy));
+                return { r, ri, rad, hx, hy };
+            });
+            // 2) KOTE RAZMAKA između susednih rupa (centar–centar), pre crtanja rupa da ostanu ispod
+            if (pts.length >= 2) {
+                const sortd = [...pts].sort((a, b) => (a.hx - b.hx) || (a.hy - b.hy));
+                for (let i = 1; i < sortd.length; i++) {
+                    const a = sortd[i - 1], b = sortd[i];
+                    const dmm = Math.round(Math.hypot(b.hx - a.hx, b.hy - a.hy) / s);
+                    if (dmm <= 0) continue;
+                    const mx = (a.hx + b.hx) / 2, my = (a.hy + b.hy) / 2;
+                    g += `<line x1="${q(a.hx)}" y1="${q(a.hy)}" x2="${q(b.hx)}" y2="${q(b.hy)}" stroke="${SUB}" stroke-width=".7" stroke-dasharray="3 2"/>`;
+                    g += `<path d="${arr(a.hx, a.hy, a.hx <= b.hx ? 'r' : 'l')}" fill="${SUB}"/><path d="${arr(b.hx, b.hy, a.hx <= b.hx ? 'l' : 'r')}" fill="${SUB}"/>`;
+                    g += `<rect x="${q(mx - 13)}" y="${q(my - 7)}" width="26" height="12" rx="2" fill="#fff" stroke="${SUB}" stroke-width=".5"/>`;
+                    g += `<text x="${q(mx)}" y="${q(my + 2.3)}" font-size="8.5" fill="${INK}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo">${dmm}</text>`;
+                }
+            }
+            // 3) crtaj rupe + kote (Ø + pozicija od ivica)
+            pts.forEach(({ r, ri, rad, hx, hy }) => {
+                g += `<circle cx="${q(hx)}" cy="${q(hy)}" r="${q(rad)}" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
+                g += `<text x="${q(hx)}" y="${q(hy + 2.6)}" font-size="7" fill="${SUB}" text-anchor="middle" font-weight="800" font-family="Inter">${ri + 1}</text>`;
+                const toRight = hx <= cx;
+                const lx = toRight ? hx + rad + 4 : hx - rad - 4;
+                const anc = toRight ? "start" : "end";
+                const posTxt = [
+                    has(r, "odVrha") ? num(r.odVrha) + "↓" : (has(r, "odDna") ? num(r.odDna) + "↑" : ""),
+                    has(r, "odLeve") ? num(r.odLeve) + "←" : (has(r, "odDesne") ? num(r.odDesne) + "→" : ""),
+                ].filter(Boolean).join(" ");
+                g += `<text x="${q(lx)}" y="${q(hy - rad - 2)}" font-size="8" fill="${INK}" text-anchor="${anc}" font-weight="800" font-family="Inter">Ø${has(r, "precnik") ? num(r.precnik) : "?"}</text>`;
+                if (posTxt) g += `<text x="${q(lx)}" y="${q(hy + rad + 8)}" font-size="7.5" fill="${SUB}" text-anchor="${anc}" font-family="Inter">${posTxt}</text>`;
+            });
+        } else if (c.luft) {
+            g += `<circle cx="${q(cx)}" cy="${q(y0 + 16)}" r="4.5" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
+        }
+    }
     g += ext(x0, y1, x0, y1 + 36) + ext(x1, y1, x1, y1 + 36) + dH(x0, x1, y1 + 30, `${sirina}`);
     g += ext(x0, y0, x0 - 42, y0) + ext(x0, y1, x0 - 42, y1) + dV(y0, y1, x0 - 36, `${duzina}`);
     if (kl > 0) g += ext(kx0, ky, x0 - 42, ky) + ext(x0, y0, x0 - 42, y0) + dV(ky, y0, x0 - 64, `${klMm}`);
@@ -300,11 +360,16 @@ function buildSvgPro(c, u, lang = "sr") {
             case "duplofan": { const dy = posToY(P.duplofan); return [kx0 + 12, dy != null ? dy : (hasFlap ? ky + Math.max(8, kl * .65) : y0 + 12)]; }
             case "abreiss": return [cx, topY + 2];
             case "falznut": case "utor": return [x1 - 10, y0 + bh * .38];
-            case "luft": case "okrugla_zumba": return [cx, y0 + 16];
+            case "luft": case "okrugla_zumba": {
+                const rr = Array.isArray((P.okrugla_zumba || {}).rupe) ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne"))) : [];
+                if (rr.length) { const r0 = rr[0], tr = (vrh === "klapna" || vrh === "header") ? ky : y0; const hx = has(r0, "odLeve") ? x0 + mm(r0.odLeve) : (has(r0, "odDesne") ? x1 - mm(r0.odDesne) : cx); const hy = has(r0, "odVrha") ? tr + mm(r0.odVrha) : (has(r0, "odDna") ? y1 - mm(r0.odDna) : tr + 16); return [hx, hy]; }
+                return [cx, y0 + 16];
+            }
             case "kosa_klapna": case "ukosena_klapna": case "klapna": return [kx1 - 12, ky + 4];
             case "perf_igle": case "mikroperforacija": return [cx, y0 + bh * .10];
             case "poprecna_perf": return [cx, y0 + bh * .16];
             case "perf_telo": return [cx, perfTeloY != null ? perfTeloY : (ky + kl + 6)];
+            case "unakrsna_perf": return [cx, unakrsnaY != null ? unakrsnaY : (y0 + bh * .5)];
             case "otvor_dno": return [cx, y1 - 8];
             case "var_dno": case "toplotni_var": case "kontinualni_var": return [cx + 20, y1 - 6];
             case "ojacanje": return [x0 + 4, y0 + bh * .5];

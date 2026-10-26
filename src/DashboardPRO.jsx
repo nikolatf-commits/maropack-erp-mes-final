@@ -52,33 +52,55 @@ export default function DashboardPRO({ setPage }) {
     const [data, setData] = useState({ nalozi: [], rolne: [], aktivnosti: [], proizvodi: [] });
     const [timeRange, setTimeRange] = useState("30");
     const [selectedView, setSelectedView] = useState("overview");
+    const [greska, setGreska] = useState("");   // neblokирajuća poruka umesto alert()
 
     async function loadAllData() {
         setLoading(true);
-        try {
-            const loaded = await loadDashboardData(timeRange);
-            setData(loaded);
-        } catch (e) {
-            console.error("Dashboard greška:", e);
-            alert("Greška pri učitavanju dashboarda: " + e.message);
-        } finally {
-            setLoading(false);
+        // Privremene mrežne greške (Failed to fetch, baza se budi posle restarta) se
+        // ponavljaju automatski — da operater ne mora ništa da radi.
+        const jePrivremena = (e) => {
+            const m = String((e && e.message) || e || "").toLowerCase();
+            return m.includes("failed to fetch") || m.includes("load failed") || m.includes("network")
+                || m.includes("timeout") || m.includes("timed out") || m.includes("fetch") || m.includes("connection");
+        };
+        let poslednja = null;
+        for (let pok = 0; pok < 4; pok++) {
+            try {
+                const loaded = await loadDashboardData(timeRange);
+                setData(loaded);
+                setGreska("");
+                setLoading(false);
+                return;
+            } catch (e) {
+                poslednja = e;
+                if (!jePrivremena(e) || pok === 3) break;
+                await new Promise((r) => setTimeout(r, 1200 * (pok + 1))); // 1.2s → 2.4s → 3.6s
+            }
         }
+        // Posle svih pokušaja — NE blokiraj alert-om; prikaži poruku + dugme „Pokušaj ponovo".
+        console.error("Dashboard greška:", poslednja);
+        setGreska((poslednja && poslednja.message) || String(poslednja) || "Nepoznata greška");
+        setLoading(false);
     }
 
     useEffect(() => {
         loadAllData();
+        // DEBOUNCE: dashboard sluša 4 tabele (uklj. magacin koji se menja non-stop).
+        // Bez ovoga svaka promena = pun reload dashboarda = puno Disk IO na bazi.
+        let deb = null;
+        const osveziDeb = () => { if (deb) clearTimeout(deb); deb = setTimeout(() => { deb = null; loadAllData(); }, 1500); };
         const sub = supabase
             .channel("dashboard-pro-live")
-            .on("postgres_changes", { event: "*", schema: "public", table: "radni_nalozi" }, loadAllData)
-            .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, loadAllData)
-            .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, loadAllData)
-            .on("postgres_changes", { event: "*", schema: "public", table: "nalog_aktivnosti" }, loadAllData)
+            .on("postgres_changes", { event: "*", schema: "public", table: "radni_nalozi" }, osveziDeb)
+            .on("postgres_changes", { event: "*", schema: "public", table: "operativni_nalozi" }, osveziDeb)
+            .on("postgres_changes", { event: "*", schema: "public", table: "magacin" }, osveziDeb)
+            .on("postgres_changes", { event: "*", schema: "public", table: "nalog_aktivnosti" }, osveziDeb)
             .subscribe();
 
-        const onChange = () => loadAllData();
+        const onChange = () => osveziDeb();
         window.addEventListener("maropack:nalozi-changed", onChange);
         return () => {
+            if (deb) clearTimeout(deb);
             supabase.removeChannel(sub);
             window.removeEventListener("maropack:nalozi-changed", onChange);
         };
@@ -101,6 +123,23 @@ export default function DashboardPRO({ setPage }) {
     ].filter(x => x.value > 0);
 
     if (loading) return <LoadingScreen />;
+
+    // Greška pri učitavanju (npr. baza se budi posle restarta) — NE blokira app:
+    // jasna poruka + „Pokušaj ponovo", a ostatak aplikacije je i dalje dostupan kroz meni.
+    if (greska && (!data || !((data.nalozi || []).length || (data.rolne || []).length))) {
+        return <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Inter,system-ui,Arial,sans-serif" }}>
+            <div style={{ maxWidth: 440, width: "100%", background: "#fff", border: "1px solid #fecaca", borderRadius: 16, padding: 22, textAlign: "center", boxShadow: "0 8px 24px rgba(0,0,0,.08)" }}>
+                <div style={{ fontSize: 34 }}>📡</div>
+                <div style={{ fontWeight: 900, fontSize: 17, color: "#991b1b", marginTop: 8 }}>Server trenutno ne odgovara</div>
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>Ne mogu da učitam podatke sa baze (Supabase). Ako je baza upravo restartovana, servisu treba par minuta — sačekaj pa pokušaj ponovo.</div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 8, wordBreak: "break-word" }}>{String(greska)}</div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
+                    <button onClick={() => loadAllData()} style={{ border: "none", background: "#2563eb", color: "#fff", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>🔄 Pokušaj ponovo</button>
+                    {setPage && <button onClick={() => setPage("nalozi")} style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#334155", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>Idi na naloge</button>}
+                </div>
+            </div>
+        </div>;
+    }
 
     return (
         <div style={styles.page}>
