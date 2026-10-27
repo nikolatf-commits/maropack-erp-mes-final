@@ -16,7 +16,6 @@ export function AuthProvider({ children }) {
   const mounted = useRef(true);
   const currentUserId = useRef(null);   // da profil NE učitavamo na svaki refresh tokena
   const profileLoading = useRef(false);
-  const signingOut = useRef(false);     // pravi, namerni signOut (klik na Odjavu)
 
   useEffect(() => {
     mounted.current = true;
@@ -43,29 +42,21 @@ export function AuthProvider({ children }) {
     })();
 
     // ── 2) PROMENE AUTH STANJA ──────────────────────────────────────────────
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // VAŽNO (Supabase pravilo): u OVOM callback-u se NE SME pozivati nijedna
+    // supabase.auth.* metoda (getSession/refreshSession/signOut/getUser…), jer
+    // koristi isti auth-lock → deadlock. Posledica ranije greške: „Odjava" (koja
+    // zove supabase.auth.signOut()) nikad ne bi završila. Zato je callback SINHRON:
+    // samo ažurira state; sve DB/auth pozive odlažemo sa setTimeout(0) (van lock-a).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted.current) return;
-
-      if (event === 'SIGNED_OUT') {
-        // Pravi, namerni odjavljivanje (klik) — očisti odmah.
-        if (signingOut.current) {
-          signingOut.current = false;
-          hardClear();
-          return;
-        }
-        // SIGNED_OUT zna da stigne i zbog NEUSPELOG osvežavanja tokena (istekao dok
-        // je tab bio u pozadini / telefon zaključan), a ne zbog prave odjave. Pre nego
-        // što bacimo korisnika na Login — pokušaj još jednom da obnoviš sesiju.
-        try {
-          const { data } = await supabase.auth.refreshSession();
-          if (data && data.session) { applySession(data.session); return; }
-        } catch (e) { /* stvarno nema važeće sesije */ }
-        hardClear();
-        return;
-      }
-
-      // SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED / INITIAL_SESSION …
-      applySession(session);
+      const u = (session && session.user) ? session.user : null;
+      // SIGNED_OUT / nema sesije → očisti. (SIGNED_OUT stiže samo na pravu odjavu ili
+      // kad token zaista više ne može da se obnovi — u oba slučaja treba izaći.)
+      if (!u) { hardClear(); return; }
+      setUser(u);
+      if (currentUserId.current === u.id) { setLoading(false); return; } // isti korisnik, samo osvežen token
+      currentUserId.current = u.id;
+      setTimeout(() => { if (mounted.current) loadUserProfile(u.id); }, 0);
     });
 
     // ── 3) PROAKTIVNO OSVEŽAVANJE PRI POVRATKU U APP ────────────────────────
@@ -168,13 +159,13 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
-    signingOut.current = true;
+    // Lokalno očisti stanje ODMAH (ne čekamo mrežu) — da se odjava uvek desi,
+    // a supabase.auth.signOut() nek završi svoj posao u pozadini.
+    hardClear();
     try {
       await supabase.auth.signOut();
     } catch (e) {
-      // i ako mrežni poziv padne, lokalno očistimo stanje
-    } finally {
-      hardClear();
+      // i ako mrežni poziv padne, stanje je već očišćeno
     }
   }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
-import { RolnaDizajnEditor, PerforacijaEditor } from "./components/RolnaPerfViews.jsx";
+import { RolnaDizajnEditor, PerforacijaEditor, ViseDizajnaEditor } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
@@ -3468,6 +3468,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                             <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
                             <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
+                            <ViseDizajnaEditor value={form.folija.stampa.viseDizajna} onChange={v => update("folija.stampa.viseDizajna", v)} />
                         </div>
                     </Section>
                 )}
@@ -3488,6 +3489,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
                         <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>Dizajn na finalnoj rolni (JPEG / PNG / PDF)</div>
                         <RolnaDizajnEditor value={form.folija.stampa.dizajn} onChange={v => update("folija.stampa.dizajn", v)} />
+                        <ViseDizajnaEditor value={form.folija.stampa.viseDizajna} onChange={v => update("folija.stampa.viseDizajna", v)} />
                     </div>
                 </Section>
 

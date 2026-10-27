@@ -47,7 +47,7 @@ const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',',
 let _PID = 0; // jedinstven id za SVG pattern (mikro perforacija)
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -86,14 +86,23 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
         const yTop = Hmm > 0 ? WEBY0 + num(perfOdVrha) * syp : WEBY0;
         const yBot = Hmm > 0 ? WEBY1 - num(perfOdDna) * syp : WEBY1;
         const rupe = String(perfTip) === 'rupe';
+        // Raspored rupa: smaknute_kolone = svaka druga linija pomerena naniže za pola razmaka;
+        // cik_cak = svaki drugi red pomeren ustranu za pola razmaka između linija.
+        const smakKol = perfRaspored === 'smaknute_kolone' && rupe;
+        const cikCak = perfRaspored === 'cik_cak' && rupe;
+        const xsD = linijeDraw.map((L) => WEBX0 + num(L.mm) * sxp).filter((x) => x >= WEBX0 && x <= WEBX1).sort((a, b) => a - b);
+        const colStepD = xsD.length > 1 ? (xsD[xsD.length - 1] - xsD[0]) / (xsD.length - 1) : 0;
+        const hxD = cikCak ? colStepD / 2 : 0;
         linijeDraw.forEach((L, i) => {
             const x = WEBX0 + num(L.mm) * sxp;
             if (x < WEBX0 || x > WEBX1) return;
             const c = BOJE[i % BOJE.length];
             const gapPx = Hmm > 0 ? Math.max(4, (num(L.razmak) || num(perfRazmak, 5)) * syp) : 10;
             if (rupe) {
-                for (let y = yTop; y <= yBot; y += gapPx) o += `<circle cx="${x}" cy="${y}" r="2" fill="${c}"/>`;
-                o += `<circle cx="${x}" cy="${yTop}" r="3" fill="${c}"/>`;
+                const yoff = (smakKol && (i % 2 === 1)) ? gapPx / 2 : 0;
+                let k = 0;
+                for (let y = yTop + yoff; y <= yBot + 0.5; y += gapPx) { const cxh = x + ((cikCak && (k % 2 === 1)) ? hxD : 0); o += `<circle cx="${cxh}" cy="${y}" r="2" fill="${c}"/>`; k++; }
+                o += `<circle cx="${x}" cy="${yTop + yoff}" r="3" fill="${c}"/>`;
             } else {
                 o += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
             }
@@ -104,7 +113,7 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
 
 // Kotirani prikaz perforacije — iz LISTE LINIJA (svaka: pozicija + strana + opcioni razmak).
 // linije = [{ mm (od leve ivice), poz (uneta vrednost), strana ("leva"|"desna"), razmak }]
-export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "gusca", maxWidth = 430 }) {
+export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "gusca", raspored = "poravnato", maxWidth = 430 }) {
     const odV = num(odVrha), odD = num(odDna);
     const Wmm = num(sirina, 270) || 270, Hmm = num(visina, 600) || 600, gGlob = num(razmakRupa, 5) || 5;
     const sx = (WEBX1 - WEBX0) / Wmm, sy = (WEBY1 - WEBY0) / Hmm;
@@ -156,21 +165,32 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
         return { x, gore, c: BOJE[i % BOJE.length], poz, razmak: num(L.razmak), id: (gore ? 'L' + (++brL) : 'D' + (++brD)) };
     }).filter((it) => it.x >= WEBX0 && it.x <= WEBX1);
 
+    // Raspored rupa: „smaknute_kolone" = svaka druga linija pomerena naniže za pola razmaka;
+    // „cik_cak" = svaki drugi red pomeren ustranu za pola razmaka između linija.
+    const smakKol = raspored === 'smaknute_kolone' && tip === 'rupe';
+    const cikCak = raspored === 'cik_cak' && tip === 'rupe';
+    const xsAll = items.map((it) => it.x).sort((a, b) => a - b);
+    const colStep = xsAll.length > 1 ? (xsAll[xsAll.length - 1] - xsAll[0]) / (xsAll.length - 1) : 0;
+    const hx = cikCak ? colStep / 2 : 0;
+    const yoffOf = (idx, gap) => (smakKol && (idx % 2 === 1)) ? (gap * sy / 2) : 0;
+
     // 2) Perforacija (tačke za „rupe", isprekidana linija za mikroperforaciju) + tačka na kraju
-    items.forEach((it) => {
+    items.forEach((it, idx) => {
         const gap = it.razmak || gGlob;
-        if (tip === 'rupe') { for (let y = yTop; y <= yBot; y += gap * sy) o += `<circle cx="${it.x}" cy="${y}" r="2" fill="${it.c}"/>`; }
+        const yoff = yoffOf(idx, gap);
+        if (tip === 'rupe') { let k = 0; for (let y = yTop + yoff; y <= yBot + 0.5; y += gap * sy) { const cx = it.x + ((cikCak && (k % 2 === 1)) ? hx : 0); o += `<circle cx="${cx}" cy="${y}" r="2" fill="${it.c}"/>`; k++; } }
         else { o += `<line x1="${it.x}" y1="${yTop}" x2="${it.x}" y2="${yBot}" stroke="${it.c}" stroke-width="2.5" stroke-dasharray="8 5"/>`; }
-        o += `<circle cx="${it.x}" cy="${it.gore ? yTop : yBot}" r="3.2" fill="${it.c}"/>`;
+        o += `<circle cx="${it.x}" cy="${it.gore ? (yTop + yoff) : yBot}" r="3.2" fill="${it.c}"/>`;
     });
 
     // 2b) RAZMAK IZMEĐU RUPA — kotiran: mala vertikalna kota između prve dve rupe svake linije.
     if (tip === 'rupe') {
         const xs = items.map((it) => it.x).sort((a, b) => a - b);
         const nearRight = (x) => xs.some((o2) => o2 > x + 0.5 && o2 - x < 44);
-        items.forEach((it) => {
+        items.forEach((it, idx) => {
             const gap = it.razmak || gGlob;
-            const yA = yTop, yB = yTop + gap * sy;
+            const yoff = yoffOf(idx, gap);
+            const yA = yTop + yoff, yB = yTop + yoff + gap * sy;
             const side = nearRight(it.x) ? -1 : 1, lx = it.x + 12 * side;
             o += `<line x1="${it.x}" y1="${yA}" x2="${lx}" y2="${yA}" stroke="${it.c}" stroke-width="0.9"/>`;
             o += `<line x1="${it.x}" y1="${yB}" x2="${lx}" y2="${yB}" stroke="${it.c}" stroke-width="0.9"/>`;
@@ -305,7 +325,7 @@ export function RolnaDizajnEditor({ value = {}, onChange, hidePreview = false })
 // nema=true -> perforacije nema: sakriva se crtež perforacije i njegova polja,
 // ostaje SAMO prikaz "Dizajn na finalnoj rolni".
 export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }) {
-    const v = { tip: "linija", odVrha: 50, odDna: 50, sirina: 270, visina: 600, razmakRupa: 5, linije: null, pozLeve: "", pozDesne: "", odLeveIvice: 20, odDesneIvice: 20, gustina: "gusca", ...(value || {}) };
+    const v = { tip: "linija", odVrha: 50, odDna: 50, sirina: 270, visina: 600, razmakRupa: 5, linije: null, pozLeve: "", pozDesne: "", odLeveIvice: 20, odDesneIvice: 20, gustina: "gusca", raspored: "poravnato", ...(value || {}) };
     const jeZona = v.tip === "mikro_zona";
     const sirinaN = Number(v.sirina) || 0;
 
@@ -362,6 +382,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                 perfSirinaMm={(!nema && imaPoz) ? sirinaN : 0}
                 perfLinije={(!nema && imaPoz) ? perfLinije : []}
                 perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
+                perfRaspored={v.raspored}
                 maxWidth={nema ? 360 : 320} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>
@@ -399,6 +420,13 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                     {F("Širina trake (mm)", "sirina")}
                     {F("Visina prikaza (mm)", "visina")}
                     {F("Razmak rupa — podrazumevano (mm)", "razmakRupa")}
+                    {v.tip === "rupe" && <div><label style={_lab}>Raspored rupa</label>
+                        <select style={_inp} value={v.raspored || "poravnato"} onChange={(e) => set("raspored", e.target.value)}>
+                            <option value="poravnato">Poravnato</option>
+                            <option value="smaknute_kolone">Smaknute kolone</option>
+                            <option value="cik_cak">Cik-cak redovi</option>
+                        </select>
+                    </div>}
                 </>}
             </div>
 
@@ -430,10 +458,142 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>{jeZona ? "MIKRO PERFORACIJA (zona)" : "PERFORACIJA (kotirano)" + (imaPoz ? " — " + perfLinije.length + " linija" : " — unesi bar jednu liniju")}</div>
-                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} maxWidth={320} />
+                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} raspored={v.raspored} maxWidth={320} />
                 </div>
                 {dizajnBlok}
             </div>
+        </div>
+    );
+}
+
+/* ============================================================================
+   MONTAŽA — više dizajna na jednoj rolni (folija)
+   trake (s leva na desno) = [{ sirina, dizajnIdx }], dizajni = [{ url, naziv, w, h }]
+   Fotomarker i QR su DEO slike dizajna — ne crtaju se posebno.
+   ========================================================================== */
+let _MID = 0;
+function escM(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function svgWrapM(inner, maxW, vw, vh) {
+    return `<svg viewBox="0 0 ${vw} ${vh}" width="100%" style="max-width:${maxW || 760}px;display:block;margin:0 auto;background:#fff">` + inner + `</svg>`;
+}
+export function montazaSvgStr(dizajni, trake, maxWidth) {
+    dizajni = Array.isArray(dizajni) ? dizajni : [];
+    const lanes = (Array.isArray(trake) ? trake : []).filter((t) => t && num(t.sirina) > 0);
+    const VW = 840, VH = 300, X0 = 40, X1 = 740, topY = 54, botY = 232, H = 232 - 54;
+    if (!lanes.length) {
+        return svgWrapM(`<rect x="${X0}" y="${topY}" width="${X1 - X0}" height="${H}" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="6 4"/><text x="${(X0 + X1) / 2}" y="${(topY + botY) / 2}" text-anchor="middle" font-size="14" font-weight="800" fill="#94a3b8">Dodaj trake (širina + dizajn)</text>`, maxWidth, VW, VH);
+    }
+    const totalMm = lanes.reduce((s, t) => s + num(t.sirina), 0) || 1;
+    const scale = (X1 - X0) / totalMm;
+    let o = `<rect x="${X0}" y="${topY}" width="${X1 - X0}" height="${H}" fill="#f8fafc" stroke="#1e3a8a" stroke-width="1.3"/>`;
+    let x = X0;
+    lanes.forEach((ln, i) => {
+        const wPx = num(ln.sirina) * scale;
+        const d = dizajni[num(ln.dizajnIdx)] || dizajni[0] || null;
+        const uid = "mz" + (_MID++);
+        o += `<rect x="${x}" y="${topY}" width="${wPx}" height="${H}" fill="#ffffff"/>`;
+        if (d && d.url) {
+            const aspect = (num(d.w) > 0 && num(d.h) > 0) ? (num(d.w) / num(d.h)) : 1.6;
+            const tileH = Math.max(16, wPx / aspect);
+            o += `<clipPath id="${uid}"><rect x="${x}" y="${topY}" width="${wPx}" height="${H}"/></clipPath>`;
+            o += `<g clip-path="url(#${uid})">`;
+            for (let ty = topY; ty < botY - 1; ty += tileH) o += `<image href="${d.url}" x="${x}" y="${ty}" width="${wPx}" height="${tileH}" preserveAspectRatio="xMidYMid meet"/>`;
+            o += `</g>`;
+        } else {
+            o += `<text x="${x + wPx / 2}" y="${(topY + botY) / 2}" text-anchor="middle" font-size="10" font-weight="800" fill="#94a3b8">(bez slike)</text>`;
+        }
+        const naz = (d && d.naziv) ? d.naziv : ("Traka " + (i + 1));
+        o += `<text x="${x + wPx / 2}" y="${topY + 14}" text-anchor="middle" font-size="10.5" font-weight="900" fill="#0f172a" stroke="#fff" stroke-width="2.8" paint-order="stroke">${escM(naz)}</text>`;
+        if (i < lanes.length - 1) o += `<line x1="${x + wPx}" y1="${topY - 6}" x2="${x + wPx}" y2="${botY + 6}" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="5 4"/>`;
+        o += `<line x1="${x}" y1="${botY + 16}" x2="${x + wPx}" y2="${botY + 16}" stroke="#334155"/><line x1="${x}" y1="${botY + 12}" x2="${x}" y2="${botY + 20}" stroke="#334155"/><line x1="${x + wPx}" y1="${botY + 12}" x2="${x + wPx}" y2="${botY + 20}" stroke="#334155"/>`;
+        o += `<text x="${x + wPx / 2}" y="${botY + 30}" text-anchor="middle" font-size="10" font-weight="800" fill="#334155">${num(ln.sirina)} mm</text>`;
+        x += wPx;
+    });
+    o += `<line x1="${X0}" y1="${topY - 18}" x2="${X1}" y2="${topY - 18}" stroke="#1d4ed8"/><line x1="${X0}" y1="${topY - 22}" x2="${X0}" y2="${topY - 14}" stroke="#1d4ed8"/><line x1="${X1}" y1="${topY - 22}" x2="${X1}" y2="${topY - 14}" stroke="#1d4ed8"/>`;
+    o += `<rect x="${(X0 + X1) / 2 - 92}" y="${topY - 28}" width="184" height="16" rx="4" fill="#fff" stroke="#1d4ed8"/><text x="${(X0 + X1) / 2}" y="${topY - 16}" text-anchor="middle" font-size="10.5" font-weight="900" fill="#1d4ed8">Širina materijala ${Math.round(totalMm)} mm</text>`;
+    o += `<line x1="${X1 + 18}" y1="${topY}" x2="${X1 + 18}" y2="${botY - 10}" stroke="#7c3aed" stroke-width="2"/><path d="M${X1 + 18} ${botY} l-6 -12 h12 Z" fill="#7c3aed"/>`;
+    o += `<text x="${X1 + 32}" y="${(topY + botY) / 2}" font-size="9" font-weight="800" fill="#7c3aed" transform="rotate(90 ${X1 + 32} ${(topY + botY) / 2})" text-anchor="middle">SMER ODMOTAVANJA</text>`;
+    return svgWrapM(o, maxWidth, VW, VH);
+}
+
+export function MontazaCrtez({ dizajni = [], trake = [], maxWidth = 760 }) {
+    return <div dangerouslySetInnerHTML={{ __html: montazaSvgStr(dizajni, trake, maxWidth) }} />;
+}
+
+export function ViseDizajnaEditor({ value = {}, onChange }) {
+    const v = { enabled: false, dizajni: [], trake: [], ...(value || {}) };
+    const [busy, setBusy] = useState(-1);
+    const set = (patch) => onChange && onChange({ ...v, ...patch });
+    const dizajni = Array.isArray(v.dizajni) ? v.dizajni : [];
+    const trake = Array.isArray(v.trake) ? v.trake : [];
+
+    const setDizajn = (i, patch) => set({ dizajni: dizajni.map((d, idx) => (idx === i ? { ...d, ...patch } : d)) });
+    const addDizajn = () => { if (dizajni.length >= 4) return; set({ dizajni: [...dizajni, { url: "", naziv: "" }] }); };
+    const delDizajn = (i) => {
+        const nd = dizajni.filter((_, idx) => idx !== i);
+        const nt = trake.map((t) => { let di = num(t.dizajnIdx); if (di === i) di = 0; else if (di > i) di = di - 1; return { ...t, dizajnIdx: di }; });
+        set({ dizajni: nd, trake: nt });
+    };
+    const onFileDiz = async (i, e) => {
+        const f = e.target.files && e.target.files[0]; if (!f) return;
+        setBusy(i);
+        try { const d = await fileToDizajnDataURL(f); setDizajn(i, { url: d.url, w: d.w, h: d.h, naziv: (dizajni[i] && dizajni[i].naziv) || f.name }); }
+        catch (err) { alert("Greška pri učitavanju dizajna: " + (err && err.message || err)); }
+        setBusy(-1);
+    };
+
+    const setTraka = (i, patch) => set({ trake: trake.map((t, idx) => (idx === i ? { ...t, ...patch } : t)) });
+    const addTraka = () => set({ trake: [...trake, { sirina: "", dizajnIdx: 0 }] });
+    const delTraka = (i) => set({ trake: trake.filter((_, idx) => idx !== i) });
+    const ukupno = trake.reduce((s, t) => s + num(t.sirina), 0);
+
+    return (
+        <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 12, background: "#f8fafc", marginTop: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, fontSize: 13, color: "#1d4ed8", cursor: "pointer", marginBottom: v.enabled ? 12 : 0 }}>
+                <input type="checkbox" checked={!!v.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+                Više dizajna na rolni (montaža)
+            </label>
+            {v.enabled && <>
+                <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8" }}>DIZAJNI ({dizajni.length}/4)</span>
+                        <button type="button" style={{ ..._ebtn, background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8", opacity: dizajni.length >= 4 ? 0.5 : 1 }} disabled={dizajni.length >= 4} onClick={addDizajn}>+ Dodaj dizajn</button>
+                    </div>
+                    {dizajni.map((d, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 6 }}>
+                            <span style={{ fontWeight: 900, color: "#1d4ed8", minWidth: 18, textAlign: "center" }}>{i + 1}</span>
+                            <input style={{ ..._inp, maxWidth: 160 }} placeholder="naziv (npr. Santis)" value={d.naziv || ""} onChange={(e) => setDizajn(i, { naziv: e.target.value })} />
+                            <input type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => onFileDiz(i, e)} />
+                            {busy === i && <span style={{ fontSize: 12, color: "#64748b" }}>Učitavam…</span>}
+                            {d.url && <img src={d.url} alt="" style={{ height: 30, border: "1px solid #e2e8f0", borderRadius: 4 }} />}
+                            <button type="button" title="Obriši dizajn" style={{ ..._ebtn, color: "#b91c1c", marginLeft: "auto" }} onClick={() => delDizajn(i)}>✕</button>
+                        </div>
+                    ))}
+                    {!dizajni.length && <div style={{ fontSize: 12, color: "#94a3b8" }}>Dodaj bar jedan dizajn (slika već sadrži fotomarker i QR).</div>}
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: "#7c3aed" }}>RASPORED TRAKA ({trake.length}) — s leva na desno</span>
+                        <button type="button" style={{ ..._ebtn, background: "#7c3aed", color: "#fff", borderColor: "#7c3aed" }} onClick={addTraka}>+ Dodaj traku</button>
+                    </div>
+                    {trake.map((t, i) => (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1.5fr 34px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                            <div style={{ fontWeight: 900, color: "#7c3aed", textAlign: "center" }}>{i + 1}</div>
+                            <input style={_inp} type="number" placeholder="širina mm" value={t.sirina} onChange={(e) => setTraka(i, { sirina: e.target.value })} />
+                            <select style={_inp} value={num(t.dizajnIdx)} onChange={(e) => setTraka(i, { dizajnIdx: Number(e.target.value) })}>
+                                {dizajni.length ? dizajni.map((d, di) => <option key={di} value={di}>{d.naziv || ("Dizajn " + (di + 1))}</option>) : <option value={0}>(prvo dodaj dizajn)</option>}
+                            </select>
+                            <button type="button" title="Obriši traku" style={{ ..._ebtn, color: "#b91c1c", padding: "7px 0" }} onClick={() => delTraka(i)}>✕</button>
+                        </div>
+                    ))}
+                    {!trake.length && <div style={{ fontSize: 12, color: "#94a3b8" }}>Dodaj trake s leva na desno (širina + koji dizajn).</div>}
+                    <div style={{ fontSize: 12, fontWeight: 800, marginTop: 4, color: ukupno ? "#0f766e" : "#94a3b8" }}>Ukupna širina traka: {ukupno || 0} mm</div>
+                </div>
+
+                <div style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8", marginBottom: 4 }}>MONTAŽA (pregled)</div>
+                <MontazaCrtez dizajni={dizajni} trake={trake} maxWidth={760} />
+            </>}
         </div>
     );
 }

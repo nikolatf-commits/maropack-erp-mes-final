@@ -2789,8 +2789,9 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         }
     }
     async function logoutOperater() {
-        try { if (!supabase?.__notConfigured) await supabase.auth.signOut(); } catch (e) { /* noop */ }
+        // Odjavi ODMAH (ne čekamo mrežu) — da „Odjava" uvek radi, pa signOut u pozadini.
         setOperater(null); safeWrite(LS_OPERATER, null);
+        try { if (!supabase?.__notConfigured) await supabase.auth.signOut(); } catch (e) { /* noop */ }
     }
     useEffect(() => { _operaterIme = operater?.ime || "—"; }, [operater]);
     // Obnova sesije pri otvaranju: ako je magacioner već ulogovan u Supabase Auth, ostaje prijavljen.
