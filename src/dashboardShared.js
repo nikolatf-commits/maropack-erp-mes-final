@@ -368,8 +368,15 @@ export function calculateDashboardKPIs(data = {}) {
     }
     const ukupnaVrednost = vrednostMagacina;
 
-    const ukupnoAktivnosti = aktivnosti.length;
-    const aktivniRadnici = new Set(aktivnosti.map(getWorkerName).filter(n => n && n !== "Nepoznato")).size;
+    // nalog_aktivnosti je obično PRAZNA → stvaran rad je u operativni_nalozi (data.rad).
+    // Ako nema aktivnosti, broji radnike i aktivnosti iz rada (isto kao Menadžerski dashboard).
+    const rad = data.rad || [];
+    const ukupnoAktivnosti = aktivnosti.length || rad.length;
+    const radniciSet = new Set(aktivnosti.map(getWorkerName).filter(n => n && n !== "Nepoznato"));
+    if (radniciSet.size === 0) {
+        rad.forEach(r => { const ime = normalizeText(r.radnik); if (ime) radniciSet.add(ime); });
+    }
+    const aktivniRadnici = radniciSet.size;
 
     const ukupnoZastoja = aktivnosti.filter(a => {
         const s = normalizeStatus(a.status || a.tip || a.vrsta);
@@ -703,6 +710,7 @@ export function kreatorNaloga(n) {
     let v = pick(n);
     if (!v) v = pick(_pj(n && n.parametri));
     if (!v) v = pick(_pj(n && n.order_data));
+    if (!v) v = pick(_pj(n && n.link_meta));   // nalozi iz ponude čuvaju kreatora u link_meta
     return imeKorisnika(String(v || "").trim());   // email/username → ime
 }
 // Potrošnja (uzeto sa rolni) po nalogu: izdato (materijal_stavke) + iskorišćeno (magacin).
@@ -733,7 +741,7 @@ export function buildNaloziPoKreatoru(data = {}) {
         // ako nema operacija, padni na status master naloga.
         const zavrsen = ops.length > 0 ? ops.every((o) => isFinishedStatus(o.status)) : isFinishedStatus(n.status);
         const p = potr[masterBroj(n.broj_naloga || n.broj)] || {};
-        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, uzetoM: 0, uzetoKg: 0, poslednji: null };
+        if (!m[ime]) m[ime] = { ime, broj: 0, zavrseno: 0, uzetoM: 0, uzetoKg: 0, poslednji: null, nalozi: [] };
         const g = m[ime];
         g.broj += 1;
         if (zavrsen) g.zavrseno += 1;
@@ -741,8 +749,15 @@ export function buildNaloziPoKreatoru(data = {}) {
         g.uzetoKg += safeNumber(p.uzetoKg);
         const d = n.created_at || n.datum || n.datum_kreiranja;
         if (d && (!g.poslednji || new Date(d) > new Date(g.poslednji))) g.poslednji = d;
+        // Lista naloga po kreatoru — da se može videti KOJI su to nalozi (naročito „Nepoznato").
+        g.nalozi.push({ broj: n.broj_naloga || n.broj || "—", datum: d || null, zavrsen, kupac: n.kupac || "", proizvod: n.proizvod || n.naziv || "" });
     });
-    return Object.values(m).map((x) => ({ ...x, uzetoM: Math.round(x.uzetoM), uzetoKg: Math.round(x.uzetoKg), udeoZavrseno: x.broj > 0 ? Math.round((x.zavrseno / x.broj) * 100) : 0 })).sort((a, b) => b.broj - a.broj);
+    return Object.values(m).map((x) => ({
+        ...x,
+        uzetoM: Math.round(x.uzetoM), uzetoKg: Math.round(x.uzetoKg),
+        udeoZavrseno: x.broj > 0 ? Math.round((x.zavrseno / x.broj) * 100) : 0,
+        nalozi: (x.nalozi || []).sort((a, b) => new Date(b.datum || 0) - new Date(a.datum || 0)),
+    })).sort((a, b) => b.broj - a.broj);
 }
 
 // --- ŠKART zbirno po FAZI (preko svih naloga) ---

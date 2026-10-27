@@ -1278,9 +1278,9 @@ function MainAppContent() {
     }
     // -----------------------------------------------------
 
-    const [page, setPage] = useState("dashboard_pro");
+    const [page, setPage] = useState("nalozi");
     const [dopunaNalog, setDopunaNalog] = useState(null);  // {id, broj} — dopuna materijala delimičnog naloga
-    const [openGroups, setOpenGroups] = useState(['dashboard']);
+    const [openGroups, setOpenGroups] = useState(['proizvodnja', 'dashboard']);
     const [navOtvoren, setNavOtvoren] = useState(false);   // mobilni meni (hamburger)
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
         if (typeof window === "undefined") return false;
@@ -1568,6 +1568,8 @@ function MainAppContent() {
         var kupac = pon.kupac || pon.klijent || "Kupac";
         var kol = pon.kol || pon.kolicina || pon.količina || 0;
         var masterId = "MASTER-" + String(broj).replace(/[^a-zA-Z0-9_-]/g, "-");
+        // KREATOR — ko pravi nalog (da se upiše na SVAKI nalog, ne samo preko templejta).
+        var kreiraoImeP = (userProfile && userProfile.ime) || imeKorisnika(user && user.email) || "";
         var linkedBase = buildOrderSourcePack({ ponuda: pon, tipOperacije: 'master', tipProizvoda: tipProizvoda });
         var templatePayload = linkedBase.product_template || extractTemplate(pon);
         var kalkulacijaPayload = linkedBase.kalkulacija_payload || extractKalkulacija(pon);
@@ -1588,6 +1590,7 @@ function MainAppContent() {
             kolicina: kol,
             status: "Ceka",
             datum: dnow(),
+            kreirao_ime: kreiraoImeP,
             mats: vm,
             struktura: vm,
             res: pon.res || pon.rezultat || null,
@@ -1701,6 +1704,7 @@ function MainAppContent() {
                 operacije_iz_template: linked.operacije_iz_template,
                 qr_kod: qrCodeBase64,
                 radnik: "",
+                kreirao_ime: kreiraoImeP,
                 nap: pon.nap || pon.napomena || "",
                 redni_broj: t.redni_broj || null
             };
@@ -1857,15 +1861,17 @@ function MainAppContent() {
     const prvaKartica = (navGroups[0] && navGroups[0].items && navGroups[0].items[0] && navGroups[0].items[0].k) || "nalozi";
     // Dashboard grupa (Dashboard PRO, Menadžerski, Finansije+KPI) — vidi je samo ko ima pristup.
     const mozeDashboard = dozvoljeneKartice.has("dashboard_pro") || dozvoljeneKartice.has("manager_dashboard") || dozvoljeneKartice.has("finansije_kpi");
-    // Default stranica je "dashboard_pro"; korisnik bez pristupa Dashboard-u (npr. Bojan/Tihana…)
-    // bi inače pao baš na nju jer se stranica crta bez provere. Preusmeri ga na prvu dozvoljenu.
-    // Preusmerenje → „Glavni nalozi" ako korisnik ima tu karticu, inače prva dozvoljena.
+    // Default stranica je "nalozi" (Glavni nalozi) — Dashboard se otvara tek na klik.
+    // Zaštite: (1) korisnik bez pristupa Dashboard-u ne sme ostati na dashboard stranici;
+    //          (2) korisnik koji nema ni „nalozi" karticu ide na prvu dozvoljenu.
     const pocetnaKartica = dozvoljeneKartice.has("nalozi") ? "nalozi" : prvaKartica;
     useEffect(function () {
         if (!mozeDashboard && (page === "dashboard_pro" || page === "manager_dashboard" || page === "finansije_kpi")) {
             setPage(pocetnaKartica);
+        } else if (page === "nalozi" && !dozvoljeneKartice.has("nalozi")) {
+            setPage(prvaKartica);
         }
-    }, [page, mozeDashboard, pocetnaKartica]);
+    }, [page, mozeDashboard, pocetnaKartica, prvaKartica]);
     const mobileMagacionerMode = (isMagacioner || samoMagacinRola) && isMobileViewport;
     // Puna aplikacija NA TELEFONU je privilegija: admin i manager uvek, ostalima je
     // admin uključuje kolonom telefon_pun_pristup (boolean) u profilu korisnika.
@@ -2310,8 +2316,9 @@ function MainAppContent() {
                                             // na master-u i u parametrima bilo koje operacije. NIKAD ne pada na n.radnik,
                                             // jer je to izvršilac prve operacije (npr. magacioner koji je izdao materijal).
                                             var kreiraoPolja = function (o) { return (o && (o.kreirao_ime || o.kreirao || o.napravio || o.kreirao_korisnik)) || ""; };
-                                            var grKreirao = kreiraoPolja(master) || kreiraoPolja(parseParam(master))
-                                                || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])); if (v) return v; } return ""; })()
+                                            var parseLM = function (obj) { try { var p = obj && obj.link_meta; if (p == null) return {}; return typeof p === "string" ? JSON.parse(p) : p; } catch (e) { return {}; } };
+                                            var grKreirao = kreiraoPolja(master) || kreiraoPolja(parseParam(master)) || kreiraoPolja(parseLM(master))
+                                                || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])) || kreiraoPolja(parseLM(gr[i])); if (v) return v; } return ""; })()
                                                 || "";
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
                                             var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || (grParam && grParam.datum_isporuke) || gr[0].rok_isporuke || (function () { var p0 = parseParam(gr[0]); return p0 && p0.datum_isporuke; })() || "";

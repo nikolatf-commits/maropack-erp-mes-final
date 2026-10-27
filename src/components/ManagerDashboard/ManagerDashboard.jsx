@@ -299,11 +299,13 @@ function SkartView({ workers, skartNalozi, skartFaze, kpi }) {
 
 // ---------- PO KREATORU NALOGA: ko je napravio koliko naloga ----------
 function KreatoriView({ kreatori }) {
+    const [otvoren, setOtvoren] = useState(null);   // koji red je razvijen (prikaz liste naloga)
     const ukupnoNaloga = kreatori.reduce((s, k) => s + k.broj, 0);
     const ukupnoZavrseno = kreatori.reduce((s, k) => s + k.zavrseno, 0);
     const maxBroj = Math.max(1, ...kreatori.map(k => k.broj));
     const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
     const td = { padding: "10px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
+    const fmtDat = (d) => { if (!d) return "—"; try { const x = new Date(d); return isNaN(x) ? "—" : x.toLocaleDateString("sr-RS"); } catch (e) { return "—"; } };
     return (
         <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 11, marginBottom: 16 }}>
@@ -315,26 +317,53 @@ function KreatoriView({ kreatori }) {
             {kreatori.length === 0 ? <Empty text="Nema naloga u izabranom periodu." /> : (
                 <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 12 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead><tr>{["#", "Kreator", "Napravio naloga", "Završeno", "% završeno", "Količina (m)"].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                        <thead><tr>{["#", "Kreator", "Napravio naloga", "Završeno", "% završeno", "Uzeto sa rolni"].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
                         <tbody>
                             {kreatori.map((k, i) => (
-                                <tr key={i}>
+                                <React.Fragment key={i}>
+                                <tr onClick={() => setOtvoren(otvoren === i ? null : i)} style={{ cursor: "pointer", background: otvoren === i ? "#eff6ff" : "transparent" }}>
                                     <td style={{ ...td, color: "#94a3b8", fontWeight: 800 }}>#{i + 1}</td>
-                                    <td style={{ ...td, fontWeight: 900 }}>{k.ime}</td>
+                                    <td style={{ ...td, fontWeight: 900 }}><span style={{ color: "#1d4ed8", marginRight: 6 }}>{otvoren === i ? "▾" : "▸"}</span>{k.ime}</td>
                                     <td style={td}>
                                         <div style={{ fontWeight: 950, fontSize: 15 }}>{k.broj}</div>
                                         <div style={{ height: 5, background: "#e2e8f0", borderRadius: 3, marginTop: 3, overflow: "hidden" }}><div style={{ height: "100%", width: (k.broj / maxBroj * 100) + "%", background: "#1d4ed8" }} /></div>
                                     </td>
                                     <td style={{ ...td, color: "#15803d", fontWeight: 900 }}>{k.zavrseno}</td>
                                     <td style={td}><b style={{ background: k.udeoZavrseno >= 80 ? "#dcfce7" : k.udeoZavrseno >= 50 ? "#fef9c3" : "#fee2e2", color: k.udeoZavrseno >= 80 ? "#166534" : k.udeoZavrseno >= 50 ? "#854d0e" : "#b91c1c", borderRadius: 8, padding: "2px 8px" }}>{k.udeoZavrseno}%</b></td>
-                                    <td style={td}>{k.kolicinaM ? formatNumber(k.kolicinaM, " m") : "—"}</td>
+                                    <td style={td}>{(k.uzetoM || k.uzetoKg) ? <span><b>{k.uzetoM ? formatNumber(k.uzetoM, " m") : "—"}</b>{k.uzetoKg ? <span style={{ color: "#64748b" }}> · {formatNumber(k.uzetoKg, " kg")}</span> : null}</span> : "—"}</td>
                                 </tr>
+                                {otvoren === i && (
+                                    <tr>
+                                        <td colSpan={6} style={{ padding: 0, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" }}>
+                                            <div style={{ padding: "8px 12px 12px" }}>
+                                                <div style={{ fontSize: 11, fontWeight: 900, color: "#475569", margin: "2px 0 6px" }}>Nalozi ({(k.nalozi || []).length}) — klikni red da sakriješ</div>
+                                                <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff" }}>
+                                                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                                                        <thead><tr>{["Broj naloga", "Datum", "Kupac", "Proizvod", "Status"].map(h => <th key={h} style={{ ...th, fontSize: 9.5, padding: "6px 8px" }}>{h}</th>)}</tr></thead>
+                                                        <tbody>
+                                                            {(k.nalozi || []).map((n, j) => (
+                                                                <tr key={j}>
+                                                                    <td style={{ padding: "6px 8px", borderBottom: "1px solid #f1f5f9", fontWeight: 800 }}>{n.broj}</td>
+                                                                    <td style={{ padding: "6px 8px", borderBottom: "1px solid #f1f5f9", color: "#64748b" }}>{fmtDat(n.datum)}</td>
+                                                                    <td style={{ padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{n.kupac || "—"}</td>
+                                                                    <td style={{ padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{n.proizvod || "—"}</td>
+                                                                    <td style={{ padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{n.zavrsen ? <span style={{ color: "#15803d", fontWeight: 800 }}>✓ završen</span> : <span style={{ color: "#b45309", fontWeight: 700 }}>u toku</span>}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
+                                </React.Fragment>
                             ))}
                         </tbody>
                     </table>
                 </div>
             )}
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Broji naloge iz trenutnog perioda koji su ušli u proizvodnju. Kreator se čita iz polja „kreirao_ime / kreirao / napravio".</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>👆 Klikni na kreatora (npr. „— Nepoznato") da vidiš listu njegovih naloga (broj, datum, kupac). „Uzeto sa rolni" = stvarno utrošen materijal po nalogu. Kreator se čita iz „kreirao_ime / kreirao / napravio"; „Nepoznato" = nalozi bez upisanog kreatora (obično stariji).</div>
         </div>
     );
 }
