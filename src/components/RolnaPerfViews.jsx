@@ -108,7 +108,9 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
             }
         });
     }
-    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
+    // Kraći/širi prikaz: viewBox skraćen po visini (0 0 600 600 umesto 760) — rolna se
+    // „širi" (popuni širinu) ali NE izdužuje; prikazuje se cilindar + kraći deo materijala.
+    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth, '0 0 600 600') }} />;
 }
 
 // Kotirani prikaz perforacije — iz LISTE LINIJA (svaka: pozicija + strana + opcioni razmak).
@@ -309,7 +311,7 @@ export function RolnaDizajnEditor({ value = {}, onChange, hidePreview = false })
                 <div style={{ minWidth: 110 }}><label style={_lab}>Visina (%)</label><input style={_inp} type="number" value={v.visinaPct ?? 100} onChange={(e) => set({ visinaPct: e.target.value })} /></div>
                 <div style={{ alignSelf: "end" }}><button type="button" style={_ebtn} onClick={() => set({ sirinaPct: 100, visinaPct: 100 })}>Puna širina</button></div>
             </div>
-            {!hidePreview && <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={960} />}
+            {!hidePreview && <RolnaDizajn dizajnUrl={v.url} w={v.w} h={v.h} rotacija={v.rotacija || 0} zrcalo={v.zrcalo ?? 1} sirinaPct={v.sirinaPct ?? 100} visinaPct={v.visinaPct ?? 100} maxWidth={520} />}
             {!hidePreview && v.url && (
                 <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#1d4ed8", letterSpacing: ".3px", marginBottom: 4 }}>ORIGINALNA SLIKA — PUNA VELIČINA (kote sa slike)</div>
@@ -383,7 +385,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                 perfLinije={(!nema && imaPoz) ? perfLinije : []}
                 perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
                 perfRaspored={v.raspored}
-                maxWidth={nema ? 960 : 560} />
+                maxWidth={520} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>
     );

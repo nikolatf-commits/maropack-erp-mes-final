@@ -1091,8 +1091,20 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     // Praćenje poručivanja (Za poručivanje traka): poruceno / ko / KW / stiglo — pamti se u bazi.
     const porucKljuc = (m) => [String(m.vrsta || "").trim().toUpperCase(), String(m.oznaka || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, ""), Number(m.debljina) || 0, Number(m.sirina) || 0].join("|");
     const [porucStatus, setPorucStatus] = useState({});
+    const porucWarnedRef = React.useRef(false);
     async function loadPorucStatus() {
-        try { const { data } = await supabase.from("porucivanje_status").select("*"); const map = {}; (data || []).forEach((r) => { map[r.mat_kljuc] = r; }); setPorucStatus(map); } catch (e) { /* tabela možda ne postoji još */ }
+        try {
+            const { data, error } = await supabase.from("porucivanje_status").select("*");
+            if (error) {
+                // Najčešći uzrok „čekiranje ne ostaje": tabela ne postoji → upis tiho pada.
+                if (!porucWarnedRef.current && (error.code === "42P01" || /does not exist|relation/i.test(error.message || ""))) {
+                    porucWarnedRef.current = true;
+                    msg && msg("Tabela „porucivanje_status\" ne postoji u bazi — pusti SQL „porucivanje_status_setup.sql\" u Supabase SQL Editor da bi „poručeno/stiglo\" ostajalo zapamćeno.", "err");
+                }
+                return;
+            }
+            const map = {}; (data || []).forEach((r) => { map[r.mat_kljuc] = r; }); setPorucStatus(map);
+        } catch (e) { /* noop */ }
     }
     useEffect(() => { loadPorucStatus(); }, []);
     async function upsertPoruc(m, patch) {
@@ -1339,6 +1351,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             setHistory(safeRead(LS_HISTORY, []));
         }
         if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
+        // Osveži i status poručivanja iz baze (da „poručeno/stiglo" uvek odražava bazu posle reload-a).
+        try { loadPorucStatus(); } catch (e) { /* noop */ }
     }
     useEffect(() => { reload(); loadMaterialDropdowns(); loadMaterialMaster(); }, []);
     useEffect(() => { reload(); }, [db?.rolne?.length]);
