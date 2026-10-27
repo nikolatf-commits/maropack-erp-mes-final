@@ -1092,27 +1092,48 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     const porucKljuc = (m) => [String(m.vrsta || "").trim().toUpperCase(), String(m.oznaka || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, ""), Number(m.debljina) || 0, Number(m.sirina) || 0].join("|");
     const [porucStatus, setPorucStatus] = useState({});
     const porucWarnedRef = React.useRef(false);
+    // Lokalne (još nepotvrđene) izmene — uvek pobede učitane iz baze, da reload/učitavanje
+    // NE pregazi upravo čekirano dok upis ne stigne u bazu.
+    const porucPendingRef = React.useRef({});
     async function loadPorucStatus() {
         try {
             const { data, error } = await supabase.from("porucivanje_status").select("*");
             if (error) {
-                // Najčešći uzrok „čekiranje ne ostaje": tabela ne postoji → upis tiho pada.
                 if (!porucWarnedRef.current && (error.code === "42P01" || /does not exist|relation/i.test(error.message || ""))) {
                     porucWarnedRef.current = true;
                     msg && msg("Tabela „porucivanje_status\" ne postoji u bazi — pusti SQL „porucivanje_status_setup.sql\" u Supabase SQL Editor da bi „poručeno/stiglo\" ostajalo zapamćeno.", "err");
                 }
                 return;
             }
-            const map = {}; (data || []).forEach((r) => { map[r.mat_kljuc] = r; }); setPorucStatus(map);
+            const map = {}; (data || []).forEach((r) => { map[r.mat_kljuc] = r; });
+            // zadrži lokalne nepotvrđene izmene na vrhu
+            setPorucStatus({ ...map, ...porucPendingRef.current });
         } catch (e) { /* noop */ }
     }
     useEffect(() => { loadPorucStatus(); }, []);
+    // Ako je mount bio pre nego što je sesija bila spremna (RLS vraća prazno), učitaj opet kad se operater pojavi.
+    useEffect(() => { if (operater) loadPorucStatus(); }, [operater]);
     async function upsertPoruc(m, patch) {
         const kljuc = porucKljuc(m);
         const base = { mat_kljuc: kljuc, vrsta: m.vrsta || null, oznaka: m.oznaka || null, debljina: Number(m.debljina) || null, sirina: Number(m.sirina) || null };
         const row = { ...(porucStatus[kljuc] || base), ...base, ...patch, updated_at: new Date().toISOString() };
-        setPorucStatus((p) => ({ ...p, [kljuc]: row })); // optimistično
-        try { await supabase.from("porucivanje_status").upsert(row, { onConflict: "mat_kljuc" }); } catch (e) { msg && msg("Nije sačuvano: " + (e.message || e), "err"); }
+        porucPendingRef.current[kljuc] = row;                 // lokalno dok se ne potvrdi
+        setPorucStatus((p) => ({ ...p, [kljuc]: row }));      // optimistično
+        try {
+            // VAŽNO: upsert ne BACA grešku — vraća je u { error }. Ranije se nije proveravala,
+            // pa je upis tiho padao (tabela fali / RLS) i čekiranje je „nestajalo" bez poruke.
+            const { error } = await supabase.from("porucivanje_status").upsert(row, { onConflict: "mat_kljuc" });
+            if (error) {
+                if (!porucWarnedRef.current && (error.code === "42P01" || /does not exist|relation/i.test(error.message || ""))) {
+                    porucWarnedRef.current = true;
+                    msg && msg("Tabela „porucivanje_status\" ne postoji u bazi — pusti SQL „porucivanje_status_setup.sql\" u Supabase da bi ostajalo zapamćeno.", "err");
+                } else {
+                    msg && msg("Nije sačuvano u bazu: " + (error.message || error), "err");
+                }
+                return; // ostaje lokalno čekirano, ali korisnik zna da nije sačuvano
+            }
+            delete porucPendingRef.current[kljuc];            // potvrđeno u bazi
+        } catch (e) { msg && msg("Nije sačuvano: " + (e.message || e), "err"); }
     }
     const togglePoruceno = (m) => { const k = porucKljuc(m); const cur = porucStatus[k] || {}; const novo = !cur.poruceno; upsertPoruc(m, novo ? { poruceno: true, ko_poruceno: reserverName, poruceno_ts: new Date().toISOString() } : { poruceno: false, ko_poruceno: null, poruceno_ts: null, kw: null, stiglo: false }); };
     const setPorucKW = (m, kw) => upsertPoruc(m, { kw });
@@ -1351,8 +1372,6 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             setHistory(safeRead(LS_HISTORY, []));
         }
         if (!selectedMatId && mats[0]) setSelectedMatId(mats[0].id);
-        // Osveži i status poručivanja iz baze (da „poručeno/stiglo" uvek odražava bazu posle reload-a).
-        try { loadPorucStatus(); } catch (e) { /* noop */ }
     }
     useEffect(() => { reload(); loadMaterialDropdowns(); loadMaterialMaster(); }, []);
     useEffect(() => { reload(); }, [db?.rolne?.length]);

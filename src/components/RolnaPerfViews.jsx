@@ -460,7 +460,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>{jeZona ? "MIKRO PERFORACIJA (zona)" : "PERFORACIJA (kotirano)" + (imaPoz ? " — " + perfLinije.length + " linija" : " — unesi bar jednu liniju")}</div>
-                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} raspored={v.raspored} maxWidth={320} />
+                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} raspored={v.raspored} maxWidth={520} />
                 </div>
                 {dizajnBlok}
             </div>
