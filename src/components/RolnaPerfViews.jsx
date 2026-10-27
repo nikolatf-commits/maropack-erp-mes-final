@@ -47,7 +47,7 @@ const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',',
 let _PID = 0; // jedinstven id za SVG pattern (mikro perforacija)
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", perfOdLeveIvice = 0, perfOdDesneIvice = 0, perfGustina = "gusca", maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -107,6 +107,25 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
                 o += `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="${c}" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.95"/>`;
             }
         });
+    }
+    // MIKRO PERFORACIJA (ZONA) preko dizajna — ista rešetka tačkica kao na levoj skici.
+    if (String(perfTip) === 'mikro_zona' && num(perfSirinaMm) > 0) {
+        const sxz = (WEBX1 - WEBX0) / num(perfSirinaMm);
+        const oL = num(perfOdLeveIvice), oR = num(perfOdDesneIvice);
+        const xL = WEBX0 + oL * sxz, xR = WEBX1 - oR * sxz;
+        const yT = WEBY0, yB = WEBY1, c = "#8b5cf6";
+        const redja = String(perfGustina) === 'redja';
+        const step = redja ? 13 : 7, rr = redja ? 1.8 : 1.4;
+        const pid = 'mpzd' + (_PID++);
+        if (xR > xL + 2) {
+            o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
+            o += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse">`
+                + `<circle cx="${step / 2}" cy="${step / 2}" r="${rr}" fill="${c}"/>`
+                + `<circle cx="0" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
+                + `<circle cx="${step}" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
+                + `</pattern></defs>`;
+            o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="url(#${pid})"/>`;
+        }
     }
     // Puna visina (viewBox 0 0 600 760) — isti prikaz kao perforacijska rolna, da sva tri budu identična.
     return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
@@ -380,10 +399,11 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <RolnaDizajn dizajnUrl={dizajn && dizajn.url} w={dizajn && dizajn.w} h={dizajn && dizajn.h}
                 rotacija={v.dizajnRotacija ?? (dizajn && dizajn.rotacija) ?? 0} zrcalo={(dizajn && dizajn.zrcalo) ?? 1}
                 sirinaPct={(dizajn && dizajn.sirinaPct) ?? 100} visinaPct={(dizajn && dizajn.visinaPct) ?? 100}
-                perfSirinaMm={(!nema && imaPoz) ? sirinaN : 0}
+                perfSirinaMm={(!nema && (imaPoz || v.tip === 'mikro_zona')) ? sirinaN : 0}
                 perfLinije={(!nema && imaPoz) ? perfLinije : []}
                 perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
                 perfRaspored={v.raspored}
+                perfOdLeveIvice={v.odLeveIvice} perfOdDesneIvice={v.odDesneIvice} perfGustina={v.gustina}
                 maxWidth={520} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>
