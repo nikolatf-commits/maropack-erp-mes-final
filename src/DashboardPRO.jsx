@@ -245,15 +245,16 @@ export default function DashboardPRO({ setPage }) {
                             </LineChart>
                         </ResponsiveContainer>
                     </ChartCard>
-                    <ChartCard title="📋 Najnoviji nalozi" subtitle="Iz tabele nalozi">
-                        <div style={{ overflowX: "auto" }}>
+                    <ChartCard title="📋 Svi nalozi" subtitle={"Iz tabele nalozi · ukupno " + (data.nalozi ? data.nalozi.length : 0)}>
+                        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: 520 }}>
                             <table style={styles.table}>
-                                <thead><tr><th>Broj</th><th>Proizvod</th><th>Količina</th><th>Urađeno</th><th>Status</th></tr></thead>
-                                <tbody>{data.nalozi.slice(0, 12).map(n => {
+                                <thead><tr>{["Broj", "Proizvod", "Količina", "Urađeno", "Status"].map(h => <th key={h} style={{ textAlign: "center", position: "sticky", top: 0, background: "#f8fafc", zIndex: 1 }}>{h}</th>)}</tr></thead>
+                                <tbody>{data.nalozi.map(n => {
                                     const ops = opMap.get(n.id) || [];
                                     const st = statusNaloga(n, ops);
                                     const stLabel = st === "zavrsen" ? "Završen" : st === "otkazan" ? "Otkazan" : "Aktivan";
-                                    return <tr key={n.id}><td><b>{getOrderNumber(n)}</b></td><td>{getProductName(n)}</td><td>{formatNumber(kolicinaNaloga(n), "m")}</td><td>{formatNumber(finalnoUradjeno(ops) || n.uradjeno || n.proizvedeno, "m")}</td><td><StatusBadge status={stLabel} /></td></tr>;
+                                    const tdC = { textAlign: "center" };
+                                    return <tr key={n.id}><td style={tdC}><b>{getOrderNumber(n)}</b></td><td style={tdC}>{getProductName(n)}</td><td style={tdC}>{formatNumber(kolicinaNaloga(n), "m")}</td><td style={tdC}>{formatNumber(finalnoUradjeno(ops) || n.uradjeno || n.proizvedeno, "m")}</td><td style={tdC}><StatusBadge status={stLabel} /></td></tr>;
                                 })}</tbody>
                             </table>
                         </div>
