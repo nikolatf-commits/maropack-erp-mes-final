@@ -108,9 +108,8 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
             }
         });
     }
-    // Kraći/širi prikaz: viewBox skraćen po visini (0 0 600 600 umesto 760) — rolna se
-    // „širi" (popuni širinu) ali NE izdužuje; prikazuje se cilindar + kraći deo materijala.
-    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth, '0 0 600 600') }} />;
+    // Puna visina (viewBox 0 0 600 760) — isti prikaz kao perforacijska rolna, da sva tri budu identična.
+    return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
 }
 
 // Kotirani prikaz perforacije — iz LISTE LINIJA (svaka: pozicija + strana + opcioni razmak).

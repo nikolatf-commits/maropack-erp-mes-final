@@ -4173,7 +4173,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                                         {ps.poruceno && ps.ko_poruceno ? <div style={{ fontSize: 10.5, color: "#a16207", fontWeight: 800, marginTop: 3 }}>👤 {ps.ko_poruceno}</div> : null}
                                     </td>
                                     <td style={{ padding: 9 }}><input value={ps.kw || ""} onChange={(e) => setPorucKW(m, e.target.value)} disabled={!ps.poruceno} placeholder="KW 34" style={{ width: 84, padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: 7, fontWeight: 700, background: ps.poruceno ? "#fff" : "#f1f5f9" }} /></td>
-                                    <td style={{ padding: 9 }}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, cursor: ps.poruceno ? "pointer" : "not-allowed", opacity: ps.poruceno ? 1 : 0.5 }}><input type="checkbox" checked={!!ps.stiglo} disabled={!ps.poruceno} onChange={() => toggleStiglo(m)} /> stiglo</label></td>
+                                    <td style={{ padding: 9 }}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, cursor: ps.poruceno ? "pointer" : "not-allowed", opacity: ps.poruceno ? 1 : 0.5 }}><input type="checkbox" checked={!!ps.stiglo} disabled={!ps.poruceno} onChange={() => toggleStiglo(m)} /> stiglo</label>{ps.stiglo && ps.ko_stiglo ? <div style={{ fontSize: 10.5, color: "#166534", fontWeight: 800, marginTop: 3 }}>👤 {ps.ko_stiglo}</div> : null}</td>
                                 </tr>;
                             })}</tbody>
                         </table>
