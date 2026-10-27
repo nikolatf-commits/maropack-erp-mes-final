@@ -1113,15 +1113,19 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
     useEffect(() => { loadPorucStatus(); }, []);
     // Ako je mount bio pre nego što je sesija bila spremna (RLS vraća prazno), učitaj opet kad se operater pojavi.
     useEffect(() => { if (operater) loadPorucStatus(); }, [operater]);
+    // Kolone koje SMEMO da šaljemo u bazu (bez id/created_at — njih baza sama generiše;
+    // slanje `id` na GENERATED ALWAYS koloni ruši upsert: „cannot insert a non-DEFAULT value into column id").
+    const PORUC_KOLONE = ["mat_kljuc", "vrsta", "oznaka", "debljina", "sirina", "poruceno", "ko_poruceno", "poruceno_ts", "kw", "stiglo", "ko_stiglo", "stiglo_ts", "updated_at"];
     async function upsertPoruc(m, patch) {
         const kljuc = porucKljuc(m);
         const base = { mat_kljuc: kljuc, vrsta: m.vrsta || null, oznaka: m.oznaka || null, debljina: Number(m.debljina) || null, sirina: Number(m.sirina) || null };
-        const row = { ...(porucStatus[kljuc] || base), ...base, ...patch, updated_at: new Date().toISOString() };
-        porucPendingRef.current[kljuc] = row;                 // lokalno dok se ne potvrdi
-        setPorucStatus((p) => ({ ...p, [kljuc]: row }));      // optimistično
+        const merged = { ...(porucStatus[kljuc] || base), ...base, ...patch, updated_at: new Date().toISOString() };
+        const row = {}; PORUC_KOLONE.forEach((k) => { if (merged[k] !== undefined) row[k] = merged[k]; });  // samo dozvoljene kolone
+        porucPendingRef.current[kljuc] = { ...(porucStatus[kljuc] || {}), ...row };   // lokalno (zadrži i id iz baze za prikaz)
+        setPorucStatus((p) => ({ ...p, [kljuc]: { ...(p[kljuc] || {}), ...row } }));  // optimistično
         try {
             // VAŽNO: upsert ne BACA grešku — vraća je u { error }. Ranije se nije proveravala,
-            // pa je upis tiho padao (tabela fali / RLS) i čekiranje je „nestajalo" bez poruke.
+            // pa je upis tiho padao i čekiranje je „nestajalo" bez poruke.
             const { error } = await supabase.from("porucivanje_status").upsert(row, { onConflict: "mat_kljuc" });
             if (error) {
                 if (!porucWarnedRef.current && (error.code === "42P01" || /does not exist|relation/i.test(error.message || ""))) {
