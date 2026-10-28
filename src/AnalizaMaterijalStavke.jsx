@@ -52,10 +52,13 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [tab, setTab] = useState("nalog"); // "nalog" | "materijal" | "sirine"
-    const [period, setPeriod] = useState("sve"); // "sve" | "30" | "90"
+    // Period: godina ("sve" | "2026" | ...) + raspon unutar godine.
+    const [godina, setGodina] = useState(String(new Date().getFullYear()));
+    const [raspon, setRaspon] = useState("cela"); // cela | h1 | h2 | q1..q4 | m (pojedinačni mesec)
+    const [mesec, setMesec] = useState(new Date().getMonth()); // 0-11, kad raspon === "m"
     const [q, setQ] = useState("");
 
-    useEffect(() => { load(); /* eslint-disable-next-line */ }, [period]);
+    useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
     async function load() {
         setLoading(true);
@@ -133,6 +136,8 @@ export default function AnalizaMaterijalStavke({ msg }) {
                     potroseno: m,
                     vraceno: 0,
                     kg: kg,
+                    // Datum = kada je rolna prešla u „iskorišćeno" (updated_at), fallback na created_at.
+                    datum: r.updated_at || r.datum_iskoriscenja || r.datum || r.created_at || null,
                 };
             });
             setRows(transf);
@@ -142,9 +147,45 @@ export default function AnalizaMaterijalStavke({ msg }) {
         } finally { setLoading(false); }
     }
 
+    // Dostupne godine (iz podataka) za padajući izbor.
+    const godine = useMemo(() => {
+        const s = new Set();
+        rows.forEach((r) => { const d = r.datum ? new Date(r.datum) : null; if (d && !isNaN(d)) s.add(d.getFullYear()); });
+        s.add(new Date().getFullYear());
+        return Array.from(s).sort((a, b) => b - a);
+    }, [rows]);
+
+    function rasponMeseci() {
+        switch (raspon) {
+            case "h1": return [1, 6];
+            case "h2": return [7, 12];
+            case "q1": return [1, 3];
+            case "q2": return [4, 6];
+            case "q3": return [7, 9];
+            case "q4": return [10, 12];
+            case "m": return [mesec + 1, mesec + 1];
+            default: return [1, 12]; // cela godina
+        }
+    }
+
+    // Redovi filtrirani po godini + rasponu (po datumu prelaska u „iskorišćeno").
+    const baza = useMemo(() => {
+        if (godina === "sve") return rows;
+        const g = Number(godina);
+        const [odM, doM] = rasponMeseci();
+        return rows.filter((r) => {
+            if (!r.datum) return false;
+            const d = new Date(r.datum); if (isNaN(d)) return false;
+            if (d.getFullYear() !== g) return false;
+            const mm = d.getMonth() + 1;
+            return mm >= odM && mm <= doM;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, godina, raspon, mesec]);
+
     const poNalogu = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
+        baza.forEach((r) => {
             const k = r.nalog_ref || "— bez naloga";
             if (!m[k]) m[k] = { nalog: k, izdato: 0, vraceno: 0, kg: 0, rolni: 0, idealna: r.idealna_sirina || 0, koriscena: r.koriscena_sirina || 0 };
             m[k].izdato += num(r.potroseno);
@@ -161,11 +202,11 @@ export default function AnalizaMaterijalStavke({ msg }) {
             otpad: 0,
             iskoriscenje: x.izdato > 0 ? Math.max(0, Math.min(100, ((x.izdato - x.vraceno) / x.izdato) * 100)) : 0,
         })).sort((a, b) => b.utroseno - a.utroseno);
-    }, [rows]);
+    }, [baza]);
 
     const poMaterijalu = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
+        baza.forEach((r) => {
             const sir = r.koriscena_sirina || "";
             const k = [r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, sir, r.dobavljac].map((x) => x || "").join("|");
             if (!m[k]) m[k] = { vrsta: r.vrsta || "—", pod_vrsta: r.pod_vrsta || "", oznaka: r.oznaka || "", debljina: r.debljina || "", sirina: sir, dobavljac: r.dobavljac || "—", potroseno: 0, kg: 0, otpad: 0, rolni: 0 };
@@ -174,14 +215,14 @@ export default function AnalizaMaterijalStavke({ msg }) {
             m[k].rolni += 1;
         });
         return Object.values(m).filter((x) => x.potroseno > 0 || x.kg > 0).sort((a, b) => b.potroseno - a.potroseno);
-    }, [rows]);
+    }, [baza]);
 
     // ------- NOVO: po ŠIRINI / ivičnom otpadu -------
     // Red = NALOG × materijal (vrsta·pod-vrsta·oznaka·deb·proizvođač) × korišćena širina × idealna širina.
     // Otpad mm = korišćena − idealna (po ivici).  Otpad kg = kg × (otpad/korišćena) — kilaža raste sa širinom.
     const poSirini = useMemo(() => {
         const m = {};
-        rows.forEach((r) => {
+        baza.forEach((r) => {
             const kor = num(r.koriscena_sirina);
             const ide = num(r.idealna_sirina);
             const k = [r.nalog, r.vrsta, r.pod_vrsta, r.oznaka, r.debljina, r.dobavljac, kor, ide].map((x) => x || "").join("|");
@@ -205,15 +246,15 @@ export default function AnalizaMaterijalStavke({ msg }) {
         }).filter((x) => x.kg > 0 || x.potroseno > 0)
             // prvo materijali sa najvećim otpadom (kg), pa po potrošnji
             .sort((a, b) => (b.otpadKg - a.otpadKg) || (b.potroseno - a.potroseno));
-    }, [rows]);
+    }, [baza]);
 
     const kpi = useMemo(() => {
-        const izdato = rows.reduce((s, r) => s + num(r.potroseno), 0);
-        const vraceno = rows.reduce((s, r) => s + num(r.vraceno), 0);
-        const kgUk = rows.reduce((s, r) => s + num(r.kg), 0);
+        const izdato = baza.reduce((s, r) => s + num(r.potroseno), 0);
+        const vraceno = baza.reduce((s, r) => s + num(r.vraceno), 0);
+        const kgUk = baza.reduce((s, r) => s + num(r.kg), 0);
         // ivični otpad: samo rolne gde je korišćena > idealna
         let otpadKg = 0, saOtpadom = 0;
-        rows.forEach((r) => {
+        baza.forEach((r) => {
             const kor = num(r.koriscena_sirina), ide = num(r.idealna_sirina);
             const om = ivicniOtpadMm(kor, ide);
             if (kor > 0 && om > 0) { otpadKg += num(r.kg) * (om / kor); saOtpadom += 1; }
@@ -223,10 +264,10 @@ export default function AnalizaMaterijalStavke({ msg }) {
             izdato: Math.max(0, izdato - vraceno),
             otpad: 0,
             kg: kgUk,                        // ukupno kg = zbir punih kg (kao magacin Iskorišćeno)
-            nalozi: new Set(rows.map((r) => r.nalog_ref || "—")).size,
+            nalozi: new Set(baza.map((r) => r.nalog_ref || "—")).size,
             otpadKg, saOtpadom,
         };
-    }, [rows]);
+    }, [baza]);
 
     const filtNalog = useMemo(() => !q.trim() ? poNalogu : poNalogu.filter((x) => String(x.nalog).toLowerCase().includes(q.toLowerCase())), [poNalogu, q]);
     // Pretraga po SVIM parametrima: Vrsta · Pod-vrsta · Oznaka · Deb. · Širina · Dobavljač.
@@ -236,24 +277,66 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));
 
+    // Izvoz trenutnog taba (CSV, otvara se u Excel-u) za izabrani period.
+    function izvezi() {
+        let headers = [], rowsOut = [], naziv = "analiza";
+        if (tab === "nalog") {
+            naziv = "po_nalogu";
+            headers = ["Nalog", "Rolni", "Skinuto (m)", "Stvarna potrošnja (m)", "Iskorišćenje (%)", "Kg"];
+            rowsOut = filtNalog.map((x) => [x.nalog, x.rolni, Math.round(x.plan), Math.round(x.utroseno), x.izdato > 0 ? x.iskoriscenje.toFixed(1) : "", Math.round(x.kg)]);
+        } else if (tab === "materijal") {
+            naziv = "po_materijalu";
+            headers = ["Vrsta", "Pod-vrsta", "Oznaka", "Debljina", "Širina", "Dobavljač", "Rolni", "Potrošeno (m)", "Kg"];
+            rowsOut = filtMat.map((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.debljina, x.sirina, x.dobavljac, x.rolni, Math.round(x.potroseno), Math.round(x.kg)]);
+        } else {
+            naziv = "po_sirini";
+            headers = ["Nalog", "Proizvod", "Vrsta", "Oznaka", "Debljina", "Dobavljač", "Korišćena (mm)", "Idealna (mm)", "Otpad (mm)", "Otpad (%)", "Rolni", "Potrošeno (m)", "Kg", "Otpad (kg)"];
+            rowsOut = filtSir.map((x) => [x.nalog, x.proizvod, x.vrsta, x.oznaka, x.debljina, x.dobavljac, x.koriscena, x.idealna, Math.round(x.otpadMm), (x.otpadPct || 0).toFixed(1), x.rolni, Math.round(x.potroseno), Math.round(x.kg), (x.otpadKg || 0).toFixed(1)]);
+        }
+        const esc = (v) => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const csv = [headers.join(";")].concat(rowsOut.map((r) => r.map(esc).join(";"))).join("\r\n");
+        const periodLbl = godina === "sve" ? "sve" : (godina + "_" + raspon + (raspon === "m" ? "-" + (mesec + 1) : ""));
+        try {
+            const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = "analiza_" + naziv + "_" + periodLbl + ".csv";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+            msg && msg("Izvezeno: " + a.download, "ok");
+        } catch (e) { msg && msg("Izvoz nije uspeo: " + (e.message || e), "err"); }
+    }
+
     const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
     const th = { textAlign: "left", padding: "9px 10px", fontSize: 10, textTransform: "uppercase", color: "#475569", fontWeight: 800, borderBottom: "1px solid #e2e8f0", background: "#f8fafc" };
     const td = { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, fontSize: 13 };
     const tabBtn = (k) => ({ border: "none", borderRadius: 10, padding: "9px 15px", fontWeight: 900, cursor: "pointer", fontSize: 13.5, background: tab === k ? "#0f172a" : "#f1f5f9", color: tab === k ? "#fff" : "#334155" });
-    const perBtn = (k) => ({ border: "1px solid #e2e8f0", borderRadius: 9, padding: "7px 12px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: period === k ? "#0ea5e9" : "#fff", color: period === k ? "#fff" : "#475569" });
+    const perBtn2 = (active) => ({ border: "1px solid #e2e8f0", borderRadius: 9, padding: "7px 11px", fontWeight: 800, cursor: "pointer", fontSize: 12.5, background: active ? "#0ea5e9" : "#fff", color: active ? "#fff" : "#475569" });
+    const selSt = { border: "1px solid #cbd5e1", borderRadius: 9, padding: "7px 10px", fontWeight: 800, fontSize: 12.5, background: "#fff", color: "#334155" };
 
     return (
         <div style={{ maxWidth: 1080, margin: "0 auto", padding: "8px 4px 40px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 22, fontWeight: 950 }}>📊 Analiza potrošnje materijala</div>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                    <button onClick={() => setPeriod("sve")} style={perBtn("sve")}>Sve</button>
-                    <button onClick={() => setPeriod("30")} style={perBtn("30")}>30 dana</button>
-                    <button onClick={() => setPeriod("90")} style={perBtn("90")}>90 dana</button>
-                    <button onClick={load} style={{ ...perBtn(""), background: "#f1f5f9" }}>↻</button>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <select value={godina} onChange={(e) => setGodina(e.target.value)} style={selSt}>
+                        <option value="sve">Sve godine</option>
+                        {godine.map((g) => <option key={g} value={String(g)}>{g}</option>)}
+                    </select>
+                    {godina !== "sve" && <>
+                        {[["cela", "Cela"], ["h1", "H1"], ["h2", "H2"], ["q1", "Q1"], ["q2", "Q2"], ["q3", "Q3"], ["q4", "Q4"]].map(([k, l]) => (
+                            <button key={k} onClick={() => setRaspon(k)} style={perBtn2(raspon === k)}>{l}</button>
+                        ))}
+                        <select value={raspon === "m" ? String(mesec) : ""} onChange={(e) => { if (e.target.value === "") return; setRaspon("m"); setMesec(Number(e.target.value)); }} style={selSt}>
+                            <option value="">Mesec…</option>
+                            {["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"].map((mn, mi) => <option key={mi} value={mi}>{mn}</option>)}
+                        </select>
+                    </>}
+                    <button onClick={izvezi} style={{ ...perBtn2(false), background: "#16a34a", color: "#fff", border: "1px solid #16a34a" }}>⬇ Izvezi</button>
+                    <button onClick={load} title="Osveži" style={{ ...perBtn2(false), background: "#f1f5f9" }}>↻</button>
                 </div>
             </div>
-            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: knjiga stavki materijala (rezervacije, izdavanja i povrati po nalogu i rolni).</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>Izvor: iskorišćene rolne iz magacina · period se računa po datumu kada je rolna prešla u „iskorišćeno". Izvoz (⬇) izvozi trenutni tab za izabrani period.</div>
 
             {/* KPI */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 11, marginBottom: 16 }}>
