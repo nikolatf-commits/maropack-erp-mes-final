@@ -283,8 +283,14 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                 if (!alive) return;
                 setRezRolne((data || []).map((r) => ({
                     qr: r.br_rolne || r.qr_code || r.id,
-                    lot: r.lot, lokacija: r.lokacija, sirina: r.sirina,
-                    duzina: r.metraza_ost || r.metraza, kg: r.kg_neto,
+                    rolna_id: r.id, br_rolne: r.br_rolne || r.qr_code,
+                    // materijal rolne — da nalog ne ispadne bez vrste/oznake/debljine
+                    // kad se koristi ovaj (magacinski) izvor umesto snapshota izbora.
+                    vrsta: r.vrsta, pod_vrsta: r.pod_vrsta, oznaka: r.oznaka_materijala || r.oznaka,
+                    deb: r.deb || r.debljina, debljina: r.deb || r.debljina, dobavljac: r.dobavljac,
+                    lot: r.lot, lokacija: r.lokacija, palet: r.palet, sirina: r.sirina,
+                    duzina: r.metraza_ost || r.metraza, metraza: r.metraza_ost || r.metraza,
+                    kg: r.kg_neto, rezervisano: r.rezervisano, alocirano_m: r.rezervisano || null,
                     napomena: r.napomena, rezervisao: r.rezervisao,
                 })));
             } catch (e) { if (alive) setRezRolne([]); }

@@ -1244,14 +1244,18 @@ function citajRolne(nalog) {
     const par = safeJson(nalog.parametri, {}) || {};
     const res = safeJson(nalog.res, {}) || {};
     const od = safeJson(nalog.order_data, {}) || {};
+    // VAŽNO: BOGATI snapshot izbora (parametri.izabrane_rolne) ima PRVENSTVO.
+    // On nosi snap_vrsta/snap_oznaka/snap_debljina + alocirano_m. Tek ako njega nema,
+    // padamo na `rezervisane_rolne` (koje npr. PregledNalogaPRO puni iz magacina i može
+    // biti osiromašeno — bez vrste/oznake/debljine), pa na ostale izvore.
     const src =
-        (Array.isArray(nalog.rezervisane_rolne) && nalog.rezervisane_rolne) ||
-        (Array.isArray(nalog.rezervisaneRolne) && nalog.rezervisaneRolne) ||
-        (Array.isArray(nalog.rolne) && nalog.rolne) ||
         (Array.isArray(par.izabrane_rolne) && par.izabrane_rolne) ||
         (Array.isArray(res.izabrane_rolne) && res.izabrane_rolne) ||
         (Array.isArray(od.izabrane_rolne) && od.izabrane_rolne) ||
         (Array.isArray(nalog.izabrane_rolne) && nalog.izabrane_rolne) ||
+        (Array.isArray(nalog.rezervisane_rolne) && nalog.rezervisane_rolne) ||
+        (Array.isArray(nalog.rezervisaneRolne) && nalog.rezervisaneRolne) ||
+        (Array.isArray(nalog.rolne) && nalog.rolne) ||
         [];
 
     return src
