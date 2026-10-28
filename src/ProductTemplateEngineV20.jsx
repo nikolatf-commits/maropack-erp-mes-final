@@ -2083,7 +2083,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     preostalo = Math.max(0, preostalo - alocirano * mult);
                     if (r.id != null && alocirano > 0) usedPerRoll[r.id] = vecUzeto + alocirano;
                     const kgPoM = ukupno > 0 ? (Number(r.kg_neto || r.kg) || 0) / ukupno : 0;
-                    izborData.push({ ...baza, redni_rolne: k + 1, br_rolne: r.br_rolne || null, rolna_id: r.id || null, sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, snap_sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, metraza: ukupno, slobodno_m: slob, rez_pre: rezPre, alocirano_m: alocirano, format_trake: mult, format_ciljna: idealnaSir0, lokacija: r.palet || r.lokacija || null, lot: r.lot || null, snap_vrsta: r.vrsta || r.tip || baza.materijal || "", snap_pod_vrsta: rolnaPodVrsta(r) || "", snap_oznaka: rolnaOznaka(r) || baza.oznaka || "", snap_debljina: Number(r.deb) || Number(r.debljina) || Number(r.snap_debljina) || null, snap_dobavljac: r.dobavljac || "", kg_po_m: kgPoM });
+                    izborData.push({ ...baza, redni_rolne: k + 1, br_rolne: r.br_rolne || null, rolna_id: r.id || null, sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, snap_sirina: Number(r.sirina) || Number(r.sir) || Number(r.width) || null, metraza: ukupno, slobodno_m: slob, rez_pre: rezPre, alocirano_m: alocirano, format_trake: mult, format_ciljna: idealnaSir0, lokacija: r.lokacija || r.palet || null, palet: r.palet || null, lot: r.lot || null, snap_vrsta: r.vrsta || r.tip || baza.materijal || "", snap_pod_vrsta: rolnaPodVrsta(r) || "", snap_oznaka: rolnaOznaka(r) || baza.oznaka || "", snap_debljina: Number(r.deb) || Number(r.debljina) || Number(r.snap_debljina) || null, snap_dobavljac: r.dobavljac || "", kg_po_m: kgPoM });
                 });
             });
 
@@ -2669,7 +2669,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         format_ostatak: mult >= 2 ? fp.ostatak : 0,
                         format_izlaz_m: alocirano * mult,
                         format_ciljna: idealnaSir0,
-                        lokacija: r.palet || r.lokacija || null,
+                        lokacija: r.lokacija || r.palet || null,
+                        palet: r.palet || null,
                         lot: r.lot || null,
                         // snapshot materijala (za ledger / analize)
                         snap_vrsta: r.vrsta || r.tip || baza.materijal || "",
@@ -4358,7 +4359,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                                         return (
                                                                             <div key={r.id || r.br_rolne || k} style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
                                                                                 <div style={{ flex: 1, fontSize: 12, fontWeight: 800, color: "#0f172a", minWidth: 0 }}>
-                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {(r.deb || r.debljina) ? (r.deb || r.debljina) + "µ · " : ""}{r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.palet || r.lokacija)}</span>
+                                                                                    {r.br_rolne} <span style={{ color: "#64748b", fontWeight: 600 }}>· {[r.vrsta, rolnaPodVrsta(r), rolnaOznaka(r)].filter(Boolean).join(" ")} · {(r.deb || r.debljina) ? (r.deb || r.debljina) + "µ · " : ""}{r.sirina}mm · {(r.datum_proizvodnje || r.datum) ? "📅" + (r.datum_proizvodnje || r.datum) + " · " : ""}{r.dobavljac || "—"} · LOT:{r.lot || "—"} · lok:{val(r.lokacija || r.palet)}</span>
                                                                                     {mult >= 2
                                                                                         ? (formatOn(i)
                                                                                             ? <div style={{ marginTop: 4 }}><span style={{ background: "#ede9fe", color: "#6d28d9", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 900 }}>🎞️ formatira se {r.sirina}→{sir} mm · {mult} trake · izlaz {fmt(Math.round(aloc * mult))} m</span></div>
