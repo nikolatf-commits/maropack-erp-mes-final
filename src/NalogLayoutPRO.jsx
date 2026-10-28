@@ -1296,6 +1296,10 @@ function pFormat(D, nalog) {
     const w = Number(p0.ulazna_sirina) || 0, id = Number(p0.ciljna_sirina) || 0;
     const tr = Math.max(1, Number(p0.broj_traka) || 1), ost = Number(p0.ostatak_mm) || 0;
 
+    // Rezime pretvaranja: koliko se UKUPNO skida sa matične rolne i koliko se dobija ciljanog formata.
+    let totSkida = 0, totIzlaz = 0;
+    plan.forEach(function (f) { totSkida += num(f.skida_m); totIzlaz += num(f.izlaz_m); });
+
     const statBlok = '<div class="stats">' +
         stat('Ulazna širina', p0.ulazna_sirina || '—', 'mm', '#2563eb') +
         stat('Ciljna širina', p0.ciljna_sirina || '—', 'mm', '#16a34a') +
@@ -1321,7 +1325,28 @@ function pFormat(D, nalog) {
             '<td class="n">' + fmtN(f.skida_m) + ' m</td>' +
             '<td class="n">' + fmtN(f.izlaz_m) + ' m</td></tr>';
     }).join('');
-    const tabela = plan.length ? '<table>' + th(['Sloj', 'Materijal', { t: 'Ulazna', n: 1 }, { t: 'Ciljna', n: 1 }, { t: 'Traka', n: 1 }, { t: 'Ostatak', n: 1 }, 'Ostatak →', { t: 'Skida se', n: 1 }, { t: 'Izlaz', n: 1 }], c) + '<tbody>' + redovi + '</tbody></table>' : '';
+    const ukupnoRed = plan.length > 0
+        ? '<tr style="background:#faf5ff"><td colspan="7" class="n" style="font-weight:950;color:#6d28d9">UKUPNO</td>' +
+        '<td class="n" style="font-weight:950;color:#1d4ed8">' + fmtN(totSkida) + ' m</td>' +
+        '<td class="n" style="font-weight:950;color:#15803d">' + fmtN(totIzlaz) + ' m</td></tr>'
+        : '';
+    const tabela = plan.length ? '<table>' + th(['Sloj', 'Materijal', { t: 'Ulazna', n: 1 }, { t: 'Ciljna', n: 1 }, { t: 'Traka', n: 1 }, { t: 'Ostatak', n: 1 }, 'Ostatak →', { t: 'Matična (m)', n: 1 }, { t: 'Format (m)', n: 1 }], c) + '<tbody>' + redovi + ukupnoRed + '</tbody></table>' : '';
+
+    // NOVO: istaknut rezime "matična rolna → ciljani format"
+    const pretvBlok = plan.length ? '<div class="sec">' + secH(2, c, 'Pretvaranje matične rolne', '') +
+        '<div style="display:flex;border:1.5px solid ' + c + ';border-radius:12px;overflow:hidden;background:#faf5ff">' +
+        '<div style="flex:1;padding:12px 14px;text-align:center">' +
+        '<div style="font-size:10px;text-transform:uppercase;font-weight:900;color:#64748b;letter-spacing:.3px">Matična rolna — skida se</div>' +
+        '<div style="font-size:24px;font-weight:950;color:#1d4ed8;margin-top:3px">' + fmtN(totSkida) + ' <span style="font-size:13px">m</span></div>' +
+        '<div style="font-size:11px;color:#94a3b8;font-weight:800;margin-top:2px">ulazna ' + (w || '—') + ' mm</div>' +
+        '</div>' +
+        '<div style="flex:0 0 50px;display:flex;align-items:center;justify-content:center;background:#ede9fe;color:#6d28d9;font-size:24px;font-weight:950">→</div>' +
+        '<div style="flex:1;padding:12px 14px;text-align:center">' +
+        '<div style="font-size:10px;text-transform:uppercase;font-weight:900;color:#64748b;letter-spacing:.3px">Ciljani format — dobija se</div>' +
+        '<div style="font-size:24px;font-weight:950;color:#16a34a;margin-top:3px">' + fmtN(totIzlaz) + ' <span style="font-size:13px">m</span></div>' +
+        '<div style="font-size:11px;color:#94a3b8;font-weight:800;margin-top:2px">' + tr + ' × ' + (id || '—') + ' mm trake</div>' +
+        '</div>' +
+        '</div></div>' : '';
 
     return pageWrap(D, hd(D, '🎞️', 'NALOG ZA FORMATIRANJE', c, 'formatiranje') + '<div class="body">' +
         identBlock(D.kupac, (D.tipLabel || 'Formatiranje'), D.proizvod) +
@@ -1329,7 +1354,8 @@ function pFormat(D, nalog) {
         '<div class="info">' + infoC('Šifra', D.sifra) +
         infoC('Materijal', [p0.materijal, p0.oznaka, p0.debljina ? p0.debljina + 'µ' : ''].filter(Boolean).join(' ') || '—') + infoC('Rok', D.rok) + '</div>' +
         '<div class="sec">' + secH(1, c, 'Plan reza (formatiranje)', 'iz naloga') + '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#faf5ff">' + bar + '</div></div>' +
-        (plan.length ? '<div class="sec">' + secH(2, c, 'Plan po sloju', '') + tabela + '</div>' : '') +
+        pretvBlok +
+        (plan.length ? '<div class="sec">' + secH(3, c, 'Plan po sloju', '') + tabela + '</div>' : '') +
         (ost > 0 ? '<div class="ulaz">Bočni ostatak <b>' + ost + ' mm</b>: ' + (p0.ostatak_na_stanje ? 'vraća se na stanje kao nova rolna (širina ' + ost + ' mm) — za drugi nalog.' : 'ide na otpad (škart).') + '</div>' : '') +
         napHtml(D, 'formatiranje') +
         foot('Operater formatirke', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formatiranje');

@@ -282,6 +282,61 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                     });
                 }
             } catch (e) { /* ručne rolne su samo informativne */ }
+
+            // ── DOPUNA: rolne SA NALOGA (izbor) koje nisu nađene preko magacin/ledger ──
+            // Štampani nalog uvek prikazuje `izabrane_rolne`; magacioner mora da spremi
+            // SVE te rolne. Ako neka rezervacija nije (kompletno) zabeležena u magacinu
+            // ili ledgeru — npr. posle dopune/izmene izbora — ta rolna bi nestala sa
+            // ekrana magacionera iako je na nalogu. Ovde je VRAĆAMO: žive podatke
+            // (metraža/lokacija/status) vučemo iz magacina po id-u, a planirano iz izbora.
+            try {
+                if (Array.isArray(izabraneArr) && izabraneArr.length) {
+                    const imaId = new Set(rows.map((r) => String(r.id)));
+                    const imaBr = new Set(rows.map((r) => normB(r.br_rolne)).filter(Boolean));
+                    const nedostaju = izabraneArr.filter((x) => {
+                        if (!x) return false;
+                        const st = String(x.status || "").toLowerCase();
+                        const jeRucna = x.rucni === true || st.includes("ruč") || st.includes("ruc");
+                        if (jeRucna) return false;                      // ručne su dodate gore
+                        // NAPOMENA: NE filtriramo po "planirano > 0". Svaka rolna koju je
+                        // administracija izabrala na nalogu mora da stigne magacioneru —
+                        // i ona kojoj je alokacija 0 m (npr. prethodna rolna je pokrila
+                        // celu potrebu). Jedini uslov je da rolna ima stvarni identitet.
+                        const br = x.br_rolne || x.qr || x.qr_code || x.qr_kod;
+                        if (x.rolna_id != null && imaId.has(String(x.rolna_id))) return false;
+                        if (br && imaBr.has(normB(br))) return false;
+                        return x.rolna_id != null || !!br;
+                    });
+                    if (nedostaju.length) {
+                        const mids = nedostaju.map((x) => x.rolna_id).filter((id) => id != null);
+                        const magById = {};
+                        if (mids.length) {
+                            try {
+                                const { data: mr2 } = await supabase.from("magacin").select("*").in("id", mids).limit(60);
+                                (mr2 || []).forEach((r) => { magById[r.id] = r; });
+                            } catch (e) { /* bez živih podataka → iz snapshota */ }
+                        }
+                        nedostaju.forEach((x) => {
+                            const br = x.br_rolne || x.qr || x.qr_code || x.qr_kod;
+                            const m = (x.rolna_id != null && magById[x.rolna_id]) ? magById[x.rolna_id] : null;
+                            if (m) {
+                                // prava magacin rolna — planirano iz izbora (ledger ga kasnije precizira)
+                                rows.push({ ...m, _alok: Number(x.alocirano_m) || 0 });
+                            } else {
+                                // nema je u magacinu — prikaži iz snapshota (magacioner je nalazi po broju)
+                                rows.push({
+                                    id: x.rolna_id != null ? x.rolna_id : ("izbor-" + normB(br)),
+                                    br_rolne: br, qr_code: br,
+                                    vrsta: x.snap_vrsta || x.vrsta || "", oznaka_materijala: x.snap_oznaka || x.oznaka || "",
+                                    deb: x.snap_debljina || x.debljina || "", sirina: x.sirina || x.snap_sirina || "",
+                                    sloj: Number(x.sloj) || 1, lokacija: x.lokacija || "", metraza_ost: Number(x.metraza) || 0,
+                                    _alok: Number(x.alocirano_m) || 0,
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) { /* dopuna sa naloga je best-effort */ }
         } catch (e) {
             // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
             // isto kao da nalog stvarno nema rolne. Sada se vidi.
@@ -293,9 +348,10 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         try {
             // Ručne rolne (synthetic id "rucni-…") NISU u ledgeru — izostavi ih iz upita,
             // a njihovo „planirano" uzmi direktno iz izbora naloga.
-            const ids = rows.map((r) => r.id).filter((x) => x != null && !String(x).startsWith("rucni-"));
+            const ids = rows.map((r) => r.id).filter((x) => x != null && !String(x).startsWith("rucni-") && !String(x).startsWith("izbor-"));
             const aMap = {}, sMap = {}, iMap = {}, scInit = {}, vecInit = {};
-            rows.forEach((r) => { if (r.rucni && r._alok != null) { aMap[r.id] = num(r._alok); iMap[r.id] = String(Math.round(num(r._alok))); } });
+            // Planirano iz izbora (ručne + rolne vraćene sa naloga) — ledger ispod ga precizira ako postoji stavka.
+            rows.forEach((r) => { if (r._alok != null) { aMap[r.id] = num(r._alok); iMap[r.id] = String(Math.round(num(r._alok))); } });
             if (ids.length) {
                 const { data: st } = await supabase.from("materijal_stavke").select("*").in("rolna_id", ids).in("status", ["rezervisano", "izdato"]).order("created_at", { ascending: true });
                 (st || []).forEach((s) => {
