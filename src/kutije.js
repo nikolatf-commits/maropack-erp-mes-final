@@ -14,13 +14,14 @@ export const KUTIJE = [
     { k: "280x280x190/76", w: 280, h: 280, d: 190, hilzna: 76, poPaleti: 36 },
     { k: "398x398x183/76", w: 398, h: 398, d: 183, hilzna: 76, poPaleti: 36 },
     { k: "398x398x183/152", w: 398, h: 398, d: 183, hilzna: 152, poPaleti: 36 },
+    { k: "398x398x205/76", w: 398, h: 398, d: 205, hilzna: 76, poPaleti: 36 },
     { k: "410x410x305/76", w: 410, h: 410, d: 305, hilzna: 76, poPaleti: 18 },
     { k: "410x410x305/152", w: 410, h: 410, d: 305, hilzna: 152, poPaleti: 18 },
 ];
 
 // Rolni (kutija) po paleti — predlog po dubini kutije. 1 špulna = 1 kutija.
 //   duboke  (305 mm) → 18 po paleti
-//   plitke  (183/190 mm) → 36 po paleti
+//   plitke  (183/190/205 mm) → 36 po paleti
 // Predlog se upisuje pri izboru kutije, ali se u templejtu MOŽE RUČNO PROMENITI.
 export function poPaletiZa(kutija) {
     if (!kutija) return 0;

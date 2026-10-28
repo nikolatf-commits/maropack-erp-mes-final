@@ -257,6 +257,8 @@ const f4 = v => isNaN(v) || v === null ? "—" : (+v).toFixed(4).replace(".", ",
 const eu = v => f2(v) + " €";
 const dnow = () => new Date().toLocaleDateString("sr-RS");
 const nbr = () => "MP-" + new Date().getFullYear() + "-" + String(Math.floor(Math.random() * 9000) + 1000);
+// Godina iz broja naloga (MP-2026-0027 → "2026"). Vrati "" ako nema godine.
+function godIzBr(s) { var m = String(s || "").match(/((?:19|20)\d{2})/); return m ? m[1] : ""; }
 
 // ===================== KOMPONENTE =====================
 function Counter({ val, set, max, lab, col }) {
@@ -1348,6 +1350,7 @@ function MainAppContent() {
     const [pregNalog, setPregNalog] = useState(null);
     const [pregPonuda, setPregPonuda] = useState(null);
     const [samoCekaMat, setSamoCekaMat] = useState(false);   // filter: prikaži samo naloge koji čekaju materijal
+    const [godNalozi, setGodNalozi] = useState(String(new Date().getFullYear())); // filter „Glavni nalozi" po godini ("sve" = sve godine)
     const [stampa, setStampa] = useState(null);
     const [uploading, setUploading] = useState(null);
     const [pdfLoading, setPdfLoading] = useState(false);
@@ -2282,6 +2285,18 @@ function MainAppContent() {
                                     <div style={{ fontSize: 13, color: "#64748b" }}>{db.nalozi.filter(function (n) { var s = String(n.status || "").toLowerCase(); return s.indexOf("zavr") !== 0 && s !== "zavrseno" && s.indexOf("stiglo") < 0; }).length} otvorenih / {db.nalozi.length} ukupno</div>
                                 </div>
                             </div>
+                            {!pregNalog && db.nalozi.length > 0 && (function () {
+                                // Godišnje kartice — filter naloga po godini (iz broja MP-GGGG-...).
+                                var gods = {};
+                                db.nalozi.forEach(function (n) { var g = godIzBr(n.broj_naloga || n.broj || n.master_broj || n.ponBr); if (g) gods[g] = 1; });
+                                var lista = Object.keys(gods).sort(function (a, b) { return Number(b) - Number(a); });
+                                if (!lista.length) return null;
+                                var pill = function (active) { return { border: "1px solid " + (active ? "#1d4ed8" : "#e2e8f0"), borderRadius: 999, padding: "6px 15px", fontWeight: 900, fontSize: 13.5, cursor: "pointer", background: active ? "#1d4ed8" : "#fff", color: active ? "#fff" : "#334155" }; };
+                                return <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 16 }}>
+                                    <button onClick={function () { setGodNalozi("sve"); }} style={pill(godNalozi === "sve")}>Sve godine</button>
+                                    {lista.map(function (g) { return <button key={g} onClick={function () { setGodNalozi(g); }} style={pill(godNalozi === g)}>📅 {g}</button>; })}
+                                </div>;
+                            })()}
                             {pregNalog ? (
                                 <PregledNalogaPRO
                                     key={pregNalog.id || pregNalog.broj_naloga}
@@ -2303,10 +2318,21 @@ function MainAppContent() {
                                     {(function () {
                                         var grupe = {};
                                         db.nalozi.forEach(function (n) { var key = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "Bez broja"; if (!grupe[key]) grupe[key] = []; grupe[key].push(n); });
+                                        // Prazno stanje kad za izabranu godinu nema naloga.
+                                        if (godNalozi !== "sve") {
+                                            var imaZaGod = Object.keys(grupe).some(function (key) {
+                                                var g0 = grupe[key]; var m0 = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
+                                                var b0 = (m0 && (m0.broj_naloga || m0.broj)) || g0[0].master_broj || g0[0].ponBr || g0[0].broj_naloga || key;
+                                                return godIzBr(b0) === godNalozi;
+                                            });
+                                            if (!imaZaGod) return <div style={Object.assign({}, card, { textAlign: "center", padding: 40, color: "#94a3b8" })}>Nema naloga za godinu {godNalozi}. Izaberi „Sve godine" ili drugu godinu.</div>;
+                                        }
                                         return Object.keys(grupe).map(function (key) {
                                             var gr = grupe[key].slice().sort(function (a, b) { return (a.redosled || 0) - (b.redosled || 0); });
                                             var master = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
                                             var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
+                                            // FILTER PO GODINI: kad je izabrana konkretna godina, prikaži samo naloge te godine.
+                                            if (godNalozi !== "sve" && godIzBr(br) !== godNalozi) return null;
                                             var grKupac = (master && (master.kupac || master.klijent)) || gr[0].kupac || gr[0].klijent;
                                             var grProizvod = (master && (master.proizvod || master.naziv)) || gr[0].prod || gr[0].proizvod || gr[0].naziv;
                                             var parseParam = function (obj) { try { var p = obj && obj.parametri; if (p == null) return {}; return typeof p === "string" ? JSON.parse(p) : p; } catch (e) { return {}; } };
