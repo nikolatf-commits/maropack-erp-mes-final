@@ -5,6 +5,36 @@ import { calculateGm2 } from "./data/materialMaster.js";
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const fmt = (v, d = 0) => num(v).toLocaleString("sr-RS", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+// ---- Grafikon kao slika (horizontalne trake) za Excel izvoz ----
+// Crta se na canvas-u i vraća base64 PNG; ExcelJS ga ubacuje kao sliku.
+function chartPng(title, items, { color = "#2563eb" } = {}) {
+    const S = 2;                       // 2× za oštrinu
+    const W = 560, top = 44, rowH = 26, left = 160, rightPad = 86, bottomPad = 16;
+    const H = top + Math.max(1, items.length) * rowH + bottomPad;
+    const cv = document.createElement("canvas");
+    cv.width = W * S; cv.height = H * S;
+    const g = cv.getContext("2d");
+    g.scale(S, S);
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#0f172a"; g.font = "700 15px Arial"; g.textBaseline = "middle"; g.textAlign = "left";
+    g.fillText(title, 12, 22);
+    const max = Math.max(1, ...items.map((it) => num(it.value)));
+    const barW = W - left - rightPad;
+    items.forEach((it, i) => {
+        const y = top + i * rowH + rowH / 2;
+        const lbl = String(it.label == null ? "" : it.label);
+        const lblShort = lbl.length > 26 ? lbl.slice(0, 25) + "…" : lbl;
+        g.fillStyle = "#334155"; g.font = "700 11px Arial"; g.textAlign = "right"; g.textBaseline = "middle";
+        g.fillText(lblShort, left - 8, y);
+        g.fillStyle = "#f1f5f9"; g.fillRect(left, y - 8, barW, 16);
+        const w = Math.max(2, (num(it.value) / max) * barW);
+        g.fillStyle = color; g.fillRect(left, y - 8, w, 16);
+        g.fillStyle = "#334155"; g.font = "700 11px Arial"; g.textAlign = "right";
+        g.fillText(num(it.value).toLocaleString("sr-RS"), W - 8, y);
+    });
+    return { dataUrl: cv.toDataURL("image/png"), w: W, h: H };
+}
+
 // IVIČNI OTPAD (mm) = ostatak širine POSLE sečenja što više CELIH traka idealne širine.
 // Npr. rolna 1340 mm, format 335 mm → 4 trake × 335 = 1340 → otpad 0 (a NE 1340−335=1005).
 function ivicniOtpadMm(koriscena, idealna) {
@@ -277,34 +307,143 @@ export default function AnalizaMaterijalStavke({ msg }) {
     const maxPlan = Math.max(1, ...poNalogu.map((x) => x.plan));
     const maxMat = Math.max(1, ...poMaterijalu.map((x) => x.potroseno));
 
-    // Izvoz trenutnog taba (CSV, otvara se u Excel-u) za izabrani period.
-    function izvezi() {
-        let headers = [], rowsOut = [], naziv = "analiza";
+    // Izvoz: sređen Excel (.xlsx) — list „Pregled" (KPI + grafikoni) + list sa tabelom
+    // trenutnog taba + list „Po vrsti". Grafikoni se ubacuju kao slike (browser ne može
+    // da upiše „žive" Excel grafikone). Za izabrani period.
+    async function izvezi() {
+        const periodLbl = godina === "sve" ? "sve godine" : (godina + " · " + ({ cela: "cela", h1: "H1", h2: "H2", q1: "Q1", q2: "Q2", q3: "Q3", q4: "Q4", m: "mesec " + (mesec + 1) }[raspon] || raspon));
+        const periodFile = godina === "sve" ? "sve" : (godina + "_" + raspon + (raspon === "m" ? "-" + (mesec + 1) : ""));
+
+        // tabela trenutnog taba
+        let headers = [], rowsOut = [], naziv = "analiza", numCols = [];
         if (tab === "nalog") {
             naziv = "po_nalogu";
             headers = ["Nalog", "Rolni", "Skinuto (m)", "Stvarna potrošnja (m)", "Iskorišćenje (%)", "Kg"];
-            rowsOut = filtNalog.map((x) => [x.nalog, x.rolni, Math.round(x.plan), Math.round(x.utroseno), x.izdato > 0 ? x.iskoriscenje.toFixed(1) : "", Math.round(x.kg)]);
+            numCols = [2, 3, 4, 5, 6];
+            rowsOut = filtNalog.map((x) => [x.nalog, x.rolni, Math.round(x.plan), Math.round(x.utroseno), x.izdato > 0 ? Number(x.iskoriscenje.toFixed(1)) : "", Math.round(x.kg)]);
         } else if (tab === "materijal") {
             naziv = "po_materijalu";
             headers = ["Vrsta", "Pod-vrsta", "Oznaka", "Debljina", "Širina", "Dobavljač", "Rolni", "Potrošeno (m)", "Kg"];
+            numCols = [4, 5, 7, 8, 9];
             rowsOut = filtMat.map((x) => [x.vrsta, x.pod_vrsta, x.oznaka, x.debljina, x.sirina, x.dobavljac, x.rolni, Math.round(x.potroseno), Math.round(x.kg)]);
         } else {
             naziv = "po_sirini";
             headers = ["Nalog", "Proizvod", "Vrsta", "Oznaka", "Debljina", "Dobavljač", "Korišćena (mm)", "Idealna (mm)", "Otpad (mm)", "Otpad (%)", "Rolni", "Potrošeno (m)", "Kg", "Otpad (kg)"];
-            rowsOut = filtSir.map((x) => [x.nalog, x.proizvod, x.vrsta, x.oznaka, x.debljina, x.dobavljac, x.koriscena, x.idealna, Math.round(x.otpadMm), (x.otpadPct || 0).toFixed(1), x.rolni, Math.round(x.potroseno), Math.round(x.kg), (x.otpadKg || 0).toFixed(1)]);
+            numCols = [5, 7, 8, 9, 10, 11, 12, 13, 14];
+            rowsOut = filtSir.map((x) => [x.nalog, x.proizvod, x.vrsta, x.oznaka, x.debljina, x.dobavljac, x.koriscena, x.idealna, Math.round(x.otpadMm), Number((x.otpadPct || 0).toFixed(1)), x.rolni, Math.round(x.potroseno), Math.round(x.kg), Number((x.otpadKg || 0).toFixed(1))]);
         }
-        const esc = (v) => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-        const csv = [headers.join(";")].concat(rowsOut.map((r) => r.map(esc).join(";"))).join("\r\n");
-        const periodLbl = godina === "sve" ? "sve" : (godina + "_" + raspon + (raspon === "m" ? "-" + (mesec + 1) : ""));
+
+        // agregati za grafikone (uvek po materijalu — ukupna slika potrošnje)
+        const byV = {}, byD = {};
+        poMaterijalu.forEach((x) => {
+            const kv = x.vrsta || "—"; (byV[kv] = byV[kv] || { kg: 0, m: 0, rolni: 0 }); byV[kv].kg += num(x.kg); byV[kv].m += num(x.potroseno); byV[kv].rolni += num(x.rolni);
+            const kd = x.dobavljac || "—"; byD[kd] = (byD[kd] || 0) + num(x.kg);
+        });
+        const vrste = Object.entries(byV).sort((a, b) => b[1].kg - a[1].kg);
+        const dob = Object.entries(byD).sort((a, b) => b[1] - a[1]);
+        const dobTop = dob.slice(0, 7).map(([k, v]) => ({ label: k, value: Math.round(v) }));
+        if (dob.length > 7) dobTop.push({ label: "Ostali", value: Math.round(dob.slice(7).reduce((s, d) => s + d[1], 0)) });
+        const top10 = poMaterijalu.slice().sort((a, b) => b.kg - a.kg).slice(0, 10)
+            .map((x) => ({ label: [x.vrsta, x.oznaka, (x.debljina ? x.debljina + "µ" : ""), (x.sirina ? x.sirina : "")].filter(Boolean).join(" "), value: Math.round(x.kg) }));
+
         try {
-            const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+            const _xlmod = await import("exceljs");
+            const ExcelJS = _xlmod.default || _xlmod;
+            const wb = new ExcelJS.Workbook();
+            const INT = "#,##0";
+            const ARIAL = (o) => ({ name: "Arial", ...o });
+            const fillOf = (hex) => ({ type: "pattern", pattern: "solid", fgColor: { argb: "FF" + hex } });
+            const thin = { style: "thin", color: { argb: "FFE2E8F0" } };
+            const allBorder = { top: thin, left: thin, right: thin, bottom: thin };
+
+            // ---------- PREGLED ----------
+            const wp = wb.addWorksheet("Pregled", { views: [{ showGridLines: false }] });
+            wp.mergeCells("A1:F1");
+            const t = wp.getCell("A1"); t.value = "Analiza potrošnje materijala — " + periodLbl;
+            t.font = ARIAL({ bold: true, size: 16, color: { argb: "FFFFFFFF" } }); t.alignment = { vertical: "middle", indent: 1 };
+            t.fill = fillOf("15803D"); wp.getRow(1).height = 26;
+            wp.mergeCells("A2:F2");
+            const sub = wp.getCell("A2"); sub.value = "Izvor: iskorišćene rolne iz magacina · period po datumu prelaska u „iskorišćeno”";
+            sub.font = ARIAL({ italic: true, size: 9, color: { argb: "FF64748B" } });
+            const kpis = [
+                ["STAVKI (MATERIJALA)", poMaterijalu.length, "0", "334155"],
+                ["ROLNI", Math.round(baza.length), INT, "1D4ED8"],
+                ["POTROŠENO (m)", Math.round(kpi.izdato), INT, "16A34A"],
+                ["UKUPNO (kg)", Math.round(kpi.kg), INT, "B45309"],
+            ];
+            ["A", "B", "C", "D"].forEach((cl, i) => {
+                const lc = wp.getCell(cl + "4"); lc.value = kpis[i][0]; lc.font = ARIAL({ bold: true, size: 8, color: { argb: "FFFFFFFF" } }); lc.fill = fillOf(kpis[i][3]); lc.alignment = { horizontal: "center", wrapText: true, vertical: "middle" };
+                const vc = wp.getCell(cl + "5"); vc.value = kpis[i][1]; vc.font = ARIAL({ bold: true, size: 16, color: { argb: "FF" + kpis[i][3] } }); vc.numFmt = kpis[i][2]; vc.alignment = { horizontal: "center" };
+                wp.getColumn(cl).width = 20;
+            });
+            wp.getRow(4).height = 24; wp.getRow(5).height = 26;
+
+            const addChart = (spec, row) => {
+                if (!spec.items.length) return;
+                const c = chartPng(spec.title, spec.items, { color: spec.color });
+                const id = wb.addImage({ base64: c.dataUrl, extension: "png" });
+                wp.addImage(id, { tl: { col: 0, row: row }, ext: { width: c.w, height: c.h } });
+            };
+            addChart({ title: "Po vrsti materijala (kg)", color: "#2563eb", items: vrste.slice(0, 10).map(([k, v]) => ({ label: k, value: Math.round(v.kg) })) }, 6);
+            addChart({ title: "Dobavljači (kg)", color: "#0891b2", items: dobTop }, 20);
+            addChart({ title: "Top 10 materijala po potrošnji (kg)", color: "#1d4ed8", items: top10 }, 33);
+
+            // ---------- PO VRSTI ----------
+            const wv = wb.addWorksheet("Po vrsti");
+            const totKg = vrste.reduce((s, [, v]) => s + v.kg, 0) || 1;
+            wv.addRow(["Vrsta", "Rolni", "Potrošeno (m)", "Kg", "Udeo (kg)"]);
+            vrste.forEach(([k, v]) => wv.addRow([k, Math.round(v.rolni), Math.round(v.m), Math.round(v.kg), v.kg / totKg]));
+            const vtot = wv.addRow(["UKUPNO", vrste.reduce((s, [, v]) => s + v.rolni, 0), Math.round(vrste.reduce((s, [, v]) => s + v.m, 0)), Math.round(totKg), 1]);
+            wv.getRow(1).eachCell((c) => { c.font = ARIAL({ bold: true, size: 10, color: { argb: "FFFFFFFF" } }); c.fill = fillOf("1D4ED8"); c.alignment = { horizontal: "center", wrapText: true }; c.border = allBorder; });
+            wv.eachRow((row, i) => {
+                if (i === 1) return;
+                row.eachCell((c, col) => {
+                    c.font = ARIAL({ size: 10, bold: col === 1 }); c.border = allBorder;
+                    if (col >= 2 && col <= 4) { c.numFmt = INT; c.alignment = { horizontal: "right" }; }
+                    if (col === 5) { c.numFmt = "0.0%"; c.alignment = { horizontal: "right" }; }
+                });
+                if (i % 2 === 1 && row !== vtot) row.eachCell((c) => { if (!c.fill || c.fill.pattern !== "solid") c.fill = fillOf("F8FAFC"); });
+            });
+            vtot.eachCell((c) => { c.font = ARIAL({ bold: true, color: { argb: "FFFFFFFF" } }); c.fill = fillOf("0F172A"); });
+            wv.getColumn(1).width = 18; wv.getColumn(2).width = 10; wv.getColumn(3).width = 15; wv.getColumn(4).width = 12; wv.getColumn(5).width = 11;
+            wv.views = [{ state: "frozen", ySplit: 1 }];
+
+            // ---------- DETALJNO (tab) ----------
+            const wd = wb.addWorksheet("Detaljno");
+            wd.addRow(headers);
+            rowsOut.forEach((r) => wd.addRow(r));
+            const totRow = new Array(headers.length).fill("");
+            totRow[0] = "UKUPNO";
+            numCols.forEach((cn) => { // samo za kolone koje imaju smisla da se sabiraju (m, kg, rolni)
+                const hname = headers[cn - 1] || "";
+                if (/Rolni|Potrošeno|Kg|Skinuto|potrošnja|Otpad \(kg\)/i.test(hname)) totRow[cn - 1] = rowsOut.reduce((s, r) => s + num(r[cn - 1]), 0);
+            });
+            const dtot = wd.addRow(totRow);
+            wd.getRow(1).eachCell((c) => { c.font = ARIAL({ bold: true, size: 9.5, color: { argb: "FFFFFFFF" } }); c.fill = fillOf("334155"); c.alignment = { horizontal: "center", wrapText: true }; c.border = allBorder; });
+            wd.eachRow((row, i) => {
+                if (i === 1) return;
+                row.eachCell((c, col) => {
+                    c.font = ARIAL({ size: 9.5, bold: row === dtot }); c.border = allBorder;
+                    if (numCols.includes(col)) { c.numFmt = /Otpad \(%\)|Iskorišćenje/i.test(headers[col - 1] || "") ? "0.0" : INT; c.alignment = { horizontal: "right" }; }
+                });
+                if (i % 2 === 1 && row !== dtot) row.eachCell((c) => { if (!c.fill || c.fill.pattern !== "solid") c.fill = fillOf("F8FAFC"); });
+            });
+            dtot.eachCell((c, cn) => { c.font = ARIAL({ bold: true, color: { argb: "FFFFFFFF" } }); c.fill = fillOf("0F172A"); if (numCols.includes(cn)) c.numFmt = INT; });
+            headers.forEach((h, i) => { wd.getColumn(i + 1).width = Math.min(34, Math.max(10, String(h).length + 4, ...rowsOut.map((r) => String(r[i] == null ? "" : r[i]).length + 2))); });
+            wd.views = [{ state: "frozen", ySplit: 1 }];
+            wd.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+
+            const buf = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
-            a.href = url; a.download = "analiza_" + naziv + "_" + periodLbl + ".csv";
+            a.href = url; a.download = "Analiza_" + naziv + "_" + periodFile + ".xlsx";
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 1500);
             msg && msg("Izvezeno: " + a.download, "ok");
-        } catch (e) { msg && msg("Izvoz nije uspeo: " + (e.message || e), "err"); }
+        } catch (e) {
+            msg && msg("Izvoz nije uspeo (proveri da je instaliran „exceljs“): " + (e.message || e), "err");
+        }
     }
 
     const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 18, boxShadow: "0 8px 24px rgba(15,23,42,0.05)" };
