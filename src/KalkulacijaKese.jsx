@@ -39,6 +39,54 @@ function mapTemplateLayerToKesaMaterial(layer) {
     };
 }
 
+// Template kese čuva tehničke opcije pod ključevima iz kesaOpcije.js (snake_case),
+// a kalkulacija koristi svoje (camelCase). Bez ovog mapiranja se čekirane opcije iz
+// templejta NE bi videle u kalkulaciji. Zadržavamo i originalni ključ, i dodajemo
+// onaj koji kalkulacija čita, pa se opcija pravilno označi.
+const KESA_OPT_MAP = {
+    adh_traka: "adhTraka",
+    ukosena_klapna: "kosaKlapna",
+    perf_otkinuti: "perfOtk",
+    perf_telo: "perfOtk",
+    otvor_dno: "otvorDno",
+    falta_dno: "faltaDno",
+    var_dno: "varDno",
+    perf_igle: "perfVrucim",
+    okrugla_zumba: "okruglaZumba",
+    poprecna_perf: "poprecnaPerf",
+    unakrsna_perf: "unakrsnaPerf",
+    poprecni_var: "poprecniVar",
+    hrana: "pakHrana",
+    // već isti u oba: duplofan, eurozumba, anleger, utor, stampa, ojacanje
+};
+function mapKesaOptionsZaKalkulaciju(src) {
+    const out = {};
+    Object.keys(src || {}).forEach((k) => {
+        const v = src[k];
+        out[k] = v;                                   // zadrži original (kompatibilnost)
+        if (KESA_OPT_MAP[k]) out[KESA_OPT_MAP[k]] = v; // dodaj pod imenom koje kalkulacija čita
+    });
+    return out;
+}
+// OBRNUTO (kalkulacija → templejt): kalkulacija koristi camelCase, templejt čita snake_case.
+// Bez ovoga se čekirane opcije ne bi videle u templejtu kad se prebace iz kalkulacije.
+const KESA_OPT_MAP_REV = {
+    adhTraka: "adh_traka", kosaKlapna: "ukosena_klapna", perfOtk: "perf_otkinuti",
+    otvorDno: "otvor_dno", faltaDno: "falta_dno", varDno: "var_dno", perfVrucim: "perf_igle",
+    okruglaZumba: "okrugla_zumba", poprecnaPerf: "poprecna_perf", unakrsnaPerf: "unakrsna_perf",
+    poprecniVar: "poprecni_var", pakHrana: "hrana",
+    // već isti u oba: duplofan, eurozumba, anleger, utor, stampa, ojacanje
+};
+function mapKesaOptionsZaTemplejt(src) {
+    const out = {};
+    Object.keys(src || {}).forEach((k) => {
+        const v = src[k];
+        out[k] = v;                                       // zadrži original
+        if (KESA_OPT_MAP_REV[k]) out[KESA_OPT_MAP_REV[k]] = v; // dodaj snake_case koji templejt čita
+    });
+    return out;
+}
+
 // ===================== STILOVI (module-scope, statični) =====================
 const s = {
     wrap: { padding: '16px', background: '#f1f5f9', minHeight: '100vh' },
@@ -192,6 +240,7 @@ export default function KalkulacijaKese({ setPage }) {
     const [utorCena, setUtorCena] = useState(0);
     const [potkCena, setPotkCena] = useState(0);     // perf. otkidanje
     const [pperfCena, setPperfCena] = useState(0);   // poprečna perf.
+    const [uperfCena, setUperfCena] = useState(0);   // unakrsna perf.
     const [phranaCena, setPhranaCena] = useState(0); // pakovanje za hranu
     // KAŠIRANJE I LAK — kese ume da budu duplex/triplex/kvadriplex (više slojeva se kaшira).
     const [kasCena, setKasCena] = useState(0.03);        // USLUGE kaширanje €/m²
@@ -267,7 +316,7 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setFdCena, c.fdCena); S(setVdCena, c.vdCena); S(setOdCena, c.odCena); S(setBuCena, c.buCena);
                 S(setAdhCena, c.adhCena); S(setAdhOds, c.adhOds); S(setOjCena, c.ojCena); S(setOjSir, c.ojSir); S(setOjDeb, c.ojDeb);
                 S(setKlCena, c.klCena); S(setKlBr, c.klBr); S(setPvCena, c.pvCena);
-                S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setPhranaCena, c.phranaCena);
+                S(setUtorCena, c.utorCena); S(setPotkCena, c.potkCena); S(setPperfCena, c.pperfCena); S(setUperfCena, c.uperfCena); S(setPhranaCena, c.phranaCena);
                 S(setTrCena, c.trCena);
                 S(setKasCena, c.kasCena); S(setLakKesaCena, c.lakKesaCena); S(setLakKesaProlazi, c.lakKesaProlazi);
                 S(setLakiranjeCena, c.lakiranjeCena);
@@ -320,7 +369,7 @@ export default function KalkulacijaKese({ setPage }) {
         setTolerancija(k.tolerancija || '±10%');
         setGrafika(k.grafika || 'Novi posao');
         setMaterijali(((k.layers || tpl.materijali_struktura || tpl.mats || [])).map(mapTemplateLayerToKesaMaterial).filter(m => m.tip));
-        setOpts(k.options || {});
+        setOpts(mapKesaOptionsZaKalkulaciju(k.options || {}));
         setTrCena(Number(k.transportKg || 0));
         setPakovanje(k.pakovanje || '');
         setNapomena(tpl.napomena || 'Kalkulacija kreirana iz Product Template-a');
@@ -443,6 +492,7 @@ export default function KalkulacijaKese({ setPage }) {
             (opts.utor ? utorCena : 0) +
             (opts.perfOtk ? potkCena : 0) +
             (opts.poprecnaPerf ? pperfCena : 0) +
+            (opts.unakrsnaPerf ? uperfCena : 0) +
             (opts.pakHrana ? phranaCena : 0);
 
         const trTr = trCena * tezKg1000;
@@ -518,13 +568,13 @@ export default function KalkulacijaKese({ setPage }) {
     }, [sirina, duzina, klapna, falta, orijentacija, kolicina, skart, marza, setupMasina, materijali, opts,
         dupCena, ezCena, ozCena, anCena, stCena, buCena, adhOds, adhCena,
         ojSir, ojDeb, ojCena, klBr, klCena, kvCena, pvCena, kkCena, ppvCena,
-        odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, phranaCena, trCena, zeljCena,
+        odCena, fdCena, vdCena, utorCena, potkCena, pperfCena, uperfCena, phranaCena, trCena, zeljCena,
         kasCena, lakKesaCena, lakKesaProlazi, lepak, lak, lakiranjeCena]);
 
     const NAMES = {
         duplofan: 'Duplofan', eurozumba: 'Eurozumba', okruglaZumba: 'Ok.zumba',
         kosaKlapna: 'Kosa klapna', anleger: 'Anleger', utor: 'Utor',
-        stampa: 'Štampa', perfOtk: 'Perf.otk.', poprecnaPerf: 'Pop.perf.',
+        stampa: 'Štampa', perfOtk: 'Perf.otk.', poprecnaPerf: 'Pop.perf.', unakrsnaPerf: 'Unak.perf.',
         kontVar: 'Kont.var', poprecniVar: 'Pop.var', otvorDno: 'Otvor dno',
         faltaDno: 'Falta dno', varDno: 'Var dno', pakHrana: 'Pak.hrana',
         busenje: 'Bušenje', adhTraka: 'ADH traka', ojacanje: 'Ojačanje',
@@ -638,7 +688,7 @@ export default function KalkulacijaKese({ setPage }) {
                         cene: {
                             dupCena, ezCena, ozCena, kkCena, anCena, stCena, kvCena, ppvCena,
                             fdCena, vdCena, odCena, buCena, adhCena, adhOds, ojCena, ojSir, ojDeb,
-                            klCena, klBr, pvCena, utorCena, potkCena, pperfCena, phranaCena, trCena,
+                            klCena, klBr, pvCena, utorCena, potkCena, pperfCena, uperfCena, phranaCena, trCena,
                             kasCena, lakKesaCena, lakKesaProlazi, lakiranjeCena
                         },
                         // SVA ostala polja — da se NIŠTA ne vrati na default pri ponovnom otvaranju
@@ -731,7 +781,7 @@ export default function KalkulacijaKese({ setPage }) {
                         tezina: String(m.tezina ?? ''),
                         cena: String(m.cena ?? '')
                     })),
-                    options: opts || {},
+                    options: mapKesaOptionsZaTemplejt(opts || {}),
                     transportKg: String(trCena ?? ''),
                     pakovanje: pakovanje || '',
                     setupMasina: String(setupMasina ?? ''),
@@ -925,6 +975,7 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Opt label="Štampa" active={opts.stampa} onToggle={() => toggle('stampa')} cena={stCena} setCena={setStCena} />
                                 <Opt label="Perf. otkidanje" active={opts.perfOtk} onToggle={() => toggle('perfOtk')} cena={potkCena} setCena={setPotkCena} />
                                 <Opt label="Poprečna perf." active={opts.poprecnaPerf} onToggle={() => toggle('poprecnaPerf')} cena={pperfCena} setCena={setPperfCena} />
+                                <Opt label="Unakrsna perf." active={opts.unakrsnaPerf} onToggle={() => toggle('unakrsnaPerf')} cena={uperfCena} setCena={setUperfCena} />
                                 <Opt label="Kontinentalni var" active={opts.kontVar} onToggle={() => toggle('kontVar')} cena={kvCena} setCena={setKvCena} />
                                 <Opt label="Poprečni var" active={opts.poprecniVar} onToggle={() => toggle('poprecniVar')} cena={ppvCena} setCena={setPpvCena} />
                                 <Opt label="Falta na dnu" active={opts.faltaDno} onToggle={() => toggle('faltaDno')} cena={fdCena} setCena={setFdCena} />

@@ -2173,7 +2173,7 @@ function MainAppContent() {
                             onKreirajPonudu={async (kal) => {
                                 console.log('🚀 Kreiram ponudu iz:', kal);
                                 try {
-                                    const result = await kreirajPonuduIzKalkulacije(kal);
+                                    const result = await kreirajPonuduIzKalkulacije(kal, userProfile?.ime || imeKorisnika(user?.email) || "");
                                     console.log('📊 Rezultat:', result);
 
                                     if (result.success && result.fallback) {
@@ -2214,6 +2214,8 @@ function MainAppContent() {
                     {page === "ponude" && (
 
                         <PonudePRO
+
+                            kreiraoIme={userProfile?.ime || imeKorisnika(user?.email) || ""}
 
                             onPrihvati={kreirajNalogeIzPonude}
 

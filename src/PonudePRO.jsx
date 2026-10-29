@@ -14,13 +14,93 @@ function readLocalPonude() {
     try { return JSON.parse(localStorage.getItem('maropack_local_ponude') || '[]'); } catch { return []; }
 }
 
-export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvoriKalkulaciju = () => { } }) {
+export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvoriKalkulaciju = () => { }, kreiraoIme = "" }) {
     const [filter, setFilter] = useState("");
     const [ponudeData, setPonudeData] = useState([]);
     // Po ponudi: jezik PDF-a (sr/en/de) i važenje (1/7/15/30 dana).
     const [pdfOpt, setPdfOpt] = useState({});
     const optOf = (id) => pdfOpt[id] || { lang: "sr", vaziDana: 30 };
     const setOptOf = (id, patch) => setPdfOpt((o) => ({ ...o, [id]: { ...(o[id] || { lang: "sr", vaziDana: 30 }), ...patch } }));
+    const [brisanje, setBrisanje] = useState(null);   // ponuda za koju je otvoren dijalog brisanja
+    const [poruka, setPoruka] = useState("");
+    const [napDraft, setNapDraft] = useState({});      // napomena koja se trenutno kuca, po ponudi
+
+    const istaPonuda = (a, b) => (a.id != null && a.id === b.id) || (a.broj && a.broj === b.broj);
+    const danas = () => new Date().toLocaleDateString("sr-RS");
+    const flash = (t) => { setPoruka(t); setTimeout(() => setPoruka(""), 2800); };
+
+    // Robustan UPDATE: ako `ponude` nema neku kolonu, PostgREST odbije ceo upis —
+    // izbacimo kolonu koju prijavi kao nepoznatu i probamo opet (kao kod upisa ponude).
+    async function updatePonudaRobustno(id, patch) {
+        let p = { ...patch };
+        for (let i = 0; i < 12; i++) {
+            const { error } = await supabase.from("ponude").update(p).eq("id", id);
+            if (!error) return { ok: true, applied: p };
+            const por = [error.message, error.details, error.hint].filter(Boolean).join(" ");
+            const m = por.match(/'([^']+)' column|column "([^"]+)"|the '([^']+)' column|find the '([^']+)'/i);
+            const kol = m && (m[1] || m[2] || m[3] || m[4]);
+            if (kol && Object.prototype.hasOwnProperty.call(p, kol)) { delete p[kol]; continue; }
+            return { ok: false, error };
+        }
+        return { ok: false, error: { message: "update nije uspeo" } };
+    }
+
+    // Primeni promenu na bazu (ili lokalni bafer) + u prikaz.
+    async function primeniPatch(p, patch) {
+        if (p.id != null && !p._lokalno) {
+            const r = await updatePonudaRobustno(p.id, patch);
+            if (!r.ok) { flash("Greška: " + (r.error?.message || "")); return false; }
+        } else {
+            try {
+                const lok = readLocalPonude().map((x) => istaPonuda(x, p) ? { ...x, ...patch } : x);
+                localStorage.setItem("maropack_local_ponude", JSON.stringify(lok));
+            } catch (e) { }
+        }
+        setPonudeData((d) => d.map((x) => istaPonuda(x, p) ? { ...x, ...patch } : x));
+        return true;
+    }
+
+    // Prihvatanje = SAMO promena statusa (NE pravi radne naloge).
+    async function oznaciPrihvacenom(p) {
+        if (await primeniPatch(p, { status: "Prihvaćena", prihvatio_ime: kreiraoIme || "", prihvaceno_datum: danas() }))
+            flash("Ponuda označena kao prihvaćena.");
+    }
+
+    // Poslato kupcu — beleži datum i ko je poslao.
+    async function oznaciPoslato(p) {
+        if (await primeniPatch(p, { poslato_kupcu: danas(), poslato_ime: kreiraoIme || "" }))
+            flash("Zabeleženo: poslato kupcu.");
+    }
+
+    // Sačuvaj napomenu/komentar.
+    async function sacuvajNapomenu(p) {
+        const oid = p.id || p.broj;
+        const tekst = (napDraft[oid] !== undefined ? napDraft[oid] : (p.napomena || p.nap || ""));
+        if (await primeniPatch(p, { napomena: tekst })) {
+            setNapDraft((o) => { const n = { ...o }; delete n[oid]; return n; });
+            flash("Napomena sačuvana.");
+        }
+    }
+
+    // Trajno brisanje ponude (iz baze + lokalnog bafera).
+    async function obrisiPonudu(p) {
+        try {
+            if (p.id != null && !p._lokalno) {
+                const { error } = await supabase.from("ponude").delete().eq("id", p.id);
+                if (error) throw error;
+            }
+            try {
+                const lok = readLocalPonude().filter((x) => !istaPonuda(x, p));
+                localStorage.setItem("maropack_local_ponude", JSON.stringify(lok));
+            } catch (e) { }
+            setPonudeData((d) => d.filter((x) => !istaPonuda(x, p)));
+            setBrisanje(null);
+            flash("Ponuda obrisana.");
+        } catch (e) {
+            flash("Greška pri brisanju: " + (e.message || e));
+            setBrisanje(null);
+        }
+    }
 
     // Učitaj ponude iz Supabase ako nisu prosleđene
     useEffect(() => {
@@ -84,6 +164,21 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                 }}
             />
 
+            {poruka && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 9, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534", fontWeight: 700, fontSize: 13 }}>{poruka}</div>}
+
+            {brisanje && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setBrisanje(null)}>
+                    <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: "100%", maxWidth: 420, boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
+                        <div style={{ fontSize: 17, fontWeight: 900, marginBottom: 8 }}>🗑️ Obriši ponudu</div>
+                        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 18 }}>Ponuda <b>{brisanje.broj || "—"}</b> za <b>{brisanje.kupac || "—"}</b> biće <b>trajno obrisana</b>. Ovo ne može da se poništi.</div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => setBrisanje(null)} style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Otkaži</button>
+                            <button onClick={() => obrisiPonudu(brisanje)} style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Trajno obriši</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div style={{ display: "grid", gap: 12 }}>
                 {filtrirane.map((p) => {
                     const kal = Array.isArray(p.kalkulacije) ? p.kalkulacije[0] : (p.kalkulacije || p.kalkulacija || null);
@@ -104,7 +199,9 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                 </div>
                                 <div style={{ textAlign: "right", fontSize: 12, color: "#64748b" }}>
                                     {p?.broj && <div style={{ fontWeight: 800, color: "#334155" }}>#{p.broj}</div>}
-                                    {p?.datum && <div>Datum: {p.datum}</div>}
+                                    {(p?.datum || p?.created_at) && <div>🗓️ Napravljena: {p.datum || (function () { try { return new Date(p.created_at).toLocaleDateString("sr-RS"); } catch (e) { return p.created_at; } })()}</div>}
+                                    {(function () { const ko = p?.kreirao_ime || p?.kreirao || p?.napravio || p?.ko; return ko ? <div>👤 {ko}</div> : null; })()}
+                                    {p?.poslato_kupcu && <div style={{ color: "#0369a1", fontWeight: 700 }}>📤 Poslato: {p.poslato_kupcu}{p.poslato_ime ? " · " + p.poslato_ime : ""}</div>}
                                     {(p?.vaz || p?.vazi_do) && <div>Važi do: {p.vaz || p.vazi_do}</div>}
                                     <div style={{ marginTop: 4 }}>Status: <span style={{ background: acc.bg, color: acc.c, padding: "2px 8px", borderRadius: 6, fontWeight: 700, fontSize: 11 }}>{p?.status || "kreirana"}</span></div>
                                 </div>
@@ -128,13 +225,29 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                 <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.8 }}>
                                     <div><b>Rok isporuke:</b> {rok}</div>
                                     <div><b>Uslovi plaćanja:</b> {uslovi}</div>
-                                    {napomena && <div><b>Napomena:</b> {napomena}</div>}
                                 </div>
                                 <div style={{ textAlign: "right", minWidth: 140 }}>
                                     <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>UKUPNO</div>
                                     <div style={{ fontSize: 24, fontWeight: 950, color: "#059669" }}>{fmt(iz.uk)} €</div>
                                 </div>
                             </div>
+
+                            {/* Napomena / komentar — unese se i sačuva uz ponudu */}
+                            {(() => {
+                                const oid = p.id || p.broj;
+                                const trenutna = p.napomena || p.nap || "";
+                                const val = napDraft[oid] !== undefined ? napDraft[oid] : trenutna;
+                                const izmenjeno = napDraft[oid] !== undefined && napDraft[oid] !== trenutna;
+                                return (
+                                    <div style={{ padding: "0 16px 10px" }}>
+                                        <div style={{ fontSize: 10.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>📝 Napomena / komentar</div>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                                            <textarea value={val} onChange={(e) => setNapDraft((o) => ({ ...o, [oid]: e.target.value }))} placeholder="npr. čeka odgovor kupca, pregovaramo cenu, poslato mejlom…" rows={2} style={{ flex: 1, minWidth: 220, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none" }} />
+                                            <button onClick={() => sacuvajNapomenu(p)} disabled={!izmenjeno} style={{ ...btn(izmenjeno ? "#0d9488" : "#94a3b8"), cursor: izmenjeno ? "pointer" : "default" }}>💾 Sačuvaj</button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Dugmad + izbor jezika/važenja PDF-a */}
                             {(() => {
@@ -150,7 +263,9 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                         </select>
                                         <button onClick={() => napraviPDFPonuda(p, { lang: opt.lang, vaziDana: opt.vaziDana })} style={btn("#dc2626")}>📄 PDF ponuda</button>
                                         {kal && <button onClick={() => onOtvoriKalkulaciju(kal)} style={btn("#3b82f6")}>📊 Otvori kalkulaciju</button>}
-                                        {!["prihvaceno", "Odobrena", "odobrena"].includes(p?.status) && <button onClick={() => onPrihvati(p)} style={btn("#059669")}>✅ Prihvati ponudu</button>}
+                                        <button onClick={() => oznaciPoslato(p)} style={btn("#0369a1")} title="Zabeleži da je ponuda poslata kupcu">📤 Poslato kupcu</button>
+                                        {!["prihvaceno", "Odobrena", "odobrena", "Prihvaćena", "prihvaćena"].includes(p?.status) && <button onClick={() => oznaciPrihvacenom(p)} style={btn("#059669")} title="Samo menja status — NE pravi radne naloge">✅ Označi prihvaćenom</button>}
+                                        <button onClick={() => setBrisanje(p)} style={btn("#ef4444")} title="Trajno obriši ponudu">🗑️ Obriši</button>
                                     </div>
                                 );
                             })()}

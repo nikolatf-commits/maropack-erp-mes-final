@@ -499,6 +499,20 @@ const defaultForm = {
 
 function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+// ── OBRNUTI SMER: kalkulacija → templejt ───────────────────────────────────
+// Kalkulacija upiše payload (oblikovan kao delimična templejt-forma) u localStorage,
+// a editor ga spoji preko trenutne forme. Nizovi (layers) i objekat options se ZAMENE,
+// ostala ugnježdena polja (perforacija/rezanje/mašina) ostaju netaknuta.
+function deepMergeForma(dst, src) {
+    if (Array.isArray(src)) return src.slice();
+    if (src && typeof src === "object") {
+        const out = (dst && typeof dst === "object" && !Array.isArray(dst)) ? { ...dst } : {};
+        Object.keys(src).forEach((k) => { if (src[k] !== undefined) out[k] = deepMergeForma(out[k], src[k]); });
+        return out;
+    }
+    return src;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ŠPULNA — obračun. Isti lanac kao u nalogu (NalogLayoutPRO.spulnaD),
 // proveren protiv Excel naloga 0150/2026 (Lil Packaging, trake 20 mm):
@@ -2937,11 +2951,13 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (!tpl || typeof tpl !== "object") return;
             const t = clone(tpl);
             const tip = t.type || form?.type || "folija";
-            // Spoji sekciju iz kalkulacije preko postojećih default-a (da polja koja kalkulacija ne šalje ostanu popunjena)
+            // Spoji sekciju iz kalkulacije preko postojećih default-a (da polja koja kalkulacija
+            // NE šalje — perforacija, rezanje, mašina, boje… — ostanu popunjena). Duboki merge:
+            // ugnježdeni objekti (npr. rezanje, options) se spajaju, a nizovi (layers) zamene.
             const next = {
                 ...form,
                 ...t,
-                [tip]: { ...(form?.[tip] || {}), ...(t[tip] || {}) },
+                [tip]: deepMergeForma(form?.[tip] || {}, t[tip] || {}),
                 db_id: payload.product_id || t.db_id || null,
                 template_locked: true
             };

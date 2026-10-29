@@ -151,7 +151,8 @@ export async function sinhronizujLokalnePonude() {
     return { synced, ostalo: preostale.length };
 }
 
-export async function kreirajPonuduIzKalkulacije(kalkulacija) {
+export async function kreirajPonuduIzKalkulacije(kalkulacija, kreiraoIme = "") {
+    const _ko = kreiraoIme || kalkulacija?.kreirao_ime || kalkulacija?.kreirao || kalkulacija?.napravio || "Admin";
     try {
         console.log('🎯 Kreiram ponudu iz kalkulacije:', kalkulacija);
 
@@ -205,7 +206,9 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             },
             status: 'Aktivna',
             jez: 'sr',
-            ko: 'Admin',
+            ko: _ko,
+            kreirao_ime: _ko,
+            kreirao: _ko,
             res: kalkulacija.rezultat || kalkulacija.res,
             struktura: kalkulacija.data || kalkulacija.rezultat || kalkulacija.res
         };
@@ -252,6 +255,7 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija) {
             product_template: fallbackTemplate,
             kalkulacija_payload: kalkulacija,
             status: 'Draft iz kalkulacije',
+            ko: _ko, kreirao_ime: _ko, kreirao: _ko,
             res: kalkulacija.rezultat || kalkulacija.res || null,
             nap: 'Lokalna ponuda kreirana iz kalkulacije/template-a'
         };

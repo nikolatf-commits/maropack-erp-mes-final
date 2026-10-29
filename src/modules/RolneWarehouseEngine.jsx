@@ -421,6 +421,21 @@ function dodajNapomenu(staraNapomena, novaNapomena, akcija) {
 function rolnaUkupnoM(r) { return number(r?.duzina ?? r?.metraza_ost ?? r?.metraza) || 0; }
 function rolnaRezM(r) { return number(r?.rezervisano) || 0; }
 function rolnaSlobodnoM(r) { return Math.max(0, rolnaUkupnoM(r) - rolnaRezM(r)); }
+// EFEKTIVNI (prikazani) status rolne — isti kao badge u tabeli: rolna koja ima
+// i rezervisanih i SLOBODNIH metara prikazuje se kao „Delimično" bez obzira na
+// upisani r.status. Filter mora da gleda ovo, inače „Delimično rezervisano“
+// ne nalazi rolne čiji je status u bazi npr. „Na stanju“.
+function efektivniStatus(r) {
+    const base = normalizeStatus(r?.status);
+    // Statusi sa posebnim badge-om (ne računaju „Delimično“) — status je merodavan.
+    if (["proizvodnja", "stamparija", "vraceno_stamp"].includes(base)) return base;
+    const total = rolnaUkupnoM(r);
+    let rez = Math.min(total, rolnaRezM(r));
+    if (rez === 0 && base === "rezervisana") rez = total; // starija puna rezervacija bez metara
+    const slob = Math.max(0, total - rez);
+    if (rez > 0 && slob > 0) return "delimicno";
+    return base;
+}
 const CREVO_BADGE = { display: "inline-block", background: "#faf5ff", color: "#6d28d9", border: "1px solid #e9d5ff", borderRadius: 6, padding: "1px 7px", fontSize: 10, fontWeight: 900, marginLeft: 6, verticalAlign: "middle", whiteSpace: "nowrap" };
 function mapDbRollToEngine(r = {}) {
     const vrsta = r.vrsta || r.tip || r.materijal || "Nedefinisano";
@@ -1724,7 +1739,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             if (columnFilters.kg && !matchesText(r.kg, columnFilters.kg)) return false;
             if (columnFilters.lot && !matchesText(r.lot, columnFilters.lot)) return false;
             if (columnFilters.lokacija && !matchesText(r.lokacija, columnFilters.lokacija)) return false;
-            if (columnFilters.status && normalizeStatus(r.status) !== normalizeStatus(columnFilters.status)) return false;
+            if (columnFilters.status && efektivniStatus(r) !== normalizeStatus(columnFilters.status)) return false;
             // Multi-izbor (ako je nešto izabrano, rolna mora biti u listi)
             const inMulti = (arr, val) => !arr || arr.length === 0 || arr.map((x) => String(x).toLowerCase()).includes(String(val ?? "").toLowerCase());
             if (!inMulti(multiSel.vrsta, r.vrsta)) return false;
