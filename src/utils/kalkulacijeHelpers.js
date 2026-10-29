@@ -132,6 +132,24 @@ async function insertPonudaRobustno(red) {
     return { error: { message: 'Upis ponude nije uspeo ni posle izbacivanja nepoznatih kolona.' } };
 }
 
+// Sledeći REDNI broj ponude: PON-<godina>-<4 cifre>, počinje od 0001 i ide MAX+1.
+// (Max po postojećim brojevima te godine — otporno na brisanje, bez nasumičnih brojeva.)
+async function sledeciBrojPonude() {
+    const god = new Date().getFullYear();
+    const pref = 'PON-' + god + '-';
+    try {
+        const { data } = await supabase.from('ponude').select('broj').ilike('broj', pref + '%');
+        let max = 0;
+        (data || []).forEach((r) => {
+            const m = String(r.broj || '').match(/-(\d{1,6})\s*$/);
+            if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+        });
+        return pref + String(max + 1).padStart(4, '0');
+    } catch (e) {
+        return pref + String(Date.now()).slice(-4); // baza nedostupna → privremeni; sinhronizacija kasnije
+    }
+}
+
 // Gurne sve ponude koje su (zbog nedostupne baze) ostale samo lokalno u ZAJEDNIČKU bazu,
 // da ih vide SVI korisnici. Uspešno prebačene briše iz lokalnog bafera. Pozива se pri otvaranju liste.
 export async function sinhronizujLokalnePonude() {
@@ -151,8 +169,71 @@ export async function sinhronizujLokalnePonude() {
     return { synced, ostalo: preostale.length };
 }
 
+// Jedna STAVKA ponude iz jedne kalkulacije (proizvod, tip, količina, cena, iznos).
+function stavkaIzKalkulacije(kalkulacija) {
+    const template = extractTemplate(kalkulacija);
+    const tip = normalizeTip(kalkulacija.tip || template?.tip);
+    const rez = kalkulacija.rezultati || kalkulacija.rezultat || kalkulacija.res || {};
+    const kolicina = Number(kalkulacija.kolicina ?? kalkulacija.kol ?? rez.kolicina ?? kalkulacija.nalog ?? template?.data?.porucenaKolicina ?? 0) || 0;
+    const cena = Number(
+        kalkulacija.konacna_cena ?? kalkulacija.konacnaCena ??
+        rez.konacnaCena ?? rez.saMarza ?? rez.saMarzom ?? rez.cena1000 ?? rez.cenaSaMarzom ??
+        kalkulacija.cena_kg ?? 0
+    ) || 0;
+    const ukupno = Number(rez.ukupnoNalog ?? kalkulacija.ukupno_nalog ?? (cena * kolicina)) || 0;
+    return {
+        naziv: kalkulacija.naziv || template?.naziv || '',
+        proizvod: kalkulacija.naziv || template?.naziv || '',
+        tip, kolicina, kol: kolicina, cena, c1: cena, uk: ukupno,
+        kalkulacija_id: kalkulacija.id || kalkulacija.kalkulacija_id || null,
+    };
+}
+const _kupacKalk = (k) => String(k?.kupac || k?.klijent || extractTemplate(k)?.kupac || '').trim();
+
+// Napravi JEDNU ponudu sa VIŠE proizvoda (stavki) iz više kalkulacija. Dozvoljeno samo za ISTOG kupca.
+export async function kreirajPonuduOdViseKalkulacija(kalkulacije, kreiraoIme = "") {
+    if (!Array.isArray(kalkulacije) || !kalkulacije.length) return { success: false, error: 'Nema izabranih kalkulacija.' };
+    const kupci = [...new Set(kalkulacije.map(_kupacKalk).filter(Boolean))];
+    if (kupci.length > 1) return { success: false, error: 'Izabrane kalkulacije nisu za istog kupca (' + kupci.join(', ') + '). Spajanje je dozvoljeno samo za istog kupca.' };
+    const _ko = kreiraoIme || 'Admin';
+    const ponudaBroj = await sledeciBrojPonude();
+    const stavke = kalkulacije.map((k, i) => ({ redni: i + 1, ...stavkaIzKalkulacije(k) }));
+    const uk = stavke.reduce((s, it) => s + (Number(it.uk) || 0), 0);
+    const kupac = kupci[0] || '';
+    const prvi = stavke[0] || {};
+    const nazivZbir = stavke.length > 1 ? (stavke.length + ' proizvoda') : (prvi.naziv || '');
+    const ponuda = {
+        broj: ponudaBroj,
+        datum: new Date().toLocaleDateString('sr-RS'),
+        vaz: new Date(Date.now() + 30 * 24 * 3600000).toLocaleDateString('sr-RS'),
+        kupac, naziv: nazivZbir, proizvod: nazivZbir,
+        tip: prvi.tip, tip_proizvoda: prvi.tip,
+        kol: prvi.kolicina, kolicina: prvi.kolicina, c1: prvi.cena, cena: prvi.cena,
+        uk, cena_ukupno: uk,
+        stavke,                                   // sve stavke (jsonb)
+        podaci: { stavke, vrednost: uk, izvor: 'kalkulacija-vise', kupac },  // rezerva ako kolone 'stavke' nema
+        status: 'Aktivna', jez: 'sr', ko: _ko, kreirao_ime: _ko, kreirao: _ko,
+    };
+    try { Object.assign(ponuda, buildOrderSourcePack({ ponuda, tipOperacije: 'ponuda', tipProizvoda: prvi.tip })); } catch (e) { }
+
+    try {
+        const { data, error } = await insertPonudaRobustno(ponuda);
+        if (error) throw error;
+        return { success: true, data };
+    } catch (err) {
+        // Lokalni fallback (baza nedostupna) — vidljivo preko maropack_local_ponude.
+        const fb = { ...ponuda, id: 'PON-KAL-' + Date.now(), _lokalno: true, _needsSync: true };
+        try {
+            const existing = JSON.parse(localStorage.getItem('maropack_local_ponude') || '[]');
+            localStorage.setItem('maropack_local_ponude', JSON.stringify([fb, ...existing]));
+        } catch (e) { }
+        return { success: true, data: fb, fallback: true, poruka: 'Baza trenutno nije dostupna — ponuda je sačuvana lokalno i biće poslata svima kad se veza vrati.' };
+    }
+}
+
 export async function kreirajPonuduIzKalkulacije(kalkulacija, kreiraoIme = "") {
     const _ko = kreiraoIme || kalkulacija?.kreirao_ime || kalkulacija?.kreirao || kalkulacija?.napravio || "Admin";
+    const ponudaBroj = await sledeciBrojPonude();   // redni PON-godina-0001
     try {
         console.log('🎯 Kreiram ponudu iz kalkulacije:', kalkulacija);
 
@@ -172,7 +253,7 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija, kreiraoIme = "") {
         const ukupno = Number(rez.ukupnoNalog ?? kalkulacija.ukupno_nalog ?? (cena * kolicina)) || 0;
 
         const ponuda = {
-            broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
+            broj: ponudaBroj,
             datum: new Date().toLocaleDateString('sr-RS'),
             vaz: new Date(Date.now() + 30 * 24 * 3600000).toLocaleDateString('sr-RS'),
             kupac: kalkulacija.kupac || kalkulacija.klijent || template?.kupac,
@@ -239,7 +320,7 @@ export async function kreirajPonuduIzKalkulacije(kalkulacija, kreiraoIme = "") {
         const ukF = Number(rezF.ukupnoNalog ?? kalkulacija.ukupno_nalog ?? (cenaF * kolF)) || 0;
         const fallbackPonuda = {
             id: 'PON-KAL-' + Date.now(),
-            broj: 'MP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000),
+            broj: ponudaBroj,
             datum: new Date().toLocaleDateString('sr-RS'),
             kupac: kalkulacija.kupac || kalkulacija.klijent || fallbackTemplate?.kupac || '',
             naziv: kalkulacija.naziv || fallbackTemplate?.naziv,

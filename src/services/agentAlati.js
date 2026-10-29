@@ -794,7 +794,9 @@ export const ALATI = {
                         },
                     };
                 }),
-                napomena: "U polju ulaz_za_ponavljanje su svi ulazi — prosledi ih alatu kalkulacija_* sa novom maržom da uporediš cene.",
+                napomena: (T(a.oznaka) && sve.length > 1)
+                    ? ("⚠ Ima " + sve.length + " kalkulacija pod oznakom „" + T(a.oznaka) + "“ (različiti datumi). OBAVEZNO navedi korisniku SVE — svaku sa datumom i cenom (osnovna i sa maržom) — poređaj od najnovije i pitaj koju misli; NE biraj sam jednu. U polju ulaz_za_ponavljanje su ulazi za ponovni proračun.")
+                    : "U polju ulaz_za_ponavljanje su svi ulazi — prosledi ih alatu kalkulacija_* sa novom maržom da uporediš cene.",
             };
         },
     },
@@ -1722,7 +1724,9 @@ export const ALATI = {
             let redni = 1;
             try {
                 const { data } = await supabase.from("ponude").select("broj").ilike("broj", "PON-" + god + "-%").limit(1000);
-                redni = 1 + (data || []).length;
+                let max = 0;
+                (data || []).forEach((r) => { const m = String(r.broj || "").match(/-(\d{1,6})\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; } });
+                redni = max + 1;
             } catch (e) { }
             const broj = "PON-" + god + "-" + String(redni).padStart(4, "0");
             const tip = (T(a.tip) || "folija").toLowerCase();

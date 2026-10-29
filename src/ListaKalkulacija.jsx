@@ -8,12 +8,18 @@ function fmt(v) {
     });
 }
 
-export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreirajPonudu }) {
+export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreirajPonudu, onKreirajPonuduOdVise }) {
     const [kalkulacije, setKalkulacije] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('');
     const [tipFilter, setTipFilter] = useState('sve'); // 'sve', 'folija', 'kesa', 'spulna'
     const [sortBy, setSortBy] = useState('datum_desc'); // 'datum_desc', 'datum_asc', 'naziv', 'klijent', 'cena'
+    // Režim izbora više kalkulacija za JEDNU ponudu (samo isti kupac).
+    const [izborMode, setIzborMode] = useState(false);
+    const [izabraneKeys, setIzabraneKeys] = useState([]);
+    const kalKey = (k) => (k.tip || 'x') + '-' + (k.id ?? k.broj ?? k.naziv ?? '');
+    const kalKupac = (k) => String(k?.klijent || k?.kupac || '').trim();
+    const jeIzabrana = (k) => izabraneKeys.includes(kalKey(k));
 
     useEffect(() => {
         loadKalkulacije();
@@ -168,8 +174,30 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
         }
     });
 
+    const izabraneKalk = () => (kalkulacije || []).filter((k) => izabraneKeys.includes(kalKey(k)));
+    const izabraniKupac = () => { const s = [...new Set(izabraneKalk().map(kalKupac).filter(Boolean))]; return s[0] || ''; };
+    function toggleIzbor(k) {
+        const key = kalKey(k);
+        setIzabraneKeys((prev) => {
+            if (prev.includes(key)) return prev.filter((x) => x !== key);
+            const trenKupci = new Set((kalkulacije || []).filter((x) => prev.includes(kalKey(x))).map(kalKupac).filter(Boolean));
+            const kup = kalKupac(k);
+            if (trenKupci.size && kup && !trenKupci.has(kup)) {
+                alert('Ova kalkulacija je za drugog kupca (' + kup + '). Na jednu ponudu idu samo kalkulacije ISTOG kupca.');
+                return prev;
+            }
+            return [...prev, key];
+        });
+    }
+    function napraviZbirnuPonudu() {
+        const sel = izabraneKalk();
+        if (!sel.length) return;
+        if (onKreirajPonuduOdVise) onKreirajPonuduOdVise(sel);
+        setIzborMode(false); setIzabraneKeys([]);
+    }
+
     return (
-        <div style={{ padding: 20, maxWidth: 1400, margin: '0 auto' }}>
+        <div style={{ padding: 20, maxWidth: 1400, margin: '0 auto', paddingBottom: izborMode ? 90 : 20 }}>
             {/* HEADER */}
             <div style={{
                 display: 'flex',
@@ -180,7 +208,13 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                 <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>
                     📋 Lista Kalkulacija
                 </h1>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button
+                        onClick={() => { setIzborMode((v) => !v); setIzabraneKeys([]); }}
+                        style={{ padding: '10px 16px', borderRadius: 10, border: 'none', fontWeight: 900, fontSize: 13, cursor: 'pointer', color: '#fff', background: izborMode ? '#0f766e' : '#1d4ed8' }}
+                    >
+                        {izborMode ? '✅ Izbor za ponudu: UKLJUČEN' : '☑️ Izbor za ponudu'}
+                    </button>
                     <button
                         onClick={() => setPage('kalk_folija')}
                         style={btnPrimary}
@@ -322,12 +356,15 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                     {filtrirane.map((kal, i) => (
                         <div
                             key={(kal.iz_template ? 'tpl-' : '') + (kal.tip || 'x') + '-' + (kal.id ?? i)}
+                            onClick={izborMode ? () => toggleIzbor(kal) : undefined}
                             style={{
-                                background: 'white',
-                                border: '1px solid #e2e8f0',
+                                position: 'relative',
+                                cursor: izborMode ? 'pointer' : 'default',
+                                background: (izborMode && jeIzabrana(kal)) ? '#f5f9ff' : 'white',
+                                border: (izborMode && jeIzabrana(kal)) ? '2px solid #1d4ed8' : '1px solid #e2e8f0',
                                 borderRadius: 12,
                                 padding: 20,
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                                boxShadow: (izborMode && jeIzabrana(kal)) ? '0 8px 22px rgba(29,78,216,0.15)' : '0 2px 8px rgba(0,0,0,0.04)',
                                 transition: 'all 0.2s'
                             }}
                             onMouseEnter={(e) => {
@@ -339,6 +376,11 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                                 e.currentTarget.style.transform = 'translateY(0)';
                             }}
                         >
+                            {izborMode && (
+                                <div style={{ position: 'absolute', top: 12, right: 12, width: 28, height: 28, borderRadius: 8, border: jeIzabrana(kal) ? '2px solid #1d4ed8' : '2px solid #cbd5e1', background: jeIzabrana(kal) ? '#1d4ed8' : '#fff', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16 }}>
+                                    {jeIzabrana(kal) ? '✓' : ''}
+                                </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
                                 {/* LEVO */}
                                 <div style={{ flex: 1 }}>
@@ -474,7 +516,7 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                             </div>
 
                             {/* AKCIJE */}
-                            <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+                            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                                 <button
                                     onClick={() => onOtvoriKalkulaciju && onOtvoriKalkulaciju(kal)}
                                     style={actionBtn('#3b82f6')}
@@ -502,6 +544,21 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* DONJA TRAKA — zbirna ponuda od izabranih kalkulacija */}
+            {izborMode && izabraneKeys.length > 0 && (
+                <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 9000, background: '#0f172a', color: '#fff', padding: '12px 16px', boxShadow: '0 -8px 26px rgba(0,0,0,0.2)' }}>
+                    <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+                            <b>{izabraneKeys.length}</b> izabrano{izabraniKupac() ? <> · kupac: <b>{izabraniKupac()}</b></> : null}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button onClick={() => setIzabraneKeys([])} style={{ background: 'transparent', color: '#cbd5e1', border: '1px solid #334155', borderRadius: 10, padding: '10px 14px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer' }}>Očisti</button>
+                            <button onClick={napraviZbirnuPonudu} style={{ background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontWeight: 900, fontSize: 13, cursor: 'pointer' }}>📄 Napravi ponudu od izabranih ({izabraneKeys.length})</button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import { registerDejaVu } from "./pdfFont.js";
+import { MAROPACK_LOGO, MAROPACK_LOGO_RATIO } from "./pdfPonudaLogo.js";
 
 // ── Podaci firme (iz zvaničnog MAROPACK memoranduma) ──────────────────────────
 const CO = {
@@ -20,6 +21,7 @@ const TR = {
     ukupno: "UKUPNO (bez PDV-a)",
     rok: "Rok isporuke:", rokDef: "po dogovoru",
     uslovi: "Uslovi plaćanja:", usloviDef: "avans / po dogovoru",
+    usloviOpcije: { avansno: "Avansno (100% unapred)", d30: "Plaćanje 30 dana od fakture", d60: "Plaćanje 60 dana od fakture", a50: "50% avans, ostatak 30 dana od fakture" },
     cene: "Cene:", ceneVal: "Sve cene su izražene u EUR, bez PDV-a.",
     vazenje: "Važenje ponude:", vazenjeVal: (n) => n + " dana od datuma izdavanja.",
     hvala: "Hvala na poverenju. Za sva pitanja stojimo na raspolaganju.",
@@ -34,6 +36,7 @@ const TR = {
     ukupno: "TOTAL (excl. VAT)",
     rok: "Delivery time:", rokDef: "by agreement",
     uslovi: "Payment terms:", usloviDef: "advance / by agreement",
+    usloviOpcije: { avansno: "Advance payment (100%)", d30: "Payment 30 days from invoice", d60: "Payment 60 days from invoice", a50: "50% advance, balance 30 days from invoice" },
     cene: "Prices:", ceneVal: "All prices are in EUR, excl. VAT.",
     vazenje: "Offer validity:", vazenjeVal: (n) => n + " days from date of issue.",
     hvala: "Thank you for your trust. We remain at your disposal for any questions.",
@@ -48,6 +51,7 @@ const TR = {
     ukupno: "GESAMT (ohne MwSt.)",
     rok: "Lieferzeit:", rokDef: "nach Vereinbarung",
     uslovi: "Zahlungsbedingungen:", usloviDef: "Vorkasse / nach Vereinbarung",
+    usloviOpcije: { avansno: "Vorkasse (100%)", d30: "Zahlung 30 Tage nach Rechnung", d60: "Zahlung 60 Tage nach Rechnung", a50: "50% Anzahlung, Rest 30 Tage nach Rechnung" },
     cene: "Preise:", ceneVal: "Alle Preise in EUR, ohne MwSt.",
     vazenje: "Gültigkeit:", vazenjeVal: (n) => n + " Tage ab Ausstellungsdatum.",
     hvala: "Vielen Dank für Ihr Vertrauen. Für Fragen stehen wir gerne zur Verfügung.",
@@ -86,10 +90,14 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
   const vaziDo = new Date(danas.getTime() + vaziDana * 86400000);
 
   // ── MEMORANDUM ──────────────────────────────────────────────────────────────
-  doc.setFont(FONT, "bold"); doc.setFontSize(26); doc.setTextColor(...BLU);
-  doc.text("maropack", L, 18);
-  doc.setDrawColor(...GRN); doc.setLineWidth(1.6); doc.line(L + 44, 9, L + 56, 13); doc.setLineWidth(0.2);
-  doc.setFontSize(6); doc.setTextColor(...MUT); doc.text("F L E X I B L E   P A C K A G I N G", L + 1, 22);
+  // Logo kao slika (zamenjen tekstualni „maropack").
+  try {
+    const logoW = 46, logoH = logoW / (MAROPACK_LOGO_RATIO || 3.186);
+    doc.addImage(MAROPACK_LOGO, "PNG", L, 8, logoW, logoH);
+  } catch (e) {
+    // fallback na tekst ako slika iz nekog razloga ne prođe
+    doc.setFont(FONT, "bold"); doc.setFontSize(26); doc.setTextColor(...BLU); doc.text("maropack", L, 18);
+  }
   doc.setFont(FONT, "normal"); doc.setFontSize(9); doc.setTextColor(...INK);
   doc.text("Tel.: " + CO.tel + "   •   Mail: " + CO.mail, R, 13, { align: "right" });
   doc.setDrawColor(...BLU); doc.setLineWidth(1.1); doc.line(L, 26, R, 26); doc.setLineWidth(0.2);
@@ -120,14 +128,26 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
   doc.text(t.cIznos, R, y + 5, { align: "right" });
   y += 8; doc.line(L, y, R, y);
 
-  y += 8;
-  doc.setFont(FONT, "bold"); doc.setFontSize(10); doc.setTextColor(...INK);
-  doc.text("1", L, y);
-  doc.text(safe(p.naziv || p.proizvod), L + 10, y, { maxWidth: 82 });
-  doc.setFont(FONT, "normal");
-  doc.text(iz.komTxt, 110, y, { align: "right" });
-  doc.text(fmt(iz.cena) + " € " + iz.jed, 168, y, { align: "right" }); // cena i jedinica u ISTOM redu
-  doc.text(fmt(iz.uk), R, y, { align: "right" });
+  // Redovi: ako ponuda ima VIŠE proizvoda (stavke), ispiši sve; inače jedan red.
+  const stavke = (Array.isArray(p.stavke) && p.stavke.length) ? p.stavke
+    : ((Array.isArray(p.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : null);
+  let ukTotal = 0;
+  const redStavke = (poz, naziv, si) => {
+    y += 8;
+    doc.setFont(FONT, "bold"); doc.setFontSize(10); doc.setTextColor(...INK);
+    doc.text(String(poz), L, y);
+    doc.text(safe(naziv), L + 10, y, { maxWidth: 82 });
+    doc.setFont(FONT, "normal");
+    doc.text(si.komTxt, 110, y, { align: "right" });
+    doc.text(fmt(si.cena) + " € " + si.jed, 168, y, { align: "right" });
+    doc.text(fmt(si.uk), R, y, { align: "right" });
+    ukTotal += Number(si.uk) || 0;
+  };
+  if (stavke) {
+    stavke.forEach((it, i) => redStavke(i + 1, it.naziv || it.proizvod, iznosi(it, t)));
+  } else {
+    redStavke(1, p.naziv || p.proizvod, iz);
+  }
 
   // ukupno
   y += 12;
@@ -135,7 +155,7 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
   y += 7;
   doc.setFont(FONT, "bold"); doc.setFontSize(12); doc.setTextColor(...INK);
   doc.text(t.ukupno, 168, y, { align: "right" });
-  doc.text(fmt(iz.uk) + " €", R, y, { align: "right" });
+  doc.text(fmt(ukTotal) + " €", R, y, { align: "right" });
 
   // ── USLOVI ──────────────────────────────────────────────────────────────────
   y += 16;
@@ -146,10 +166,16 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
     y += 6.5;
   };
   term(t.rok, safe(p.rok_isporuke || p.rok, t.rokDef));
-  term(t.uslovi, safe(p.uslovi_placanja || p.uslovi, t.usloviDef));
+  // Uslovi plaćanja: izabrana opcija (usloviKod) → lep lokalizovan tekst; inače upisano/def.
+  const usloviTxt = (opts.usloviKod && t.usloviOpcije && t.usloviOpcije[opts.usloviKod]) || p.uslovi_placanja || p.uslovi || t.usloviDef;
+  term(t.uslovi, usloviTxt);
   term(t.cene, t.ceneVal);
   term(t.vazenje, t.vazenjeVal(vaziDana));
-  if (p.napomena || p.nap) term(lang === "en" ? "Note:" : lang === "de" ? "Anmerkung:" : "Napomena:", safe(p.napomena || p.nap));
+  // Napomena: NE štampaj auto-tekstove tipa „Kreirano iz Product Master template-a“ /
+  // „Kalkulacija kreirana iz …“ — prikazuj samo stvarni komentar koji je korisnik uneo.
+  const napRaw = p.napomena || p.nap || "";
+  const jeAutoNap = /kreiran[aoe]?\s+iz\s+(product|baze\s+proizvoda|kalkulac|template)/i.test(napRaw) || /iz\s+product\s+(master|template)/i.test(napRaw) || /kreirano\s+iz\s+product\s+template\s+engine/i.test(napRaw);
+  if (napRaw && !jeAutoNap) term(lang === "en" ? "Note:" : lang === "de" ? "Anmerkung:" : "Napomena:", safe(napRaw));
 
   y += 4;
   doc.setFont(FONT, "normal"); doc.setFontSize(10); doc.setTextColor(...INK); doc.text(t.hvala, L, y, { maxWidth: 180 });

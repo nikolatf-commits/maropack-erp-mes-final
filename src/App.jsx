@@ -89,7 +89,7 @@ import ManagerDashboard from './components/ManagerDashboard/ManagerDashboard';
 
 // ✅ LISTA KALKULACIJA
 import ListaKalkulacija from './ListaKalkulacija';
-import { kreirajPonuduIzKalkulacije } from './utils/kalkulacijeHelpers';
+import { kreirajPonuduIzKalkulacije, kreirajPonuduOdViseKalkulacija } from './utils/kalkulacijeHelpers';
 import { buildOrderSourcePack, extractTemplate, extractKalkulacija } from './utils/nalogDataLink';
 
 // ✅ PRO MODULI
@@ -2191,6 +2191,14 @@ function MainAppContent() {
                                     console.error('💥 Exception:', err);
                                     msg('Greška: ' + err.message, 'err');
                                 }
+                            }}
+                            onKreirajPonuduOdVise={async (kalkulacije) => {
+                                try {
+                                    const result = await kreirajPonuduOdViseKalkulacija(kalkulacije, userProfile?.ime || imeKorisnika(user?.email) || "");
+                                    if (result.success && result.fallback) { msg(result.poruka || 'Ponuda sačuvana lokalno.', 'err'); setPage('ponude'); }
+                                    else if (result.success) { msg('Ponuda sa ' + (kalkulacije?.length || 0) + ' proizvoda kreirana!'); setPage('ponude'); }
+                                    else { msg(result.error?.message || result.error || 'Greška pri kreiranju ponude.', 'err'); }
+                                } catch (err) { msg('Greška: ' + err.message, 'err'); }
                             }}
                         />
                     )}
