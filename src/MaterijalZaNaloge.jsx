@@ -174,17 +174,37 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         // (npr. preračun pre konačnog izbora). Takve rolne NE smeju da se prikažu
         // magacioneru — zato ovde uzimamo konačan izbor i filtriramo po njemu.
         let dozvId = null, dozvBr = null, izabraneArr = [];
+        // Izbor može da živi na više mesta (materijali_nalozi — ponekad VIŠE redova posle dopune/izmene,
+        // radni_nalozi, operativni nalog). Ranije se uzimao PRVI materijali_nalozi (.limit(1) bez sortiranja),
+        // pa je rolna dodata naknadnom izmenom ostajala na štampanom nalogu ali ne i kod magacionera.
+        // Sada skupljamo izbor iz SVIH izvora i uzimamo NAJPOTPUNIJI (najviše rolni).
+        const pj = (v) => { if (!v) return null; if (typeof v === "object") return v; try { return JSON.parse(v); } catch (e) { return null; } };
         try {
             if (broj) {
-                let izabrane = null;
-                const { data: mn } = await supabase.from("materijali_nalozi")
-                    .select("parametri").filter("parametri->>broj_naloga", "eq", broj).limit(1);
-                if (mn && mn[0] && mn[0].parametri) izabrane = mn[0].parametri.izabrane_rolne || mn[0].parametri.rezervisane_rolne;
-                if (!izabrane && it.master?.id != null) {
-                    const { data: mn2 } = await supabase.from("materijali_nalozi")
-                        .select("parametri").filter("parametri->>glavni_nalog_id", "eq", String(it.master.id)).limit(1);
-                    if (mn2 && mn2[0] && mn2[0].parametri) izabrane = mn2[0].parametri.izabrane_rolne || mn2[0].parametri.rezervisane_rolne;
+                const kandIzbori = [];
+                const dodaj = (arr) => { if (Array.isArray(arr) && arr.length) kandIzbori.push(arr); };
+                try {
+                    const { data: mn } = await supabase.from("materijali_nalozi")
+                        .select("parametri,id").filter("parametri->>broj_naloga", "eq", broj).order("id", { ascending: false }).limit(10);
+                    (mn || []).forEach((r) => { const pp = pj(r.parametri); if (pp) dodaj(pp.izabrane_rolne || pp.rezervisane_rolne); });
+                } catch (e) { }
+                if (it.master?.id != null) {
+                    try {
+                        const { data: mn2 } = await supabase.from("materijali_nalozi")
+                            .select("parametri,id").filter("parametri->>glavni_nalog_id", "eq", String(it.master.id)).order("id", { ascending: false }).limit(10);
+                        (mn2 || []).forEach((r) => { const pp = pj(r.parametri); if (pp) dodaj(pp.izabrane_rolne || pp.rezervisane_rolne); });
+                    } catch (e) { }
+                    try {
+                        const { data: rn2 } = await supabase.from("radni_nalozi").select("parametri").eq("id", it.master.id).single();
+                        const rp = pj(rn2 && rn2.parametri);
+                        if (rp) dodaj(rp.izabrane_rolne || rp.rezervisane_rolne);
+                    } catch (e) { }
                 }
+                const opp = pj(it.op?.parametri_operacije) || pj(it.op?.parametri);
+                if (opp) dodaj(opp.izabrane_rolne || opp.rezervisane_rolne);
+
+                kandIzbori.sort((a, b) => b.length - a.length);     // najpotpuniji izbor prvi
+                const izabrane = kandIzbori[0] || null;
                 if (Array.isArray(izabrane) && izabrane.length) {
                     izabraneArr = izabrane;
                     dozvId = new Set(); dozvBr = new Set();
