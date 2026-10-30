@@ -284,9 +284,12 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                 {filtrirane.map((p) => {
                     const kal = Array.isArray(p.kalkulacije) ? p.kalkulacije[0] : (p.kalkulacije || p.kalkulacija || null);
                     const iz = iznosi(p);
-                    // Više proizvoda na ponudi: stavke iz p.stavke ili p.podaci.stavke (rezerva).
-                    const stavke = (Array.isArray(p?.stavke) && p.stavke.length) ? p.stavke
-                        : ((Array.isArray(p?.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : null);
+                    // Više proizvoda na ponudi: stavke iz p.stavke ili p.podaci.stavke (mogu biti i tekst).
+                    const _pm = (v) => { if (!v) return null; if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return null; } } return v; };
+                    const _st = _pm(p?.stavke);
+                    const _pod = _pm(p?.podaci);
+                    const stavke = (Array.isArray(_st) && _st.length) ? _st
+                        : ((_pod && Array.isArray(_pod.stavke) && _pod.stavke.length) ? _pod.stavke : null);
                     const ukSvih = stavke ? stavke.reduce((s, it) => s + (Number(iznosi(it).uk) || 0), 0) : iz.uk;
                     const acc = statBoja(p?.status);
                     const rok = p?.rok_isporuke || p?.rok || "po dogovoru";

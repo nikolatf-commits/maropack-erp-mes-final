@@ -130,8 +130,12 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
   y += 8; doc.line(L, y, R, y);
 
   // Redovi: ako ponuda ima VIŠE proizvoda (stavke), ispiši sve; inače jedan red.
-  const stavke = (Array.isArray(p.stavke) && p.stavke.length) ? p.stavke
-    : ((Array.isArray(p.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : null);
+  // Stavke mogu stići kao niz ili kao TEKST (jsonb vs text), i iz p.stavke ili p.podaci.stavke.
+  const _parseMaybe = (v) => { if (!v) return null; if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return null; } } return v; };
+  const _st = _parseMaybe(p.stavke);
+  const _pod = _parseMaybe(p.podaci);
+  const stavke = (Array.isArray(_st) && _st.length) ? _st
+    : ((_pod && Array.isArray(_pod.stavke) && _pod.stavke.length) ? _pod.stavke : null);
   let ukTotal = 0;
   const redStavke = (poz, naziv, si) => {
     y += 8;
