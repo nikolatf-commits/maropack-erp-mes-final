@@ -94,6 +94,8 @@ import { buildOrderSourcePack, extractTemplate, extractKalkulacija } from './uti
 
 // ✅ PRO MODULI
 import DashboardPRO from './DashboardPRO.jsx';
+import VrednostNalogaKartica from './VrednostNalogaKartica.jsx';
+import NarudzbineTab from './modules/NarudzbineTab.jsx';
 import { imeKorisnika } from './dashboardShared.js';
 import MobileApp from './MobileApp.jsx';
 
@@ -2299,6 +2301,12 @@ function MainAppContent() {
                         <RolneWarehouseEngine db={db} setDb={setDb} msg={msg} forceMobile={(isMagacioner || userProfile?.uloga === "radnik") && isMobileViewport} />
                     )}
 
+                    {page === "narudzbine" && (
+                        <div style={{ padding: 16 }}>
+                            <NarudzbineTab operater={userProfile?.ime || imeKorisnika(user?.email) || ""} msg={msg} />
+                        </div>
+                    )}
+
                     {page === "kalkulator_maticnih" && (
                         <KalkulatorMaticnihRolni db={db} msg={msg} />
                     )}
@@ -2514,6 +2522,7 @@ function MainAppContent() {
                     {page === "dashboard_pro" && mozeDashboard && <DashboardPRO setPage={setPage} />}
                     {page === "manager_dashboard" && mozeDashboard && <ManagerDashboard />}
                     {page === "finansije_kpi" && mozeDashboard && <FinansijeKPI_PRO db={db} msg={msg} />}
+                    {page === "vrednost_naloga" && <div style={{ padding: 16 }}><VrednostNalogaKartica /></div>}
                     {page === "mobile" && <MobileApp setPage={setPage} />}
 
                     {/* 🤖 AI MODULI */}

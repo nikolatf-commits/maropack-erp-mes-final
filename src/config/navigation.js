@@ -27,7 +27,8 @@ function getNavGroupsRaw(isAdmin, userRole) {
             items: [
                 { k: 'dashboard_pro', l: 'Dashboard PRO', i: '📈' },
                 { k: 'manager_dashboard', l: 'Menadžerski dashboard', i: '🏭' },
-                { k: 'finansije_kpi', l: 'Finansije + KPI', i: '💰' }
+                { k: 'finansije_kpi', l: 'Finansije + KPI', i: '💰' },
+                { k: 'vrednost_naloga', l: 'Vrednost naloga', i: '💶' }
             ]
         },
         {
@@ -76,7 +77,8 @@ function getNavGroupsRaw(isAdmin, userRole) {
                 { k: 'planer_rezanja_magacin', l: 'Planer rezanja iz magacina', i: '✂️' },
                 { k: 'formatiranje_po_potrebi', l: 'Formatiranje po potrebi', i: '✂️' },
                 { k: 'analiza_materijal_stavke', l: 'Analiza materijala', i: '📊' },
-                { k: 'potrosni_materijal', l: 'Potrošni materijal', i: '🧰' }
+                { k: 'potrosni_materijal', l: 'Potrošni materijal', i: '🧰' },
+                { k: 'narudzbine', l: 'Narudžbine (poručivanje)', i: '📦' }
             ]
         },
         {

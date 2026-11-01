@@ -36,6 +36,20 @@ function uniq(rows, field, filterFn) {
 }
 
 export default function NarudzbineTab({ operater, msg, materialMaster = [] }) {
+    // Kad se otvori kao zasebna stranica (bez prosleđenog materialMaster),
+    // sam učita bazu materijala da bi padajuće liste radile.
+    const [selfMaster, setSelfMaster] = useState([]);
+    const mm = (materialMaster && materialMaster.length) ? materialMaster : selfMaster;
+    useEffect(() => {
+        if (materialMaster && materialMaster.length) return;
+        (async () => {
+            try {
+                const { data, error } = await supabase.from("material_master").select("*").order("vrsta", { ascending: true });
+                if (!error && data) setSelfMaster(data.filter((x) => x.aktivan !== false));
+            } catch (e) { }
+        })();
+        // eslint-disable-next-line
+    }, []);
     const [lista, setLista] = useState([]);
     const [form, setForm] = useState(PRAZNA);
     const [rucno, setRucno] = useState({});        // koja su polja u režimu ručnog unosa
@@ -49,13 +63,13 @@ export default function NarudzbineTab({ operater, msg, materialMaster = [] }) {
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
-    // ── kaskadne opcije iz baze materijala ──
-    const optVrste = useMemo(() => uniq(materialMaster, "vrsta"), [materialMaster]);
-    const optPodVrste = useMemo(() => uniq(materialMaster, "pod_vrsta", (r) => !form.vrsta || String(r.vrsta || "").trim() === form.vrsta), [materialMaster, form.vrsta]);
-    const optOznake = useMemo(() => uniq(materialMaster, "oznaka", (r) => (!form.vrsta || String(r.vrsta || "").trim() === form.vrsta) && (!form.pod_vrsta || String(r.pod_vrsta || "").trim() === form.pod_vrsta)), [materialMaster, form.vrsta, form.pod_vrsta]);
-    const optDebljine = useMemo(() => uniq(materialMaster, "debljina", (r) => (!form.vrsta || String(r.vrsta || "").trim() === form.vrsta) && (!form.pod_vrsta || String(r.pod_vrsta || "").trim() === form.pod_vrsta) && (!form.oznaka || String(r.oznaka || "").trim() === form.oznaka)), [materialMaster, form.vrsta, form.pod_vrsta, form.oznaka]);
-    const optProizvodjaci = useMemo(() => uniq(materialMaster, "proizvodjac"), [materialMaster]);
-    const imaBazu = (materialMaster || []).length > 0;
+    // ── kaskadne opcije iz baze materijala (prop ili samostalno učitano) ──
+    const optVrste = useMemo(() => uniq(mm, "vrsta"), [mm]);
+    const optPodVrste = useMemo(() => uniq(mm, "pod_vrsta", (r) => !form.vrsta || String(r.vrsta || "").trim() === form.vrsta), [mm, form.vrsta]);
+    const optOznake = useMemo(() => uniq(mm, "oznaka", (r) => (!form.vrsta || String(r.vrsta || "").trim() === form.vrsta) && (!form.pod_vrsta || String(r.pod_vrsta || "").trim() === form.pod_vrsta)), [mm, form.vrsta, form.pod_vrsta]);
+    const optDebljine = useMemo(() => uniq(mm, "debljina", (r) => (!form.vrsta || String(r.vrsta || "").trim() === form.vrsta) && (!form.pod_vrsta || String(r.pod_vrsta || "").trim() === form.pod_vrsta) && (!form.oznaka || String(r.oznaka || "").trim() === form.oznaka)), [mm, form.vrsta, form.pod_vrsta, form.oznaka]);
+    const optProizvodjaci = useMemo(() => uniq(mm, "proizvodjac"), [mm]);
+    const imaBazu = (mm || []).length > 0;
 
     function tabelaFali(error) {
         return error && (error.code === "42P01" || /does not exist|relation|schema cache/i.test(error.message || ""));
