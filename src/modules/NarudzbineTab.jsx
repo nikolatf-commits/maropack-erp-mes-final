@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "./supabase.js";
+import { supabase } from "../supabase.js";
 
 // Kartica NARUDŽBINA (poručivanje) u magacinu — unos šta je poručeno,
 // nedelja kad stiže, čekiranje „stiglo" (ko/kad) i napomena. Nezavisno od stanja.
