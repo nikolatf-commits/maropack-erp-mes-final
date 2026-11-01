@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase.js";
+import VrednostNalogaKartica from "./VrednostNalogaKartica.jsx";
 import {
     buildWorkersFromRad,
     calculateDashboardKPIs,
@@ -173,6 +174,9 @@ export default function DashboardPRO({ setPage }) {
                 <KPICard icon="⚖️" label="Ukupno kg" value={formatNumber(kpi.ukupnoKg, "kg")} color="#f97316" />
                 <KPICard icon="👥" label="Aktivni radnici" value={kpi.aktivniRadnici} subtitle={`${kpi.ukupnoAktivnosti} aktivnosti`} color={COLORS.cyan} />
             </div>
+
+            {/* Posebna kartica ISPOD KPI — vrednost naloga (po kreatoru, danu, mesecu, kvartalu, godini) */}
+            <VrednostNalogaKartica />
 
             <div style={styles.tabs}>
                 {[

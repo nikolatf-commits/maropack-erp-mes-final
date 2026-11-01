@@ -177,7 +177,10 @@ export default function KalkulacijaSpulne({ setPage } = {}) {
         const mappedMats = layers.map(l => ({
             tip: l.vrsta || l.tip || l.materijal || l.material || 'BOPP',
             vrsta: l.vrsta || l.tip || l.materijal || l.material || 'BOPP',
+            pod_vrsta: l.pod_vrsta || l.podVrsta || l.podvrsta || '',
             oznaka: l.oznaka || l.oznaka_materijala || '',
+            oznaka_materijala: l.oznaka || l.oznaka_materijala || '',
+            proizvodjac: l.proizvodjac || l.proizvođač || l.dobavljac || '',
             debljina: Number(l.debljina || l.deb || 0),
             tezina: Number(l.gm2 || l.gsm || l.tezina || l.t || 0),
             cena: Number(l.cena || l.cena_kg || 0),
@@ -463,12 +466,17 @@ export default function KalkulacijaSpulne({ setPage } = {}) {
                     materijal: matLabel,
                     layers: (materijali.length ? materijali : [{ vrsta: materijal, tezina: tezinaGM2 }]).map(m => ({
                         vrsta: m.vrsta || m.tip || materijal || 'BOPP',
-                        oznaka: m.oznaka || '',
+                        pod_vrsta: m.pod_vrsta || m.podVrsta || m.podvrsta || '',
+                        oznaka: m.oznaka || m.oznaka_materijala || '',
+                        oznaka_materijala: m.oznaka || m.oznaka_materijala || '',
+                        proizvodjac: m.proizvodjac || m.proizvođač || m.dobavljac || '',
                         debljina: String(m.debljina ?? ''),
                         koeficijent: String(m.koeficijent ?? m.koef ?? ''),
                         gm2: String(m.tezina ?? m.gm2 ?? ''),
                         sirina: String(m.sirina ?? sirina ?? ''),
-                        cena: String(m.cena ?? '')
+                        cena: String(m.cena ?? ''),
+                        stampa: !!(m.stampa || m.st || m.Š),
+                        lak: !!(m.lakira || m.lak || m.L)
                     })),
                     kolicina: String(kolicina || ''),
                     skart: String(skart ?? ''),

@@ -348,6 +348,62 @@ function buildSvgPro(c, u, lang = "sr") {
     g += ext(x0, y1, x0, y1 + 36) + ext(x1, y1, x1, y1 + 36) + dH(x0, x1, y1 + 30, `${sirina}`);
     g += ext(x0, y0, x0 - 42, y0) + ext(x0, y1, x0 - 42, y1) + dV(y0, y1, x0 - 36, `${duzina}`);
     if (kl > 0) g += ext(kx0, ky, x0 - 42, ky) + ext(x0, y0, x0 - 42, y0) + dV(ky, y0, x0 - 64, `${klMm}`);
+    // ── KOTE TEHNIČKIH OPCIJA ─────────────────────────────────────────────
+    // Svaka opcija kod koje je uneta vrednost pozicije dobija kotu na skici:
+    //  • vertikalne kote (od vrha / od dna) idu desno od kese, u „trakama" da se
+    //    ne preklapaju; horizontalne (levo / od centra) idu iznad elementa.
+    {
+        const KC = { adh: ACC, duplofan: "#6366f1", perf_telo: ACC, unakrsna: "#0ea5e9", euro: SUB, stampa: TEAL };
+        // Vertikalne kote idu LEVO od kese (brojevi/legenda su desno → nema preklapanja).
+        // „Trake" (lanes) se slažu dalje ulevo tek kad bi se dve kote preklopile po visini.
+        const leftBase = x0 - (kl > 0 ? 92 : 68);
+        const lanes = [];
+        const pickLane = (a, b) => {
+            const lo = Math.min(a, b) - 15, hi = Math.max(a, b) + 15;
+            for (let i = 0; i < lanes.length; i++) { if (lanes[i].every(([lx, ly]) => hi < lx || lo > ly)) { lanes[i].push([lo, hi]); return i; } }
+            lanes.push([[lo, hi]]); return lanes.length - 1;
+        };
+        const vKota = (refY, yEl, val, col) => {
+            if (yEl == null || refY == null || Math.abs(refY - yEl) < 2) return "";
+            const lane = pickLane(refY, yEl);
+            const x = Math.max(16, leftBase - lane * 20);
+            let o = ext(x0 + 3.5, refY, x - 3, refY) + ext(x0 + 3.5, yEl, x - 3, yEl);
+            o += `<line x1="${q(x)}" y1="${q(refY)}" x2="${q(x)}" y2="${q(yEl)}" stroke="${col}" stroke-width="1"/>`;
+            o += `<path d="${arr(x, refY, refY < yEl ? 'u' : 'd')}" fill="${col}"/><path d="${arr(x, yEl, refY < yEl ? 'd' : 'u')}" fill="${col}"/>`;
+            const my = (refY + yEl) / 2;
+            o += `<rect x="${q(x - 8)}" y="${q(my - 9)}" width="16" height="18" rx="2.5" fill="#fff" stroke="${col}" stroke-width=".6"/><text x="${q(x)}" y="${q(my + 3)}" font-size="9.5" fill="${col}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo" transform="rotate(-90 ${q(x)} ${q(my)})">${val}</text>`;
+            return o;
+        };
+        const hKota = (refX, xEl, atY, val, col) => {
+            if (xEl == null || refX == null || Math.abs(refX - xEl) < 2) return "";
+            let o = `<line x1="${q(refX)}" y1="${q(atY)}" x2="${q(xEl)}" y2="${q(atY)}" stroke="${col}" stroke-width=".9"/>`;
+            o += `<path d="${arr(refX, atY, refX < xEl ? 'l' : 'r')}" fill="${col}"/><path d="${arr(xEl, atY, refX < xEl ? 'r' : 'l')}" fill="${col}"/>`;
+            const mx = (refX + xEl) / 2;
+            o += `<rect x="${q(mx - 10)}" y="${q(atY - 7)}" width="20" height="12" fill="#fff"/><text x="${q(mx)}" y="${q(atY + 2.5)}" font-size="8.5" fill="${col}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo">${val}</text>`;
+            return o;
+        };
+        let ok = "";
+        // ADH lepljiva traka — mera „od vrha"
+        if (c.adh && has(P.adh_traka, "odVrha")) ok += vKota(topY, posToY(P.adh_traka), num(P.adh_traka.odVrha), KC.adh);
+        // Duplofan traka — mera „od vrha"
+        if (c.duplofan && has(P.duplofan, "odVrha")) ok += vKota(topY, posToY(P.duplofan), num(P.duplofan.odVrha), KC.duplofan);
+        // Perforacija za otkinuti na telu — mera „od vrha"
+        if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
+        // Unakrsna perforacija — „od vrha" ILI „od dna"
+        if (c.unakrsnaPerf) { const uv = P.unakrsna_perf || {}; if (has(uv, "odVrha")) ok += vKota(topY, unakrsnaY, num(uv.odVrha), KC.unakrsna); else if (has(uv, "odDna")) ok += vKota(y1, unakrsnaY, num(uv.odDna), KC.unakrsna); }
+        // Eurozumba — „od vrha" (vertikalno) i „levo" od centra (horizontalno)
+        if (c.euroloch) {
+            if (has(eV, "odVrha")) ok += vKota(eTop, ey, num(eV.odVrha), KC.euro);
+            if (has(eV, "levo")) ok += hKota(cx, ex, ey - Math.max(eW * 0.17, 3) - 7, num(eV.levo), KC.euro);
+        }
+        // Štampa — „od vrha", „levo" i dimenzije polja (širina×visina)
+        if (c.stampa) {
+            if (has(psx, "odVrha")) ok += vKota(y0, py, num(psx.odVrha), KC.stampa);
+            if (has(psx, "levo")) ok += hKota(x0, px, py - 7, num(psx.levo), KC.stampa);
+            if (has(psx, "sirina") && has(psx, "visina")) ok += `<text x="${q(px + pw / 2)}" y="${q(py + ph + 11)}" font-size="8.5" fill="${TEAL}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo">${num(psx.sirina)}×${num(psx.visina)} mm</text>`;
+        }
+        g += ok;
+    }
     const anchor = (key) => {
         switch (key) {
             case "euroloch": case "eurozumba": return [ex + eW / 2, ey];
@@ -384,7 +440,7 @@ function buildSvgPro(c, u, lang = "sr") {
     sortByY.forEach((entry) => {
         const { it, i, ax, ay } = entry;
         const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba", "perf_telo"].includes(it.key) ? ACC : SUB)));
-        g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".8"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
+        g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".7" stroke-dasharray="3 2.5" opacity=".75"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text>`;
         by += 34;
     });
     const sx = 90, syT = 600, sD = (dno === "faltna" || dno === "kreuz" || dno === "doypack") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;

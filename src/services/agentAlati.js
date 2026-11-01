@@ -33,6 +33,21 @@ function sadrziSveReci(tekst, upit) {
     return reci.every((r) => t.includes(r));
 }
 
+// Stavke ponude (više proizvoda) — mogu stajati kao niz, JSON-string, u r.stavke ili podaci.stavke.
+function parsirajStavke(red = {}, pod = {}) {
+    let s = red.stavke != null ? red.stavke : (pod.stavke != null ? pod.stavke : null);
+    if (typeof s === "string") { try { s = JSON.parse(s); } catch (e) { s = null; } }
+    if (!Array.isArray(s) || !s.length) return [];
+    return s.map((x) => ({
+        proizvod: x.naziv || x.proizvod || x.tip || null,
+        tip: x.tip || x.tip_proizvoda || null,
+        kolicina: N(x.kol ?? x.kolicina) || null,
+        jedinica: x.jed || x.jedinica || null,
+        cena_jedinicna: N(x.cena ?? x.cena_jedinicna) || null,
+        vrednost: N(x.uk ?? x.vrednost ?? x.ukupno) || null,
+    }));
+}
+
 // Gustine za pretvaranje kg ↔ m (g/cm³)
 const GUSTINE = { BOPP: 0.91, PP: 0.91, CPP: 0.90, PET: 1.40, BOPA: 1.15, PA: 1.15, PE: 0.92, LDPE: 0.92, HDPE: 0.95, ALU: 2.70, PAPIR: 1.00 };
 function gm2Sloja(sloj) {
@@ -725,10 +740,45 @@ export const ALATI = {
                         jedinica: pod.jedinica || null,
                         cena_jedinicna: N(pod.cena_jedinicna) || null,
                         vrednost: N(r.cena_ukupno ?? pod.vrednost) || null,
-                        status: r.status, napomena: r.nap || null,
+                        status: r.status, napomena: r.napomena || r.nap || null,
+                        uslovi_placanja: pod.uslovi || pod.uslovi_placanja || null,
+                        kreirao: r.kreirao_ime || r.kreirao || pod.kreirao || null,
+                        poslato_kupcu: r.poslato_kupcu || null,
+                        stavke: parsirajStavke(r, pod),
                         nalozi_iz_ponude: nal,
                     };
                 }),
+            };
+        },
+    },
+
+    procitaj_narudzbine: {
+        cita: true,
+        opis: "Čita karticu NARUDŽBINE (poručivanje materijala): šta je poručeno, koje NEDELJE (KW) stiže, šta još čeka, a šta je već stiglo (ko i kada). NEZAVISNO od stanja rolni — „stiglo“ ovde ne dodaje robu na stanje. Koristi za: „šta nam stiže ove nedelje“, „šta još čekamo“, „da li je stigao taj materijal“, „šta je poručeno od tog dobavljača“, „šta kasni iz nabavke“.",
+        ulaz: {
+            materijal: { type: "string", description: "Deo naziva materijala ili dobavljača (vrsta/pod-vrsta/oznaka/proizvođač)" },
+            status: { type: "string", description: "ceka | stiglo — filtriraj po statusu (prazno = sve)" },
+            koliko: { type: "number", description: "Koliko najskorijih (podrazumevano 40)" },
+        },
+        async izvrsi(a) {
+            const { data, error } = await supabase.from("narudzbine").select("*").order("id", { ascending: false }).limit(400);
+            if (error) {
+                if (error.code === "42P01" || /does not exist|relation|schema cache/i.test(error.message || "")) return { nadjeno: 0, napomena: "Kartica Narudžbine još nije postavljena u bazi (pokreni narudzbine_setup.sql)." };
+                return { greska: "narudzbine: " + error.message };
+            }
+            let red = data || [];
+            if (T(a.materijal)) red = red.filter((r) => sadrziSveReci([r.vrsta, r.pod_vrsta, r.oznaka, r.proizvodjac].filter(Boolean).join(" "), a.materijal));
+            if (T(a.status)) { const s = BEZKV(a.status); if (s.includes("stig")) red = red.filter((r) => r.stiglo); else if (s.includes("cek") || s.includes("ček")) red = red.filter((r) => !r.stiglo); }
+            const ukupnoCeka = (data || []).filter((r) => !r.stiglo).length;
+            return {
+                nadjeno: red.length, ukupno_ceka: ukupnoCeka,
+                narudzbine: red.slice(0, N(a.koliko) || 40).map((r) => ({
+                    materijal: [T(r.vrsta), T(r.oznaka), (N(r.debljina) ? N(r.debljina) + "µ" : T(r.debljina)), (T(r.sirina) ? T(r.sirina) + " mm" : "")].filter(Boolean).join(" · ") || "—",
+                    pod_vrsta: r.pod_vrsta || null, proizvodjac: r.proizvodjac || null,
+                    poruceno: r.poruceno || null, stize_nedelja: r.stiglo ? null : (r.nedelja || null),
+                    stiglo: !!r.stiglo, stiglo_datum: r.stiglo ? (r.stiglo_ts || null) : null, stiglo_oznacio: r.ko_stiglo || null,
+                    napomena: r.napomena || null, poruceno_uneo: r.kreirao || null,
+                })),
             };
         },
     },

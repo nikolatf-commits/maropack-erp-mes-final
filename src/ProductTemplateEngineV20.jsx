@@ -351,6 +351,10 @@ const defaultForm = {
     napomene: { materijal: "", stampa: "", lakiranje: "", kasiranje: "", rezanje: "", formatiranje: "", kesa: "", spulna: "" },
     porucenaKolicina: "",
     jedinicaUnosa: "m",          // "m" = metri gotove trake | "kom" | "kg"
+    // Prodajna cena proizvoda (za vrednost naloga na Dashboardu).
+    // Jedinica zavisi od tipa: folija = €/m | €/kg | €/1000m ; kesa = €/1000kom ; špulna = €/m² | €/špulni | €/1000m
+    prodajnaCena: "",
+    prodajnaJedinica: "",        // prazno = podrazumevana za tip (m / 1000kom / m2)
     folijaSkart: "5",            // dodatak/škart % na matičnu rolnu (podrazumevano 5)
     dimenzijaSirina: "",
     dimenzijaDuzina: "",
@@ -366,8 +370,6 @@ const defaultForm = {
         formatiStampa: false,
         formati: [],
         layers: [
-            { material: "", debljina: "", sirina: "", kg: "", metara: "" },
-            { material: "", debljina: "", sirina: "", kg: "", metara: "" },
             { material: "", debljina: "", sirina: "", kg: "", metara: "" }
         ],
         stampa: {
@@ -634,6 +636,33 @@ function orderMetraze(f) {
     }
     const kol = n(f.porucenaKolicina);
     return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
+}
+
+// VREDNOST NALOGA = prodajna cena × prodata količina (u jedinici cene), BEZ škarta.
+// Jedinice cene po tipu: folija = m | kg | 1000m ; kesa = 1000kom ; špulna = m2 | spulna | 1000m.
+// Koristi iste obračune (folijaObracun/spulnaObracun/orderMetraze) koji pretvaraju
+// poručenu količinu (u njenoj jedinici) u metre/kg/kom/m²/špulni.
+function prodajnaJedinicaZaTip(tip) { return tip === "kesa" ? "1000kom" : tip === "spulna" ? "m2" : "m"; }
+function izracunajVrednostNaloga(form) {
+    const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const tip = form && form.type;
+    const cena = N_(form && form.prodajnaCena);
+    const jed = (form && form.prodajnaJedinica) || prodajnaJedinicaZaTip(tip);
+    if (!(cena > 0)) return { vrednost: 0, jedinica: jed, cena: 0, kolicina: 0 };
+    let qty = 0;
+    try {
+        if (tip === "kesa") {
+            const kom = N_(form.kesa && form.kesa.kolicina) || (orderMetraze(form).kom || 0);
+            qty = jed === "1000kom" ? kom / 1000 : kom;
+        } else if (tip === "folija") {
+            const ob = folijaObracun(form, 0);               // škart 0 = prodajna količina
+            qty = jed === "kg" ? ob.kgUkupno : (jed === "1000m" ? ob.metriTrake / 1000 : ob.metriTrake);
+        } else if (tip === "spulna") {
+            const ob = spulnaObracun({ ...form, spulna: { ...(form.spulna || {}), skart: 0 } });
+            qty = jed === "spulna" ? ob.spulni : (jed === "1000m" ? ob.ukupnoM / 1000 : ob.m2);
+        }
+    } catch (e) { qty = 0; }
+    return { vrednost: +(cena * (qty || 0)).toFixed(2), jedinica: jed, cena, kolicina: +((qty || 0)).toFixed(2) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1747,7 +1776,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     function setType(t) {
         // Zajednička gornja polja se čuvaju ODVOJENO po tipu (folija/kesa/spulna),
         // pa se ne prelivaju iz jednog templejta u drugi.
-        const SHARED = ["sifra", "pisBroj", "brojPorudzbine", "datumIsporuke", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
+        const SHARED = ["sifra", "pisBroj", "brojPorudzbine", "datumIsporuke", "kupac", "naziv", "svrha", "idealnaSirinaMaterijala", "porucenaKolicina", "prodajnaCena", "prodajnaJedinica", "dimenzijaSirina", "dimenzijaDuzina", "napomena"];
         setForm(prev => {
             if (t === prev.type) return prev;
             const next = clone(prev);
@@ -2528,6 +2557,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 naziv: proizvod,
                 proizvod: proizvod,
             };
+            const _vrednost = izracunajVrednostNaloga(form);
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
@@ -2542,6 +2572,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     kolicina_za_rad: kolPlus,
                     idealna_sirina: form.idealnaSirinaMaterijala || "",
                     kreirao_ime: kreiraoIme || "",
+                    // Vrednost naloga (prodajna cena × poručena količina) — za Dashboard karticu.
+                    vrednost_naloga: _vrednost.vrednost,
+                    valuta: "EUR",
+                    prodajna_cena: _vrednost.cena,
+                    prodajna_jedinica: _vrednost.jedinica,
+                    prodata_kolicina: _vrednost.kolicina,
                     jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
                         : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
                     datum: new Date().toLocaleDateString("sr-RS"),
@@ -2793,6 +2829,11 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     porucena_kolicina: kol,
                     kolicina_za_rad: kolPlus,
                     idealna_sirina: form.idealnaSirinaMaterijala || "",
+                    vrednost_naloga: _vrednost.vrednost,
+                    valuta: "EUR",
+                    prodajna_cena: _vrednost.cena,
+                    prodajna_jedinica: _vrednost.jedinica,
+                    prodata_kolicina: _vrednost.kolicina,
                     izabrane_rolne: izborData,
                     rezervisane_rolne: izborData,   // nalog (NalogLayoutPRO) traži i pod ovim imenom
                     template: form,
@@ -3249,6 +3290,31 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 <div>
                     <label style={labelStyle()}>📅 Datum isporuke (rok)</label>
                     <input type="date" style={fieldStyle()} value={form.datumIsporuke || ""} onChange={e => update("datumIsporuke", e.target.value)} />
+                </div>
+            </div>
+            {/* PRODAJNA CENA — vrednost naloga na Dashboardu (jedinica zavisi od tipa) */}
+            <div style={{ marginBottom: 12, padding: "10px 12px", border: "1px solid #bbf7d0", background: "#f0fdf4", borderRadius: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                    <div>
+                        <label style={labelStyle()}>💶 Prodajna cena proizvoda</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.prodajnaCena || ""} placeholder="npr. 2.90"
+                                onChange={e => update("prodajnaCena", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.prodajnaJedinica || prodajnaJedinicaZaTip(form.type)} onChange={e => update("prodajnaJedinica", e.target.value)}
+                                style={{ ...fieldStyle(), width: 120, fontWeight: 900, color: GREEN, background: "#dcfce7", cursor: "pointer" }}>
+                                {(form.type === "kesa" ? [["1000kom", "€ / 1000 kom"]]
+                                    : form.type === "spulna" ? [["m2", "€ / m²"], ["spulna", "€ / špulni"], ["1000m", "€ / 1000 m"]]
+                                        : [["m", "€ / m"], ["kg", "€ / kg"], ["1000m", "€ / 1000 m"]]).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 150 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: "#15803d", textTransform: "uppercase" }}>Vrednost naloga</div>
+                        <div style={{ fontSize: 20, fontWeight: 950, color: "#15803d" }}>€ {Math.round(izracunajVrednostNaloga(form).vrednost).toLocaleString("sr-RS")}</div>
+                    </div>
+                </div>
+                <div style={{ fontSize: 10, color: "#64748b", marginTop: 5, fontWeight: 700 }}>
+                    Cena × poručena količina (automatska konverzija jedinica). Snima se na nalog i sabira na Dashboardu („Vrednost naloga").
                 </div>
             </div>
             {/* Svrha proizvoda — za šta se koristi (AI i ručna pretraga) */}

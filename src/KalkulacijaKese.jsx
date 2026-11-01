@@ -31,11 +31,24 @@ function parseTemplateMaterialName(raw) {
 }
 function mapTemplateLayerToKesaMaterial(layer) {
     const parsed = parseTemplateMaterialName(layer.material || layer.materijal || layer.tip || layer.vrsta || layer.naziv || layer.oznaka);
+    const tip = layer.vrsta || layer.tip || layer.materijal || parsed.tip || 'OPP';
+    const oznaka = layer.oznaka_materijala || layer.oznaka || layer.grade || '';
     return {
-        tip: layer.tip || layer.vrsta || layer.materijal || parsed.tip || 'OPP',
+        ...layer,
+        tip,
+        vrsta: tip,
+        // Prenosi se KOMPLETAN materijal iz templejta (ranije samo tip/debljina/težina/cena):
+        pod_vrsta: layer.pod_vrsta || layer.podVrsta || layer.podvrsta || layer.subtype || '',
+        oznaka,
+        oznaka_materijala: oznaka,
+        proizvodjac: layer.proizvodjac || layer.proizvođač || layer.dobavljac || '',
         debljina: String(layer.debljina || layer.deb || layer.mic || parsed.debljina || '30'),
         tezina: Number(layer.tezina || layer.t || layer.gsm || layer.gm2 || layer.gramatura || 0),
-        cena: Number(layer.cena || layer.cena_kg || 0)
+        sirina: Number(layer.sirina || layer.idealna_sirina || layer.idealnaSirina || layer.sirinaMm || 0),
+        cena: Number(layer.cena || layer.cena_kg || 0),
+        // Oznake „štampa se" / „lakira se" po sloju:
+        stampa: !!(layer.stampa || layer.st || layer.stampa_se || layer.stamp || layer.Š),
+        lakira: !!(layer.lakira || layer.lak || layer.L)
     };
 }
 
@@ -222,8 +235,8 @@ export default function KalkulacijaKese({ setPage }) {
     const [stCena, setStCena] = useState(1.2);
 
     const [buCena, setBuCena] = useState(5);
-    const [adhOds, setAdhOds] = useState(0.2);
-    const [adhCena, setAdhCena] = useState(1);
+    const [adhOds, setAdhOds] = useState(0.2);   // dužina ADH trake po kesi (m)
+    const [adhCena, setAdhCena] = useState(0.02); // cena ADH trake (€/m)
     const [ojSir, setOjSir] = useState(20);
     const [ojDeb, setOjDeb] = useState(150);
     const [ojCena, setOjCena] = useState(4);
@@ -470,7 +483,8 @@ export default function KalkulacijaKese({ setPage }) {
         const ik = poprecnoMm; // idealna širina rolne (popreko kese = jedan ban)
 
         const stmTr = opts.stampa ? (tezKg1000 * stCena) : 0;
-        const adhTr = opts.adhTraka ? (adhOds * adhCena) : 0;
+        // ADH traka — dužina trake (m po kesi) × cena po metru (€/m) × 1000 kom = €/1000 kom.
+        const adhTr = opts.adhTraka ? ((Number(adhOds) || 0) * (Number(adhCena) || 0) * 1000) : 0;
         const ojTr = opts.ojacanje ? (sirina / 1000 * ojSir / 1000 * (ojDeb * 0.91) * ojCena * 1000) : 0;
 
         const klUk = klBr * klCena;
@@ -776,10 +790,20 @@ export default function KalkulacijaKese({ setPage }) {
                     tolerancija: tolerancija || '±10%',
                     grafika: grafika || 'Novi posao',
                     layers: (materijali || []).map(m => ({
-                        material: m.tip || m.vrsta || 'OPP',
+                        // Pun materijal u templejt (ranije samo ime+debljina+težina+cena):
+                        material: [m.vrsta || m.tip, m.oznaka || m.oznaka_materijala, m.debljina].filter(Boolean).join(' ') || (m.tip || 'OPP'),
+                        vrsta: m.vrsta || m.tip || '',
+                        pod_vrsta: m.pod_vrsta || m.podVrsta || m.podvrsta || '',
+                        oznaka_materijala: m.oznaka || m.oznaka_materijala || '',
+                        oznaka: m.oznaka || m.oznaka_materijala || '',
+                        proizvodjac: m.proizvodjac || m.proizvođač || m.dobavljac || '',
                         debljina: String(m.debljina ?? ''),
+                        sirina: String(m.sirina ?? sirina ?? ''),
+                        gm2: String(m.tezina ?? ''),
                         tezina: String(m.tezina ?? ''),
-                        cena: String(m.cena ?? '')
+                        cena: String(m.cena ?? ''),
+                        stampa: !!(m.stampa || m.st || m.Š),
+                        lak: !!(m.lakira || m.lak || m.L)
                     })),
                     options: mapKesaOptionsZaTemplejt(opts || {}),
                     transportKg: String(trCena ?? ''),
@@ -983,7 +1007,7 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Opt label="Otvor na dnu" active={opts.otvorDno} onToggle={() => toggle('otvorDno')} cena={odCena} setCena={setOdCena} />
                                 <Opt label="Pakovanje za hranu" active={opts.pakHrana} onToggle={() => toggle('pakHrana')} cena={phranaCena} setCena={setPhranaCena} />
                                 <Opt label="Bušenje rupe" active={opts.busenje} onToggle={() => toggle('busenje')} cena={buCena} setCena={setBuCena} />
-                                <Opt label="ADH traka" active={opts.adhTraka} onToggle={() => toggle('adhTraka')} cena={adhCena} setCena={setAdhCena} />
+                                <Opt label="ADH traka" active={opts.adhTraka} onToggle={() => toggle('adhTraka')} />
                                 <Opt label="Ojačanje" active={opts.ojacanje} onToggle={() => toggle('ojacanje')} cena={ojCena} setCena={setOjCena} />
                                 <Opt label="Trošak klišea" active={opts.klise} onToggle={() => toggle('klise')} cena={klCena} setCena={setKlCena} />
                                 <Opt label="Perf. vrućim iglama" active={opts.perfVrucim} onToggle={() => toggle('perfVrucim')} cena={pvCena} setCena={setPvCena} />
@@ -1054,9 +1078,13 @@ export default function KalkulacijaKese({ setPage }) {
                                 <div style={{ marginTop: '12px', padding: '12px', background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px' }}>
                                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', marginBottom: '9px' }}>📎 ADH Traka</div>
                                     <div style={s.grid3}>
-                                        <Field label="Odsečak (m)" value={adhOds} onChange={setAdhOds} type="number" />
-                                        <Field label="Cena €/1000kom" value={adhCena} onChange={setAdhCena} type="number" />
-                                        <Field label="Ukupno €/1000kom" value={adhOds * adhCena} onChange={() => { }} type="number" readOnly auto />
+                                        <Field label="Dužina trake (m/kesi)" value={adhOds} onChange={setAdhOds} type="number" />
+                                        <Field label="Cena €/m" value={adhCena} onChange={setAdhCena} type="number" />
+                                        <Field label="Ukupno €/1000kom" value={Number((adhOds * adhCena * 1000).toFixed(2))} onChange={() => { }} type="number" readOnly auto />
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '6px' }}>
+                                        Dužina trake × cena po metru × 1000 kom. Predlog dužine = širina kese: {(sirina / 1000).toFixed(3)} m
+                                        <span onClick={() => setAdhOds(Number((sirina / 1000).toFixed(3)))} style={{ marginLeft: 8, color: '#1d4ed8', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}>preuzmi širinu</span>
                                     </div>
                                 </div>
                             )}

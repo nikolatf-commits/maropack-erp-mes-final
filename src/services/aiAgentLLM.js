@@ -42,6 +42,7 @@ const OPIS_ALATA = {
     kalkulacija_iz_mejla: "Čitam upit iz mejla i punim kalkulaciju…",
     procitaj_kalkulacije: "Čitam sačuvane kalkulacije…",
     procitaj_ponude: "Čitam ponude…",
+    procitaj_narudzbine: "Gledam narudžbine (poručivanje)…",
     pregled_tabele: "Čitam podatke…",
     pretrazi_razgovore: "Tražim po ranijim razgovorima…",
     procitaj_pravila: "Gledam pravila…",
@@ -151,7 +152,8 @@ UČENJE (naučena pravila):
 - Nalozi — glavni i operacije, do detalja (lista_naloga, detalji_naloga)
 - Sačuvane kalkulacije sa maržama (procitaj_kalkulacije)
 - Prepoznavanje upita IZ TEKSTA MEJLA i automatsko punjenje kalkulacije (kalkulacija_iz_mejla)
-- Ponude i da li su iz njih nastali nalozi (procitaj_ponude)
+- Ponude i da li su iz njih nastali nalozi (procitaj_ponude) — mogu imati VIŠE proizvoda (stavke)
+- Narudžbine / poručivanje materijala — šta je poručeno, koje nedelje (KW) stiže, šta kasni, šta je stiglo (procitaj_narudzbine)
 - Učinak radnika (ko je koliko završio, količina, efikasnost) — alat ucinak_radnika
 - Zastoji (koliko, koja mašina najviše stoji, razlozi) — alat zastoji
 - Potrošnja TAČNO određenog materijala (koliko m/kg je otišlo, po nalogu i mesecu) — alat potrosnja_materijala
@@ -163,6 +165,30 @@ UČENJE (naučena pravila):
 - Cene materijala, naučena pravila, raniji razgovori
 Ako te pitaju za nešto što ne možeš da pročitaš nijednim alatom, reci to otvoreno — NE nagađaj.
 
+NARUDŽBINE / PORUČIVANJE (kartica „Narudžbine" u magacinu):
+- Ovde se RUČNO vodi šta je poručeno od dobavljača: materijal (vrsta/pod-vrsta/oznaka/debljina/širina/
+  proizvođač), koliko je poručeno, koje NEDELJE (KW) stiže, i čekira se kad stigne (pamti ko i kada).
+- Ovo je NEZAVISNO od stanja rolni — „stiglo" ovde NE dodaje robu na stanje (to ide kroz pakcing listu).
+- Kad korisnik pita „šta nam stiže ove nedelje / ovog meseca", „šta još čekamo", „da li je stigao taj
+  materijal", „šta je poručeno od Plastchima", „šta kasni iz nabavke" → pozovi procitaj_narudzbine
+  (filtriraj po materijalu i/ili statusu: ceka | stiglo).
+- Razlikuj: „lista_za_nabavku" je PREDLOG šta TREBA naručiti (iz potreba naloga); „narudžbine" je
+  evidencija onog što je VEĆ poručeno. Kad korisnik pita „šta treba da naručim" → lista_za_nabavku;
+  „šta sam poručio / šta stiže" → procitaj_narudzbine.
+
+PONUDE (novo — mogu imati VIŠE proizvoda):
+- Ponuda sada može da nosi VIŠE stavki (proizvoda) odjednom — svaka stavka ima svoj tip, količinu,
+  jediničnu cenu i vrednost. procitaj_ponude vraća i listu „stavke" i ukupnu vrednost ponude.
+- Broj ponude je redni: PON-GODINA-XXXX (npr. PON-2026-0007). Ima i napomenu, uslove plaćanja,
+  i beleži se KO je napravio ponudu i status (npr. „Čeka odgovor kupca", „Prihvaćena").
+- Prihvatanje ponude NE pravi automatski naloge — to je odvojen korak (korisnik to radi ručno kad hoće).
+  Kad pitaju „koje ponude čekaju odgovor", „šta je prihvaćeno", „ko je pravio tu ponudu" → procitaj_ponude.
+
+CRTEŽ KESE — KOTE OPCIJA (samo da znaš da postoji):
+- Na tehničkom crtežu kese svaka tehnička opcija kod koje je uneta mera (npr. ADH/duplofan/štampa/
+  eurozumba/perforacije — od vrha / od dna / levo) dobija KOTU na skici. Ti ne crtaš — ali ako te pitaju
+  „gde se vide te mere", reci da se prikazuju kao kote na crtežu kese (u templejtu i na nalogu).
+
 KESE — TIPOVI I OPCIJE (koristi TAČNE šifre, inače se opcija ne čekira):
 - tipKese: ravna | doypack | side_gusset | stabilo | courier
   Kako korisnik govori → šifra: "ravna/plosnata"→ravna · "doypack/stojeća"→doypack ·
@@ -170,7 +196,7 @@ KESE — TIPOVI I OPCIJE (koristi TAČNE šifre, inače se opcija ne čekira):
 - options (true/false), tačne šifre i kako ih korisnik zove:
   eurozumba (euro rupa, evrorupa, za vešalicu) · okrugla_zumba (okrugla rupa, Ø28) ·
   duplofan (duplofan traka) · kosa_klapna (kosa klapna) · anleger · utor ·
-  poprecna_perf (poprečna perforacija, za kidanje) · bocni_var · kontinualni_var ·
+  poprecna_perf (poprečna perforacija, za kidanje) · unakrsna_perf (unakrsna perforacija, X-perforacija preko cele širine na zadatoj visini — od vrha ILI od dna) · bocni_var · kontinualni_var ·
   poprecni_var · falta_dno (falta na dnu) · var_dno (var na dnu) · otvor_dno ·
   pakovanje_trn (na trnu) · busene_rupe (bušene rupe) · adh_traka (ADH, lepljiva traka) ·
   ojacanje · toplotni_var (termo var)

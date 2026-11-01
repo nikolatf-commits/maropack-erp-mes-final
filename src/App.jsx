@@ -1546,6 +1546,44 @@ function MainAppContent() {
                 try { const { data: mr } = await supabase.from("radni_nalozi").select("broj_naloga").eq("ponuda_id", pon.id).order("created_at", { ascending: false }).limit(1); if (mr && mr[0] && mr[0].broj_naloga) broj = mr[0].broj_naloga; } catch (e) { }
                 // Auto-dodela rolni iz magacina po slojevima templejta
                 var dod = await dodeliRolneZaNalog(broj, pon);
+
+                // ── DOPUNA posle SQL funkcije: uvek upiši KO JE KREIRAO, a ako materijal
+                // NIJE dodeljen → postavi „čeka materijal" + koji slojevi (da izgleda kao nalog iz templejta).
+                try {
+                    var kreiraoImeP2 = (userProfile && userProfile.ime) || imeKorisnika(user && user.email) || "";
+                    var nemaMaterijala = !dod || !dod.assigned || (dod.manjak && dod.manjak.length > 0);
+                    // slojevi proizvoda (za nedodeljeni_slojevi) — iz templejta ponude
+                    var tplP = extractTemplate(pon) || {};
+                    var tipP = normalizujTipProizvoda(pon.tip || pon.tip_proizvoda || pon.vrsta || "folija");
+                    var secP = tplP[tipP] || (tplP.data && tplP.data[tipP]) || {};
+                    var layP = Array.isArray(secP.layers) ? secP.layers : [];
+                    var nedSloj = layP.map(function (l, i) { return { sloj: i + 1, materijal: l.material || l.materijal || l.vrsta || l.tip || "", oznaka: l.oznaka_materijala || l.oznaka || "", debljina: l.debljina || l.deb || "" }; });
+                    if (!nedSloj.length) nedSloj = [{ sloj: 1, materijal: "", oznaka: "", debljina: "" }];
+
+                    var pjP = function (v) { if (!v) return {}; if (typeof v === "object") return v; try { return JSON.parse(v) || {}; } catch (e) { return {}; } };
+                    var mrows = [];
+                    try { var r1 = await supabase.from("radni_nalozi").select("id, parametri, broj_naloga").eq("ponuda_id", pon.id); mrows = (r1 && r1.data) || []; } catch (e) { }
+                    if ((!mrows || !mrows.length) && broj) { try { var r2 = await supabase.from("radni_nalozi").select("id, parametri, broj_naloga").eq("broj_naloga", broj); mrows = (r2 && r2.data) || []; } catch (e) { } }
+
+                    for (var mi = 0; mi < mrows.length; mi++) {
+                        var mrw = mrows[mi];
+                        var parP = pjP(mrw.parametri);
+                        parP.kreirao_ime = parP.kreirao_ime || kreiraoImeP2;
+                        var updP = { kreirao_ime: kreiraoImeP2 };
+                        if (nemaMaterijala) {
+                            parP.delimican_materijal = true;
+                            if (!Array.isArray(parP.nedodeljeni_slojevi) || !parP.nedodeljeni_slojevi.length) parP.nedodeljeni_slojevi = nedSloj;
+                        }
+                        updP.parametri = parP;
+                        try { await supabase.from("radni_nalozi").update(updP).eq("id", mrw.id); }
+                        catch (e) { try { await supabase.from("radni_nalozi").update({ parametri: parP }).eq("id", mrw.id); } catch (e2) { } }
+                    }
+                    // Operacije koje čekaju → „čeka materijal" (da i po operaciji piše ČEKA MATERIJAL).
+                    if (nemaMaterijala && broj) {
+                        try { await supabase.from("operativni_nalozi").update({ status: "ceka_materijal" }).ilike("broj_naloga", broj + "%").in("status", ["ceka", "Ceka", "ČEKA", "čeka"]); } catch (e) { }
+                    }
+                } catch (e) { console.warn("Dopuna naloga iz ponude (kreator/čeka materijal):", e && (e.message || e)); }
+
                 try { if (loadDataRef.current) await loadDataRef.current(); } catch (e) { }
                 var brNal = broj || "";
                 msg("Nalozi kreirani" + (brNal ? " · " + brNal : "") + (dod && dod.assigned ? " · dodeljeno " + dod.assigned + " rolni" : "") + (dod && dod.manjak && dod.manjak.length ? " · MANJAK: " + dod.manjak.join(", ") : "") + ". Otvaram glavne naloge.");

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase.js";
 import MaterijalZaNaloge from "./MaterijalZaNaloge.jsx";
+import NarudzbineTab from "./NarudzbineTab.jsx";
 import AIPomoc from "./AIPomoc.jsx";
 import { logMagacinIstorija, mapIstorijaRow, loadOperateriMap } from "../utils/magacinIstorija.js";
 import { useAuth } from "../auth/AuthProvider";
@@ -3728,6 +3729,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             mobileActionBtn("creva", "🧵", "Polu-rolne / creva", "Merenje prečnika"),
             mobileActionBtn("rasecanje", "✂️", "Rasecanje matične", "QR + formati /1 /2"),
             mobileActionBtn("rolne", "🎞️", "Stanje", "Lista rolni"),
+            mobileActionBtn("narudzbine", "📦", "Narudžbine", "Poručivanje"),
             mobileActionBtn("istorija", "🕘", "Istorija", "Ko je šta radio"),
             mobileActionBtn("istorija_povrata", "↩️", "Istorija povrata", "Vraćene rolne"),
         ];
@@ -3782,6 +3784,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
 
                 {activeTab === "popis" && <PopisTab {...{ card, input, btn, lbl, popisQr, setPopisQr, findPopisRoll, popisRoll, popisForm, setPopisForm, confirmInventoryCount, estimateKgForMeters, onOpenScanner: () => openMobileScanner("popis"), onOpenLocationScanner: () => openLocationScanner("popis"), locationParts, popisMagacin, setPopisMagacin, popisSessionId, resetPopisSession, popisExpectedRolls, popisCountedRows, popisMissingRolls, popisExtraRows }} />}
                 {activeTab === "povrat" && <PovratTab {...{ card, input, btn, lbl, povratQr, setPovratQr, findPovratRoll, povratRoll, povratForm, setPovratForm, estimateMetersFromDiameter, estimateKgForMeters, confirmReturnToWarehouse, onOpenScanner: () => openMobileScanner("povrat"), onOpenLocationScanner: () => openLocationScanner("povrat"), locationParts }} />}
+                {activeTab === "narudzbine" && <NarudzbineTab operater={operater?.ime || operater} msg={msg} materialMaster={materialMaster} />}
                 {activeTab === "unos" && (
                     <div style={card}>
                         <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>➕ Ručni unos rolne</div>
@@ -4152,6 +4155,7 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
                 <button onClick={() => setActiveTab("rasecanje")} style={tabBtn("rasecanje")}>✂️ Rasecanje matične</button>
                 <button onClick={() => setActiveTab("materijali")} style={tabBtn("materijali")}>🧱 Baza materijala</button>
                 {isAdmin && <button onClick={() => setActiveTab("predlog")} style={tabBtn("predlog")}>🎯 Predlog rolni za nalog</button>}
+                <button onClick={() => setActiveTab("narudzbine")} style={tabBtn("narudzbine")}>📦 Narudžbine</button>
                 <button onClick={() => setActiveTab("istorija")} style={tabBtn("istorija")}>🕘 Istorija</button>
                 <button onClick={() => setActiveTab("istorija_povrata")} style={tabBtn("istorija_povrata")}>↩️ Istorija povrata</button>
             </div>
@@ -4197,6 +4201,8 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
             )}
 
             {activeTab === "materijali" && <MaterialsTab {...{ card, input, btn, lbl, matFilter, setMatFilter, materialMaster, materialPrices, saveMaterialMaster, deleteMaterialMaster, loadMaterialMaster, materialDropdowns, rolne }} />}
+
+            {activeTab === "narudzbine" && <NarudzbineTab operater={operater?.ime || operater} msg={msg} materialMaster={materialMaster} />}
 
             {activeTab === "unos" && (
                 <div style={{ display: "grid", gap: 14 }}>

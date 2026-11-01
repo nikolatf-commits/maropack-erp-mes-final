@@ -873,11 +873,22 @@ export default function KalkulacijaFolijeSmart({ setPage } = {}) {
                 folija: {
                     dimenzija: "",
                     layers: (materijali || []).map(m => ({
-                        material: [m.vrsta || m.tip || m.materijal, m.oznaka, m.debljina].filter(Boolean).join(" ") || (m.materijal || ""),
+                        material: [m.vrsta || m.tip || m.materijal, m.oznaka || m.oznaka_materijala, m.debljina].filter(Boolean).join(" ") || (m.materijal || ""),
+                        // Pun materijal u templejt (ranije samo spojeno ime + debljina + širina):
+                        vrsta: m.vrsta || m.tip || m.materijal || "",
+                        pod_vrsta: m.pod_vrsta || m.podVrsta || m.podvrsta || "",
+                        oznaka_materijala: m.oznaka || m.oznaka_materijala || "",
+                        oznaka: m.oznaka || m.oznaka_materijala || "",
+                        proizvodjac: m.proizvodjac || m.proizvođač || m.dobavljac || "",
                         debljina: String(m.debljina ?? ""),
                         sirina: String(m.sirina ?? sirina ?? ""),
+                        gm2: String(m.tezina ?? m.gm2 ?? ""),
+                        cena: String(m.cena ?? ""),
                         kg: "",
-                        metara: String(metraza || "")
+                        metara: String(metraza || ""),
+                        // Oznake „štampa se" / „lakira se" po sloju:
+                        stampa: !!(m.stampa || m.st || m.Š),
+                        lak: !!(m.lakira || m.lak || m.L)
                     })),
                     kasiranje: {
                         tipLepka: "", odnosLepka: "",
