@@ -1475,7 +1475,9 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
                 '<div style="font-size:11px;font-weight:900;color:#334155;margin-bottom:4px">Segment ' + fmtN(s.duzina_m) + ' m' + (Number(s.otpad_mm) > 0 ? ' · otpad ' + s.otpad_mm + ' mm' : '') + '</div>' +
                 formatiBar(m.sirina_mm, s.trake, perfById) + '</div>';
         }).join('');
-        return '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8fafc;margin-bottom:10px"><div style="font-weight:900;color:#0f766e;margin-bottom:6px">Matična ' + esc(m.br_rolne || m.maticna_id) + ' · ' + m.sirina_mm + ' mm · utrošak ' + fmtN(m.utrosak_m) + ' m</div>' + segs + '</div>';
+        var _det = [m._vrsta, m._pod_vrsta, m._oznaka, (m._deb ? m._deb + 'µ' : ''), (m._datum ? '📅 ' + m._datum : ''), m._dobavljac, (m._lot ? 'LOT:' + m._lot : ''), (m._lok ? 'lok:' + m._lok : '')].filter(Boolean).join(' · ');
+        var _meta = (Number(m._metraza_uk) > 0 ? ' · na rolni ' + fmtN(m._metraza_uk) + ' m' : '');
+        return '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8fafc;margin-bottom:10px"><div style="font-weight:900;color:#0f766e;margin-bottom:6px">Matična ' + esc(m.br_rolne || m.maticna_id) + ' · ' + m.sirina_mm + ' mm · utrošak ' + fmtN(m.utrosak_m) + ' m' + _meta + (_det ? '<span style="color:#94a3b8;font-weight:700;font-size:11px"> · ' + esc(_det) + '</span>' : '') + '</div>' + segs + '</div>';
     }).join('');
 
     // Palete / količina na paleti po formatu — iz perfById (ključ = format id ili po širini).
@@ -1499,6 +1501,18 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     var ostHtml = naStanje.length ? '<div class="ulaz">Bočni ostaci → na stanje: ' + naStanje.map(function (s) { return s.sirina_mm + ' mm × ' + fmtN(s.duzina_m) + ' m'; }).join(' · ') + '</div>' : '';
     var faliHtml = fali.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ Fali: ' + fali.map(function (f) { return f.rolni_kom + '× ' + f.sirina_mm + ' mm × ' + fmtN(f.duzina_m) + ' m — ' + esc(f.razlog); }).join('<br>⚠ ') + '</div>' : '';
 
+    // IZLAZ — koliko kojih rolni izlazi iz reza (proizvod + bočni ostaci na stanje).
+    var izlazAll = formati.map(function (f) { return { sir: f.sirina_mm, duz: f.duzina_m, kom: Number(f.rolni_kom) || 0, tip: 'proizvod', nap: f.napomena || '' }; });
+    var _stMap = {};
+    naStanje.forEach(function (s) { var k = s.sirina_mm + 'x' + s.duzina_m; if (!_stMap[k]) _stMap[k] = { sir: s.sirina_mm, duz: s.duzina_m, kom: 0, tip: 'na stanje', nap: 'bočni ostatak → magacin' }; _stMap[k].kom++; });
+    Object.keys(_stMap).forEach(function (k) { izlazAll.push(_stMap[k]); });
+    var _ukRolni = izlazAll.reduce(function (a, r) { return a + (Number(r.kom) || 0); }, 0);
+    var izlazRedovi = izlazAll.map(function (r) {
+        var boja = r.tip === 'proizvod' ? '#1d4ed8' : '#64748b';
+        return '<tr><td class="n">' + r.sir + ' mm</td><td class="n">' + fmtN(r.duz) + ' m</td><td class="n" style="font-weight:900;color:' + boja + '">' + r.kom + '</td><td><span style="color:' + boja + ';font-weight:800">' + r.tip + '</span></td><td>' + esc(r.nap) + '</td></tr>';
+    }).join('');
+    var izlazTabela = izlazAll.length ? ('<table>' + th([{ t: 'Širina', n: 1 }, { t: 'Dužina', n: 1 }, { t: 'Rolni', n: 1 }, 'Tip', 'Napomena'], c) + '<tbody>' + izlazRedovi + '<tr class="tot"><td colspan="2" style="text-align:right">UKUPNO nastalih rolni</td><td class="n">' + _ukRolni + '</td><td colspan="2"></td></tr></tbody></table>') : '';
+
     var naslov = vrsta === 'materijal' ? 'NALOG ZA MATERIJAL — MATIČNE ROLNE' : 'NALOG ZA REZANJE + PERFORACIJA';
     // Nalog bez materijala (čeka dopunu): nema matičnih rolni, ali formati + perforacija se vide.
     var cekaMat = planF.ceka_materijal || matice.length === 0;
@@ -1511,6 +1525,7 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
         cekaBanner +
         planRezaSek +
         (fmtTabela ? '<div class="sec">' + secH(2, c, 'Formati (proizvod)', '') + fmtTabela + '</div>' : '') +
+        (izlazTabela ? '<div class="sec">' + secH(3, c, 'Izlaz — koliko kojih rolni izlazi', 'proizvod + na stanje') + izlazTabela + '</div>' : '') +
         perfHtml + ostHtml + faliHtml +
         napHtml(D, vrsta === 'materijal' ? 'materijal' : 'rezanje') +
         foot(vrsta === 'materijal' ? 'Pripremio (magacioner)' : 'Operater rezanja', 'Kontrola kvaliteta', 'Predao dalje') + '</div>', 'Strana · formati');
@@ -1533,9 +1548,9 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         // (PregledNaloga širi parametri), ili u templejtu — tražimo ga svuda.
         const _planF = _pf.plan_formatiranja || _pfo.plan_formatiranja || nalog.plan_formatiranja || _tpl.plan_formatiranja;
         const _formatiRezim = _pf.formati_rezim || _pfo.formati_rezim || nalog.formati_rezim || (_tpl.folija && _tpl.folija.formatiRezim);
-        // SAMO rezanje/perforacija ide na formati prikaz. NALOG ZA MATERIJAL (potreba materijala)
-        // izgleda kao standardni materijal nalog (struktura materijala + rezervisane role) — kao
-        // kod folije/kese/špulne, pa „materijal" pada kroz na standardni pMat ispod.
+        // SAMO rezanje/perforacija ide na formati prikaz (plan reza + izlaz rolni). NALOG ZA
+        // MATERIJAL ostaje standardni folija prikaz (struktura materijala + rezervisane role),
+        // isto kod običnog i kod objedinjenog formati naloga → pada na pMat ispod.
         if (_planF && (_planF.matice || _formatiRezim) && (vrsta === "perforacija_rezanje" || vrsta === "rezanje")) {
             return pFormatiProdukt(D, nalog, _planF, vrsta);
         }

@@ -381,30 +381,75 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const mat = matCheck.mat || {};
             const naziv = "Objedinjen · " + izabraniProizvodi.length + " proizvoda · " + (mat.vrsta || "");
             const proizvodNaziv = izabraniProizvodi.map(p => p.naziv || sifraP(p)).filter(Boolean).join(" + ").slice(0, 160);
+
+            // Obogati matične rolne detaljima iz magacina (za lepo napisan nalog:
+            // vrsta/pod-vrsta/oznaka/debljina/dobavljač/LOT/lokacija + ukupno metara).
+            const rollBy = {}; (rolne || []).forEach(r => { rollBy["id:" + r.id] = r; rollBy["br:" + String(r.br_rolne)] = r; });
+            const nadjiR = (n) => rollBy["id:" + n.maticna_id] || rollBy["br:" + String(n.br_rolne)] || {};
+            const maticeRich = (plan.nalozi || []).map(n => {
+                const r = nadjiR(n);
+                const metUk = N_(r.metraza_ost ?? r.metraza);
+                const kgpm = (() => { const kg = N_(r.kg_neto); const m = N_(r.metraza_ost ?? r.metraza); return m > 0 ? +(kg / m).toFixed(4) : 0; })();
+                return {
+                    ...n,
+                    _vrsta: r.vrsta || mat.vrsta || "", _pod_vrsta: r.pod_vrsta || mat.pod_vrsta || "",
+                    _oznaka: r.oznaka_materijala || mat.oznaka || "", _deb: r.deb || mat.debljina || "",
+                    _dobavljac: r.dobavljac || mat.proizvodjac || "", _lot: r.lot || "", _lok: r.lokacija || r.palet || "",
+                    _datum: r.datum_prijema || r.datum || "", _metraza_uk: metUk, _kg_po_m: kgpm,
+                };
+            });
             const planF = {
-                matice: plan.nalozi, perfById: plan.perfById, formati: potrebe,
+                matice: maticeRich, perfById: plan.perfById, formati: potrebe,
                 na_stanje: plan.na_stanje, fali: plan.fali, zbirno: plan.zbirno,
+            };
+            // Rezervisane rolne (bogat snapshot) — da ih materijal nalog prikaže i da stignu magacioneru.
+            const izabraneRolne = maticeRich.map(n => ({
+                br_rolne: n.br_rolne, rolna_id: n.maticna_id,
+                snap_vrsta: n._vrsta, snap_pod_vrsta: n._pod_vrsta, snap_oznaka: n._oznaka,
+                snap_dobavljac: n._dobavljac, snap_debljina: n._deb, snap_sirina: n.sirina_mm,
+                lot: n._lot || "—", lokacija: n._lok || "—",
+                metraza_ost: n._metraza_uk, alocirano_m: N_(n.utrosak_m), kg_po_m: n._kg_po_m, sloj: 1,
+            }));
+            // Zbirni brojevi (za folija-stil materijal nalog): ukupna matična + kg + g/m².
+            const totalUtrosak = maticeRich.reduce((a, n) => a + N_(n.utrosak_m), 0);
+            const totalKg = maticeRich.reduce((a, n) => a + N_(n._kg_po_m) * N_(n.utrosak_m), 0);
+            const maticaSir = (maticeRich[0] && maticeRich[0].sirina_mm) || "";
+            const gm2 = (totalKg > 0 && maticaSir > 0 && totalUtrosak > 0) ? +(totalKg * 1000 / ((maticaSir / 1000) * totalUtrosak)).toFixed(1) : "";
+            // Sintetički templejt (jedan sloj = materijal) — struktura materijala + rezervisane role + zbir.
+            const template = {
+                type: "folija", naziv: proizvodNaziv || naziv, kupac: kupac || "", sifra: "",
+                idealnaSirinaMaterijala: maticaSir,
+                jedinicaUnosa: "m", porucenaKolicina: totalUtrosak ? String(Math.round(totalUtrosak)) : "",
+                folijaSkart: "0",
+                dimenzijaSirina: maticaSir,
+                folija: {
+                    formatiRezim: true,
+                    formati: potrebe.map(pp => ({ sirina: pp.sirina_mm, duzina: pp.duzina_m, rolni: pp.rolni_kom, napomena: pp.napomena, perforacija: pp.perforacija })),
+                    layers: [{ material: mat.vrsta, vrsta: mat.vrsta, pod_vrsta: mat.pod_vrsta, oznaka_materijala: mat.oznaka, oznaka: mat.oznaka, proizvodjac: mat.proizvodjac, debljina: mat.debljina, deb: mat.debljina, gm2: gm2 || "" }],
+                    rezanje: { sirinaMaterijala: maticaSir, sirinaTrake: maticaSir, brojTrakaOverride: "1", duzinaRolne: "" },
+                },
             };
             const stavkeMeta = izabraniProizvodi.map((p, i) => {
                 const st = stavke[String(p.id)] || {}; const f = getForm(p); const r = vrednostFolija(f, st.cena, st.jed);
                 return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost };
             });
             const zajednicko = { broj_naloga: brj, tip_proizvoda: "folija", kupac: kupac || "", naziv: proizvodNaziv || naziv, proizvod: proizvodNaziv || naziv };
+            const zajedParam = {
+                formati_rezim: true, objedinjen: true, template,
+                plan_formatiranja: planF, izabrane_rolne: izabraneRolne,
+                formati_potrebe: potrebe, materijal: mat,
+            };
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                 ...zajednicko,
                 status: "ceka_magacin",
                 parametri: {
+                    ...zajedParam,
                     datum_isporuke: "", nedelja_isporuke: "",
-                    formati_rezim: true, objedinjen: true,
                     objedinjen_stavke: stavkeMeta,
-                    materijal: mat,
                     kreirao_ime: operater || "", datum: new Date().toLocaleDateString("sr-RS"),
-                    formati_potrebe: potrebe, formati_ceka_materijal: false, delimican_materijal: false,
-                    nedodeljeni_slojevi: [],
-                    plan_formatiranja: planF,
-                    vrednost_naloga: vrednost.uk,
-                    vrednost_jedinica: "€",
+                    formati_ceka_materijal: false, delimican_materijal: false, nedodeljeni_slojevi: [],
+                    vrednost_naloga: vrednost.uk, vrednost_jedinica: "€",
                 },
                 rezultati: { zbirno: plan.zbirno || null, vrednost_naloga: vrednost.uk },
             }]).select("id").single();
@@ -412,8 +457,8 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const mId = master.id;
 
             const ops = [
-                { ...zajednicko, broj_naloga: brj + "-MATERIJAL", glavni_nalog_id: mId, tip_naloga: "materijal", status: "ceka_magacin", redosled: 1, parametri: { formati_rezim: true, objedinjen: true, plan_formatiranja: planF } },
-                { ...zajednicko, broj_naloga: brj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: "ceka", redosled: 2, parametri: { formati_rezim: true, objedinjen: true, plan_formatiranja: planF } },
+                { ...zajednicko, broj_naloga: brj + "-MATERIJAL", glavni_nalog_id: mId, tip_naloga: "materijal", status: "ceka_magacin", redosled: 1, parametri: { ...zajedParam } },
+                { ...zajednicko, broj_naloga: brj + "-PERFORACIJA_REZANJE", glavni_nalog_id: mId, tip_naloga: "perforacija_rezanje", status: "ceka", redosled: 2, parametri: { ...zajedParam } },
             ];
             const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
             if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
