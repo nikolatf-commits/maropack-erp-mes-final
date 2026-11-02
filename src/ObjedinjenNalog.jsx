@@ -472,10 +472,10 @@ export default function ObjedinjenNalog({ msg, operater }) {
     }
 
     // ── UI ──────────────────────────────────────────────────────────────────
-    const wrap = { maxWidth: 1100, margin: "0 auto" };
+    const wrap = { maxWidth: 1320, margin: "0 auto" };
     const card = { background: "#fff", border: "1px solid #e6ebf2", borderRadius: 14, boxShadow: "0 8px 22px rgba(15,23,42,.05)" };
-    const inp = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "7px 9px", fontSize: 13, fontWeight: 700, width: "100%", boxSizing: "border-box" };
-    const qin = { ...inp, textAlign: "right", background: "#fffef5", width: 90 };
+    const inp = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "9px 11px", fontSize: 14.5, fontWeight: 700, width: "100%", boxSizing: "border-box" };
+    const qin = { ...inp, textAlign: "right", background: "#fffef5", width: 96 };
 
     if (proizvodi === null) return <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam proizvode…</div>;
 
@@ -484,14 +484,14 @@ export default function ObjedinjenNalog({ msg, operater }) {
     return (
         <div style={wrap}>
             <div style={{ fontSize: 11, fontWeight: 900, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" }}>Baza / Proizvodnja</div>
-            <div style={{ fontSize: 24, fontWeight: 950, margin: "2px 0 4px" }}>🧩 Objedinjen nalog</div>
-            <div style={{ color: "#64748b", fontSize: 12.5, marginBottom: 14 }}>Više proizvoda istog kupca sa istim materijalom (različite dimenzije) → jedan nalog za rezanje. Širine se zajedno pakuju na matične rolne, materijal se rezerviše jednom.</div>
+            <div style={{ fontSize: 26, fontWeight: 950, margin: "2px 0 4px" }}>🧩 Objedinjen nalog</div>
+            <div style={{ color: "#64748b", fontSize: 14, marginBottom: 16 }}>Više proizvoda istog kupca sa istim materijalom (različite dimenzije) → jedan nalog za rezanje. Širine se zajedno pakuju na matične rolne, materijal se rezerviše jednom.</div>
 
             {greska && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: "10px 14px", marginBottom: 14, fontWeight: 700 }}>⚠ {greska}</div>}
 
             {/* 1 · Kupac */}
             <div style={{ ...card, padding: 16, marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>1 · Kupac</div>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>1 · Kupac</div>
                 <select value={kupac} onChange={e => setKupac(e.target.value)} style={{ ...inp, maxWidth: 420, cursor: "pointer" }}>
                     <option value="">— izaberi kupca —</option>
                     {kupci.map(k => <option key={k} value={k}>{k}</option>)}
@@ -502,14 +502,14 @@ export default function ObjedinjenNalog({ msg, operater }) {
             {/* 2 · Proizvodi */}
             {kupac && (
                 <div style={{ ...card, padding: 16, marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>2 · Proizvodi (označi 2+ sa istim materijalom)</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>2 · Proizvodi (označi 2+ sa istim materijalom)</div>
                     {!proizvodiKupca.length && <div style={{ color: "#94a3b8", fontWeight: 700, padding: 10 }}>Ovaj kupac nema folija proizvoda u bazi.</div>}
                     {!!proizvodiKupca.length && (
                         <div style={{ overflowX: "auto" }}>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 920 }}>
                                 <thead><tr style={{ background: "#f0f6f5" }}>
                                     {["", "Proizvod", "Materijal", "Širina (mm)", "Dužina rolne (m)", "Broj rolni", "Cena", "Vrednost"].map((h, i) =>
-                                        <th key={i} style={{ textAlign: i >= 3 ? "right" : "left", padding: "8px 10px", color: "#0f766e", fontWeight: 800, fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
+                                        <th key={i} style={{ textAlign: i >= 3 ? "right" : "left", padding: "9px 11px", color: "#0f766e", fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap" }}>{h}</th>)}
                                 </tr></thead>
                                 <tbody>
                                     {proizvodiKupca.map(p => {
@@ -560,7 +560,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
             {/* 3 · Plan rezanja + izbor rolni */}
             {plan && (
                 <div style={{ ...card, padding: 16, marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>3 · Zajednički plan rezanja (FIFO)</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 900, color: "#0f766e", textTransform: "uppercase", letterSpacing: .5, marginBottom: 10 }}>3 · Zajednički plan rezanja (FIFO)</div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
                         {[["Matičnih rolni", z.maticnih ?? 0, "#2446b8"], ["Iskorišćenje", (z.iskoriscenje_pct ?? "—") + "%", "#059669"], ["Nastalih rolni", z.pokriveno_rolni ?? 0, "#059669"], ["Fali rolni", z.fali_rolni ?? 0, (z.fali_rolni ? "#dc2626" : "#94a3b8")]].map(([l, v, c]) =>
