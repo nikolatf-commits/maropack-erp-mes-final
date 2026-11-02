@@ -49,6 +49,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
             icon: '📚',
             items: [
                 { k: 'lista_proizvoda_kupci', l: 'Lista proizvoda po kupcima', i: '🗂️' },
+                { k: 'objedinjen_nalog', l: 'Objedinjen nalog', i: '🧩' },
                 { k: 'baza_proizvoda_pro', l: 'Baza proizvoda PRO', i: '📦' },
                 { k: 'template_engine', l: 'Template Engine', i: '🧩' },
                 { k: 'uvoz_spulna_excel', l: 'Uvoz špulni iz Excela', i: '📥' }

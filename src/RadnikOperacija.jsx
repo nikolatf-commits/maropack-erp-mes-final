@@ -288,11 +288,37 @@ export default function RadnikOperacija({ opid }) {
             .update({ status: "radi", radnik: ime, masina: nemaMasinu ? (op?.masina || "") : masina, start_ts: new Date().toISOString(), stop_ts: null, pauza_ts: null })
             .eq("id", opid);
         if (error) setErr("Start nije uspeo: " + error.message);
+        else await otvoriRadSesiju(ime);   // počni novu radnu sesiju za ovog radnika
         setBusy(false); reload();
+    }
+
+    // ── RADNE SESIJE (segmenti rada po radniku/smeni) ───────────────────────
+    // Otvara se na START i „Nastavi", zatvara na pauzu/zastoj/kraj smene/završetak.
+    // Dashboard iz ovoga deli vreme tačno po radniku (važno kad se dvoje smenjuju
+    // na istoj operaciji). Ako tabela ne postoji još, tiho se preskače (rad ne pada).
+    async function otvoriRadSesiju(ime) {
+        try {
+            await supabase.from("rad_sesije").insert([{
+                opid, glavni_nalog_id: op?.glavni_nalog_id || null, broj_naloga: op?.broj_naloga || null,
+                radnik: (ime || radnik || op?.radnik || "").trim() || null,
+                masina: op?.masina || masina || null, start_ts: new Date().toISOString(),
+            }]);
+        } catch (e) { /* tabela rad_sesije možda još ne postoji — ne ruši operaterski ekran */ }
+    }
+    async function zatvoriRadSesiju() {
+        try {
+            const { data } = await supabase.from("rad_sesije").select("id, start_ts")
+                .eq("opid", opid).is("stop_ts", null).order("id", { ascending: false }).limit(1);
+            if (data && data[0]) {
+                const min = Math.max(1, Math.round(secBetween(data[0].start_ts, null) / 60));
+                await supabase.from("rad_sesije").update({ stop_ts: new Date().toISOString(), trajanje_min: min }).eq("id", data[0].id);
+            }
+        } catch (e) { }
     }
 
     async function otvoriZastoj(kategorija, razlog) {
         setBusy(true); setShowRazlog(false);
+        await zatvoriRadSesiju();   // rad staje — zatvori tekuću radnu sesiju
         const ins = await supabase.from("nalog_zastoji").insert({
             opid, glavni_nalog_id: op.glavni_nalog_id || null, broj_naloga: op.broj_naloga || null,
             masina: op.masina || masina, radnik: op.radnik || radnik, kategorija, razlog, start_ts: new Date().toISOString(),
@@ -311,9 +337,16 @@ export default function RadnikOperacija({ opid }) {
             await supabase.from("nalog_zastoji")
                 .update({ stop_ts: new Date().toISOString(), trajanje_min: min }).eq("id", aktivanZastoj.id);
         }
+        // KO nastavlja: ako je u polju upisano ime (druga smena / drugi radnik), ono se
+        // upiše na operaciju i otvara se nova radna sesija na to ime — da se rad druge
+        // smene ispravno pripiše njoj, a ne prvom radniku.
+        const imeNastavlja = (String(radnik || "").trim()) || op?.radnik || "";
+        const promena = { status: "radi", pauza_ts: null };
+        if (imeNastavlja) promena.radnik = imeNastavlja;
         const { error } = await supabase.from("operativni_nalozi")
-            .update({ status: "radi", pauza_ts: null }).eq("id", opid);
+            .update(promena).eq("id", opid);
         if (error) setErr("Nastavak nije uspeo: " + error.message);
+        else await otvoriRadSesiju(imeNastavlja);   // nova radna sesija za onoga ko nastavlja
         setBusy(false); reload();
     }
 
@@ -322,10 +355,15 @@ export default function RadnikOperacija({ opid }) {
     // sati dok niko ne radi.
     async function zavrsiSmenu() {
         setBusy(true); setErr("");
+        await zatvoriRadSesiju();   // zatvori radnu sesiju ove smene
         const sada = new Date().toISOString();
-        // upiši zastoj tipa "Kraj smene" (isti mehanizam kao pauza) da se vreme ne broji dalje
+        // upiši zastoj tipa "Kraj smene" (isti mehanizam i ISTE kolone kao pauza:
+        // opid + start_ts + kategorija), da ga lista zastoja (filtrira po opid) vidi i
+        // da ga sledeća smena na „Nastavi" zatvori sa trajanje_min, i da ga dashboard broji.
         await supabase.from("nalog_zastoji").insert([{
-            operativni_nalog_id: opid, razlog: "Kraj smene", start_ts: sada, radnik: radnik || op?.radnik || null,
+            opid, glavni_nalog_id: op?.glavni_nalog_id || null, broj_naloga: op?.broj_naloga || null,
+            masina: op?.masina || masina, radnik: radnik || op?.radnik || null,
+            kategorija: "smena", razlog: "Kraj smene", start_ts: sada,
         }]);
         const { error } = await supabase.from("operativni_nalozi")
             .update({ status: "pauza", pauza_ts: sada, stop_ts: sada }).eq("id", opid);
@@ -335,6 +373,7 @@ export default function RadnikOperacija({ opid }) {
 
     async function zavrsi() {
         setBusy(true);
+        await zatvoriRadSesiju();   // zatvori poslednju radnu sesiju pre završetka
         if (aktivanZastoj) {
             const min = Math.max(1, Math.round(secBetween(aktivanZastoj.start_ts, null) / 60));
             await supabase.from("nalog_zastoji")

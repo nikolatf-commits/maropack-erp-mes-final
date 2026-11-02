@@ -195,7 +195,7 @@ function buildD(nalog) {
         global: nalog.napomena || od.napomena || t.napomena || folija.napomena || "",
         materijal: napOp.materijal || folija.materijalNapomena || kesa.materijalNapomena || sp.materijalNapomena || (folija.materijal && folija.materijal.napomena) || "",
         stampa: napOp.stampa || (st && st.napomena) || "",
-        kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || "",
+        kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || (spulna.kasiranje && spulna.kasiranje.napomena) || "",
         lakiranje: napOp.lakiranje || (folija.lakiranje && folija.lakiranje.napomena) || "",
         rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || "",
         kesa: napOp.kesa || (kesa && kesa.izradaNapomena) || (kesa && kesa.napomena) || "",
@@ -213,6 +213,12 @@ function buildD(nalog) {
             var m = String(r).match(/^(\d{4})-(\d{2})-(\d{2})/);   // ISO (date input) → DD.MM.YYYY
             if (m) return m[3] + "." + m[2] + "." + m[1] + ".";
             return r || "—";
+        })(),
+        // Nedelja isporuke (KW) — iz naloga/parametara/templejta (prikazuje se uz Rok).
+        nedelja: (function () {
+            var p = nalog.parametri;
+            try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; }
+            return (p && (p.nedelja_isporuke || p.nedeljaIsporuke)) || nalog.nedelja_isporuke || t.nedeljaIsporuke || t.nedelja_isporuke || od.nedeljaIsporuke || od.nedelja_isporuke || "";
         })(),
         kupac: nalog.kupac || od.kupac || t.kupac || "—",
         proizvod: nalog.proizvod || nalog.naziv || (od.proizvod && od.proizvod.naziv) || t.naziv || "—",
@@ -259,8 +265,11 @@ function buildD(nalog) {
             klise: st.klise, obimValjka: st.obimValjka, hilzna: st.precnikHilzne, stamparija: st.stamparija,
         },
         kas: {
-            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]), odnos: (folija.kasiranje || {}).odnosLepka,
-            nanos: (folija.kasiranje || {}).nanosLepka, broj: (folija.kasiranje || {}).brojKasiranja || Math.max(0, LAY.length - 1),
+            // Kaширanje čita folija / kesa / ŠPULNA — koji god tip da je nalog.
+            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]) || pick(kesa.kasiranje || {}, ["tipLepka", "lepak"]) || pick(spulna.kasiranje || {}, ["tipLepka", "lepak"]),
+            odnos: (folija.kasiranje || {}).odnosLepka || (kesa.kasiranje || {}).odnosLepka || (spulna.kasiranje || {}).odnosLepka,
+            nanos: (folija.kasiranje || {}).nanosLepka || (kesa.kasiranje || {}).nanosLepka || (spulna.kasiranje || {}).nanosLepka,
+            broj: (folija.kasiranje || {}).brojKasiranja || (kesa.kasiranje || {}).brojKasiranja || (spulna.kasiranje || {}).brojKasiranja || Math.max(0, LAY.length - 1),
             // Širina valjka za kaširanje — iz templejta (predlog valjka); rezerva: razni nazivi
             valjak: num(rz.predlogValjkaKasiranja) || num(rz.valjakKasiranja) || num((folija.kasiranje || {}).valjak) || num((folija.kasiranje || {}).sirinaValjka)
                 || num((kesa.rezanje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).valjak)
@@ -555,7 +564,7 @@ function komp(l) { if (!l) return ''; var t = [l.n, l.pv, l.oz].filter(Boolean).
 function secH(no, c, tt, src) { return '<div class="sec-h"><span class="no" style="background:' + c + '">' + no + '</span><span class="tt">' + esc(tt) + '</span><span class="rule"></span>' + (src ? '<span class="src">' + esc(src) + '</span>' : '') + '</div>'; }
 function th(arr, c) { return '<thead><tr>' + arr.map(function (h) { const cls = h.n ? ' class="n"' : ''; return '<th' + cls + ' style="background:' + c + '12;color:' + c + '">' + esc(h.t || h) + '</th>'; }).join('') + '</tr></thead>'; }
 function foot(a, b, cc) { return '<div class="foot"><div class="sign"><div class="line">' + esc(a) + '</div></div><div class="sign"><div class="line">' + esc(b) + '</div></div><div class="sign"><div class="line">' + esc(cc) + '</div></div></div>'; }
-function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div></div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<div class="qrbox"><img class="hdqr" src="' + D.qr + '" alt="QR"/><div class="cap">SKENIRAJ<br>START · PAUZA · KRAJ</div></div>' : '') + '</div>' + ((D.pis || D.porudzbina) ? '<div class="pisbr">' + (D.pis ? '📋 PIS nalog: <b>' + esc(D.pis) + '</b>' : '') + (D.pis && D.porudzbina ? ' &nbsp;·&nbsp; ' : '') + (D.porudzbina ? '🧾 Porudžbina: <b>' + esc(D.porudzbina) + '</b>' : '') + '</div>' : '') + '</div>'; }
+function hd(D, ic, naslov, c, no) { return '<div class="hd" style="background:linear-gradient(135deg,#111827,' + c + ' 150%)"><div class="hd-top"><div class="brand"><div class="mono">MP</div><div><div class="co">MAROPACK D.O.O.</div><div class="nm">PROIZVODNJA AMBALAŽE</div></div></div><div class="docmeta"><div><span class="k">Nalog</span><b>' + esc(D.broj) + '</b></div><div><span class="k">Datum</span>' + esc(D.datum) + '</div><div><span class="k">Rok</span>' + esc(D.rok) + '</div>' + (D.nedelja ? '<div><span class="k">Nedelja</span>' + esc(D.nedelja) + '</div>' : '') + '</div></div><div class="title"><span class="ic">' + ic + '</span><span class="big">' + esc(naslov) + '</span><span class="badge">' + no + '</span>' + (D.qr ? '<div class="qrbox"><img class="hdqr" src="' + D.qr + '" alt="QR"/><div class="cap">SKENIRAJ<br>START · PAUZA · KRAJ</div></div>' : '') + '</div>' + ((D.pis || D.porudzbina) ? '<div class="pisbr">' + (D.pis ? '📋 PIS nalog: <b>' + esc(D.pis) + '</b>' : '') + (D.pis && D.porudzbina ? ' &nbsp;·&nbsp; ' : '') + (D.porudzbina ? '🧾 Porudžbina: <b>' + esc(D.porudzbina) + '</b>' : '') + '</div>' : '') + '</div>'; }
 function pageWrap(D, inner, pp) { return '<div class="a4">' + inner + '<div class="pp2">' + esc(D.broj) + '</div><div class="pp">' + esc(pp) + '</div></div>'; }
 function kg(D, l) { return (l.gm2 * D.kgF).toFixed(1); }
 function matRows(D, extra) { return D.LAY.map(function (l, i) { return '<tr><td><span class="dot-c" style="background:' + l.c + '"></span>' + (i + 1) + '</td><td>' + esc(l.n) + '</td><td>' + esc(l.pv || '—') + '</td><td>' + esc(l.oz || '—') + '</td><td>' + esc(l.pr || '—') + '</td><td class="n">' + l.u + ' µm</td><td class="n">' + (l.gm2 ? l.gm2.toFixed(1) : '—') + '</td><td class="n">' + (l.koef ? l.koef.toFixed(3) : '—') + '</td><td class="n">' + D.sirinaMat + '</td><td class="n">' + fmtN(D.metriMat) + '</td><td class="n">' + kg(D, l) + '</td>' + (extra ? '<td>' + (l.st ? 'DA' : '—') + '</td>' : '') + '</tr>'; }).join(''); }
@@ -1533,7 +1542,9 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     }
     if (D.jeSpulna) {
         const S = spulnaD(nalog);
-        // Samo 2 naloga: materijal + tehničke karakteristike (sa skicom iz templejta).
+        // Kaширanje (lamiranje slojeva) — isti nalog kao kod folije, kad špulna ima više slojeva.
+        if (vrsta === "kasiranje") return pKas(D);
+        // materijal + tehničke karakteristike (sa skicom iz templejta).
         if (vrsta === "spulna" || vrsta === "formatiranje") return pSpulna(D, S);
         return pSpMat(D, S);
     }

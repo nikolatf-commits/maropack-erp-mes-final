@@ -95,6 +95,7 @@ import { buildOrderSourcePack, extractTemplate, extractKalkulacija } from './uti
 // ✅ PRO MODULI
 import DashboardPRO from './DashboardPRO.jsx';
 import VrednostNalogaKartica from './VrednostNalogaKartica.jsx';
+import ObjedinjenNalog from './ObjedinjenNalog.jsx';
 import NarudzbineTab from './modules/NarudzbineTab.jsx';
 import { imeKorisnika } from './dashboardShared.js';
 import MobileApp from './MobileApp.jsx';
@@ -1053,11 +1054,13 @@ function MobilniRadnik({ nalogId }) {
         setBirePazu(false);
         // Snimi zastoj u bazu
         try {
+            // USKLAĐENO sa ostatkom sistema: start_ts (ne start_time) i trajanje_min —
+            // da dashboard (čita start_ts, sabira trajanje_min) vidi i broji ove zastoje.
             await supabase.from('nalog_zastoji').insert([{
                 nalog_id: +nalogId,
                 razlog: razlogObj.k,
                 kategorija: razlogObj.kat,
-                start_time: new Date(now).toISOString(),
+                start_ts: new Date(now).toISOString(),
                 radnik: radnik || "nepoznat",
                 napomena: pauzeNapomena
             }]);
@@ -1073,13 +1076,14 @@ function MobilniRadnik({ nalogId }) {
             var res = await supabase.from('nalog_zastoji')
                 .select('id')
                 .eq('nalog_id', +nalogId)
-                .is('end_time', null)
+                .is('stop_ts', null)
                 .order('id', { ascending: false })
                 .limit(1);
             if (res.data && res.data[0]) {
+                // stop_ts + trajanje_min (u minutima) — ista imena kao svuda u sistemu.
                 await supabase.from('nalog_zastoji').update({
-                    end_time: new Date(now).toISOString(),
-                    trajanje: dodatno
+                    stop_ts: new Date(now).toISOString(),
+                    trajanje_min: Math.max(1, Math.round(dodatno / 60))
                 }).eq('id', res.data[0].id);
             }
         } catch (e) { console.error(e); }
@@ -2523,6 +2527,12 @@ function MainAppContent() {
                     {page === "manager_dashboard" && mozeDashboard && <ManagerDashboard />}
                     {page === "finansije_kpi" && mozeDashboard && <FinansijeKPI_PRO db={db} msg={msg} />}
                     {page === "vrednost_naloga" && <div style={{ padding: 16 }}><VrednostNalogaKartica /></div>}
+
+                    {page === "objedinjen_nalog" && (
+                        <div style={{ padding: 16 }}>
+                            <ObjedinjenNalog operater={userProfile?.ime || imeKorisnika(user?.email) || ""} msg={msg} />
+                        </div>
+                    )}
                     {page === "mobile" && <MobileApp setPage={setPage} />}
 
                     {/* 🤖 AI MODULI */}
