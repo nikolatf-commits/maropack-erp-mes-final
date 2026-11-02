@@ -486,6 +486,20 @@ export default function ObjedinjenNalog({ msg, operater }) {
     const z = (plan && plan.zbirno) || {};
     const traznoRolni = ((plan && plan.potrebe) || []).reduce((a, p) => a + (Number(p.rolni_kom) || 0), 0);
     const coverPct = traznoRolni > 0 ? Math.min(100, Math.round(((z.pokriveno_rolni || 0) / traznoRolni) * 100)) : (plan ? 100 : 0);
+    // Živi izlaz: koliko kojih rolni izlazi iz trenutno izabranih matičnih (proizvod + na stanje).
+    const izlazPoSirini = (() => {
+        if (!plan || !plan.nalozi) return [];
+        const prod = {}, stock = {};
+        (plan.nalozi || []).forEach(n => (n.nove_role || []).forEach(r => {
+            const w = N_(r.sirina_mm); if (!(w > 0)) return;
+            if (r.potreba_id != null) prod[w] = (prod[w] || 0) + 1; else stock[w] = (stock[w] || 0) + 1;
+        }));
+        const rows = [];
+        Object.keys(prod).sort((a, b) => b - a).forEach(w => rows.push({ sir: +w, kom: prod[w], tip: "proizvod" }));
+        Object.keys(stock).sort((a, b) => b - a).forEach(w => rows.push({ sir: +w, kom: stock[w], tip: "na stanje" }));
+        return rows;
+    })();
+    const izlazUkupno = izlazPoSirini.reduce((a, r) => a + r.kom, 0);
 
     return (
         <div style={wrap}>
@@ -609,6 +623,26 @@ export default function ObjedinjenNalog({ msg, operater }) {
                             <span>{z.fali_rolni ? ("⚠ fali " + z.fali_rolni + " rolni") : "Pokriveno ✓"}</span>
                         </div>
                         <div style={{ height: 9, background: "#dcfce7", borderRadius: 999, overflow: "hidden" }}><div style={{ height: "100%", width: coverPct + "%", background: (z.fali_rolni ? "#f59e0b" : "#16a34a"), borderRadius: 999 }} /></div>
+
+                        {/* ŽIVI IZLAZ — koliko kojih rolni izlazi (menja se sa dodavanjem/izbacivanjem rolni) */}
+                        {izlazPoSirini.length > 0 && (
+                            <div style={{ marginTop: 12, border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
+                                <div style={{ background: "#f0f6f5", padding: "8px 12px", fontSize: 12.5, fontWeight: 900, color: "#0f766e", display: "flex", justifyContent: "space-between" }}>
+                                    <span>Izlaz — koliko kojih rolni izlazi</span><span>ukupno {izlazUkupno} rolni</span>
+                                </div>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+                                    <tbody>
+                                        {izlazPoSirini.map((r, i) => (
+                                            <tr key={i} style={{ borderTop: "1px solid #eef2f7" }}>
+                                                <td style={{ padding: "7px 12px", fontWeight: 800 }}>{r.sir} mm</td>
+                                                <td style={{ padding: "7px 12px", textAlign: "right", fontWeight: 900, color: r.tip === "proizvod" ? "#1d4ed8" : "#64748b" }}>{r.kom} rolni</td>
+                                                <td style={{ padding: "7px 12px", color: r.tip === "proizvod" ? "#1d4ed8" : "#64748b", fontWeight: 800 }}>{r.tip === "proizvod" ? "proizvod" : "na stanje"}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
 
                         {/* dodaj rolnu */}
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
