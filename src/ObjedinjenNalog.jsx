@@ -331,6 +331,10 @@ export default function ObjedinjenNalog({ msg, operater }) {
         }).sort((a, b) => new Date(a.datum_prijema || a.datum || a.created_at || 0) - new Date(b.datum_prijema || b.datum || b.created_at || 0));
     }, [rolne, matCheck, izabraniProizvodi, stavke, izbor]);
 
+    // Indeks magacin rolni (za pune detalje izabranih matičnih u planu).
+    const rolneIndex = useMemo(() => { const m = {}; (rolne || []).forEach(r => { m["id:" + r.id] = r; m["br:" + String(r.br_rolne)] = r; }); return m; }, [rolne]);
+    const infoRolne = (n) => rolneIndex["id:" + n.maticna_id] || rolneIndex["br:" + String(n.br_rolne)] || {};
+
     // Ukupna vrednost naloga (Σ po proizvodu) + spisak bez cene
     const vrednost = useMemo(() => {
         let uk = 0; const bezCene = [];
@@ -480,6 +484,8 @@ export default function ObjedinjenNalog({ msg, operater }) {
     if (proizvodi === null) return <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam proizvode…</div>;
 
     const z = (plan && plan.zbirno) || {};
+    const traznoRolni = ((plan && plan.potrebe) || []).reduce((a, p) => a + (Number(p.rolni_kom) || 0), 0);
+    const coverPct = traznoRolni > 0 ? Math.min(100, Math.round(((z.pokriveno_rolni || 0) / traznoRolni) * 100)) : (plan ? 100 : 0);
 
     return (
         <div style={wrap}>
@@ -570,25 +576,48 @@ export default function ObjedinjenNalog({ msg, operater }) {
                             </div>)}
                     </div>
 
-                    {/* izabrane rolne */}
-                    <div style={{ fontSize: 11.5, fontWeight: 900, color: "#334155", margin: "4px 0 8px" }}>Izabrane matične rolne ({izbor.length}) <button onClick={autoRolne} style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "5px 11px", fontWeight: 800, fontSize: 11.5, cursor: "pointer" }}>↺ Auto (FIFO)</button></div>
-                    {(plan.nalozi || []).map(n => (
-                        <div key={n.maticna_id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 11px", marginBottom: 6 }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 900, fontSize: 12.5 }}>{n.br_rolne || n.maticna_id} · {n.sirina_mm} mm</div>
-                                <div style={{ fontSize: 11, color: "#475569" }}>utrošak {fmtN(n.utrosak_m)} m · {(n.plan_reza || []).length} segmenata</div>
+                    {/* IZBOR MATIČNIH ROLNI — bogat prikaz kao kod naloga za materijal */}
+                    <div style={{ border: "1.5px solid #1d4ed8", borderRadius: 14, padding: "12px 14px", background: "#f8fbff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                            <div>
+                                <div style={{ fontWeight: 900, fontSize: 14.5 }}>{matLabel(matCheck.mat)}</div>
+                                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>Matični materijal za formatiranje · reže se na formate {izabraniProizvodi.map(p => N_((stavke[String(p.id)] || {}).sirina)).filter(Boolean).join(" / ")} mm</div>
                             </div>
-                            <div onClick={() => izbaciRolnu(n.br_rolne || n.maticna_id)} style={{ width: 24, height: 24, border: "1px solid #fecaca", color: "#ef4444", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, cursor: "pointer" }}>×</div>
+                            <button onClick={autoRolne} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto (FIFO)</button>
                         </div>
-                    ))}
 
-                    {/* dodaj rolnu */}
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <select value="" onChange={e => { dodajRolnu(e.target.value); e.target.value = ""; }} style={{ ...inp, flex: 1, cursor: "pointer" }}>
-                            <option value="">+ Dodaj rolnu iz magacina ({kandidatiRolne.length}) — FIFO…</option>
-                            {kandidatiRolne.map(r => <option key={r.id} value={r.br_rolne}>{r.br_rolne} · {r.vrsta} {r.oznaka_materijala || ""} · {r.deb || "?"}µ · {r.sirina} mm · {fmtN(N_(r.metraza_ost ?? r.metraza) - N_(r.rezervisano))} m · {r.datum_prijema || r.datum || ""}</option>)}
-                        </select>
-                        <button onClick={autoRolne} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 9, padding: "9px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto</button>
+                        {(plan.nalozi || []).map(n => {
+                            const r = infoRolne(n);
+                            const uk = N_(r.metraza_ost ?? r.metraza) || N_(n.utrosak_m);
+                            const det = [r.vrsta || matCheck.mat.vrsta, r.pod_vrsta || matCheck.mat.pod_vrsta, r.oznaka_materijala || matCheck.mat.oznaka, ((r.deb || matCheck.mat.debljina) ? (r.deb || matCheck.mat.debljina) + "µ" : ""), (n.sirina_mm ? n.sirina_mm + " mm" : ""), (r.datum_prijema || r.datum || ""), (r.dobavljac || matCheck.mat.proizvodjac), (r.lot ? "LOT:" + r.lot : ""), ("lok:" + (r.lokacija || r.palet || "—"))].filter(Boolean).join(" · ");
+                            return (
+                                <div key={n.maticna_id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 900, fontSize: 13 }}>{n.br_rolne || n.maticna_id}</div>
+                                        <div style={{ fontSize: 11.5, color: "#475569", marginTop: 1 }}>{det}</div>
+                                        <span style={{ display: "inline-block", marginTop: 4, background: "#dcfce7", color: "#166534", borderRadius: 999, padding: "2px 9px", fontSize: 10.5, fontWeight: 800 }}>reže se na formate · {(n.plan_reza || []).length} {((n.plan_reza || []).length === 1 ? "segment" : "segmenata")}</span>
+                                    </div>
+                                    <div style={{ fontWeight: 900, color: "#1d4ed8", fontSize: 13, whiteSpace: "nowrap" }}>{fmtN(n.utrosak_m)} / {fmtN(uk)} m</div>
+                                    <div onClick={() => izbaciRolnu(n.br_rolne || n.maticna_id)} style={{ width: 26, height: 26, border: "1px solid #fecaca", color: "#ef4444", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, cursor: "pointer", flexShrink: 0 }}>×</div>
+                                </div>
+                            );
+                        })}
+
+                        {/* traka pokrivenosti */}
+                        <div style={{ background: (z.fali_rolni ? "#fff7ed" : "#ecfdf5"), border: "1px solid " + (z.fali_rolni ? "#fed7aa" : "#bbf7d0"), borderRadius: 9, padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontWeight: 900, fontSize: 13, color: (z.fali_rolni ? "#9a3412" : "#166534"), margin: "10px 0 6px" }}>
+                            <span>Nastalih rolni: {z.pokriveno_rolni ?? 0} / {traznoRolni} · iskorišćenje {z.iskoriscenje_pct ?? "—"}%</span>
+                            <span>{z.fali_rolni ? ("⚠ fali " + z.fali_rolni + " rolni") : "Pokriveno ✓"}</span>
+                        </div>
+                        <div style={{ height: 9, background: "#dcfce7", borderRadius: 999, overflow: "hidden" }}><div style={{ height: "100%", width: coverPct + "%", background: (z.fali_rolni ? "#f59e0b" : "#16a34a"), borderRadius: 999 }} /></div>
+
+                        {/* dodaj rolnu */}
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                            <select value="" onChange={e => { dodajRolnu(e.target.value); e.target.value = ""; }} style={{ ...inp, flex: 1, cursor: "pointer", background: "#fff" }}>
+                                <option value="">+ Dodaj rolnu iz magacina ({kandidatiRolne.length}) — poređano po FIFO…</option>
+                                {kandidatiRolne.map(r => <option key={r.id} value={r.br_rolne}>{r.br_rolne} · {r.vrsta} {r.oznaka_materijala || ""} · {r.deb || "?"}µ · {r.sirina} mm · {fmtN(N_(r.metraza_ost ?? r.metraza) - N_(r.rezervisano))} m · {r.datum_prijema || r.datum || ""}</option>)}
+                            </select>
+                            <button onClick={autoRolne} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 9, padding: "9px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto</button>
+                        </div>
                     </div>
 
                     {plan.fali && plan.fali.length > 0 && (
