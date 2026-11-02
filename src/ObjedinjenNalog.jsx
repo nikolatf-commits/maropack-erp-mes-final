@@ -169,6 +169,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
     const [rolneLoad, setRolneLoad] = useState(false);
     const [izbor, setIzbor] = useState([]);           // br_rolne[] izabrane
     const [plan, setPlan] = useState(null);
+    const [celeRolne, setCeleRolne] = useState(false);   // iseci cele matične rolne, višak na stanje
     const [saving, setSaving] = useState(false);
     const [broj, setBroj] = useState("");
 
@@ -278,6 +279,40 @@ export default function ObjedinjenNalog({ msg, operater }) {
     }
 
     // Glavni preračun: učita rolne (ako treba), pozove engine, postavi plan + početni izbor.
+    // „Iseci cele rolne": produži plan reza svake matične do kraja rolne; sve preko
+    // porudžbine (dodatni puni segmenti + skraćeni ostatak) ide na stanje (potreba_id=null).
+    const prosiriCeleRolne = (rez) => {
+        if (!rez || !Array.isArray(rez.nalozi)) return rez;
+        const naStanjeExtra = [];
+        const nalozi = rez.nalozi.map(n => {
+            const r = infoRolne(n);
+            const slob = N_(r.metraza_ost ?? r.metraza) - N_(r.rezervisano);
+            const segs = n.plan_reza || [];
+            if (!segs.length) return n;
+            const segLen = N_(segs[0].duzina_m);
+            if (!(segLen > 0) || !(slob > N_(n.utrosak_m))) return n;
+            const pattern = segs[0].trake || [];
+            const maxFull = Math.floor(slob / segLen);
+            const rem = Math.max(0, +(slob - maxFull * segLen).toFixed(2));
+            const used = segs.length;
+            const plan_reza = segs.slice();
+            const nove_role = (n.nove_role || []).slice();
+            const dodajSeg = (L) => {
+                const trake = pattern.map(t => ({ sirina_mm: t.sirina_mm, potreba_id: null, odrediste: "stanje" }));
+                plan_reza.push({ duzina_m: L, trake, otpad_mm: N_(segs[0].otpad_mm) });
+                pattern.forEach(t => { if (t.potreba_id != null) { nove_role.push({ sirina_mm: t.sirina_mm, duzina_m: L, potreba_id: null, odrediste: "stanje" }); naStanjeExtra.push({ sirina_mm: t.sirina_mm, duzina_m: L, maticna_id: n.maticna_id, odrediste: "stanje" }); } });
+            };
+            for (let s = used; s < maxFull; s++) dodajSeg(segLen);
+            if (rem > 0) dodajSeg(rem);
+            return { ...n, plan_reza, utrosak_m: maxFull * segLen + rem, nove_role };
+        });
+        return { ...rez, nalozi, na_stanje: [...(rez.na_stanje || []), ...naStanjeExtra] };
+    };
+    const finalizePlan = (rez, potrebe) => {
+        const base = { ...rez, perfById: perfByIdOd(potrebe), potrebe };
+        return celeRolne ? prosiriCeleRolne(base) : base;
+    };
+
     async function preracunaj() {
         const potrebe = sklopiPotrebe();
         if (!matCheck.ok) { say(matCheck.prazno ? "Označi bar 2 proizvoda." : (matCheck.malo ? "Označi bar 2 proizvoda za objedinjavanje." : "Materijal se ne poklapa (razlika: " + matCheck.razlika + ")."), "err"); return; }
@@ -287,8 +322,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
             let mag = rolne;
             if (!mag.length) { mag = await ucitajMagacinRolne(); setRolne(mag); }
             const rez = predloziFormatiranje(potrebe, mag, { kerf_mm: 0, bocniOstatakNaStanje: true });
-            const perfById = perfByIdOd(potrebe);
-            setPlan({ ...rez, perfById, potrebe });
+            setPlan(finalizePlan(rez, potrebe));
             setIzbor(Array.from(new Set((rez.nalozi || []).map(n => String(n.br_rolne || n.maticna_id)).filter(Boolean))));
         } catch (e) { say("Preračun nije uspeo: " + (e?.message || e), "err"); }
         setRolneLoad(false);
@@ -300,7 +334,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const set = new Set((noviIzbor || []).map(String));
             const izabrane = (rolne || []).filter(r => set.has(String(r.br_rolne)));
             const rez = predloziFormatiranje(potrebe, izabrane, { kerf_mm: 0, bocniOstatakNaStanje: true });
-            setPlan({ ...rez, perfById: perfByIdOd(potrebe), potrebe });
+            setPlan(finalizePlan(rez, potrebe));
         } catch (e) { say("Preračun nije uspeo: " + (e?.message || e), "err"); }
     }
     function dodajRolnu(br) { if (!br) return; const n = Array.from(new Set([...izbor, String(br)])); setIzbor(n); preracunajIzbor(n); }
@@ -310,9 +344,11 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const potrebe = (plan && plan.potrebe) || sklopiPotrebe();
             const rez = predloziFormatiranje(potrebe, rolne, { kerf_mm: 0, bocniOstatakNaStanje: true });
             setIzbor(Array.from(new Set((rez.nalozi || []).map(n => String(n.br_rolne || n.maticna_id)).filter(Boolean))));
-            setPlan({ ...rez, perfById: perfByIdOd(potrebe), potrebe });
+            setPlan(finalizePlan(rez, potrebe));
         } catch (e) { say("Auto izbor nije uspeo: " + (e?.message || e), "err"); }
     }
+    // Pri promeni „cele rolne" — preračunaj trenutni izbor.
+    useEffect(() => { if (plan && (rolne || []).length) preracunajIzbor(izbor); /* eslint-disable-next-line */ }, [celeRolne]);
 
     // Kandidati za „+ Dodaj rolnu" — materijal se poklapa, slobodne, poređane FIFO.
     const kandidatiRolne = useMemo(() => {
@@ -439,7 +475,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
             });
             const zajednicko = { broj_naloga: brj, tip_proizvoda: "folija", kupac: kupac || "", naziv: proizvodNaziv || naziv, proizvod: proizvodNaziv || naziv };
             const zajedParam = {
-                formati_rezim: true, objedinjen: true, template,
+                formati_rezim: true, objedinjen: true, cele_rolne: celeRolne, template,
                 plan_formatiranja: planF, izabrane_rolne: izabraneRolne,
                 formati_potrebe: potrebe, materijal: mat,
             };
@@ -589,6 +625,12 @@ export default function ObjedinjenNalog({ msg, operater }) {
                                 <div style={{ fontSize: 22, fontWeight: 950, marginTop: 2, color: c }}>{v}</div>
                             </div>)}
                     </div>
+
+                    {/* ČELE ROLNE — iseci celu matičnu, višak na stanje */}
+                    <label style={{ display: "flex", alignItems: "center", gap: 9, margin: "2px 0 12px", padding: "9px 12px", border: "1px solid " + (celeRolne ? "#16a34a" : "#e2e8f0"), background: celeRolne ? "#f0fdf4" : "#fff", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer", color: "#0f172a" }}>
+                        <input type="checkbox" checked={celeRolne} onChange={e => setCeleRolne(e.target.checked)} style={{ width: 18, height: 18, cursor: "pointer" }} />
+                        ✂️ Iseci cele rolne (višak na stanje) — iskoristi celu matičnu rolnu do kraja; sve preko porudžbine ide na stanje kao gotove rolne
+                    </label>
 
                     {/* IZBOR MATIČNIH ROLNI — bogat prikaz kao kod naloga za materijal */}
                     <div style={{ border: "1.5px solid #1d4ed8", borderRadius: 14, padding: "12px 14px", background: "#f8fbff" }}>
