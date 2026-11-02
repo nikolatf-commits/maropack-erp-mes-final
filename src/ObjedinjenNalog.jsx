@@ -471,7 +471,9 @@ export default function ObjedinjenNalog({ msg, operater }) {
             };
             const stavkeMeta = izabraniProizvodi.map((p, i) => {
                 const st = stavke[String(p.id)] || {}; const f = getForm(p); const r = vrednostFolija(f, st.cena, st.jed);
-                return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost };
+                const rez0 = (f.folija && f.folija.rezanje) || {};
+                const hilzna = rez0.precnikHilzne || rez0.hilzna || rez0.hilzne || f.hilzna || "";
+                return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost, hilzna: hilzna, poruceno_kol: N_(f.porucenaKolicina), poruceno_jed: f.jedinicaUnosa || "m" };
             });
             const zajednicko = { broj_naloga: brj, tip_proizvoda: "folija", kupac: kupac || "", naziv: proizvodNaziv || naziv, proizvod: proizvodNaziv || naziv };
             const zajedParam = {
