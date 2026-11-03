@@ -1465,6 +1465,8 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     var tpl = safeJson(par.template, {}) || {};
     var hilznaTpl = (tpl.folija && tpl.folija.rezanje && (tpl.folija.rezanje.precnikHilzne || tpl.folija.rezanje.hilzna || tpl.folija.rezanje.precnikHilzne)) || '';
     var stavke = Array.isArray(par.objedinjen_stavke) ? par.objedinjen_stavke : null;
+    var opt = (par.optimizator && Array.isArray(par.optimizator.planReza) && par.optimizator.planReza.length) ? par.optimizator : null;
+    if (opt && Array.isArray(opt.matice) && opt.matice.length) matice = opt.matice;
 
     // ── 1) PROIZVODI IZ NALOGA (naziv, dimenzija, hilzna, poručeno, broj rolni) ──
     var prodList = (stavke && stavke.length)
@@ -1477,27 +1479,47 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     }).join('');
     var prodTabela = '<table>' + th(['#', 'Proizvod', { t: 'Širina', n: 1 }, { t: 'Dužina rolne', n: 1 }, { t: 'Hilzna', n: 1 }, 'Poručeno', { t: 'Broj rolni', n: 1 }, 'Perf.'], c) + '<tbody>' + prodRows + '<tr class="tot"><td colspan="6" style="text-align:right">UKUPNO rolni (proizvod)</td><td class="n">' + ukRolniProd + '</td><td></td></tr></tbody></table>';
 
-    // ── 2) PLAN REZA — sažeto: grupiši matične po istom rasporedu reza + 1 mali crtež ──
-    function _patSig(m) { var t = ((m.plan_reza || [])[0] || {}).trake || []; return t.map(function (x) { return (x.potreba_id != null ? 'P' : 'S') + x.sirina_mm; }).sort().join('+'); }
-    var grupe = {}; var grupeRed = [];
-    matice.forEach(function (m) { var sig = _patSig(m); if (!grupe[sig]) { grupe[sig] = { count: 0, m: m }; grupeRed.push(sig); } grupe[sig].count++; });
-    var planRows = grupeRed.map(function (sig) {
-        var g = grupe[sig]; var seg = ((g.m.plan_reza || [])[0] || {}); var trake = seg.trake || [];
-        var pills = trake.map(function (t) { var st = t.potreba_id == null; return '<span style="display:inline-block;border:1px solid ' + (st ? '#cbd5e1' : '#bfdbfe') + ';background:' + (st ? '#f1f5f9' : '#eff6ff') + ';color:' + (st ? '#475569' : '#1d4ed8') + ';border-radius:7px;padding:2px 8px;font-weight:800;font-size:11px;margin:1px 2px">' + t.sirina_mm + ' mm' + (st ? ' → stanje' : '') + '</span>'; }).join('');
-        var otp = Number(seg.otpad_mm) > 0 ? '<span style="color:#b91c1c;font-weight:800;font-size:11.5px">otpad ' + seg.otpad_mm + ' mm</span>' : '';
-        return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#f8fafc;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:900;font-size:12.5px;margin-bottom:5px"><span>' + g.count + '× matične · ' + g.m.sirina_mm + ' mm → reže se</span>' + otp + '</div><div style="margin-bottom:4px">' + pills + '</div>' + formatiBar(g.m.sirina_mm, trake, perfById) + '</div>';
-    }).join('');
-
-    // ── 3) IZLAZ — koliko kojih rolni izlazi (iz stvarnog reza: proizvod + na stanje) ──
-    var prodMap = {}, stockMap = {};
-    matice.forEach(function (m) { (m.nove_role || []).forEach(function (r) { var w = Number(r.sirina_mm) || 0; if (!w) return; var mp = (r.potreba_id != null) ? prodMap : stockMap; if (!mp[w]) mp[w] = { sir: w, duz: r.duzina_m, kom: 0 }; mp[w].kom++; }); });
-    var izlazAll = [];
-    if (Object.keys(prodMap).length || Object.keys(stockMap).length) {
-        Object.keys(prodMap).sort(function (a, b) { return b - a; }).forEach(function (w) { izlazAll.push({ sir: +w, duz: prodMap[w].duz, kom: prodMap[w].kom, tip: 'proizvod' }); });
-        Object.keys(stockMap).sort(function (a, b) { return b - a; }).forEach(function (w) { izlazAll.push({ sir: +w, duz: stockMap[w].duz, kom: stockMap[w].kom, tip: 'na stanje' }); });
+    // ── 2) PLAN REZA — sažeto (iz optimizatora: šabloni reza + mali crtež) ──
+    var planRows = '', planRezaBr = 0;
+    if (opt) {
+        planRezaBr = opt.planReza.length;
+        planRows = opt.planReza.map(function (pt) {
+            var trake = (pt.trake || []).map(function (t) { return { sirina_mm: t.sirina_mm, potreba_id: 'p' }; });
+            var pills = trake.map(function (t) { return '<span style="display:inline-block;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:7px;padding:2px 8px;font-weight:800;font-size:11px;margin:1px 2px">' + t.sirina_mm + ' mm</span>'; }).join('');
+            var otp = Number(pt.otpad) > 0 ? '<span style="color:#b91c1c;font-weight:800;font-size:11.5px">otpad ' + pt.otpad + ' mm</span>' : '<span style="color:#16a34a;font-weight:800;font-size:11.5px">bez otpada</span>';
+            return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#f8fafc;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:900;font-size:12.5px;margin-bottom:5px"><span>' + pt.count + '× skidanje · ' + (opt.W || '') + ' mm → reže se</span>' + otp + '</div><div style="margin-bottom:4px">' + pills + '</div>' + formatiBar(opt.W, trake, {}) + '</div>';
+        }).join('');
     } else {
-        formati.forEach(function (f) { izlazAll.push({ sir: f.sirina_mm, duz: f.duzina_m, kom: Number(f.rolni_kom) || 0, tip: 'proizvod' }); });
-        var _sm = {}; naStanje.forEach(function (s) { var k = s.sirina_mm + 'x' + s.duzina_m; if (!_sm[k]) _sm[k] = { sir: s.sirina_mm, duz: s.duzina_m, kom: 0, tip: 'na stanje' }; _sm[k].kom++; }); Object.keys(_sm).forEach(function (k) { izlazAll.push(_sm[k]); });
+        var _patSig = function (m) { var t = ((m.plan_reza || [])[0] || {}).trake || []; return t.map(function (x) { return (x.potreba_id != null ? 'P' : 'S') + x.sirina_mm; }).sort().join('+'); };
+        var grupe = {}, grupeRed = [];
+        matice.forEach(function (m) { var sig = _patSig(m); if (!grupe[sig]) { grupe[sig] = { count: 0, m: m }; grupeRed.push(sig); } grupe[sig].count++; });
+        planRezaBr = grupeRed.length;
+        planRows = grupeRed.map(function (sig) {
+            var g = grupe[sig]; var seg = ((g.m.plan_reza || [])[0] || {}); var trake = seg.trake || [];
+            var pills = trake.map(function (t) { var st = t.potreba_id == null; return '<span style="display:inline-block;border:1px solid ' + (st ? '#cbd5e1' : '#bfdbfe') + ';background:' + (st ? '#f1f5f9' : '#eff6ff') + ';color:' + (st ? '#475569' : '#1d4ed8') + ';border-radius:7px;padding:2px 8px;font-weight:800;font-size:11px;margin:1px 2px">' + t.sirina_mm + ' mm' + (st ? ' → stanje' : '') + '</span>'; }).join('');
+            var otp = Number(seg.otpad_mm) > 0 ? '<span style="color:#b91c1c;font-weight:800;font-size:11.5px">otpad ' + seg.otpad_mm + ' mm</span>' : '';
+            return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#f8fafc;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:900;font-size:12.5px;margin-bottom:5px"><span>' + g.count + '× matične · ' + g.m.sirina_mm + ' mm → reže se</span>' + otp + '</div><div style="margin-bottom:4px">' + pills + '</div>' + formatiBar(g.m.sirina_mm, trake, perfById) + '</div>';
+        }).join('');
+    }
+
+    // ── 3) IZLAZ — koliko kojih rolni izlazi (proizvod + na stanje) ──
+    var izlazAll = [];
+    if (opt && Array.isArray(opt.izlaz)) {
+        opt.izlaz.slice().sort(function (a, b) { return b.sir - a.sir; }).forEach(function (x) {
+            var prod = Math.min(x.kom, x.treba), vis = Math.max(0, x.kom - x.treba);
+            if (prod > 0) izlazAll.push({ sir: x.sir, duz: x.duz, kom: prod, tip: 'proizvod' });
+            if (vis > 0) izlazAll.push({ sir: x.sir, duz: x.duz, kom: vis, tip: 'na stanje' });
+        });
+    } else {
+        var prodMap = {}, stockMap = {};
+        matice.forEach(function (m) { (m.nove_role || []).forEach(function (r) { var w = Number(r.sirina_mm) || 0; if (!w) return; var mp = (r.potreba_id != null) ? prodMap : stockMap; if (!mp[w]) mp[w] = { sir: w, duz: r.duzina_m, kom: 0 }; mp[w].kom++; }); });
+        if (Object.keys(prodMap).length || Object.keys(stockMap).length) {
+            Object.keys(prodMap).sort(function (a, b) { return b - a; }).forEach(function (w) { izlazAll.push({ sir: +w, duz: prodMap[w].duz, kom: prodMap[w].kom, tip: 'proizvod' }); });
+            Object.keys(stockMap).sort(function (a, b) { return b - a; }).forEach(function (w) { izlazAll.push({ sir: +w, duz: stockMap[w].duz, kom: stockMap[w].kom, tip: 'na stanje' }); });
+        } else {
+            formati.forEach(function (f) { izlazAll.push({ sir: f.sirina_mm, duz: f.duzina_m, kom: Number(f.rolni_kom) || 0, tip: 'proizvod' }); });
+            var _sm = {}; naStanje.forEach(function (s) { var k = s.sirina_mm + 'x' + s.duzina_m; if (!_sm[k]) _sm[k] = { sir: s.sirina_mm, duz: s.duzina_m, kom: 0, tip: 'na stanje' }; _sm[k].kom++; }); Object.keys(_sm).forEach(function (k) { izlazAll.push(_sm[k]); });
+        }
     }
     var _ukRolni = izlazAll.reduce(function (a, r) { return a + (Number(r.kom) || 0); }, 0);
     var izlazRedovi = izlazAll.map(function (r) {
@@ -1532,7 +1554,7 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
         statBlok +
         cekaBanner +
         '<div class="sec">' + secH(1, c, 'Proizvodi iz naloga — šta se reže', prodList.length + (prodList.length === 1 ? ' proizvod' : ' proizvoda')) + prodTabela + '</div>' +
-        (planRows ? '<div class="sec">' + secH(2, '#7c3aed', 'Plan reza — sažeto', grupeRed.length + (grupeRed.length === 1 ? ' raspored' : ' različita rasporeda')) + planRows + '</div>' : '') +
+        (planRows ? '<div class="sec">' + secH(2, '#7c3aed', 'Plan reza — sažeto', planRezaBr + (planRezaBr === 1 ? ' raspored' : ' različita rasporeda')) + planRows + '</div>' : '') +
         (izlazTabela ? '<div class="sec">' + secH(3, c, 'Izlaz — koliko kojih rolni izlazi', 'proizvod + na stanje') + izlazTabela + '</div>' : '') +
         (maticeKratko ? '<div class="sec">' + secH(4, '#334155', 'Matične rolne (redom, FIFO)', matice.length + ' kom') + maticeKratko + '</div>' : '') +
         perfHtml + faliHtml +

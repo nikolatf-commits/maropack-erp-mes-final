@@ -158,6 +158,87 @@ function predlogRolni(form, duzina) {
 
 const CENA_JED = ["m", "kg", "1000m"];
 
+// ── OPTIMIZATOR REZA (branch & bound) ────────────────────────────────────────
+// Puni širinu matične rolne traženim širinama tako da otpad bude NAJMANJI,
+// uz dozvoljeno prekoračenje zadatog (tolerancija, podrazumevano +20%), i spaja
+// dužinu preko više matičnih rolni (nastavljanje metara, FIFO).
+function _genPatterns(ws, W) {
+    const minW = Math.min(...ws); const eff = [];
+    const rec = (i, rem, counts) => {
+        if (i === ws.length) { const sum = ws.reduce((a, w, k) => a + w * counts[k], 0); if (sum === 0) return; if (W - sum < minW) eff.push({ counts: counts.slice(), otpad: W - sum }); return; }
+        const maxN = Math.floor(rem / ws[i]);
+        for (let n = 0; n <= maxN; n++) { counts[i] = n; rec(i + 1, rem - n * ws[i], counts); }
+        counts[i] = 0;
+    };
+    rec(0, W, new Array(ws.length).fill(0));
+    ws.forEach((w, i) => { const n = Math.floor(W / w); if (n <= 0) return; const counts = new Array(ws.length).fill(0); counts[i] = n; const key = counts.join(","); if (!eff.some(p => p.counts.join(",") === key)) eff.push({ counts, otpad: W - n * w }); });
+    return eff.sort((a, b) => a.otpad - b.otpad);
+}
+function _bnb(ws, need, max, patterns) {
+    const nP = patterns.length, nW = ws.length;
+    const suff = Array.from({ length: nP + 1 }, () => new Array(nW).fill(0));
+    for (let i = nP - 1; i >= 0; i--) for (let k = 0; k < nW; k++) { let cap = Infinity; for (let j = 0; j < nW; j++) if (patterns[i].counts[j] > 0) cap = Math.min(cap, Math.floor(max[j] / patterns[i].counts[j])); if (cap === Infinity) cap = 0; suff[i][k] = suff[i + 1][k] + patterns[i].counts[k] * cap; }
+    let best = { waste: Infinity, counts: null }; const chosen = new Array(nP).fill(0); let guard = 0;
+    const dfs = (i, produced, waste) => {
+        if (++guard > 4000000) return;
+        if (waste >= best.waste) return;
+        for (let k = 0; k < nW; k++) if (produced[k] + suff[i][k] < need[k]) return;
+        if (i === nP) { let ok = true; for (let k = 0; k < nW; k++) if (produced[k] < need[k]) { ok = false; break; } if (ok) best = { waste, counts: chosen.slice() }; return; }
+        let cap = Infinity; for (let k = 0; k < nW; k++) if (patterns[i].counts[k] > 0) cap = Math.min(cap, Math.floor((max[k] - produced[k]) / patterns[i].counts[k])); if (cap === Infinity) cap = 0;
+        for (let n = 0; n <= cap; n++) { chosen[i] = n; const np = produced.slice(); for (let k = 0; k < nW; k++) np[k] += patterns[i].counts[k] * n; dfs(i + 1, np, waste + n * patterns[i].otpad); }
+        chosen[i] = 0;
+    };
+    dfs(0, new Array(nW).fill(0), 0);
+    return best;
+}
+function optimizujRez(products, W, slabLen, rolneList) {
+    // grupiši po širini (zbir potreba), pamti dužinu i naziv po širini
+    const byW = {};
+    products.forEach(p => { const w = N_(p.w); if (!(w > 0)) return; if (!byW[w]) byW[w] = { w, need: 0, duz: N_(p.duzina) || slabLen, naziv: p.naziv || (w + " mm"), skart: N_(p.skart) || 0 }; byW[w].need += Math.max(1, Math.round(N_(p.need))); byW[w].skart = Math.max(byW[w].skart, N_(p.skart) || 0); });
+    const widths = Object.values(byW).sort((a, b) => b.w - a.w);
+    const ws = widths.map(x => x.w), need = widths.map(x => x.need);
+    // tolerancija prekoračenja: najmanje +20%, ili veći škart iz templejta
+    const tol = Math.max(0.2, Math.max(0, ...widths.map(x => x.skart)) / 100);
+    const patterns = _genPatterns(ws, W);
+    // reši sa +tol; ako nema rešenja (granularnost), postepeno popuštaj max
+    let sol = null;
+    for (let t = tol; t <= tol + 1.01 && !(sol && sol.counts); t += 0.1) {
+        const max = widths.map(x => Math.max(x.need, Math.ceil(x.need * (1 + t))));
+        sol = _bnb(ws, need, max, patterns);
+    }
+    const produced = {}; ws.forEach(w => produced[w] = 0);
+    const plan = [];
+    if (sol && sol.counts) sol.counts.forEach((seg, i) => {
+        if (seg <= 0) return;
+        const c = {}; let primary = 0;
+        ws.forEach((w, k) => { if (patterns[i].counts[k] > 0) { c[w] = patterns[i].counts[k]; produced[w] += patterns[i].counts[k] * seg; if (w > primary) primary = w; } });
+        plan.push({ c, otpad: patterns[i].otpad, count: seg, primary });
+    });
+    plan.sort((a, b) => b.primary - a.primary);
+    const slabs = plan.reduce((a, p) => a + p.count, 0);
+    const need2 = {}; widths.forEach(x => need2[x.w] = x.need);
+    const izlaz = widths.map(x => ({ sir: x.w, duz: x.duz, kom: produced[x.w] || 0, treba: x.need, naziv: x.naziv }));
+    // spajanje dužine preko rolni (FIFO)
+    const rr = (rolneList || []).map(r => ({ br: r.br_rolne || r.maticna_id, maticna_id: r.maticna_id, slob: N_(r.slob), used: 0, _r: r._r }));
+    const skidanja = []; let ri = 0; let dovoljno = true;
+    for (let s = 0; s < slabs; s++) {
+        let treba = slabLen; const delovi = [];
+        while (treba > 0.0001 && ri < rr.length) {
+            const slob = rr[ri].slob - rr[ri].used;
+            if (slob <= 0.0001) { ri++; continue; }
+            const uzmi = Math.min(treba, slob); rr[ri].used += uzmi; delovi.push({ br: rr[ri].br, m: uzmi });
+            treba -= uzmi; if (rr[ri].used >= rr[ri].slob - 0.0001) ri++;
+        }
+        if (treba > 0.0001) { dovoljno = false; skidanja.push({ i: s + 1, delovi: delovi, nepotpuno: true }); break; }
+        skidanja.push({ i: s + 1, delovi: delovi });
+    }
+    const maticeUsed = rr.filter(r => r.used > 0).map(r => ({ br_rolne: r.br, maticna_id: r.maticna_id, used_m: Math.round(r.used), _r: r._r }));
+    const otpadUk = plan.reduce((a, p) => a + p.otpad * p.count, 0);
+    const otpadPct = slabs > 0 ? +((otpadUk / (W * slabs)) * 100).toFixed(1) : 0;
+    const metaraTreba = slabs * slabLen;
+    return { W: W, slabLen: slabLen, plan: plan, izlaz: izlaz, skidanja: skidanja, maticeUsed: maticeUsed, slabs: slabs, metaraTreba: metaraTreba, otpadPct: otpadPct, dovoljno: dovoljno, produced: produced, need: need2 };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ObjedinjenNalog({ msg, operater }) {
@@ -168,8 +249,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
     const [rolne, setRolne] = useState([]);           // magacin rolne
     const [rolneLoad, setRolneLoad] = useState(false);
     const [izbor, setIzbor] = useState([]);           // br_rolne[] izabrane
-    const [plan, setPlan] = useState(null);
-    const [celeRolne, setCeleRolne] = useState(false);   // iseci cele matične rolne, višak na stanje
+    const [plan, setPlan] = useState(null);   // rezultat optimizatorRez
     const [saving, setSaving] = useState(false);
     const [broj, setBroj] = useState("");
 
@@ -278,77 +358,70 @@ export default function ObjedinjenNalog({ msg, operater }) {
         return out;
     }
 
-    // Glavni preračun: učita rolne (ako treba), pozove engine, postavi plan + početni izbor.
-    // „Iseci cele rolne": produži plan reza svake matične do kraja rolne; sve preko
-    // porudžbine (dodatni puni segmenti + skraćeni ostatak) ide na stanje (potreba_id=null).
-    const prosiriCeleRolne = (rez) => {
-        if (!rez || !Array.isArray(rez.nalozi)) return rez;
-        const naStanjeExtra = [];
-        const nalozi = rez.nalozi.map(n => {
-            const r = infoRolne(n);
-            const slob = N_(r.metraza_ost ?? r.metraza) - N_(r.rezervisano);
-            const segs = n.plan_reza || [];
-            if (!segs.length) return n;
-            const segLen = N_(segs[0].duzina_m);
-            if (!(segLen > 0) || !(slob > N_(n.utrosak_m))) return n;
-            const pattern = segs[0].trake || [];
-            const maxFull = Math.floor(slob / segLen);
-            const rem = Math.max(0, +(slob - maxFull * segLen).toFixed(2));
-            const used = segs.length;
-            const plan_reza = segs.slice();
-            const nove_role = (n.nove_role || []).slice();
-            const dodajSeg = (L) => {
-                const trake = pattern.map(t => ({ sirina_mm: t.sirina_mm, potreba_id: null, odrediste: "stanje" }));
-                plan_reza.push({ duzina_m: L, trake, otpad_mm: N_(segs[0].otpad_mm) });
-                pattern.forEach(t => { if (t.potreba_id != null) { nove_role.push({ sirina_mm: t.sirina_mm, duzina_m: L, potreba_id: null, odrediste: "stanje" }); naStanjeExtra.push({ sirina_mm: t.sirina_mm, duzina_m: L, maticna_id: n.maticna_id, odrediste: "stanje" }); } });
-            };
-            for (let s = used; s < maxFull; s++) dodajSeg(segLen);
-            if (rem > 0) dodajSeg(rem);
-            return { ...n, plan_reza, utrosak_m: maxFull * segLen + rem, nove_role };
-        });
-        return { ...rez, nalozi, na_stanje: [...(rez.na_stanje || []), ...naStanjeExtra] };
+    // ── Ulazi za optimizator ──
+    const izgradiProducts = () => izabraniProizvodi.map(p => {
+        const st = stavke[String(p.id)] || {}; const f = getForm(p);
+        return { w: N_(st.sirina), need: Math.max(1, Math.round(N_(st.rolni))), skart: N_(f.folijaSkart) || 10, duzina: N_(st.duzina), naziv: p.naziv || sifraP(p) };
+    }).filter(x => x.w > 0 && x.duzina > 0);
+    const slobM = (r) => N_(r.metraza_ost ?? r.metraza) - N_(r.rezervisano);
+    const kandidatiBase = (src) => {
+        const mat = matCheck.mat || {};
+        const base = UP(mat.vrsta).split(" ")[0], deb = N_(mat.debljina), ozn = UP(mat.oznaka);
+        const minFmt = Math.min(...izabraniProizvodi.map(p => N_((stavke[String(p.id)] || {}).sirina)).filter(x => x > 0), 1e9);
+        return (src || rolne || []).filter(r => {
+            if (base && !(UP(r.vrsta).startsWith(base) || UP(r.vrsta).includes(base))) return false;
+            if (deb && N_(r.deb) && Math.abs(N_(r.deb) - deb) > 3) return false;
+            if (ozn && UP(r.oznaka_materijala) && !UP(r.oznaka_materijala).includes(ozn)) return false;
+            if (slobM(r) <= 0) return false;
+            if (minFmt < 1e9 && N_(r.sirina) < minFmt) return false;
+            return true;
+        }).sort((a, b) => new Date(a.datum_prijema || a.datum || a.created_at || 0) - new Date(b.datum_prijema || b.datum || b.created_at || 0));
     };
-    const finalizePlan = (rez, potrebe) => {
-        const base = { ...rez, perfById: perfByIdOd(potrebe), potrebe };
-        return celeRolne ? prosiriCeleRolne(base) : base;
-    };
+    const kaRolneList = (arr) => arr.map(r => ({ br_rolne: r.br_rolne, maticna_id: r.id, slob: slobM(r), _r: r }));
+    const motherW = (rolls) => N_((rolls[0] || {}).sirina) || 1000;
+    const slabLenOf = (products) => (products[0] && products[0].duzina) || 3000;
+    const izaberiFIFO = (kand, trebaM) => { const sel = []; let acc = 0; for (const r of kand) { if (acc >= trebaM) break; sel.push(r); acc += slobM(r); } if (!sel.length && kand.length) sel.push(kand[0]); return sel; };
 
     async function preracunaj() {
-        const potrebe = sklopiPotrebe();
         if (!matCheck.ok) { say(matCheck.prazno ? "Označi bar 2 proizvoda." : (matCheck.malo ? "Označi bar 2 proizvoda za objedinjavanje." : "Materijal se ne poklapa (razlika: " + matCheck.razlika + ")."), "err"); return; }
-        if (!potrebe.length) { say("Unesi širinu, dužinu rolne i broj rolni za označene proizvode.", "err"); return; }
+        const products = izgradiProducts();
+        if (!products.length) { say("Unesi širinu, dužinu rolne i broj rolni za označene proizvode.", "err"); return; }
         setRolneLoad(true);
         try {
             let mag = rolne;
             if (!mag.length) { mag = await ucitajMagacinRolne(); setRolne(mag); }
-            const rez = predloziFormatiranje(potrebe, mag, { kerf_mm: 0, bocniOstatakNaStanje: true });
-            setPlan(finalizePlan(rez, potrebe));
-            setIzbor(Array.from(new Set((rez.nalozi || []).map(n => String(n.br_rolne || n.maticna_id)).filter(Boolean))));
+            const kand = kandidatiBase(mag);
+            const W = motherW(kand), slabLen = slabLenOf(products);
+            const dry = optimizujRez(products, W, slabLen, []);
+            const sel = izaberiFIFO(kand, dry.metaraTreba);
+            setIzbor(sel.map(r => String(r.br_rolne)));
+            setPlan(optimizujRez(products, W, slabLen, kaRolneList(sel)));
         } catch (e) { say("Preračun nije uspeo: " + (e?.message || e), "err"); }
         setRolneLoad(false);
     }
 
     function preracunajIzbor(noviIzbor) {
         try {
-            const potrebe = (plan && plan.potrebe) || sklopiPotrebe();
+            const products = izgradiProducts();
             const set = new Set((noviIzbor || []).map(String));
-            const izabrane = (rolne || []).filter(r => set.has(String(r.br_rolne)));
-            const rez = predloziFormatiranje(potrebe, izabrane, { kerf_mm: 0, bocniOstatakNaStanje: true });
-            setPlan(finalizePlan(rez, potrebe));
+            const sel = (rolne || []).filter(r => set.has(String(r.br_rolne)));
+            const W = motherW(sel.length ? sel : kandidatiBase()), slabLen = slabLenOf(products);
+            setPlan(optimizujRez(products, W, slabLen, kaRolneList(sel)));
         } catch (e) { say("Preračun nije uspeo: " + (e?.message || e), "err"); }
     }
     function dodajRolnu(br) { if (!br) return; const n = Array.from(new Set([...izbor, String(br)])); setIzbor(n); preracunajIzbor(n); }
     function izbaciRolnu(br) { const n = izbor.filter(x => x !== String(br)); setIzbor(n); preracunajIzbor(n); }
     function autoRolne() {
         try {
-            const potrebe = (plan && plan.potrebe) || sklopiPotrebe();
-            const rez = predloziFormatiranje(potrebe, rolne, { kerf_mm: 0, bocniOstatakNaStanje: true });
-            setIzbor(Array.from(new Set((rez.nalozi || []).map(n => String(n.br_rolne || n.maticna_id)).filter(Boolean))));
-            setPlan(finalizePlan(rez, potrebe));
+            const products = izgradiProducts();
+            const kand = kandidatiBase();
+            const W = motherW(kand), slabLen = slabLenOf(products);
+            const dry = optimizujRez(products, W, slabLen, []);
+            const sel = izaberiFIFO(kand, dry.metaraTreba);
+            setIzbor(sel.map(r => String(r.br_rolne)));
+            setPlan(optimizujRez(products, W, slabLen, kaRolneList(sel)));
         } catch (e) { say("Auto izbor nije uspeo: " + (e?.message || e), "err"); }
     }
-    // Pri promeni „cele rolne" — preračunaj trenutni izbor.
-    useEffect(() => { if (plan && (rolne || []).length) preracunajIzbor(izbor); /* eslint-disable-next-line */ }, [celeRolne]);
 
     // Kandidati za „+ Dodaj rolnu" — materijal se poklapa, slobodne, poređane FIFO.
     const kandidatiRolne = useMemo(() => {
@@ -412,37 +485,36 @@ export default function ObjedinjenNalog({ msg, operater }) {
 
     async function kreiraj() {
         if (!matCheck.ok) { say("Materijal se ne poklapa — ne mogu da objedinim.", "err"); return; }
-        if (!plan || !plan.nalozi || !plan.nalozi.length) { say("Prvo preračunaj i izaberi matične rolne.", "err"); return; }
-        if (plan.fali && plan.fali.length) { say("Pokriće nije potpuno — fali rolni. Dodaj još matičnih rolni pre kreiranja.", "err"); return; }
+        if (!plan || !plan.maticeUsed || !plan.maticeUsed.length) { say("Prvo preračunaj i izaberi matične rolne.", "err"); return; }
+        if (!plan.dovoljno) { say("Nema dovoljno metraže — dodaj još matičnih rolni pre kreiranja.", "err"); return; }
         setSaving(true);
         try {
             const brj = await sledeciBroj();
-            const potrebe = plan.potrebe || sklopiPotrebe();
             const mat = matCheck.mat || {};
             const naziv = "Objedinjen · " + izabraniProizvodi.length + " proizvoda · " + (mat.vrsta || "");
             const proizvodNaziv = izabraniProizvodi.map(p => p.naziv || sifraP(p)).filter(Boolean).join(" + ").slice(0, 160);
 
-            // Obogati matične rolne detaljima iz magacina (za lepo napisan nalog:
-            // vrsta/pod-vrsta/oznaka/debljina/dobavljač/LOT/lokacija + ukupno metara).
             const rollBy = {}; (rolne || []).forEach(r => { rollBy["id:" + r.id] = r; rollBy["br:" + String(r.br_rolne)] = r; });
-            const nadjiR = (n) => rollBy["id:" + n.maticna_id] || rollBy["br:" + String(n.br_rolne)] || {};
-            const maticeRich = (plan.nalozi || []).map(n => {
-                const r = nadjiR(n);
+            const maticeRich = (plan.maticeUsed || []).map(n => {
+                const r = (n._r && n._r._r) || rollBy["id:" + n.maticna_id] || rollBy["br:" + String(n.br_rolne)] || {};
                 const metUk = N_(r.metraza_ost ?? r.metraza);
                 const kgpm = (() => { const kg = N_(r.kg_neto); const m = N_(r.metraza_ost ?? r.metraza); return m > 0 ? +(kg / m).toFixed(4) : 0; })();
                 return {
-                    ...n,
+                    maticna_id: n.maticna_id, br_rolne: n.br_rolne, sirina_mm: plan.W, utrosak_m: N_(n.used_m),
                     _vrsta: r.vrsta || mat.vrsta || "", _pod_vrsta: r.pod_vrsta || mat.pod_vrsta || "",
                     _oznaka: r.oznaka_materijala || mat.oznaka || "", _deb: r.deb || mat.debljina || "",
                     _dobavljac: r.dobavljac || mat.proizvodjac || "", _lot: r.lot || "", _lok: r.lokacija || r.palet || "",
                     _datum: r.datum_prijema || r.datum || "", _metraza_uk: metUk, _kg_po_m: kgpm,
                 };
             });
-            const planF = {
-                matice: maticeRich, perfById: plan.perfById, formati: potrebe,
-                na_stanje: plan.na_stanje, fali: plan.fali, zbirno: plan.zbirno,
-            };
-            // Rezervisane rolne (bogat snapshot) — da ih materijal nalog prikaže i da stignu magacioneru.
+            const planReza = (plan.plan || []).map(pt => {
+                const trake = []; Object.keys(pt.c).sort((a, b) => b - a).forEach(w => { for (let k = 0; k < pt.c[w]; k++) trake.push({ sirina_mm: +w }); });
+                return { count: pt.count, otpad: pt.otpad, trake };
+            });
+            const izlaz = (plan.izlaz || []).map(x => ({ sir: x.sir, duz: x.duz, kom: x.kom, treba: x.treba, naziv: x.naziv }));
+            const skidanja = (plan.skidanja || []).map(s => ({ i: s.i, delovi: s.delovi, nepotpuno: !!s.nepotpuno }));
+            const optimizator = { W: plan.W, slabLen: plan.slabLen, planReza, izlaz, skidanja, slabs: plan.slabs, metara: plan.metaraTreba, otpadPct: plan.otpadPct, matice: maticeRich };
+
             const izabraneRolne = maticeRich.map(n => ({
                 br_rolne: n.br_rolne, rolna_id: n.maticna_id,
                 snap_vrsta: n._vrsta, snap_pod_vrsta: n._pod_vrsta, snap_oznaka: n._oznaka,
@@ -450,36 +522,38 @@ export default function ObjedinjenNalog({ msg, operater }) {
                 lot: n._lot || "—", lokacija: n._lok || "—",
                 metraza_ost: n._metraza_uk, alocirano_m: N_(n.utrosak_m), kg_po_m: n._kg_po_m, sloj: 1,
             }));
-            // Zbirni brojevi (za folija-stil materijal nalog): ukupna matična + kg + g/m².
             const totalUtrosak = maticeRich.reduce((a, n) => a + N_(n.utrosak_m), 0);
             const totalKg = maticeRich.reduce((a, n) => a + N_(n._kg_po_m) * N_(n.utrosak_m), 0);
-            const maticaSir = (maticeRich[0] && maticeRich[0].sirina_mm) || "";
+            const maticaSir = plan.W || (maticeRich[0] && maticeRich[0].sirina_mm) || "";
             const gm2 = (totalKg > 0 && maticaSir > 0 && totalUtrosak > 0) ? +(totalKg * 1000 / ((maticaSir / 1000) * totalUtrosak)).toFixed(1) : "";
-            // Sintetički templejt (jedan sloj = materijal) — struktura materijala + rezervisane role + zbir.
             const template = {
                 type: "folija", naziv: proizvodNaziv || naziv, kupac: kupac || "", sifra: "",
                 idealnaSirinaMaterijala: maticaSir,
                 jedinicaUnosa: "m", porucenaKolicina: totalUtrosak ? String(Math.round(totalUtrosak)) : "",
-                folijaSkart: "0",
-                dimenzijaSirina: maticaSir,
+                folijaSkart: "0", dimenzijaSirina: maticaSir,
                 folija: {
                     formatiRezim: true,
-                    formati: potrebe.map(pp => ({ sirina: pp.sirina_mm, duzina: pp.duzina_m, rolni: pp.rolni_kom, napomena: pp.napomena, perforacija: pp.perforacija })),
+                    formati: izlaz.map(x => ({ sirina: x.sir, duzina: x.duz, rolni: x.kom, napomena: x.naziv })),
                     layers: [{ material: mat.vrsta, vrsta: mat.vrsta, pod_vrsta: mat.pod_vrsta, oznaka_materijala: mat.oznaka, oznaka: mat.oznaka, proizvodjac: mat.proizvodjac, debljina: mat.debljina, deb: mat.debljina, gm2: gm2 || "" }],
                     rezanje: { sirinaMaterijala: maticaSir, sirinaTrake: maticaSir, brojTrakaOverride: "1", duzinaRolne: "" },
                 },
             };
-            const stavkeMeta = izabraniProizvodi.map((p, i) => {
+            const stavkeMeta = izabraniProizvodi.map((p) => {
                 const st = stavke[String(p.id)] || {}; const f = getForm(p); const r = vrednostFolija(f, st.cena, st.jed);
                 const rez0 = (f.folija && f.folija.rezanje) || {};
                 const hilzna = rez0.precnikHilzne || rez0.hilzna || rez0.hilzne || f.hilzna || "";
-                return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost, hilzna: hilzna, poruceno_kol: N_(f.porucenaKolicina), poruceno_jed: f.jedinicaUnosa || "m" };
+                const proizvedeno = (plan.produced && plan.produced[N_(st.sirina)]) || Math.max(1, Math.round(N_(st.rolni)));
+                return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: proizvedeno, treba_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost, hilzna: hilzna, poruceno_kol: N_(f.porucenaKolicina), poruceno_jed: f.jedinicaUnosa || "m" };
             });
+            const planF = {
+                matice: maticeRich, perfById: {}, formati: stavkeMeta.map(s => ({ sirina_mm: s.sirina_mm, duzina_m: s.duzina_m, rolni_kom: s.rolni_kom, napomena: s.naziv })),
+                na_stanje: [], fali: [], zbirno: { maticnih: maticeRich.length, pokriveno_rolni: izlaz.reduce((a, x) => a + x.kom, 0), iskoriscenje_pct: +(100 - plan.otpadPct).toFixed(1), fali_rolni: 0 },
+            };
             const zajednicko = { broj_naloga: brj, tip_proizvoda: "folija", kupac: kupac || "", naziv: proizvodNaziv || naziv, proizvod: proizvodNaziv || naziv };
             const zajedParam = {
-                formati_rezim: true, objedinjen: true, cele_rolne: celeRolne, template,
+                formati_rezim: true, objedinjen: true, optimizator, template,
                 plan_formatiranja: planF, izabrane_rolne: izabraneRolne,
-                formati_potrebe: potrebe, materijal: mat,
+                formati_potrebe: planF.formati, materijal: mat,
             };
 
             const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
@@ -493,7 +567,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
                     formati_ceka_materijal: false, delimican_materijal: false, nedodeljeni_slojevi: [],
                     vrednost_naloga: vrednost.uk, vrednost_jedinica: "€",
                 },
-                rezultati: { zbirno: plan.zbirno || null, vrednost_naloga: vrednost.uk },
+                rezultati: { zbirno: planF.zbirno, vrednost_naloga: vrednost.uk },
             }]).select("id").single();
             if (mErr) throw new Error("radni_nalozi: " + mErr.message);
             const mId = master.id;
@@ -505,7 +579,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const { error: oErr } = await supabase.from("operativni_nalozi").insert(ops);
             if (oErr) throw new Error("operativni_nalozi: " + oErr.message);
 
-            await rezervisiMaticne(plan.nalozi, brj, naziv);
+            await rezervisiMaticne(maticeRich, brj, naziv);
             setBroj(brj);
             if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("maropack:nalozi-changed", { detail: { broj: brj, masterId: mId } }));
             say("✅ " + brj + " — objedinjen nalog za rezanje kreiran. Vrednost " + fmtN(vrednost.uk) + " €. Matične rolne rezervisane magacioneru.");
@@ -628,11 +702,10 @@ export default function ObjedinjenNalog({ msg, operater }) {
                             </div>)}
                     </div>
 
-                    {/* ČELE ROLNE — iseci celu matičnu, višak na stanje */}
-                    <label style={{ display: "flex", alignItems: "center", gap: 9, margin: "2px 0 12px", padding: "9px 12px", border: "1px solid " + (celeRolne ? "#16a34a" : "#e2e8f0"), background: celeRolne ? "#f0fdf4" : "#fff", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer", color: "#0f172a" }}>
-                        <input type="checkbox" checked={celeRolne} onChange={e => setCeleRolne(e.target.checked)} style={{ width: 18, height: 18, cursor: "pointer" }} />
-                        ✂️ Iseci cele rolne (višak na stanje) — iskoristi celu matičnu rolnu do kraja; sve preko porudžbine ide na stanje kao gotove rolne
-                    </label>
+                    {/* OPTIMIZACIJA REZA — info */}
+                    <div style={{ margin: "2px 0 12px", padding: "9px 12px", border: "1px solid #bfdbfe", background: "#f8fbff", borderRadius: 10, fontSize: 12.5, fontWeight: 700, color: "#1d4ed8" }}>
+                        ⚙️ Rez se automatski optimizuje — puni se širina matične da otpad bude najmanji (dozvoljeno +20% preko zadatog), a metri se nastavljaju preko više matičnih rolni.
+                    </div>
 
                     {/* IZBOR MATIČNIH ROLNI — bogat prikaz kao kod naloga za materijal */}
                     <div style={{ border: "1.5px solid #1d4ed8", borderRadius: 14, padding: "12px 14px", background: "#f8fbff" }}>
