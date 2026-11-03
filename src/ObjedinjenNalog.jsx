@@ -197,15 +197,13 @@ function optimizujRez(products, W, slabLen, rolneList) {
     products.forEach(p => { const w = N_(p.w); if (!(w > 0)) return; if (!byW[w]) byW[w] = { w, need: 0, duz: N_(p.duzina) || slabLen, naziv: p.naziv || (w + " mm"), skart: N_(p.skart) || 0 }; byW[w].need += Math.max(1, Math.round(N_(p.need))); byW[w].skart = Math.max(byW[w].skart, N_(p.skart) || 0); });
     const widths = Object.values(byW).sort((a, b) => b.w - a.w);
     const ws = widths.map(x => x.w), need = widths.map(x => x.need);
-    // tolerancija prekoračenja: najmanje +20%, ili veći škart iz templejta
-    const tol = Math.max(0.2, Math.max(0, ...widths.map(x => x.skart)) / 100);
     const patterns = _genPatterns(ws, W);
-    // reši sa +tol; ako nema rešenja (granularnost), postepeno popuštaj max
-    let sol = null;
-    for (let t = tol; t <= tol + 1.01 && !(sol && sol.counts); t += 0.1) {
-        const max = widths.map(x => Math.max(x.need, Math.ceil(x.need * (1 + t))));
-        sol = _bnb(ws, need, max, patterns);
-    }
+    // CILJ: najmanji otpad — uvek popuni širinu korisnom (traženom) širinom umesto da
+    // ostatak ide na stanje. Zato labav gornji limit (dozvoljeno prekoračenje zadatog
+    // koliko treba da nema otpada); B&B i tako minimizuje otpad pa ne preteruje.
+    const maxOf = (f) => widths.map(x => x.need + Math.ceil(W / x.w) * f + 2);
+    let sol = _bnb(ws, need, maxOf(3), patterns);
+    if (!sol || !sol.counts) sol = _bnb(ws, need, maxOf(10), patterns);
     const produced = {}; ws.forEach(w => produced[w] = 0);
     const plan = [];
     if (sol && sol.counts) sol.counts.forEach((seg, i) => {
