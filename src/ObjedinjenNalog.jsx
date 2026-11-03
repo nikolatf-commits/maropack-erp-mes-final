@@ -595,20 +595,26 @@ export default function ObjedinjenNalog({ msg, operater }) {
 
     if (proizvodi === null) return <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam proizvode…</div>;
 
-    const z = (plan && plan.zbirno) || {};
-    const traznoRolni = ((plan && plan.potrebe) || []).reduce((a, p) => a + (Number(p.rolni_kom) || 0), 0);
-    const coverPct = traznoRolni > 0 ? Math.min(100, Math.round(((z.pokriveno_rolni || 0) / traznoRolni) * 100)) : (plan ? 100 : 0);
-    // Živi izlaz: koliko kojih rolni izlazi iz trenutno izabranih matičnih (proizvod + na stanje).
+    const maticeUsed = (plan && plan.maticeUsed) || [];
+    const nedovoljno = !!(plan && plan.dovoljno === false);
+    const traznoRolni = ((plan && plan.izlaz) || []).reduce((a, x) => a + (Number(x.treba) || 0), 0);
+    const nastaliProizvod = ((plan && plan.izlaz) || []).reduce((a, x) => a + Math.min(Number(x.kom) || 0, Number(x.treba) || 0), 0);
+    const coverPct = nedovoljno ? Math.min(100, Math.round(((maticeUsed.reduce((a, m) => a + N_(m.used_m), 0)) / ((plan && plan.metaraTreba) || 1)) * 100)) : (plan ? 100 : 0);
+    const z = {
+        maticnih: maticeUsed.length,
+        iskoriscenje_pct: plan ? +(100 - ((plan && plan.otpadPct) || 0)).toFixed(1) : "—",
+        pokriveno_rolni: nastaliProizvod,
+        fali_rolni: 0,
+    };
+    // Živi izlaz: koliko kojih rolni izlazi (proizvod + na stanje) iz plana.
     const izlazPoSirini = (() => {
-        if (!plan || !plan.nalozi) return [];
-        const prod = {}, stock = {};
-        (plan.nalozi || []).forEach(n => (n.nove_role || []).forEach(r => {
-            const w = N_(r.sirina_mm); if (!(w > 0)) return;
-            if (r.potreba_id != null) prod[w] = (prod[w] || 0) + 1; else stock[w] = (stock[w] || 0) + 1;
-        }));
+        if (!plan || !plan.izlaz) return [];
         const rows = [];
-        Object.keys(prod).sort((a, b) => b - a).forEach(w => rows.push({ sir: +w, kom: prod[w], tip: "proizvod" }));
-        Object.keys(stock).sort((a, b) => b - a).forEach(w => rows.push({ sir: +w, kom: stock[w], tip: "na stanje" }));
+        plan.izlaz.slice().sort((a, b) => b.sir - a.sir).forEach(x => {
+            const prod = Math.min(Number(x.kom) || 0, Number(x.treba) || 0), vis = Math.max(0, (Number(x.kom) || 0) - (Number(x.treba) || 0));
+            if (prod > 0) rows.push({ sir: x.sir, kom: prod, tip: "proizvod" });
+            if (vis > 0) rows.push({ sir: x.sir, kom: vis, tip: "na stanje" });
+        });
         return rows;
     })();
     const izlazUkupno = izlazPoSirini.reduce((a, r) => a + r.kom, 0);
@@ -717,29 +723,29 @@ export default function ObjedinjenNalog({ msg, operater }) {
                             <button onClick={autoRolne} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↺ Auto (FIFO)</button>
                         </div>
 
-                        {(plan.nalozi || []).map(n => {
+                        {maticeUsed.map(n => {
                             const r = infoRolne(n);
-                            const uk = N_(r.metraza_ost ?? r.metraza) || N_(n.utrosak_m);
-                            const det = [r.vrsta || matCheck.mat.vrsta, r.pod_vrsta || matCheck.mat.pod_vrsta, r.oznaka_materijala || matCheck.mat.oznaka, ((r.deb || matCheck.mat.debljina) ? (r.deb || matCheck.mat.debljina) + "µ" : ""), (n.sirina_mm ? n.sirina_mm + " mm" : ""), (r.datum_prijema || r.datum || ""), (r.dobavljac || matCheck.mat.proizvodjac), (r.lot ? "LOT:" + r.lot : ""), ("lok:" + (r.lokacija || r.palet || "—"))].filter(Boolean).join(" · ");
+                            const uk = N_(r.metraza_ost ?? r.metraza) || N_(n.used_m);
+                            const det = [r.vrsta || matCheck.mat.vrsta, r.pod_vrsta || matCheck.mat.pod_vrsta, r.oznaka_materijala || matCheck.mat.oznaka, ((r.deb || matCheck.mat.debljina) ? (r.deb || matCheck.mat.debljina) + "µ" : ""), ((plan && plan.W) ? plan.W + " mm" : ""), (r.datum_prijema || r.datum || ""), (r.dobavljac || matCheck.mat.proizvodjac), (r.lot ? "LOT:" + r.lot : ""), ("lok:" + (r.lokacija || r.palet || "—"))].filter(Boolean).join(" · ");
                             return (
                                 <div key={n.maticna_id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 900, fontSize: 13 }}>{n.br_rolne || n.maticna_id}</div>
                                         <div style={{ fontSize: 11.5, color: "#475569", marginTop: 1 }}>{det}</div>
-                                        <span style={{ display: "inline-block", marginTop: 4, background: "#dcfce7", color: "#166534", borderRadius: 999, padding: "2px 9px", fontSize: 10.5, fontWeight: 800 }}>reže se na formate · {(n.plan_reza || []).length} {((n.plan_reza || []).length === 1 ? "segment" : "segmenata")}</span>
+                                        <span style={{ display: "inline-block", marginTop: 4, background: "#dcfce7", color: "#166534", borderRadius: 999, padding: "2px 9px", fontSize: 10.5, fontWeight: 800 }}>reže se na formate</span>
                                     </div>
-                                    <div style={{ fontWeight: 900, color: "#1d4ed8", fontSize: 13, whiteSpace: "nowrap" }}>{fmtN(n.utrosak_m)} / {fmtN(uk)} m</div>
+                                    <div style={{ fontWeight: 900, color: "#1d4ed8", fontSize: 13, whiteSpace: "nowrap" }}>{fmtN(n.used_m)} / {fmtN(uk)} m</div>
                                     <div onClick={() => izbaciRolnu(n.br_rolne || n.maticna_id)} style={{ width: 26, height: 26, border: "1px solid #fecaca", color: "#ef4444", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, cursor: "pointer", flexShrink: 0 }}>×</div>
                                 </div>
                             );
                         })}
 
                         {/* traka pokrivenosti */}
-                        <div style={{ background: (z.fali_rolni ? "#fff7ed" : "#ecfdf5"), border: "1px solid " + (z.fali_rolni ? "#fed7aa" : "#bbf7d0"), borderRadius: 9, padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontWeight: 900, fontSize: 13, color: (z.fali_rolni ? "#9a3412" : "#166534"), margin: "10px 0 6px" }}>
-                            <span>Nastalih rolni: {z.pokriveno_rolni ?? 0} / {traznoRolni} · iskorišćenje {z.iskoriscenje_pct ?? "—"}%</span>
-                            <span>{z.fali_rolni ? ("⚠ fali " + z.fali_rolni + " rolni") : "Pokriveno ✓"}</span>
+                        <div style={{ background: (nedovoljno ? "#fff7ed" : "#ecfdf5"), border: "1px solid " + (nedovoljno ? "#fed7aa" : "#bbf7d0"), borderRadius: 9, padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontWeight: 900, fontSize: 13, color: (nedovoljno ? "#9a3412" : "#166534"), margin: "10px 0 6px" }}>
+                            <span>Proizvod: {nastaliProizvod} / {traznoRolni} rolni · iskorišćenje {z.iskoriscenje_pct ?? "—"}% · {fmtN((plan && plan.metaraTreba) || 0)} m matične</span>
+                            <span>{nedovoljno ? "⚠ nedovoljno metraže — dodaj rolnu" : "Pokriveno ✓"}</span>
                         </div>
-                        <div style={{ height: 9, background: "#dcfce7", borderRadius: 999, overflow: "hidden" }}><div style={{ height: "100%", width: coverPct + "%", background: (z.fali_rolni ? "#f59e0b" : "#16a34a"), borderRadius: 999 }} /></div>
+                        <div style={{ height: 9, background: "#dcfce7", borderRadius: 999, overflow: "hidden" }}><div style={{ height: "100%", width: coverPct + "%", background: (nedovoljno ? "#f59e0b" : "#16a34a"), borderRadius: 999 }} /></div>
 
                         {/* ŽIVI IZLAZ — koliko kojih rolni izlazi (menja se sa dodavanjem/izbacivanjem rolni) */}
                         {izlazPoSirini.length > 0 && (
@@ -771,16 +777,16 @@ export default function ObjedinjenNalog({ msg, operater }) {
                         </div>
                     </div>
 
-                    {plan.fali && plan.fali.length > 0 && (
-                        <div style={{ marginTop: 10, background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "9px 13px", fontSize: 12, fontWeight: 700 }}>
-                            ⚠ Fali: {plan.fali.map((f, i) => <span key={i}>{f.rolni_kom}× {f.sirina_mm} mm × {fmtN(f.duzina_m)} m — {f.razlog}{i < plan.fali.length - 1 ? "; " : ""}</span>)}
+                    {nedovoljno && (
+                        <div style={{ marginTop: 10, background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "9px 13px", fontSize: 12, fontWeight: 700 }}>
+                            ⚠ Nema dovoljno metraže na izabranim rolnama (treba {fmtN((plan && plan.metaraTreba) || 0)} m). Dodaj još matičnih rolni.
                         </div>
                     )}
 
                     {/* footer kreiranje */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 14, paddingTop: 12, borderTop: "1px solid #eef2f7", flexWrap: "wrap" }}>
                         <div style={{ fontSize: 11.5, color: "#64748b", fontWeight: 700 }}>Jedan nalog · {izabraniProizvodi.length} proizvoda · vrednost {fmtN(vrednost.uk)} € → kartica „Vrednost naloga"</div>
-                        <button onClick={kreiraj} disabled={saving || !!broj || (plan.fali && plan.fali.length)} style={{ background: (saving || !!broj || (plan.fali && plan.fali.length)) ? "#cbd5e1" : "linear-gradient(135deg,#0d9488,#0f766e)", color: "#fff", border: "none", borderRadius: 10, padding: "11px 22px", fontWeight: 900, fontSize: 13, cursor: (saving || !!broj) ? "default" : "pointer" }}>{broj ? "✓ " + broj + " kreiran" : saving ? "Kreiram…" : "✓ Kreiraj objedinjen nalog"}</button>
+                        <button onClick={kreiraj} disabled={saving || !!broj || nedovoljno || !maticeUsed.length} style={{ background: (saving || !!broj || nedovoljno || !maticeUsed.length) ? "#cbd5e1" : "linear-gradient(135deg,#0d9488,#0f766e)", color: "#fff", border: "none", borderRadius: 10, padding: "11px 22px", fontWeight: 900, fontSize: 13, cursor: (saving || !!broj) ? "default" : "pointer" }}>{broj ? "✓ " + broj + " kreiran" : saving ? "Kreiram…" : "✓ Kreiraj objedinjen nalog"}</button>
                     </div>
                     {broj && <div style={{ marginTop: 10, background: "#ecfdf5", border: "1px solid #bbf7d0", color: "#166534", borderRadius: 10, padding: "9px 13px", fontSize: 12.5, fontWeight: 800 }}>✅ {broj} kreiran — nalog za rezanje + perforacija. Matične rolne rezervisane magacioneru, vrednost {fmtN(vrednost.uk)} € je na Dashboard kartici.</div>}
                 </div>
