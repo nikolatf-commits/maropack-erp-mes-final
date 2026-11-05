@@ -255,31 +255,37 @@ function buildSvgPro(c, u, lang = "sr") {
         return Math.max(y0 + 4, Math.min(y1 - 4, uy));
     })() : null;
     if (c.stampa) {
-        g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
         const dz = c.stampaDizajn || null;
         const dzUrl = dz && (dz.url || dz.src || "");
-        if (dzUrl) {
-            // UPLOADOVANA SLIKA DIZAJNA — rotacija / skala / zrcalo, isečena na polje štampe (kao kod folije)
-            const rot = Number(dz.rotacija) || 0;
-            const zr = (Number(dz.zrcalo) === -1) ? -1 : 1;
-            const spct = (Number(dz.sirinaPct) || 100) / 100;
-            const vpct = (Number(dz.visinaPct) || 100) / 100;
-            // na 90°/270° zamena širine i visine da slika i dalje "leži" u polju
-            const rotated = (rot % 180) === 90;
-            const boxW = rotated ? ph : pw, boxH = rotated ? pw : ph;
-            const iw = boxW * spct, ih = boxH * vpct;
-            const cxR = px + pw / 2, cyR = py + ph / 2;
-            const ix = cxR - iw / 2, iy = cyR - ih / 2;
-            const clipId = "stclip" + u;
-            d += `<clipPath id="${clipId}"><rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2"/></clipPath>`;
-            let tf = `rotate(${rot} ${q(cxR)} ${q(cyR)})`;
-            if (zr === -1) tf += ` translate(${q(2 * cxR)} 0) scale(-1 1)`;
-            const safeUrl = String(dzUrl).replace(/"/g, "&quot;");
-            g += `<g clip-path="url(#${clipId})"><image href="${safeUrl}" x="${q(ix)}" y="${q(iy)}" width="${q(iw)}" height="${q(ih)}" transform="${tf}" preserveAspectRatio="xMidYMid meet"/></g>`;
-            g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="none" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
-        } else {
-            const lines = String(c.stampaText || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
-            for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+        const motivTxt = (c.stampaText && String(c.stampaText).trim()) ? String(c.stampaText).trim() : "";
+        // Ako je uneta SAMO reciklaža (bez dizajna i bez motiva) → NE crta se zeleno polje štampe,
+        // prikazuje se samo znak sa kotama.
+        const samoZnak = !!psx.reciklaza && !dzUrl && !motivTxt;
+        if (!samoZnak) {
+            g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
+            if (dzUrl) {
+                // UPLOADOVANA SLIKA DIZAJNA — rotacija / skala / zrcalo, isečena na polje štampe (kao kod folije)
+                const rot = Number(dz.rotacija) || 0;
+                const zr = (Number(dz.zrcalo) === -1) ? -1 : 1;
+                const spct = (Number(dz.sirinaPct) || 100) / 100;
+                const vpct = (Number(dz.visinaPct) || 100) / 100;
+                // na 90°/270° zamena širine i visine da slika i dalje "leži" u polju
+                const rotated = (rot % 180) === 90;
+                const boxW = rotated ? ph : pw, boxH = rotated ? pw : ph;
+                const iw = boxW * spct, ih = boxH * vpct;
+                const cxR = px + pw / 2, cyR = py + ph / 2;
+                const ix = cxR - iw / 2, iy = cyR - ih / 2;
+                const clipId = "stclip" + u;
+                d += `<clipPath id="${clipId}"><rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2"/></clipPath>`;
+                let tf = `rotate(${rot} ${q(cxR)} ${q(cyR)})`;
+                if (zr === -1) tf += ` translate(${q(2 * cxR)} 0) scale(-1 1)`;
+                const safeUrl = String(dzUrl).replace(/"/g, "&quot;");
+                g += `<g clip-path="url(#${clipId})"><image href="${safeUrl}" x="${q(ix)}" y="${q(iy)}" width="${q(iw)}" height="${q(ih)}" transform="${tf}" preserveAspectRatio="xMidYMid meet"/></g>`;
+                g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="none" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
+            } else {
+                const lines = String(motivTxt || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
+                for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+            }
         }
         // Reciklažni znak (trougao). Ako je zadata pozicija → kotira se od IVICA KESE
         // (leva/desna ivica + od dna). Bez pozicije → donji-desni ugao polja štampe.
@@ -295,15 +301,20 @@ function buildSvgPro(c, u, lang = "sr") {
                 const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0;
                 const boxB = y1 - odDn;             // donja ivica znaka
                 const rcy = boxB - botOff;          // centar znaka (y)
+                const symTop = rcy - topOff;        // gornja ivica znaka (bbox)
                 let rcx;
                 if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
+                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // BOČNA ivica znaka ka ivici kese
                 g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
-                // KOTE (uvek vidljive): horizontalna od ivice + vertikalna od dna
-                const hy = (rcy - topOff) - 8;
-                if (desna) g += kotaH(hy, rcx + halfW, x1, rcy - topOff, String(num(psx.reklOdIvice) || 0));
-                else g += kotaH(hy, x0, rcx - halfW, rcy - topOff, String(num(psx.reklOdIvice) || 0));
-                const vx = desna ? Math.min(x1 - 7, rcx + halfW + 11) : Math.max(x0 + 7, rcx - halfW - 11);
-                g += kotaV(vx, boxB, y1, vx, String(num(psx.reklOdDna) || 0));
+                // Tanke referentne (pomoćne) linije — bočna i donja ivica znaka (da se kota meri do IVICE, ne do vrha)
+                g += `<line x1="${q(nearX)}" y1="${q(symTop)}" x2="${q(nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                g += `<line x1="${q(desna ? nearX : rcx - halfW)}" y1="${q(boxB)}" x2="${q(desna ? rcx + halfW : nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                // KOTE — iste lepe tanke kote kao glavne dimenzije (dH/dV)
+                if (desna) g += dH(nearX, x1, rcy, String(num(psx.reklOdIvice) || 0));
+                else g += dH(x0, nearX, rcy, String(num(psx.reklOdIvice) || 0));
+                // vertikalna od dna kese do DONJE ivice znaka
+                const vx = desna ? Math.min(x1 - 9, rcx + halfW + 13) : Math.max(x0 + 9, rcx - halfW - 13);
+                g += dV(boxB, y1, vx, String(num(psx.reklOdDna) || 0));
             } else {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
                 const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
