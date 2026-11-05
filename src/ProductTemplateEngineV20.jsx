@@ -4056,11 +4056,18 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                             </label>
                                             {on && (
                                                 <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                                                    {op.tip === "lista" && (
+                                                    {op.tip === "lista" && !op.slobodno && (
                                                         <select value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()}>
                                                             <option value="">{t("ph.izaberi")}</option>
                                                             {op.vals.map(v => <option key={v} value={v}>{v}</option>)}
                                                         </select>
+                                                    )}
+                                                    {op.tip === "lista" && op.slobodno && (
+                                                        <>
+                                                            <input list={"dl_" + op.k} value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()}
+                                                                placeholder={op.l + (op.jed ? " (" + op.jed + ")" : "") + " — izaberi ili ukucaj"} />
+                                                            <datalist id={"dl_" + op.k}>{op.vals.map(v => <option key={v} value={v} />)}</datalist>
+                                                        </>
                                                     )}
                                                     {op.tip === "broj" && (
                                                         <input type="number" placeholder={op.l + " (" + (op.jed || "") + ")"} value={sel} onChange={e => setOpt({ sel: e.target.value })} style={fieldStyle()} />
@@ -4093,6 +4100,21 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                                 <option value="">{sp.prazno || "—"}</option>
                                                                 {(sp.vals || []).map(v => <option key={v} value={v}>{v}</option>)}
                                                             </select>
+                                                            {/* Pozicija (kotiranje) — prikazuje se tek kad je znak izabran */}
+                                                            {sp.pos && txt[sp.k] && (
+                                                                <div style={{ display: "grid", gridTemplateColumns: `repeat(${sp.pos.length}, 1fr)`, gap: 6, marginTop: 5 }}>
+                                                                    {sp.pos.map(([pk, pl, opts]) => (
+                                                                        <div key={pk}>
+                                                                            <label style={{ fontSize: 9, color: "#64748b", fontWeight: 700, display: "block" }}>{pl}</label>
+                                                                            {opts
+                                                                                ? <select value={txt[sp.k + "_" + pk] || opts[0]} onChange={e => setOpt({ txt: { [sp.k + "_" + pk]: e.target.value } })} style={{ ...fieldStyle(), padding: 5, fontSize: 12 }}>
+                                                                                    {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                                                                                </select>
+                                                                                : <input value={txt[sp.k + "_" + pk] || ""} placeholder="mm" onChange={e => setOpt({ txt: { [sp.k + "_" + pk]: e.target.value } })} style={{ ...fieldStyle(), padding: 5, fontSize: 12 }} />}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ))}
                                                     {(op.tekstPolja || []).map(tp => (

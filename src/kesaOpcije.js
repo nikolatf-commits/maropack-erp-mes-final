@@ -59,7 +59,15 @@ export const KESA_OPCIJE = [
             "Štampa vrućim pečatom zlatna boja", "Štampa vrućim pečatom srebrna boja"],
         pos: ["sirina", "visina", "odVrha", "odDna", "levo"],
         selPolja: [
-            { k: "reciklaza", l: "Reciklažni znak", vals: RECIKLAZNI_ZNACI, prazno: "— bez znaka —" },
+            {
+                k: "reciklaza", l: "Reciklažni znak", vals: RECIKLAZNI_ZNACI, prazno: "— bez znaka —",
+                // Pozicija znaka se KOTIRA od ivica kese: leva/desna ivica + od dna.
+                pos: [
+                    ["strana", "Referentna ivica", ["Od leve ivice", "Od desne ivice"]],
+                    ["odIvice", "Od ivice (mm)"],
+                    ["odDna", "Od dna (mm)"],
+                ],
+            },
         ],
         tekstPolja: [
             { k: "povrsina", l: "Površina štampe" },
@@ -93,6 +101,9 @@ export const KESA_OPCIJE = [
     { k: "unakrsna_perf", l: "Unakrsna perforacija", tip: "danet", pos: ["odVrha", "odDna"], crtez: "unakrsna_perf" },
 
     { k: "poprecni_var", l: "Poprečni var", tip: "lista", vals: ["DA", "3mm"], crtez: "poprecni_var" },
+
+    // Zasebna karakteristika: perforacija za otkidanje na rolni — grubo ili fino.
+    { k: "perf_otkidanje_rolna", l: "Perforacija za otkidanje na rolni", tip: "lista", vals: ["Gruba", "Fina"] },
 
     // Perforacija za otkinuti NA TELU KESE (različito od „na rolni") — bira se pozicija
     // (vrh/sredina/dno klapne ili telo kese) i opciono tačna mera (mm od vrha).
@@ -135,6 +146,12 @@ export const KESA_OPCIJE = [
         ]
     },
 
+    // Koliko kesa ide na jednu rolnu — padajuća lista + ručni unos (slobodno).
+    {
+        k: "kesa_po_rolni", l: "Kesa po rolni", tip: "lista", slobodno: true, jed: "kom",
+        vals: ["500", "1000", "1500", "2000", "2500", "3000", "3500", "4000"],
+    },
+
     { k: "poz_duplofan", l: "Pozicija duplofan trake", tip: "lista", vals: ["Na klapni"] },
 
     {
@@ -170,14 +187,15 @@ export const KESA_TIP_PRESET = {
 export const POS_LBL = {
     odVrha: "Od vrha (mm)", odDna: "Od dna (mm)", levo: "Levo (mm)", desno: "Desno (mm)",
     sirina: "Širina (mm)", visina: "Visina (mm)", odstojanje: "Odstojanje (mm/tekst)",
+    odIvice: "Od ivice (mm)", strana: "Referentna ivica",
 };
 
 // Grupisanje opcija po celinama (za templejt i nalog)
 export const KESA_GRUPE = [
     { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["adh_traka", "duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
     { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
-    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "unakrsna_perf", "poprecni_var", "perf_telo"] },
-    { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati"] },
+    { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "unakrsna_perf", "poprecni_var", "perf_telo", "perf_otkidanje_rolna"] },
+    { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati", "kesa_po_rolni"] },
 ];
 
 // Prevedi katalog-izbor (kesa.options/optSel/positions/optText) u oblik koji razume CrtezKese/kesaToConfig
@@ -196,7 +214,14 @@ export function toCrtezKesa(kesa = {}) {
         }
         if (o.k === "stampa") {
             const tS = txt[o.k] || {};
-            stdPos.stampa = { ...(pos[o.k] || {}), reciklaza: tS.reciklaza || "" };
+            stdPos.stampa = {
+                ...(pos[o.k] || {}),
+                reciklaza: tS.reciklaza || "",
+                // Pozicija reciklažnog znaka — kotira se od ivica kese
+                reklStrana: tS.reciklaza_strana || "",
+                reklOdIvice: tS.reciklaza_odIvice || "",
+                reklOdDna: tS.reciklaza_odDna || "",
+            };
             stampaText = tS.motiv || "";   // reciklažni znak se CRTA kao simbol (vidi CrtezKese)
         }
         // Perforacija za otkinuti na telu: pored mere (odVrha) nosi i izabranu POZICIJU
@@ -246,7 +271,19 @@ export function toCrtezKesa(kesa = {}) {
         if (p.odDna) extra.push(p.odDna + " mm od dna");
         if (p.levo) extra.push(p.levo + " mm levo");
         if (p.sirina && p.visina) extra.push(p.sirina + "×" + p.visina + " mm");
-        Object.keys(t).forEach((k) => { if (t[k]) extra.push(k === "reciklaza" ? ("♲ " + t[k]) : String(t[k])); });
+        Object.keys(t).forEach((k) => {
+            if (!t[k]) return;
+            if (/^reciklaza_/.test(k)) return;   // pozicija reciklaze se dodaje uz sam znak (dole)
+            if (k === "reciklaza") {
+                const rp = [];
+                if (t.reciklaza_strana) rp.push(String(t.reciklaza_strana).replace(/^Od\s+/i, "").replace(/\s*ivice$/i, " ivica"));
+                if (t.reciklaza_odIvice) rp.push(t.reciklaza_odIvice + " mm od ivice");
+                if (t.reciklaza_odDna) rp.push(t.reciklaza_odDna + " mm od dna");
+                extra.push("♲ " + t[k] + (rp.length ? " (" + rp.join(", ") + ")" : ""));
+            } else {
+                extra.push(String(t[k]));
+            }
+        });
         legend.push({ key: o.crtez || o.k, n: o.l, v: (v + (extra.length ? " · " + extra.join(" · ") : "")).trim() });
     });
     return {

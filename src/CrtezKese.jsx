@@ -281,13 +281,34 @@ function buildSvgPro(c, u, lang = "sr") {
             const lines = String(c.stampaText || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
             for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
         }
-        // Reciklažni znak (trougao) — u donjem-desnom uglu polja štampe.
+        // Reciklažni znak (trougao). Ako je zadata pozicija → kotira se od IVICA KESE
+        // (leva/desna ivica + od dna). Bez pozicije → donji-desni ugao polja štampe.
         if (psx.reciklaza) {
             const mch = String(psx.reciklaza).trim().match(/^(\S+)\s*(.*)$/);
             const broj = mch ? mch[1] : "", kod = mch ? (mch[2] || "").trim() : "";
-            const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
-            const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
-            g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna");
+            if (poz) {
+                const desna = /desn/i.test(String(psx.reklStrana || ""));
+                const rs = Math.max(13, Math.min(bw * 0.17, 30));
+                const halfW = rs * 0.5, topOff = rs * 0.5, botOff = rs * 0.92;
+                const odIv = has(psx, "reklOdIvice") ? mm(psx.reklOdIvice) : 0;
+                const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0;
+                const boxB = y1 - odDn;             // donja ivica znaka
+                const rcy = boxB - botOff;          // centar znaka (y)
+                let rcx;
+                if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+                // KOTE (uvek vidljive): horizontalna od ivice + vertikalna od dna
+                const hy = (rcy - topOff) - 8;
+                if (desna) g += kotaH(hy, rcx + halfW, x1, rcy - topOff, String(num(psx.reklOdIvice) || 0));
+                else g += kotaH(hy, x0, rcx - halfW, rcy - topOff, String(num(psx.reklOdIvice) || 0));
+                const vx = desna ? Math.min(x1 - 7, rcx + halfW + 11) : Math.max(x0 + 7, rcx - halfW - 11);
+                g += kotaV(vx, boxB, y1, vx, String(num(psx.reklOdDna) || 0));
+            } else {
+                const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
+                const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+            }
         }
     }
     // OPCIJE (adh traka, eurozumba, ...) se crtaju POSLE slike štampe, da je "pregaze"
