@@ -21,6 +21,9 @@ export const FOOD_TEXT =
 // Biraju se iz padajuće liste; crtež ih koristi da odredi gde ide element.
 export const POZICIJE_KESE = ["Na vrhu klapne", "Na sredini klapne", "Na dnu klapne", "Na telu kese"];
 
+// Reciklažni znakovi (resin kodovi) — biraju se kao motiv štampe. Prikazuju se na nalogu/skici.
+export const RECIKLAZNI_ZNACI = ["01 PET", "02 PE-HD", "03 PVC", "04 PE-LD", "05 PP", "06 PS", "07 O", "20 PAP", "21 PAP", "22 PAP", "81 PAP", "90 C"];
+
 export const KESA_OPCIJE = [
     // ADH lepljiva traka (ponovo-zatvorljiva) — čekira se sama za tipove sa klapnom,
     // ali korisnik može da je isključi, i tada NESTAJE sa skice.
@@ -54,7 +57,10 @@ export const KESA_OPCIJE = [
         vals: ["Termotransfer", "Štampa vrućim pečatom", "Flexo štampa",
             "Štampa vrućim pečatom crna boja", "Štampa vrućim pečatom zelena boja",
             "Štampa vrućim pečatom zlatna boja", "Štampa vrućim pečatom srebrna boja"],
-        pos: ["sirina", "visina", "odVrha", "levo"],
+        pos: ["sirina", "visina", "odVrha", "odDna", "levo"],
+        selPolja: [
+            { k: "reciklaza", l: "Reciklažni znak", vals: RECIKLAZNI_ZNACI, prazno: "— bez znaka —" },
+        ],
         tekstPolja: [
             { k: "povrsina", l: "Površina štampe" },
             { k: "pozicija", l: "Pozicija štampe" },
@@ -189,8 +195,9 @@ export function toCrtezKesa(kesa = {}) {
             stdPos.eurozumba = { ...(pos[o.k] || {}), sirina: m ? m[1] : (pos[o.k] || {}).sirina || "" };
         }
         if (o.k === "stampa") {
-            stdPos.stampa = { ...(pos[o.k] || {}) };
-            stampaText = (txt[o.k] || {}).motiv || "";
+            const tS = txt[o.k] || {};
+            stdPos.stampa = { ...(pos[o.k] || {}), reciklaza: tS.reciklaza || "" };
+            stampaText = tS.motiv || "";   // reciklažni znak se CRTA kao simbol (vidi CrtezKese)
         }
         // Perforacija za otkinuti na telu: pored mere (odVrha) nosi i izabranu POZICIJU
         // (vrh/sredina/dno klapne, telo) — crtež je koristi da odredi gde ide linija.
@@ -239,7 +246,7 @@ export function toCrtezKesa(kesa = {}) {
         if (p.odDna) extra.push(p.odDna + " mm od dna");
         if (p.levo) extra.push(p.levo + " mm levo");
         if (p.sirina && p.visina) extra.push(p.sirina + "×" + p.visina + " mm");
-        Object.keys(t).forEach((k) => { if (t[k]) extra.push(String(t[k])); });
+        Object.keys(t).forEach((k) => { if (t[k]) extra.push(k === "reciklaza" ? ("♲ " + t[k]) : String(t[k])); });
         legend.push({ key: o.crtez || o.k, n: o.l, v: (v + (extra.length ? " · " + extra.join(" · ") : "")).trim() });
     });
     return {

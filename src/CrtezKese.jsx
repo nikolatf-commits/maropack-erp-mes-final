@@ -115,6 +115,31 @@ const arw = (x, y, d) => { const a = 5; if (d === 'l') return `<path d="M${x} ${
 const kotaH = (y, x1, x2, oy, t) => { let q = `<line x1="${x1}" y1="${oy}" x2="${x1}" y2="${y + 4}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x2}" y1="${oy}" x2="${x2}" y2="${y + 4}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#94a3b8" stroke-width="0.9"/>` + arw(x1, y, 'l') + arw(x2, y, 'r'); const mx = (x1 + x2) / 2; q += `<rect x="${mx - 25}" y="${y - 8}" width="50" height="14" fill="#eef2f6" opacity="0.9"/><text x="${mx}" y="${y + 3}" font-size="10.5" fill="#334155" text-anchor="middle" font-weight="600">${t}</text>`; return q; };
 const kotaV = (x, y1, y2, ox, t) => { let q = `<line x1="${ox}" y1="${y1}" x2="${x - 4}" y2="${y1}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${ox}" y1="${y2}" x2="${x - 4}" y2="${y2}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#94a3b8" stroke-width="0.9"/>` + arw(x, y1, 'u') + arw(x, y2, 'd'); const my = (y1 + y2) / 2; q += `<g transform="rotate(-90 ${x} ${my})"><rect x="${x - 26}" y="${my - 8}" width="52" height="14" fill="#eef2f6" opacity="0.9"/><text x="${x}" y="${my + 3}" font-size="10.5" fill="#334155" text-anchor="middle" font-weight="600">${t}</text></g>`; return q; };
 
+// Reciklažni znak (Möbius loop) — trougao sa 3 strelice u krug, zaobljena temena,
+// broj u sredini i kod ispod. cx,cy = centar trougla; s = veličina.
+function reciklazaSvg(cx, cy, s, broj, kod, color) {
+    const q = (n) => Math.round(n * 100) / 100;
+    const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    color = color || "#0f172a";
+    const R = s * 0.50, w = s * 0.125;
+    const P = (a, r) => [r * Math.cos(a * Math.PI / 180), -r * Math.sin(a * Math.PI / 180)];
+    const T = P(90, R), L = P(210, R), Rp = P(330, R);
+    const lerp = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    let g = `<g transform="translate(${q(cx)} ${q(cy)})">`;
+    for (let i = 0; i < 3; i++) {
+        g += `<g transform="rotate(${-i * 120})">`;
+        const pStart = lerp(L, T, 0.30), inApex = lerp(L, T, 0.82), outApex = lerp(T, Rp, 0.18);
+        const base = lerp(T, Rp, 0.52), tip = lerp(T, Rp, 0.74), ctrl = [T[0] * 1.06, T[1] * 1.06];
+        g += `<path d="M ${q(pStart[0])} ${q(pStart[1])} L ${q(inApex[0])} ${q(inApex[1])} Q ${q(ctrl[0])} ${q(ctrl[1])} ${q(outApex[0])} ${q(outApex[1])} L ${q(base[0])} ${q(base[1])}" fill="none" stroke="${color}" stroke-width="${q(w)}" stroke-linejoin="round" stroke-linecap="butt"/>`;
+        const dir = [Rp[0] - T[0], Rp[1] - T[1]], dl = Math.hypot(dir[0], dir[1]) || 1, u = [dir[0] / dl, dir[1] / dl], n = [-u[1], u[0]], hw = w * 1.25;
+        g += `<polygon points="${q(tip[0])},${q(tip[1])} ${q(base[0] + n[0] * hw)},${q(base[1] + n[1] * hw)} ${q(base[0] - n[0] * hw)},${q(base[1] - n[1] * hw)}" fill="${color}"/>`;
+        g += `</g>`;
+    }
+    g += `<text x="0" y="${q(s * 0.10)}" font-size="${q(s * 0.30)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter">${esc(broj)}</text>`;
+    if (kod) g += `<text x="0" y="${q(s * 0.82)}" font-size="${q(s * 0.26)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter">${esc(kod)}</text>`;
+    return g + `</g>`;
+}
+
 function buildSvgPro(c, u, lang = "sr") {
     const T = (k, f) => translate(lang, k, f, lang);
     const q = (n) => Math.round(n * 10) / 10;
@@ -187,8 +212,15 @@ function buildSvgPro(c, u, lang = "sr") {
     // vrednosti (širina/visina/levo/odVrha), one imaju prednost.
     const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .88;
     const px = has(psx, "levo") ? x0 + mm(psx.levo) : cx - pw / 2;
-    const py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + 4;
-    const ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, (y1 - py) - 6);
+    // Pozicija po visini: „od vrha" (default) ILI „od dna" (donja ivica polja na y1 − odDna).
+    let py, ph;
+    if (!has(psx, "odVrha") && has(psx, "odDna")) {
+        ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, bh * .4);
+        py = Math.max(y0 + 4, (y1 - mm(psx.odDna)) - ph);
+    } else {
+        py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + 4;
+        ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, (y1 - py) - 6);
+    }
     // ── Perforacija za otkinuti NA TELU KESE ──────────────────────────────
     // Pozicija iz liste (vrh/sredina/dno klapne, telo) ili tačna mera „od vrha" (mm).
     // „Od vrha" se meri od samog vrha (vrha klapne ako je ima, inače vrha tela).
@@ -248,6 +280,14 @@ function buildSvgPro(c, u, lang = "sr") {
         } else {
             const lines = String(c.stampaText || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
             for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+        }
+        // Reciklažni znak (trougao) — u donjem-desnom uglu polja štampe.
+        if (psx.reciklaza) {
+            const mch = String(psx.reciklaza).trim().match(/^(\S+)\s*(.*)$/);
+            const broj = mch ? mch[1] : "", kod = mch ? (mch[2] || "").trim() : "";
+            const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
+            const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
+            g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
         }
     }
     // OPCIJE (adh traka, eurozumba, ...) se crtaju POSLE slike štampe, da je "pregaze"

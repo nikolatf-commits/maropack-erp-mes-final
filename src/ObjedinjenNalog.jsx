@@ -539,7 +539,8 @@ export default function ObjedinjenNalog({ msg, operater }) {
             const stavkeMeta = izabraniProizvodi.map((p) => {
                 const st = stavke[String(p.id)] || {}; const f = getForm(p); const r = vrednostFolija(f, st.cena, st.jed);
                 const rez0 = (f.folija && f.folija.rezanje) || {};
-                const hilzna = rez0.precnikHilzne || rez0.hilzna || rez0.hilzne || f.hilzna || "";
+                // Hilzna iz templejta: Rezanje → „Prečnik hilzne" (NE iz finalne rolne).
+                const hilzna = rez0.precnikHilzne || rez0.hilzna || "";
                 const proizvedeno = (plan.produced && plan.produced[N_(st.sirina)]) || Math.max(1, Math.round(N_(st.rolni)));
                 return { proizvod_id: p.id, naziv: p.naziv || "", sifra: sifraP(p), sirina_mm: N_(st.sirina), duzina_m: N_(st.duzina), rolni_kom: proizvedeno, treba_kom: Math.max(1, Math.round(N_(st.rolni))), cena: N_(st.cena), jedinica: st.jed, vrednost: r.vrednost, hilzna: hilzna, poruceno_kol: N_(f.porucenaKolicina), poruceno_jed: f.jedinicaUnosa || "m" };
             });

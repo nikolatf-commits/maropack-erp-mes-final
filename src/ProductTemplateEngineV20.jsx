@@ -401,7 +401,8 @@ const defaultForm = {
             dorada: "",
             smerGP: "",
             sirineTraka: "",
-            nacinPakovanja: ""
+            nacinPakovanja: "",
+            rasporedOtpada: "obe"
         },
         kpdf: {
             enabled: false,
@@ -3877,6 +3878,16 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                             </datalist>
                         </div>
                         <div>
+                            <label style={labelStyle()}>Ivični otpad (prikaz rezanja)</label>
+                            <select style={fieldStyle()} value={form.folija.rezanje.rasporedOtpada || "obe"}
+                                onChange={e => update("folija.rezanje.rasporedOtpada", e.target.value)}>
+                                <option value="obe">Podeljen — obe strane (po pola)</option>
+                                <option value="leva">Jedna traka — leva strana</option>
+                                <option value="desna">Jedna traka — desna strana</option>
+                            </select>
+                            <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, marginTop: 4 }}>Kad je rolna šira od idealne, ivični otpad se crta podeljeno ili kao jedna traka. Na nalogu se može i brzo prebaciti.</div>
+                        </div>
+                        <div>
                             <label style={labelStyle()}>Palete</label>
                             <input style={fieldStyle()} value={form.folija.rezanje.palete || ""}
                                 onChange={e => update("folija.rezanje.palete", e.target.value)} placeholder="npr. 2 EUR palete / miks" />
@@ -4075,6 +4086,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                             <input type="checkbox" checked={!!pos.okrenuto} onChange={e => setOpt({ pos: { okrenuto: e.target.checked } })} /> ↻ Okreni 180°
                                                         </label>
                                                     )}
+                                                    {(op.selPolja || []).map(sp => (
+                                                        <div key={sp.k}>
+                                                            <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{sp.l}</label>
+                                                            <select value={txt[sp.k] || ""} onChange={e => setOpt({ txt: { [sp.k]: e.target.value } })} style={fieldStyle()}>
+                                                                <option value="">{sp.prazno || "—"}</option>
+                                                                {(sp.vals || []).map(v => <option key={v} value={v}>{v}</option>)}
+                                                            </select>
+                                                        </div>
+                                                    ))}
                                                     {(op.tekstPolja || []).map(tp => (
                                                         <div key={tp.k}>
                                                             <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{tp.l}</label>

@@ -89,20 +89,48 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
     }
 
     // ── VIŠE PROIZVODA NA PONUDI ───────────────────────────────────────────────
-    const singleAsStavka = (p) => ({ redni: 1, naziv: p.naziv || p.proizvod || "", proizvod: p.naziv || p.proizvod || "", tip: String(p.tip || p.tip_proizvoda || "").toLowerCase(), kolicina: Number(p.kol ?? p.kolicina ?? 0) || 0, kol: Number(p.kol ?? p.kolicina ?? 0) || 0, cena: Number(p.c1 ?? p.cena ?? 0) || 0, c1: Number(p.c1 ?? p.cena ?? 0) || 0, uk: Number(p.uk ?? p.cena_ukupno ?? 0) || 0, kalkulacija_id: p.kalkulacija_id || null });
+    const singleAsStavka = (p) => {
+        const tip = String(p.tip || p.tip_proizvoda || "").toLowerCase();
+        const c1000 = Number(p.cena1000 ?? p.c1 ?? p.cena ?? 0) || 0;
+        const ckg = Number(p.cenaKg ?? p.cena_kg ?? 0) || 0;
+        const c1000kom = Number(p.cena1000kom ?? p.c1 ?? p.cena ?? 0) || 0;
+        const ckom = Number(p.cenaKom ?? (c1000kom / 1000)) || 0;
+        const jedinica = p.jedinica || (tip === "folija" ? "kg" : (tip === "kesa" ? "1000kom" : null));
+        return { redni: 1, naziv: p.naziv || p.proizvod || "", proizvod: p.naziv || p.proizvod || "", tip, kolicina: Number(p.kol ?? p.kolicina ?? 0) || 0, kol: Number(p.kol ?? p.kolicina ?? 0) || 0, kol1000: Number(p.kol1000 ?? p.kol ?? p.kolicina ?? 0) || 0, kolKg: Number(p.kolKg ?? p.ukupno_kg ?? 0) || 0, cena: Number(p.c1 ?? p.cena ?? 0) || 0, c1: Number(p.c1 ?? p.cena ?? 0) || 0, cena1000: c1000, cenaKg: ckg, cena1000kom: c1000kom, cenaKom: ckom, jedinica, uk: Number(p.uk ?? p.cena_ukupno ?? 0) || 0, kalkulacija_id: p.kalkulacija_id || null };
+    };
     const stavkaIz = (kal) => {
         const tip = String(kal.tip || "").toLowerCase();
         const rez = kal.rezultati || kal.rezultat || kal.res || {};
         const kolicina = Number(kal.kolicina ?? kal.kol ?? rez.kolicina ?? kal.nalog ?? 0) || 0;
-        const cena = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.saMarza ?? rez.cena1000 ?? kal.cena_kg ?? 0) || 0;
+        const c1000 = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.saMarza ?? rez.cena1000 ?? 0) || 0;
+        const ckg = Number(kal.cena_kg ?? rez.cenaPoKgSaMarza ?? rez.cenaPoKg ?? rez.cena_kg ?? 0) || 0;
+        const kolKg = Number(rez.ukupnoKgNalog ?? kal.ukupno_kg ?? rez.ukupnoKg ?? 0) || 0;
+        const konacna = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.konacna ?? 0) || 0; // kesa: €/1000 kom
+        let jedinica = null, cena = c1000;
+        if (tip === "folija") { jedinica = "kg"; cena = ckg || c1000; }
+        else if (tip === "kesa") { jedinica = "1000kom"; cena = konacna; }
         const uk = Number(rez.ukupnoNalog ?? kal.ukupno_nalog ?? (cena * kolicina)) || 0;
-        return { naziv: kal.naziv || "", proizvod: kal.naziv || "", tip, kolicina, kol: kolicina, cena, c1: cena, uk, kalkulacija_id: kal.id || null };
+        return { naziv: kal.naziv || "", proizvod: kal.naziv || "", tip, kolicina, kol: kolicina, kol1000: kolicina, kolKg, cena, c1: cena, cena1000: c1000, cenaKg: ckg, cena1000kom: konacna, cenaKom: konacna / 1000, jedinica, uk, kalkulacija_id: kal.id || null };
     };
     const stavkeOf = (p) => (Array.isArray(p.stavke) && p.stavke.length) ? p.stavke : ((Array.isArray(p?.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : [singleAsStavka(p)]);
     async function primeniStavke(p, nove) {
-        const uk = nove.reduce((s, it) => s + (Number(it.uk) || 0), 0);
+        const uk = nove.reduce((s, it) => s + (Number(iznosi(it).uk) || 0), 0);
         const naziv = nove.length > 1 ? (nove.length + " proizvoda") : (nove[0]?.naziv || p.naziv || "");
         return primeniPatch(p, { stavke: nove, podaci: { ...(p.podaci || {}), stavke: nove, vrednost: uk }, uk, cena_ukupno: uk, naziv, proizvod: naziv });
+    }
+    // Promena jedinice cene po stavci — folija: €/kg ↔ €/1000m; kesa: €/1000kom ↔ €/kom.
+    async function promeniJedinicu(p, idx, jed) {
+        const cur = stavkeOf(p).map((x, i) => {
+            if (i !== idx) return x;
+            let cena;
+            if (jed === "kg") cena = Number(x.cenaKg ?? x.cena_kg ?? x.cena1000 ?? x.c1 ?? 0) || 0;
+            else if (jed === "1000m") cena = Number(x.cena1000 ?? x.c1 ?? x.cena ?? 0) || 0;
+            else if (jed === "1000kom") cena = Number(x.cena1000kom ?? x.c1 ?? x.cena ?? 0) || 0;
+            else if (jed === "kom") cena = Number(x.cenaKom ?? (Number(x.cena1000kom ?? x.c1 ?? x.cena ?? 0) / 1000)) || 0;
+            else cena = Number(x.c1 ?? x.cena ?? 0) || 0;
+            return { ...x, jedinica: jed, cena, c1: cena };
+        });
+        await primeniStavke(p, cur);
     }
     async function skiniStavku(p, idx) {
         const cur = stavkeOf(p);
@@ -267,7 +295,7 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                         return (
                                             <div key={(kal.tip || "x") + "-" + (kal.id ?? kal.naziv)} onClick={() => dodajStavku(dodajZa, kal)} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 12px", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                                 <div><div style={{ fontWeight: 800, fontSize: 13.5 }}>{kal.naziv || "—"}</div><div style={{ fontSize: 11.5, color: "#94a3b8" }}>{kal.tip} · {si.kolTxt}</div></div>
-                                                <div style={{ fontWeight: 900, color: "#059669" }}>{fmt(si.uk)} €</div>
+                                                <div style={{ fontWeight: 900, color: "#059669" }}>{si.uk == null ? (fmt(si.cena) + " " + si.jed) : (fmt(si.uk) + " €")}</div>
                                             </div>
                                         );
                                     })}
@@ -344,8 +372,13 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                                 <td style={{ ...tdL, color: "#94a3b8", fontWeight: 800 }}>{idx + 1}</td>
                                                 <td style={tdL}><b>{it?.naziv || it?.proizvod || "—"}</b>{it?.tip ? <div style={{ fontSize: 11, color: "#94a3b8" }}>{it.tip}</div> : null}</td>
                                                 <td style={tdR}>{si.kolTxt}</td>
-                                                <td style={tdR}>{fmt(si.cena)} {si.jed}</td>
-                                                <td style={{ ...tdR, fontWeight: 900 }}>{fmt(si.uk)} €</td>
+                                                <td style={tdR}>{fmt(si.cena)} {si.jed}{si.jedOpcije && (
+                                                    <span style={{ display: "inline-flex", marginLeft: 6, border: "1px solid #cbd5e1", borderRadius: 6, overflow: "hidden", verticalAlign: "middle" }}>
+                                                        {si.jedOpcije.map(o => (
+                                                            <span key={o.k} onClick={() => promeniJedinicu(p, idx, o.k)} style={{ padding: "1px 6px", fontSize: 10, fontWeight: 800, cursor: "pointer", background: si.jedinica === o.k ? "#1d4ed8" : "#fff", color: si.jedinica === o.k ? "#fff" : "#334155" }}>{o.l}</span>
+                                                        ))}
+                                                    </span>)}</td>
+                                                <td style={{ ...tdR, fontWeight: 900 }}>{si.uk == null ? "—" : fmt(si.uk) + " €"}</td>
                                                 <td style={{ ...tdR }}><span onClick={() => skiniStavku(p, idx)} title="Skini stavku" style={{ color: "#ef4444", cursor: "pointer", fontWeight: 900 }}>✕</span></td>
                                             </tr>
                                         );
@@ -353,8 +386,13 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                         <tr>
                                             <td style={tdL}><b>{p?.naziv || p?.proizvod || "—"}</b></td>
                                             <td style={tdR}>{iz.kolTxt}</td>
-                                            <td style={tdR}>{fmt(iz.cena)} {iz.jed}</td>
-                                            <td style={{ ...tdR, fontWeight: 900, color: "#059669" }}>{fmt(iz.uk)} €</td>
+                                            <td style={tdR}>{fmt(iz.cena)} {iz.jed}{iz.jedOpcije && (
+                                                <span style={{ display: "inline-flex", marginLeft: 6, border: "1px solid #cbd5e1", borderRadius: 6, overflow: "hidden", verticalAlign: "middle" }}>
+                                                    {iz.jedOpcije.map(o => (
+                                                        <span key={o.k} onClick={() => promeniJedinicu(p, 0, o.k)} style={{ padding: "1px 6px", fontSize: 10, fontWeight: 800, cursor: "pointer", background: iz.jedinica === o.k ? "#1d4ed8" : "#fff", color: iz.jedinica === o.k ? "#fff" : "#334155" }}>{o.l}</span>
+                                                    ))}
+                                                </span>)}</td>
+                                            <td style={{ ...tdR, fontWeight: 900, color: "#059669" }}>{iz.uk == null ? "—" : fmt(iz.uk) + " €"}</td>
                                         </tr>
                                     )}
                                     {stavke && (
@@ -474,14 +512,32 @@ function btn(color) {
     };
 }
 
-// Iznosi po jedinici — folija: €/1000m, kesa: €/kom, špulna: €/špulni.
+// Iznosi po jedinici — folija: €/kg ili €/1000m; kesa: €/1000kom ili €/kom (biraš po stavci),
+// špulna: €/špulni. Ako ukupna količina nije uneta → uk = null (samo jedinična cena, bez „Ukupno").
 function iznosi(p) {
     const tip = String(p?.tip || p?.tip_proizvoda || "").toLowerCase();
+    if (tip === "folija") {
+        const jed = p?.jedinica === "1000m" ? "1000m" : "kg";   // default €/kg
+        const c1000 = Number(p?.cena1000 ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
+        const ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
+        const kol1000 = Number(p?.kol1000 ?? p?.kol ?? p?.kolicina ?? 0) || 0;
+        const kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
+        const opc = [{ k: "kg", l: "kg" }, { k: "1000m", l: "1000m" }];
+        if (jed === "kg") { const cena = ckg || c1000; return { jedinica: "kg", jedOpcije: opc, cena, jed: "€ / kg", kolTxt: kolKg > 0 ? kolKg.toLocaleString("sr-RS") + " kg" : "—", uk: kolKg > 0 ? cena * kolKg : null }; }
+        return { jedinica: "1000m", jedOpcije: opc, cena: c1000, jed: "€ / 1000m", kolTxt: kol1000 > 0 ? (kol1000 * 1000).toLocaleString("sr-RS") + " m" : "—", uk: kol1000 > 0 ? c1000 * kol1000 : null };
+    }
+    if (tip === "kesa") {
+        const jed = p?.jedinica === "kom" ? "kom" : "1000kom";   // default €/1000kom
+        const c1000kom = Number(p?.cena1000kom ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
+        const ckom = Number(p?.cenaKom ?? (c1000kom / 1000)) || 0;
+        const kol = Number(p?.kol ?? p?.kolicina ?? 0) || 0;   // kom
+        const opc = [{ k: "1000kom", l: "1000kom" }, { k: "kom", l: "kom" }];
+        if (jed === "kom") return { jedinica: "kom", jedOpcije: opc, cena: ckom, jed: "€ / kom", kolTxt: kol > 0 ? kol.toLocaleString("sr-RS") + " kom" : "—", uk: kol > 0 ? ckom * kol : null };
+        return { jedinica: "1000kom", jedOpcije: opc, cena: c1000kom, jed: "€ / 1000 kom", kolTxt: kol > 0 ? kol.toLocaleString("sr-RS") + " kom" : "—", uk: kol > 0 ? c1000kom * (kol / 1000) : null };
+    }
     const kol = Number(p?.kol ?? p?.kolicina ?? p?.podaci?.kolicina ?? 0) || 0;
     const cena = Number(p?.c1 ?? p?.cena ?? p?.konacna_cena ?? p?.cena_ukorak ?? p?.cena_jedinicna ?? p?.podaci?.cena_jedinicna ?? 0) || 0;
     const uk = Number(p?.uk ?? p?.cena_ukupno ?? p?.vrednost ?? p?.podaci?.vrednost ?? (cena * kol)) || 0;
-    if (tip === "folija") return { kolTxt: (kol * 1000).toLocaleString("sr-RS") + " m", jed: "€ / 1000m", cena, uk };
-    if (tip === "kesa") return { kolTxt: kol.toLocaleString("sr-RS") + " kom", jed: "€ / kom", cena, uk };
     if (tip === "spulna" || tip === "špulna") return { kolTxt: kol.toLocaleString("sr-RS") + " špulni", jed: "€ / špulni", cena, uk };
     return { kolTxt: kol.toLocaleString("sr-RS"), jed: "€", cena, uk };
 }

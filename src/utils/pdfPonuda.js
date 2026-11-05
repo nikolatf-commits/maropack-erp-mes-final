@@ -28,8 +28,8 @@ const TR = {
     hvala: "Hvala na poverenju. Za sva pitanja stojimo na raspolaganju.",
     potpis: "Ovlašćeno lice",
     fSed: "SEDIŠTE / HEAD OFFICE", fBank: "TEKUĆI RAČUN / BANK", fReg: "REGISTRACIONI BROJ",
-    jed: { folija: "/ 1000 m", kesa: "/ kom", spulna: "/ špulni", "": "" },
-    kom: { folija: (m) => m + " m", kesa: (k) => k + " kom", spulna: (k) => k + " špulni", "": (k) => k },
+    jed: { folija: "/ 1000 m", folijaKg: "/ kg", kesa: "/ kom", kesa1000: "/ 1000 kom", spulna: "/ špulni", "": "" },
+    kom: { folija: (m) => m + " m", folijaKg: (k) => k + " kg", kesa: (k) => k + " kom", spulna: (k) => k + " špulni", "": (k) => k },
   },
   en: {
     title: "OFFER", kupac: "CUSTOMER", broj: "No.:", datum: "Date:", vazi: "Valid until:",
@@ -43,8 +43,8 @@ const TR = {
     hvala: "Thank you for your trust. We remain at your disposal for any questions.",
     potpis: "Authorized person",
     fSed: "HEAD OFFICE", fBank: "BANK ACCOUNT", fReg: "REGISTRY NUMBER",
-    jed: { folija: "/ 1000 m", kesa: "/ pc", spulna: "/ spool", "": "" },
-    kom: { folija: (m) => m + " m", kesa: (k) => k + " pcs", spulna: (k) => k + " spools", "": (k) => k },
+    jed: { folija: "/ 1000 m", folijaKg: "/ kg", kesa: "/ pc", kesa1000: "/ 1000 pcs", spulna: "/ spool", "": "" },
+    kom: { folija: (m) => m + " m", folijaKg: (k) => k + " kg", kesa: (k) => k + " pcs", spulna: (k) => k + " spools", "": (k) => k },
   },
   de: {
     title: "ANGEBOT", kupac: "KUNDE", broj: "Nr.:", datum: "Datum:", vazi: "Gültig bis:",
@@ -58,8 +58,8 @@ const TR = {
     hvala: "Vielen Dank für Ihr Vertrauen. Für Fragen stehen wir gerne zur Verfügung.",
     potpis: "Unterschrift",
     fSed: "HAUPTSITZ", fBank: "BANKKONTO", fReg: "REGISTERNUMMER",
-    jed: { folija: "/ 1000 m", kesa: "/ Stk", spulna: "/ Spule", "": "" },
-    kom: { folija: (m) => m + " m", kesa: (k) => k + " Stk", spulna: (k) => k + " Spulen", "": (k) => k },
+    jed: { folija: "/ 1000 m", folijaKg: "/ kg", kesa: "/ Stk", kesa1000: "/ 1000 Stk", spulna: "/ Spule", "": "" },
+    kom: { folija: (m) => m + " m", folijaKg: (k) => k + " kg", kesa: (k) => k + " Stk", spulna: (k) => k + " Spulen", "": (k) => k },
   },
 };
 
@@ -69,11 +69,32 @@ function datStr(d) { const x = new Date(d); const p = (n) => String(n).padStart(
 
 function iznosi(p, t) {
   const tip = String(p?.tip || "").toLowerCase();
-  const key = (tip === "folija" || tip === "kesa") ? tip : ((tip === "spulna" || tip === "špulna") ? "spulna" : "");
+  if (tip === "folija") {
+    const jed = p?.jedinica === "1000m" ? "1000m" : "kg";   // default €/kg
+    const c1000 = Number(p?.cena1000 ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
+    const ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
+    const kol1000 = Number(p?.kol1000 ?? p?.kol ?? p?.kolicina ?? 0) || 0;
+    const kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
+    if (jed === "kg") {
+      const cena = ckg || c1000;
+      return { komTxt: kolKg > 0 ? t.kom.folijaKg(fmt(kolKg, 0)) : "—", jed: t.jed.folijaKg, cena, uk: kolKg > 0 ? cena * kolKg : null };
+    }
+    return { komTxt: kol1000 > 0 ? t.kom.folija(fmt(kol1000 * 1000, 0)) : "—", jed: t.jed.folija, cena: c1000, uk: kol1000 > 0 ? c1000 * kol1000 : null };
+  }
+  if (tip === "kesa") {
+    const jed = p?.jedinica === "kom" ? "kom" : "1000kom";   // default €/1000 kom
+    const c1000kom = Number(p?.cena1000kom ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
+    const ckom = Number(p?.cenaKom ?? (c1000kom / 1000)) || 0;
+    const kol = Number(p?.kol ?? p?.kolicina ?? 0) || 0;
+    const komTxt = kol > 0 ? t.kom.kesa(fmt(kol, 0)) : "—";
+    if (jed === "kom") return { komTxt, jed: t.jed.kesa, cena: ckom, uk: kol > 0 ? ckom * kol : null };
+    return { komTxt, jed: t.jed.kesa1000, cena: c1000kom, uk: kol > 0 ? c1000kom * (kol / 1000) : null };
+  }
+  const key = (tip === "spulna" || tip === "špulna") ? "spulna" : "";
   const kol = Number(p?.kol ?? p?.kolicina ?? 0) || 0;
   const cena = Number(p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
   const uk = Number(p?.uk ?? cena * kol) || 0;
-  const komTxt = key === "folija" ? t.kom.folija(fmt(kol * 1000, 0)) : (t.kom[key] || t.kom[""])(fmt(kol, 0));
+  const komTxt = (t.kom[key] || t.kom[""])(fmt(kol, 0));
   return { komTxt, jed: t.jed[key] || "", cena, uk };
 }
 
@@ -145,7 +166,7 @@ export async function napraviPDFPonuda(p = {}, opts = {}) {
     doc.setFont(FONT, "normal");
     doc.text(si.komTxt, 110, y, { align: "right" });
     doc.text(fmt(si.cena) + " € " + si.jed, 168, y, { align: "right" });
-    doc.text(fmt(si.uk), R, y, { align: "right" });
+    doc.text(si.uk == null ? "—" : fmt(si.uk), R, y, { align: "right" });
     ukTotal += Number(si.uk) || 0;
   };
   if (stavke) {
