@@ -309,12 +309,25 @@ function buildSvgPro(c, u, lang = "sr") {
                 // Tanke referentne (pomoćne) linije — bočna i donja ivica znaka (da se kota meri do IVICE, ne do vrha)
                 g += `<line x1="${q(nearX)}" y1="${q(symTop)}" x2="${q(nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
                 g += `<line x1="${q(desna ? nearX : rcx - halfW)}" y1="${q(boxB)}" x2="${q(desna ? rcx + halfW : nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
-                // KOTE — iste lepe tanke kote kao glavne dimenzije (dH/dV)
-                if (desna) g += dH(nearX, x1, rcy, String(num(psx.reklOdIvice) || 0));
-                else g += dH(x0, nearX, rcy, String(num(psx.reklOdIvice) || 0));
+                // KOTE — tanke linije + broj sa belim OREOLOM (bez belog pravougaonika),
+                // jer je kota nad telom kese (folijom), pa kutija ne sme da iskače.
+                const haloH = (xa, xb, yy, tt) => {
+                    const mx2 = (xa + xb) / 2;
+                    return `<line x1="${q(xa)}" y1="${q(yy)}" x2="${q(xb)}" y2="${q(yy)}" stroke="${INK}" stroke-width=".8"/>`
+                        + `<path d="${arr(xa, yy, 'l')}" fill="${INK}"/><path d="${arr(xb, yy, 'r')}" fill="${INK}"/>`
+                        + `<text x="${q(mx2)}" y="${q(yy + 3.2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo" font-weight="700" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
+                };
+                const haloV = (ya2, yb2, xx, tt) => {
+                    const my2 = (ya2 + yb2) / 2;
+                    return `<line x1="${q(xx)}" y1="${q(ya2)}" x2="${q(xx)}" y2="${q(yb2)}" stroke="${INK}" stroke-width=".8"/>`
+                        + `<path d="${arr(xx, ya2, 'u')}" fill="${INK}"/><path d="${arr(xx, yb2, 'd')}" fill="${INK}"/>`
+                        + `<text x="${q(xx)}" y="${q(my2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo" font-weight="700" transform="rotate(-90 ${q(xx)} ${q(my2)})" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
+                };
+                if (desna) g += haloH(nearX, x1, rcy, String(num(psx.reklOdIvice) || 0));
+                else g += haloH(x0, nearX, rcy, String(num(psx.reklOdIvice) || 0));
                 // vertikalna od dna kese do DONJE ivice znaka
                 const vx = desna ? Math.min(x1 - 9, rcx + halfW + 13) : Math.max(x0 + 9, rcx - halfW - 13);
-                g += dV(boxB, y1, vx, String(num(psx.reklOdDna) || 0));
+                g += haloV(boxB, y1, vx, String(num(psx.reklOdDna) || 0));
             } else {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
                 const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
