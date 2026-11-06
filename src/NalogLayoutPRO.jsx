@@ -10,6 +10,7 @@ import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import { kutijaPoKljucu, KUTIJA_LBL } from "./kutije.js";
 import { toCrtezKesa, KESA_OPCIJE, KESA_GRUPE, KESA_TIP_PRESET, FOOD_TEXT, opcijaNaloga } from "./kesaOpcije.js";
+import { supabase } from "./supabase";
 
 /* ---------- helpers ---------- */
 let LANG = "sr";
@@ -243,6 +244,8 @@ function buildD(nalog) {
             : ((num(t.dimenzijaSirina) || "?") + " mm × " + (eDuzinaRolne ? (fmtN(eDuzinaRolne) + " m rolna") : "?")),
         kom: (jedinica === "kom" && zadatoV) ? zadatoV : (od.kom || t.porucenaKolicinaKom || nalog.kom || (komUkupno || "—")),
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
+        // ID operacije (za pamćenje izbora na nalogu, npr. raspored ivičnog otpada)
+        opId: nalog.id || nalog.op_id || nalog.operativni_nalog_id || "",
         // Idealna širina materijala (iz proizvoda/templejta) — da se uporedi sa stvarno korišćenom rolnom
         idealnaSir: num(t.idealnaSirinaMaterijala) || num(od.idealnaSirinaMaterijala) || 0,
         // Korona tretman (folija) — provlači se na sve naloge
@@ -292,7 +295,12 @@ function buildD(nalog) {
             nacinPakovanja: rz.nacinPakovanja || fr.nacinPakovanja || "",
             palete: rz.palete || "", kolNaPaleti: rz.kolNaPaleti || "",
             // Raspored ivičnog otpada na prikazu rezanja: "obe" (podeljeno) | "leva" | "desna"
-            rasporedOtpada: rz.rasporedOtpada || fr.rasporedOtpada || "obe",
+            rasporedOtpada: (function () {
+                // Izbor sačuvan KLIKOM na nalogu ima prednost; pa templejt; pa default.
+                var sv = nalog.rez_raspored_otpada;
+                if (!sv) { var p = nalog.parametri; try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; } sv = p && p.rez_raspored_otpada; }
+                return sv || rz.rasporedOtpada || fr.rasporedOtpada || "obe";
+            })(),
         },
         perf: (function () {
             // Perforacija 1:1 kao u editoru: lista linija (pozicija + strana + razmak po liniji).
@@ -918,7 +926,7 @@ function pRez(D) {
         return '<button type="button" class="rez-tbtn' + (on ? ' on' : '') + '" data-m="' + m + '" onclick="' + hnd + '">' + lab + '</button>';
     };
     const _rezFig = _edge > 0.5
-        ? '<div class="rez-wrap">' +
+        ? '<div class="rez-wrap" data-nalog-id="' + esc(D.opId || '') + '">' +
         '<style>.rez-tbtn{font:700 11px Inter,Arial,sans-serif;padding:5px 11px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#475569;cursor:pointer;margin:0}.rez-tbtn.on{background:#7c3aed;border-color:#7c3aed;color:#fff}@media print{.no-print{display:none!important}}</style>' +
         '<div class="rez-toggle no-print" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:800;color:#64748b;margin-right:2px">Ivični otpad:</span>' +
         _tbtn('obe', 'Podeljen (' + Math.round(_edge / 2) + '+' + Math.round(_edge / 2) + ')') +
@@ -1947,11 +1955,42 @@ export default function NalogLayoutPRO({ nalog = {}, activeTab }) {
     }, [nalog, vrsta]);
     const proizvod = React.useMemo(() => buildD(nalog).proizvod, [nalog]);
 
+    // PAMĆENJE izbora „Ivični otpad" (prekidač na nalogu za rezanje).
+    // Klik na dugme: (1) lokalno zapamti na nalogu (da rebuild zadrži izbor),
+    // (2) trajno snimi u operativni_nalozi.parametri.rez_raspored_otpada → ostaje zauvek.
+    const printRef = React.useRef(null);
+    React.useEffect(() => {
+        const el = printRef.current;
+        if (!el) return;
+        const onClick = (ev) => {
+            const btn = ev.target && ev.target.closest && ev.target.closest(".rez-tbtn");
+            if (!btn || !el.contains(btn)) return;
+            const mode = btn.getAttribute("data-m");
+            if (!mode) return;
+            const wrap = btn.closest(".rez-wrap");
+            const id = wrap && wrap.getAttribute("data-nalog-id");
+            try { nalog.rez_raspored_otpada = mode; } catch (e) { }
+            if (id) {
+                try {
+                    supabase.from("operativni_nalozi").select("parametri").eq("id", id).maybeSingle().then((res) => {
+                        var p = res && res.data && res.data.parametri;
+                        if (typeof p === "string") { try { p = JSON.parse(p); } catch (e) { p = {}; } }
+                        p = p || {};
+                        p.rez_raspored_otpada = mode;
+                        supabase.from("operativni_nalozi").update({ parametri: p }).eq("id", id).then(() => { }, () => { });
+                    }, () => { });
+                } catch (e) { }
+            }
+        };
+        el.addEventListener("click", onClick);
+        return () => { el.removeEventListener("click", onClick); };
+    }, [htmlStr, nalog]);
+
     return (
         <div className="nv6" style={{ background: "#94a0b0", padding: 24 }}>
             <style>{V6_CSS}</style>
             {poravnato
-                ? <div dangerouslySetInnerHTML={{ __html: htmlStr }} />
+                ? <div ref={printRef} dangerouslySetInnerHTML={{ __html: htmlStr }} />
                 : <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontWeight: 700 }}>Učitavam nalog…</div>}
             {kesaRaw && (
                 <div className="a4">
