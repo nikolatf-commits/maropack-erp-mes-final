@@ -3504,7 +3504,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                             onChange={e => update("dimenzijaSirina", e.target.value)} style={fieldStyle()} />
                     </div>
                     <div>
-                        <label style={labelStyle()}>Dimenzija — dužina (mm)</label>
+                        <label style={labelStyle()}>Dimenzija — dužina (mm) — jedne rolne</label>
                         <input type="number" value={form.dimenzijaDuzina || ""} placeholder="npr. 110"
                             onChange={e => update("dimenzijaDuzina", e.target.value)} style={fieldStyle()} />
                     </div>
