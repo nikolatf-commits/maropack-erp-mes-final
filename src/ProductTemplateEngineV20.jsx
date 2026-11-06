@@ -1125,7 +1125,11 @@ function RollPreview({ folija, idealna = "" }) {
     const lista = trake.length ? trake : (Number(rez.sirinaTrake) ? [Number(rez.sirinaTrake)] : []);
     const suma = lista.reduce((a, b) => a + b, 0);
     const otpad = Math.max(0, sirM - suma);
-    const ol = otpad / 2, od = otpad / 2;
+    // Raspored ivičnog otpada: "obe" (po pola), "leva" (sve levo), "desna" (sve desno)
+    const mode = (rez.rasporedOtpada === "leva" || rez.rasporedOtpada === "desna") ? rez.rasporedOtpada : "obe";
+    const ol = mode === "leva" ? otpad : (mode === "desna" ? 0 : otpad / 2);
+    const od = mode === "desna" ? otpad : (mode === "leva" ? 0 : otpad / 2);
+    const otpadTxt = otpad ? (mode === "obe" ? (" · otpad " + otpad.toFixed(0) + " mm (po " + ol.toFixed(0) + " levo/desno)") : (" · otpad " + otpad.toFixed(0) + " mm (sve " + (mode === "leva" ? "levo" : "desno") + ")")) : "";
     const isk = sirM ? Math.min(100, (suma / sirM) * 100) : 0;
     const segs = [];
     if (ol > 0) segs.push({ w: ol, waste: true, label: "OTPAD " + ol.toFixed(0) });
@@ -1134,7 +1138,7 @@ function RollPreview({ folija, idealna = "" }) {
     return <div style={{ border: `2px solid ${BLUE}`, borderRadius: 10, overflow: "hidden", background: "#eef4ff" }}>
         <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 11, fontWeight: 900, color: BLUE }}>
             <span>{t("tmpl.prikaz_rolne")}</span>
-            <span>Materijal: {sirM || "—"} mm · iskorišćenje {isk.toFixed(1)}%{otpad ? " · otpad " + otpad.toFixed(0) + " mm (po " + ol.toFixed(0) + " levo/desno)" : ""}</span>
+            <span>Materijal: {sirM || "—"} mm · iskorišćenje {isk.toFixed(1)}%{otpadTxt}</span>
         </div>
         <div style={{ display: "flex", minHeight: 72, borderTop: `1px solid ${BLUE}` }}>
             {segs.length ? segs.map((s, i) => <div key={i} style={{ flex: `${Math.max(s.w, 6)} 1 0`, minWidth: s.w < 18 ? 42 : 50, borderRight: i === segs.length - 1 ? "none" : `1px solid ${s.waste ? RED : BLUE}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.waste ? RED : BLUE, background: s.waste ? "#fee2e2" : "transparent", fontSize: 11, fontWeight: 900, textAlign: "center", padding: 3 }}>{s.label}</div>) : <div style={{ padding: 16, color: "#64748b", fontWeight: 800 }}>{t("ph.unesi_sirine")}</div>}
