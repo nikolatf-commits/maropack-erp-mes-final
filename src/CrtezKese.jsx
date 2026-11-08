@@ -205,7 +205,10 @@ function buildSvgPro(c, u, lang = "sr") {
     const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
     const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
-    const ey = has(eV, "odVrha") ? eTop + mm(eV.odVrha) : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
+    // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa default.
+    const ey = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
+        : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
+            : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
     const psx = (P.stampa || {});
     // Podrazumevano polje štampe ide od VRHA tela (do klapne) skoro do dna i preko
     // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
@@ -382,22 +385,27 @@ function buildSvgPro(c, u, lang = "sr") {
         const nX = 8; for (let i = 0; i <= nX; i++) { const xx = x0 + (x1 - x0) * i / nX; g += `<path d="M ${q(xx - 2)} ${q(unakrsnaY - 2)} L ${q(xx + 2)} ${q(unakrsnaY + 2)} M ${q(xx - 2)} ${q(unakrsnaY + 2)} L ${q(xx + 2)} ${q(unakrsnaY - 2)}" stroke="${UC}" stroke-width=".9"/>`; }
     }
     if (c.anleger) g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 5)}" width="${q(bw - 16)}" height="5" rx="2" fill="#dbeafe" stroke="${BLUE}" stroke-width=".9"/>`;
-    // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno) + prečnikom.
+    // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno/otvor) + prečnikom.
+    let ozOtvorKote = [];
     {
         const ozRupe = Array.isArray((P.okrugla_zumba || {}).rupe)
-            ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne")))
+            ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odOtvora") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne")))
             : [];
         const topRef = (vrh === "klapna" || vrh === "header") ? ky : y0;
         if (ozRupe.length) {
-            // 1) izračunaj poziciju svake rupe
+            // 1) izračunaj poziciju svake rupe („od otvora" = od usta kese = y0, ima prednost nad „od vrha")
             const pts = ozRupe.map((r, ri) => {
                 const rad = Math.max(2.5, (has(r, "precnik") ? mm(r.precnik) : 9) / 2);
                 let hx = has(r, "odLeve") ? x0 + mm(r.odLeve) : (has(r, "odDesne") ? x1 - mm(r.odDesne) : cx);
-                let hy = has(r, "odVrha") ? topRef + mm(r.odVrha) : (has(r, "odDna") ? y1 - mm(r.odDna) : topRef + 16);
+                let hy = has(r, "odOtvora") ? y0 + mm(r.odOtvora)
+                    : has(r, "odVrha") ? topRef + mm(r.odVrha)
+                        : (has(r, "odDna") ? y1 - mm(r.odDna) : topRef + 16);
                 hx = Math.max(x0 + rad, Math.min(x1 - rad, hx));
                 hy = Math.max(topRef + rad, Math.min(y1 - rad, hy));
                 return { r, ri, rad, hx, hy };
             });
+            // Zapamti rupe sa „od otvora" merom — da se iskotiraju u sekciji KOTE (od usta kese do rupe)
+            ozOtvorKote = pts.filter((p) => has(p.r, "odOtvora")).map((p) => ({ hy: p.hy, hx: p.hx, val: num(p.r.odOtvora) }));
             // 2) KOTE RAZMAKA između susednih rupa (centar–centar), pre crtanja rupa da ostanu ispod
             if (pts.length >= 2) {
                 const sortd = [...pts].sort((a, b) => (a.hx - b.hx) || (a.hy - b.hy));
@@ -420,7 +428,7 @@ function buildSvgPro(c, u, lang = "sr") {
                 const lx = toRight ? hx + rad + 4 : hx - rad - 4;
                 const anc = toRight ? "start" : "end";
                 const posTxt = [
-                    has(r, "odVrha") ? num(r.odVrha) + "↓" : (has(r, "odDna") ? num(r.odDna) + "↑" : ""),
+                    has(r, "odOtvora") ? num(r.odOtvora) + "↧" : (has(r, "odVrha") ? num(r.odVrha) + "↓" : (has(r, "odDna") ? num(r.odDna) + "↑" : "")),
                     has(r, "odLeve") ? num(r.odLeve) + "←" : (has(r, "odDesne") ? num(r.odDesne) + "→" : ""),
                 ].filter(Boolean).join(" ");
                 g += `<text x="${q(lx)}" y="${q(hy - rad - 2)}" font-size="8" fill="${INK}" text-anchor="${anc}" font-weight="800" font-family="Inter">Ø${has(r, "precnik") ? num(r.precnik) : "?"}</text>`;
@@ -476,11 +484,14 @@ function buildSvgPro(c, u, lang = "sr") {
         if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
         // Unakrsna perforacija — „od vrha" ILI „od dna"
         if (c.unakrsnaPerf) { const uv = P.unakrsna_perf || {}; if (has(uv, "odVrha")) ok += vKota(topY, unakrsnaY, num(uv.odVrha), KC.unakrsna); else if (has(uv, "odDna")) ok += vKota(y1, unakrsnaY, num(uv.odDna), KC.unakrsna); }
-        // Eurozumba — „od vrha" (vertikalno) i „levo" od centra (horizontalno)
+        // Eurozumba — vertikalno: „od otvora" (od usta kese) ILI „od vrha"; „levo" od centra (horizontalno)
         if (c.euroloch) {
-            if (has(eV, "odVrha")) ok += vKota(eTop, ey, num(eV.odVrha), KC.euro);
+            if (has(eV, "odOtvora")) ok += vKota(y0, ey, num(eV.odOtvora), KC.euro);
+            else if (has(eV, "odVrha")) ok += vKota(eTop, ey, num(eV.odVrha), KC.euro);
             if (has(eV, "levo")) ok += hKota(cx, ex, ey - Math.max(eW * 0.17, 3) - 7, num(eV.levo), KC.euro);
         }
+        // Okrugla zumba — kota „od otvora" (od usta kese do svake rupe koja je ima)
+        if (ozOtvorKote && ozOtvorKote.length) ozOtvorKote.forEach((k) => { ok += vKota(y0, k.hy, k.val, SUB); });
         // Štampa — „od vrha", „levo" i dimenzije polja (širina×visina)
         if (c.stampa) {
             if (has(psx, "odVrha")) ok += vKota(y0, py, num(psx.odVrha), KC.stampa);

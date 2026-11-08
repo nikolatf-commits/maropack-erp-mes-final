@@ -96,21 +96,25 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
         const c1000kom = Number(p.cena1000kom ?? p.c1 ?? p.cena ?? 0) || 0;
         const ckom = Number(p.cenaKom ?? (c1000kom / 1000)) || 0;
         const jedinica = p.jedinica || (tip === "folija" ? "kg" : (tip === "kesa" ? "1000kom" : null));
-        return { redni: 1, naziv: p.naziv || p.proizvod || "", proizvod: p.naziv || p.proizvod || "", tip, kolicina: Number(p.kol ?? p.kolicina ?? 0) || 0, kol: Number(p.kol ?? p.kolicina ?? 0) || 0, kol1000: Number(p.kol1000 ?? p.kol ?? p.kolicina ?? 0) || 0, kolKg: Number(p.kolKg ?? p.ukupno_kg ?? 0) || 0, cena: Number(p.c1 ?? p.cena ?? 0) || 0, c1: Number(p.c1 ?? p.cena ?? 0) || 0, cena1000: c1000, cenaKg: ckg, cena1000kom: c1000kom, cenaKom: ckom, jedinica, uk: Number(p.uk ?? p.cena_ukupno ?? 0) || 0, kalkulacija_id: p.kalkulacija_id || null };
+        return { redni: 1, naziv: p.naziv || p.proizvod || "", proizvod: p.naziv || p.proizvod || "", tip, kolicina: Number(p.kol ?? p.kolicina ?? 0) || 0, kol: Number(p.kol ?? p.kolicina ?? 0) || 0, kol1000: Number(p.kol1000 ?? p.kol ?? p.kolicina ?? 0) || 0, kolKg: Number(p.kolKg ?? p.ukupno_kg ?? 0) || 0, kgPo1000: Number(p.kgPo1000 ?? 0) || 0, cena: Number(p.c1 ?? p.cena ?? 0) || 0, c1: Number(p.c1 ?? p.cena ?? 0) || 0, cena1000: c1000, cenaKg: ckg, cena1000kom: c1000kom, cenaKom: ckom, jedinica, uk: Number(p.uk ?? p.cena_ukupno ?? 0) || 0, kalkulacija_id: p.kalkulacija_id || null };
     };
     const stavkaIz = (kal) => {
         const tip = String(kal.tip || "").toLowerCase();
         const rez = kal.rezultati || kal.rezultat || kal.res || {};
         const kolicina = Number(kal.kolicina ?? kal.kol ?? rez.kolicina ?? kal.nalog ?? 0) || 0;
         const c1000 = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.saMarza ?? rez.cena1000 ?? 0) || 0;
-        const ckg = Number(kal.cena_kg ?? rez.cenaPoKgSaMarza ?? rez.cenaPoKg ?? rez.cena_kg ?? 0) || 0;
+        // kg po 1000 m (materijalna osobina iz kalkulacije) — ključ za konverziju €/1000m ↔ €/kg
+        const kgPo1000 = Number(rez.ukupnoKg ?? rez.ukupnoKg1000 ?? kal.ukupno_kg_1000 ?? 0) || 0;
+        // €/kg: eksplicitno iz kalkulacije; ako nema → izvedi iz €/1000m ÷ (kg/1000m). NIKAD ne uzimati €/1000m kao €/kg.
+        let ckg = Number(kal.cena_kg ?? rez.cenaPoKgSaMarza ?? rez.cenaPoKg ?? rez.cena_kg ?? 0) || 0;
+        if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
         const kolKg = Number(rez.ukupnoKgNalog ?? kal.ukupno_kg ?? rez.ukupnoKg ?? 0) || 0;
         const konacna = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.konacna ?? 0) || 0; // kesa: €/1000 kom
         let jedinica = null, cena = c1000;
         if (tip === "folija") { jedinica = "kg"; cena = ckg || c1000; }
         else if (tip === "kesa") { jedinica = "1000kom"; cena = konacna; }
         const uk = Number(rez.ukupnoNalog ?? kal.ukupno_nalog ?? (cena * kolicina)) || 0;
-        return { naziv: kal.naziv || "", proizvod: kal.naziv || "", tip, kolicina, kol: kolicina, kol1000: kolicina, kolKg, cena, c1: cena, cena1000: c1000, cenaKg: ckg, cena1000kom: konacna, cenaKom: konacna / 1000, jedinica, uk, kalkulacija_id: kal.id || null };
+        return { naziv: kal.naziv || "", proizvod: kal.naziv || "", tip, kolicina, kol: kolicina, kol1000: kolicina, kolKg, kgPo1000, cena, c1: cena, cena1000: c1000, cenaKg: ckg, cena1000kom: konacna, cenaKom: konacna / 1000, jedinica, uk, kalkulacija_id: kal.id || null };
     };
     const stavkeOf = (p) => (Array.isArray(p.stavke) && p.stavke.length) ? p.stavke : ((Array.isArray(p?.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : [singleAsStavka(p)]);
     async function primeniStavke(p, nove) {
@@ -123,7 +127,17 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
         const cur = stavkeOf(p).map((x, i) => {
             if (i !== idx) return x;
             let cena;
-            if (jed === "kg") cena = Number(x.cenaKg ?? x.cena_kg ?? x.cena1000 ?? x.c1 ?? 0) || 0;
+            if (jed === "kg") {
+                // €/kg: eksplicitno; ako nema → IZVEDI iz €/1000m ÷ (kg/1000m). Ne koristiti €/1000m direktno.
+                cena = Number(x.cenaKg ?? x.cena_kg ?? 0) || 0;
+                if (!(cena > 0)) {
+                    const c1000 = Number(x.cena1000 ?? x.c1 ?? x.cena ?? 0) || 0;
+                    const kolKg = Number(x.kolKg ?? x.ukupno_kg ?? 0) || 0;
+                    const kol1000 = Number(x.kol1000 ?? x.kol ?? x.kolicina ?? 0) || 0;
+                    const kgPo1000 = Number(x.kgPo1000 ?? 0) || (kolKg > 0 && kol1000 > 0 ? kolKg / kol1000 : 0);
+                    cena = (c1000 > 0 && kgPo1000 > 0) ? c1000 / kgPo1000 : 0;
+                }
+            }
             else if (jed === "1000m") cena = Number(x.cena1000 ?? x.c1 ?? x.cena ?? 0) || 0;
             else if (jed === "1000kom") cena = Number(x.cena1000kom ?? x.c1 ?? x.cena ?? 0) || 0;
             else if (jed === "kom") cena = Number(x.cenaKom ?? (Number(x.cena1000kom ?? x.c1 ?? x.cena ?? 0) / 1000)) || 0;
@@ -519,11 +533,15 @@ function iznosi(p) {
     if (tip === "folija") {
         const jed = p?.jedinica === "1000m" ? "1000m" : "kg";   // default €/kg
         const c1000 = Number(p?.cena1000 ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
-        const ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
         const kol1000 = Number(p?.kol1000 ?? p?.kol ?? p?.kolicina ?? 0) || 0;
         const kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
+        // kg po 1000 m: iz stavke, ili iz odnosa količina (kolKg / kol1000)
+        const kgPo1000 = Number(p?.kgPo1000 ?? 0) || (kolKg > 0 && kol1000 > 0 ? kolKg / kol1000 : 0);
+        // €/kg: eksplicitno; ako ga nema → IZVEDI iz €/1000m ÷ (kg/1000m). Ne koristiti €/1000m kao €/kg.
+        let ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
+        if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
         const opc = [{ k: "kg", l: "kg" }, { k: "1000m", l: "1000m" }];
-        if (jed === "kg") { const cena = ckg || c1000; return { jedinica: "kg", jedOpcije: opc, cena, jed: "€ / kg", kolTxt: kolKg > 0 ? kolKg.toLocaleString("sr-RS") + " kg" : "—", uk: kolKg > 0 ? cena * kolKg : null }; }
+        if (jed === "kg") { return { jedinica: "kg", jedOpcije: opc, cena: ckg, jed: "€ / kg", kolTxt: kolKg > 0 ? kolKg.toLocaleString("sr-RS") + " kg" : "—", uk: kolKg > 0 ? ckg * kolKg : null }; }
         return { jedinica: "1000m", jedOpcije: opc, cena: c1000, jed: "€ / 1000m", kolTxt: kol1000 > 0 ? (kol1000 * 1000).toLocaleString("sr-RS") + " m" : "—", uk: kol1000 > 0 ? c1000 * kol1000 : null };
     }
     if (tip === "kesa") {

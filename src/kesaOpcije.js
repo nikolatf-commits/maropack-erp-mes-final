@@ -80,7 +80,7 @@ export const KESA_OPCIJE = [
     {
         k: "eurozumba", l: "Eurozumba", tip: "lista",
         vals: ["MALA(30x10x5)", "SREDNJA(32x10x5)", "VELIKA(35x12x5)", "SPECIJALNA"],
-        pos: ["odVrha", "odDna", "levo"], rot: true, crtez: "eurozumba"
+        pos: ["odVrha", "odOtvora", "odDna", "levo"], rot: true, crtez: "eurozumba"
     },
 
     { k: "utor", l: "UTOR", tip: "lista", vals: ["205"], crtez: "utor" },
@@ -90,7 +90,7 @@ export const KESA_OPCIJE = [
     {
         // Više okruglih zumbi (euro rupa) — svaka sa pozicijom od ivica + prečnikom.
         k: "okrugla_zumba", l: "Okrugla zumba", tip: "rupe",
-        rupaPolja: [["odVrha", "Od vrha"], ["odDna", "Od dna"], ["odLeve", "Od leve"], ["odDesne", "Od desne"], ["precnik", "Ø rupe"]],
+        rupaPolja: [["odVrha", "Od vrha"], ["odOtvora", "Od otvora"], ["odDna", "Od dna"], ["odLeve", "Od leve"], ["odDesne", "Od desne"], ["precnik", "Ø rupe"]],
         crtez: "okrugla_zumba"
     },
 
@@ -187,7 +187,7 @@ export const KESA_TIP_PRESET = {
 export const POS_LBL = {
     odVrha: "Od vrha (mm)", odDna: "Od dna (mm)", levo: "Levo (mm)", desno: "Desno (mm)",
     sirina: "Širina (mm)", visina: "Visina (mm)", odstojanje: "Odstojanje (mm/tekst)",
-    odIvice: "Od ivice (mm)", strana: "Referentna ivica",
+    odIvice: "Od ivice (mm)", strana: "Referentna ivica", odOtvora: "Od otvora (mm)",
 };
 
 // Grupisanje opcija po celinama (za templejt i nalog)
@@ -252,12 +252,13 @@ export function toCrtezKesa(kesa = {}) {
         let v = o.tip === "danet" ? "DA" : (sel[o.k] || "");
         // Okrugle zumbe: sažet opis svake rupe (prečnik + pozicija od ivica).
         if (o.k === "okrugla_zumba") {
-            const rupe = Array.isArray(p.rupe) ? p.rupe.filter(r => r && (r.precnik || r.odVrha || r.odDna || r.odLeve || r.odDesne)) : [];
+            const rupe = Array.isArray(p.rupe) ? p.rupe.filter(r => r && (r.precnik || r.odVrha || r.odOtvora || r.odDna || r.odLeve || r.odDesne)) : [];
             v = rupe.length ? (rupe.length + (rupe.length === 1 ? " rupa" : " rupe")) : "DA";
             rupe.forEach((r, ri) => {
                 const d = [];
                 if (r.precnik) d.push("Ø" + r.precnik);
-                if (r.odVrha) d.push(r.odVrha + " od vrha");
+                if (r.odOtvora) d.push(r.odOtvora + " od otvora");
+                else if (r.odVrha) d.push(r.odVrha + " od vrha");
                 else if (r.odDna) d.push(r.odDna + " od dna");
                 if (r.odLeve) d.push(r.odLeve + " od leve");
                 else if (r.odDesne) d.push(r.odDesne + " od desne");
@@ -267,6 +268,7 @@ export function toCrtezKesa(kesa = {}) {
         if (p.okrenuto) extra.push("okrenuto 180°");      // eurozumba okrenuta
         if (p.pozicija) extra.push(String(p.pozicija));   // izabrana pozicija (ADH, duplofan…)
         if (p.odstojanje) extra.push(String(p.odstojanje));
+        if (p.odOtvora) extra.push(p.odOtvora + " mm od otvora");
         if (p.odVrha) extra.push(p.odVrha + " mm od vrha");
         if (p.odDna) extra.push(p.odDna + " mm od dna");
         if (p.levo) extra.push(p.levo + " mm levo");
@@ -302,6 +304,7 @@ export function opcijaNaloga(op, sel, pos) {
     else parts.push(op.l + (sel ? " " + sel : ""));
     if (pos) {
         if (pos.odstojanje) parts.push(pos.odstojanje);
+        if (pos.odOtvora) parts.push(pos.odOtvora + " mm od otvora");
         if (pos.odVrha) parts.push(pos.odVrha + " mm od vrha");
         if (pos.odDna) parts.push(pos.odDna + " mm od dna");
         if (pos.levo) parts.push(pos.levo + " mm levo");

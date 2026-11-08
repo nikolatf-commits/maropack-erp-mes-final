@@ -17,6 +17,34 @@ const TIP_LBL = { folija: "Folija", kesa: "Kese", spulna: "Špulne" };
 const KRE_BOJE = ["#0d9488", "#2563eb", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#65a30d", "#dc2626"];
 
 function safeJson(s) { try { return JSON.parse(s); } catch (e) { return {}; } }
+function _N(v) { return Number(String(v ?? "").replace(",", ".")) || 0; }
+function _jedZaTip(tip) { return tip === "kesa" ? "1000kom" : tip === "spulna" ? "m2" : "m"; }
+// Vrednost naloga sa FALLBACK-om:
+//  1) snimljeno polje vrednost_naloga (novi nalozi),
+//  2) snimljeni cena × prodata_kolicina (već u ispravnoj jedinici),
+//  3) rekonstrukcija iz snimljenog templejta (stari nalozi bez snapshot-a).
+function vrednostNaloga(p, tipProizvoda) {
+    var v = Number(p.vrednost_naloga) || 0;
+    if (v > 0) return v;
+    var c = _N(p.prodajna_cena), q = _N(p.prodata_kolicina);
+    if (c > 0 && q > 0) return c * q;
+    var tpl = p.template || {};
+    var tip = tpl.type || tipProizvoda || p.tip_proizvoda || "";
+    var cena = _N(tpl.prodajnaCena);
+    if (!(cena > 0)) return 0;                       // nema cene nigde → nema šta da se povuče
+    var jed = tpl.prodajnaJedinica || _jedZaTip(tip);
+    var qty = 0;
+    if (tip === "kesa") {
+        var kom = _N(tpl.kesa && tpl.kesa.kolicina) || _N(p.porucena_kolicina);
+        qty = jed === "1000kom" ? kom / 1000 : kom;
+    } else if (tip === "spulna") {
+        qty = _N(tpl.spulna && tpl.spulna.kolicina) || _N(p.porucena_kolicina);   // približno (ista jedinica)
+    } else {
+        var Q = _N(tpl.porucenaKolicina) || _N(p.porucena_kolicina);
+        qty = jed === "1000m" ? Q / 1000 : Q;        // približno (ista jedinica)
+    }
+    return cena * qty;
+}
 function parseSr(s) { // "1. 11. 2026." → Date
     const m = String(s || "").match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/);
     return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
@@ -59,7 +87,7 @@ export default function VrednostNalogaKartica() {
             dan: d ? d.getDate() : null,
             kreator: (p.kreirao_ime || n.kreirao_ime || "—").toString().trim() || "—",
             tip: (n.tip_proizvoda || p.tip_proizvoda || "—"),
-            vrednost: Number(p.vrednost_naloga) || 0,
+            vrednost: vrednostNaloga(p, n.tip_proizvoda),
         };
     }
 

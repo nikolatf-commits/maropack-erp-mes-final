@@ -72,12 +72,14 @@ function iznosi(p, t) {
   if (tip === "folija") {
     const jed = p?.jedinica === "1000m" ? "1000m" : "kg";   // default €/kg
     const c1000 = Number(p?.cena1000 ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
-    const ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
     const kol1000 = Number(p?.kol1000 ?? p?.kol ?? p?.kolicina ?? 0) || 0;
     const kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
+    // €/kg: eksplicitno; ako nema → IZVEDI iz €/1000m ÷ (kg/1000m). Ne koristiti €/1000m kao €/kg.
+    const kgPo1000 = Number(p?.kgPo1000 ?? 0) || (kolKg > 0 && kol1000 > 0 ? kolKg / kol1000 : 0);
+    let ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
+    if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
     if (jed === "kg") {
-      const cena = ckg || c1000;
-      return { komTxt: kolKg > 0 ? t.kom.folijaKg(fmt(kolKg, 0)) : "—", jed: t.jed.folijaKg, cena, uk: kolKg > 0 ? cena * kolKg : null };
+      return { komTxt: kolKg > 0 ? t.kom.folijaKg(fmt(kolKg, 0)) : "—", jed: t.jed.folijaKg, cena: ckg, uk: kolKg > 0 ? ckg * kolKg : null };
     }
     return { komTxt: kol1000 > 0 ? t.kom.folija(fmt(kol1000 * 1000, 0)) : "—", jed: t.jed.folija, cena: c1000, uk: kol1000 > 0 ? c1000 * kol1000 : null };
   }
