@@ -28,6 +28,26 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
     const [dodajZa, setDodajZa] = useState(null);      // ponuda za koju biramo proizvod da dodamo
     const [kandidati, setKandidati] = useState([]);    // kalkulacije istog kupca
     const [kandLoading, setKandLoading] = useState(false);
+    // Indeks SVIH kalkulacija (po "tip:id") — da se stare stavke ponude dopune cenom po kg,
+    // faktorom kg/1000m i količinom koje nisu bile sačuvane na stavci.
+    const [kalIndex, setKalIndex] = useState({});
+    useEffect(() => {
+        let on = true;
+        (async () => {
+            try {
+                const [f, k, s] = await Promise.all([
+                    supabase.from("kalkulacije_folije").select("*"),
+                    supabase.from("kalkulacije_kese").select("*"),
+                    supabase.from("kalkulacije_spulne").select("*"),
+                ]);
+                const idx = {};
+                const dod = (arr, tip) => (arr || []).forEach((x) => { if (x && x.id != null) idx[tip + ":" + x.id] = { ...x, tip }; });
+                dod(f.data, "folija"); dod(k.data, "kesa"); dod(s.data, "spulna");
+                if (on) setKalIndex(idx);
+            } catch (e) { }
+        })();
+        return () => { on = false; };
+    }, []);
 
     const istaPonuda = (a, b) => (a.id != null && a.id === b.id) || (a.broj && a.broj === b.broj);
     const danas = () => new Date().toLocaleDateString("sr-RS");
@@ -120,7 +140,47 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
         const uk = Number(rez.ukupnoNalog ?? kal.ukupno_nalog ?? (cena * kolicina)) || 0;
         return { naziv: kal.naziv || "", proizvod: kal.naziv || "", tip, kolicina, kol: kolicina, kol1000: kolicina, kolKg, kgPo1000, cena, c1: cena, cena1000: c1000, cenaKg: ckg, cena1000kom: konacna, cenaKom: konacna / 1000, jedinica, uk, kalkulacija_id: kal.id || null };
     };
-    const stavkeOf = (p) => (Array.isArray(p.stavke) && p.stavke.length) ? p.stavke : ((Array.isArray(p?.podaci?.stavke) && p.podaci.stavke.length) ? p.podaci.stavke : [singleAsStavka(p)]);
+    // Dopuni staru stavku iz izvorne kalkulacije (cena po kg, faktor kg/1000m, količina) ako fale.
+    const enrichStavka = (it) => {
+        if (!it) return it;
+        const n = (v) => Number(v) || 0;
+        const imaKg = n(it.cenaKg ?? it.cena_kg) > 0;
+        const imaFaktor = n(it.kgPo1000) > 0;
+        const imaKol = n(it.kol1000 ?? it.kol ?? it.kolicina) > 0;
+        if (imaKg && imaFaktor && imaKol) return it;        // već kompletno
+        const tip = String(it.tip || it.tip_proizvoda || "").toLowerCase();
+        let kal = (it.kalkulacija_id != null) ? kalIndex[tip + ":" + it.kalkulacija_id] : null;
+        if (!kal) {   // fallback: upari po nazivu (stare stavke bez kalkulacija_id)
+            const nz = String(it.naziv || it.proizvod || "").trim().toLowerCase();
+            if (nz) kal = Object.values(kalIndex).find((k) => String(k.tip || "").toLowerCase() === tip && String(k.naziv || "").trim().toLowerCase() === nz) || null;
+        }
+        if (!kal) return it;
+        const b = stavkaIz(kal);                             // sve izvedeno iz kalkulacije
+        return {
+            ...b, ...it,
+            cena1000: n(it.cena1000) > 0 ? it.cena1000 : b.cena1000,
+            cenaKg: n(it.cenaKg ?? it.cena_kg) > 0 ? (it.cenaKg ?? it.cena_kg) : b.cenaKg,
+            kgPo1000: n(it.kgPo1000) > 0 ? it.kgPo1000 : b.kgPo1000,
+            kol1000: n(it.kol1000 ?? it.kol ?? it.kolicina) > 0 ? (it.kol1000 ?? it.kol ?? it.kolicina) : b.kol1000,
+            kol: n(it.kol ?? it.kolicina) > 0 ? (it.kol ?? it.kolicina) : b.kol,
+            kolicina: n(it.kolicina) > 0 ? it.kolicina : b.kolicina,
+            kolKg: n(it.kolKg ?? it.ukupno_kg) > 0 ? (it.kolKg ?? it.ukupno_kg) : b.kolKg,
+            cena1000kom: n(it.cena1000kom) > 0 ? it.cena1000kom : b.cena1000kom,
+            cenaKom: n(it.cenaKom) > 0 ? it.cenaKom : b.cenaKom,
+            jedinica: it.jedinica || b.jedinica,
+        };
+    };
+    const parseArr = (v) => { if (Array.isArray(v)) return v; if (typeof v === "string") { try { const j = JSON.parse(v); return Array.isArray(j) ? j : null; } catch (e) { return null; } } return null; };
+    const stavkeRawOf = (p) => { const a = parseArr(p.stavke) || parseArr(p?.podaci?.stavke); return (a && a.length) ? a : null; };
+    const stavkeOf = (p) => { const a = stavkeRawOf(p); return (a ? a : [singleAsStavka(p)]).map(enrichStavka); };
+    // Ponuda sa DOPUNJENIM stavkama (za PDF) — da cena po kg bude tačna i bez prethodnog klika.
+    const ponudaZaPDF = (p) => {
+        const raw = stavkeRawOf(p);
+        if (!raw) { const one = enrichStavka(singleAsStavka(p)); return { ...p, ...one, stavke: [one], podaci: { ...(p.podaci || {}), stavke: [one] } }; }
+        const en = raw.map(enrichStavka);
+        const uk = en.reduce((s, it) => s + (Number(iznosi(it).uk) || 0), 0);
+        return { ...p, stavke: en, podaci: { ...(p.podaci || {}), stavke: en }, uk, cena_ukupno: uk };
+    };
     async function primeniStavke(p, nove) {
         const uk = nove.reduce((s, it) => s + (Number(iznosi(it).uk) || 0), 0);
         const naziv = nove.length > 1 ? (nove.length + " proizvoda") : (nove[0]?.naziv || p.naziv || "");
@@ -329,13 +389,11 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
             <div style={{ display: "grid", gap: 12 }}>
                 {filtrirane.map((p) => {
                     const kal = Array.isArray(p.kalkulacije) ? p.kalkulacije[0] : (p.kalkulacije || p.kalkulacija || null);
-                    const iz = iznosi(p);
-                    // Više proizvoda na ponudi: stavke iz p.stavke ili p.podaci.stavke (mogu biti i tekst).
-                    const _pm = (v) => { if (!v) return null; if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return null; } } return v; };
-                    const _st = _pm(p?.stavke);
-                    const _pod = _pm(p?.podaci);
-                    const stavke = (Array.isArray(_st) && _st.length) ? _st
-                        : ((_pod && Array.isArray(_pod.stavke) && _pod.stavke.length) ? _pod.stavke : null);
+                    // Stavke (dopunjene iz kalkulacije) — za jednu stavku koristimo dopunjeni singleAsStavka.
+                    const _raw = stavkeRawOf(p);
+                    const stavke = _raw ? _raw.map(enrichStavka) : null;
+                    const pEnr = stavke ? p : enrichStavka(singleAsStavka(p));
+                    const iz = iznosi(pEnr);
                     const ukSvih = stavke ? stavke.reduce((s, it) => s + (Number(iznosi(it).uk) || 0), 0) : iz.uk;
                     const acc = statBoja(p?.status);
                     const rok = p?.rok_isporuke || p?.rok || "po dogovoru";
@@ -399,7 +457,7 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                         <tr>
                                             <td style={tdL}><b>{p?.naziv || p?.proizvod || "—"}</b></td>
                                             <td style={tdR}>{iz.kolTxt}</td>
-                                            <td style={tdR}><CenaIzbor it={p} aktivna={iz.jedinica} onPick={(k) => promeniJedinicu(p, 0, k)} /></td>
+                                            <td style={tdR}><CenaIzbor it={pEnr} aktivna={iz.jedinica} onPick={(k) => promeniJedinicu(p, 0, k)} /></td>
                                             <td style={{ ...tdR, fontWeight: 900, color: "#059669" }}>{iz.uk == null ? "—" : fmt(iz.uk) + " €"}</td>
                                         </tr>
                                     )}
@@ -471,7 +529,7 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                             </select>
                                         </div>
                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, padding: "2px 16px 18px" }}>
-                                            <button onClick={() => napraviPDFPonuda(p, { lang: opt.lang, vaziDana: opt.vaziDana, usloviKod: opt.usloviKod })} style={gbtn("linear-gradient(135deg,#ef4444,#dc2626)")}>📄 PDF ponuda</button>
+                                            <button onClick={() => napraviPDFPonuda(ponudaZaPDF(p), { lang: opt.lang, vaziDana: opt.vaziDana, usloviKod: opt.usloviKod })} style={gbtn("linear-gradient(135deg,#ef4444,#dc2626)")}>📄 PDF ponuda</button>
                                             {kal && <button onClick={() => onOtvoriKalkulaciju(kal)} style={gbtn("linear-gradient(135deg,#3b82f6,#2563eb)")}>📊 Kalkulacija</button>}
                                             {!accepted && (cekaOdgovor
                                                 ? <div style={{ ...gbtn("linear-gradient(135deg,#f59e0b,#d97706)"), gridColumn: "span 2", cursor: "default" }} title="Ponuda je poslata — čeka se odgovor kupca">⏳ Čeka odgovor kupca</div>
