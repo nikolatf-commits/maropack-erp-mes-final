@@ -100,7 +100,10 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
     };
     const stavkaIz = (kal) => {
         const tip = String(kal.tip || "").toLowerCase();
-        const rez = kal.rezultati || kal.rezultat || kal.res || {};
+        // rezultati može stići kao OBJEKAT (JSONB) ili kao STRING (text kolona) — parsiraj ako je string,
+        // inače rez.konacnaCena ostane undefined i cena ispadne 0.
+        let rez = kal.rezultati || kal.rezultat || kal.res || {};
+        if (typeof rez === "string") { try { rez = JSON.parse(rez); } catch (e) { rez = {}; } }
         const kolicina = Number(kal.kolicina ?? kal.kol ?? rez.kolicina ?? kal.nalog ?? 0) || 0;
         const c1000 = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.saMarza ?? rez.cena1000 ?? 0) || 0;
         // kg po 1000 m (materijalna osobina iz kalkulacije) — ključ za konverziju €/1000m ↔ €/kg
@@ -108,7 +111,8 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
         // €/kg: eksplicitno iz kalkulacije; ako nema → izvedi iz €/1000m ÷ (kg/1000m). NIKAD ne uzimati €/1000m kao €/kg.
         let ckg = Number(kal.cena_kg ?? rez.cenaPoKgSaMarza ?? rez.cenaPoKg ?? rez.cena_kg ?? 0) || 0;
         if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
-        const kolKg = Number(rez.ukupnoKgNalog ?? kal.ukupno_kg ?? rez.ukupnoKg ?? 0) || 0;
+        let kolKg = Number(rez.ukupnoKgNalog ?? kal.ukupno_kg ?? 0) || 0;
+        if (!(kolKg > 0) && kgPo1000 > 0 && kolicina > 0) kolKg = kgPo1000 * kolicina;   // kg za ceo nalog = kg/1000m × nalog(x1000m)
         const konacna = Number(kal.konacna_cena ?? kal.konacnaCena ?? rez.konacnaCena ?? rez.konacna ?? 0) || 0; // kesa: €/1000 kom
         let jedinica = null, cena = c1000;
         if (tip === "folija") { jedinica = "kg"; cena = ckg || c1000; }
@@ -386,12 +390,7 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                                 <td style={{ ...tdL, color: "#94a3b8", fontWeight: 800 }}>{idx + 1}</td>
                                                 <td style={tdL}><b>{it?.naziv || it?.proizvod || "—"}</b>{it?.tip ? <div style={{ fontSize: 11, color: "#94a3b8" }}>{it.tip}</div> : null}</td>
                                                 <td style={tdR}>{si.kolTxt}</td>
-                                                <td style={tdR}>{fmt(si.cena)} {si.jed}{si.jedOpcije && (
-                                                    <span style={{ display: "inline-flex", marginLeft: 6, border: "1px solid #cbd5e1", borderRadius: 6, overflow: "hidden", verticalAlign: "middle" }}>
-                                                        {si.jedOpcije.map(o => (
-                                                            <span key={o.k} onClick={() => promeniJedinicu(p, idx, o.k)} style={{ padding: "1px 6px", fontSize: 10, fontWeight: 800, cursor: "pointer", background: si.jedinica === o.k ? "#1d4ed8" : "#fff", color: si.jedinica === o.k ? "#fff" : "#334155" }}>{o.l}</span>
-                                                        ))}
-                                                    </span>)}</td>
+                                                <td style={tdR}><CenaIzbor it={it} aktivna={si.jedinica} onPick={(k) => promeniJedinicu(p, idx, k)} /></td>
                                                 <td style={{ ...tdR, fontWeight: 900 }}>{si.uk == null ? "—" : fmt(si.uk) + " €"}</td>
                                                 <td style={{ ...tdR }}><span onClick={() => skiniStavku(p, idx)} title="Skini stavku" style={{ color: "#ef4444", cursor: "pointer", fontWeight: 900 }}>✕</span></td>
                                             </tr>
@@ -400,12 +399,7 @@ export default function PonudePRO({ ponude = [], onPrihvati = () => { }, onOtvor
                                         <tr>
                                             <td style={tdL}><b>{p?.naziv || p?.proizvod || "—"}</b></td>
                                             <td style={tdR}>{iz.kolTxt}</td>
-                                            <td style={tdR}>{fmt(iz.cena)} {iz.jed}{iz.jedOpcije && (
-                                                <span style={{ display: "inline-flex", marginLeft: 6, border: "1px solid #cbd5e1", borderRadius: 6, overflow: "hidden", verticalAlign: "middle" }}>
-                                                    {iz.jedOpcije.map(o => (
-                                                        <span key={o.k} onClick={() => promeniJedinicu(p, 0, o.k)} style={{ padding: "1px 6px", fontSize: 10, fontWeight: 800, cursor: "pointer", background: iz.jedinica === o.k ? "#1d4ed8" : "#fff", color: iz.jedinica === o.k ? "#fff" : "#334155" }}>{o.l}</span>
-                                                    ))}
-                                                </span>)}</td>
+                                            <td style={tdR}><CenaIzbor it={p} aktivna={iz.jedinica} onPick={(k) => promeniJedinicu(p, 0, k)} /></td>
                                             <td style={{ ...tdR, fontWeight: 900, color: "#059669" }}>{iz.uk == null ? "—" : fmt(iz.uk) + " €"}</td>
                                         </tr>
                                     )}
@@ -526,6 +520,48 @@ function btn(color) {
     };
 }
 
+// Obe jedinične cene za stavku (da se u ponudi vide i €/kg i €/1000m, pa korisnik bira koja ide).
+// Folija → [kg, 1000m]; kesa → [1000kom, kom]; ostalo → null (nema izbora).
+function jediniceOf(it) {
+    const tip = String(it?.tip || it?.tip_proizvoda || "").toLowerCase();
+    if (tip === "folija") {
+        const c1000 = Number(it?.cena1000 ?? it?.c1 ?? it?.cena ?? it?.konacna_cena ?? 0) || 0;
+        const kol1000 = Number(it?.kol1000 ?? it?.kol ?? it?.kolicina ?? 0) || 0;
+        const kolKg = Number(it?.kolKg ?? it?.ukupno_kg ?? 0) || 0;
+        const kgPo1000 = Number(it?.kgPo1000 ?? 0) || (kolKg > 0 && kol1000 > 0 ? kolKg / kol1000 : 0);
+        let ckg = Number(it?.cenaKg ?? it?.cena_kg ?? 0) || 0;
+        if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
+        return [{ k: "kg", l: "kg", cena: ckg }, { k: "1000m", l: "1000m", cena: c1000 }];
+    }
+    if (tip === "kesa") {
+        const c1000kom = Number(it?.cena1000kom ?? it?.c1 ?? it?.cena ?? it?.konacna_cena ?? 0) || 0;
+        const ckom = Number(it?.cenaKom ?? (c1000kom / 1000)) || 0;
+        return [{ k: "1000kom", l: "1000 kom", cena: c1000kom }, { k: "kom", l: "kom", cena: ckom }];
+    }
+    return null;
+}
+
+// Prikaz obe cene sa radio-izborom (koja jedinica ide u ponudu). onPick(k) menja jedinicu stavke.
+function CenaIzbor({ it, aktivna, onPick }) {
+    const jed = jediniceOf(it);
+    const si = iznosi(it);
+    if (!jed) return <span style={{ fontWeight: 900 }}>{fmt(si.cena)} {si.jed}</span>;
+    return (
+        <div style={{ display: "inline-flex", flexDirection: "column", gap: 3, alignItems: "flex-end" }}>
+            {jed.map(u => {
+                const on = (aktivna || si.jedinica) === u.k;
+                return (
+                    <label key={u.k} onClick={(e) => { e.stopPropagation(); onPick(u.k); }}
+                        style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                        <span style={{ width: 14, height: 14, borderRadius: 999, flex: "0 0 auto", border: `2px solid ${on ? "#1d4ed8" : "#cbd5e1"}`, background: on ? "#1d4ed8" : "#fff", boxShadow: on ? "inset 0 0 0 2px #fff" : "none" }} />
+                        <span style={{ fontWeight: on ? 900 : 600, color: on ? "#0f172a" : "#94a3b8", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(u.cena)} € / {u.l}</span>
+                    </label>
+                );
+            })}
+        </div>
+    );
+}
+
 // Iznosi po jedinici — folija: €/kg ili €/1000m; kesa: €/1000kom ili €/kom (biraš po stavci),
 // špulna: €/špulni. Ako ukupna količina nije uneta → uk = null (samo jedinična cena, bez „Ukupno").
 function iznosi(p) {
@@ -534,9 +570,11 @@ function iznosi(p) {
         const jed = p?.jedinica === "1000m" ? "1000m" : "kg";   // default €/kg
         const c1000 = Number(p?.cena1000 ?? p?.c1 ?? p?.cena ?? p?.konacna_cena ?? 0) || 0;
         const kol1000 = Number(p?.kol1000 ?? p?.kol ?? p?.kolicina ?? 0) || 0;
-        const kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
         // kg po 1000 m: iz stavke, ili iz odnosa količina (kolKg / kol1000)
-        const kgPo1000 = Number(p?.kgPo1000 ?? 0) || (kolKg > 0 && kol1000 > 0 ? kolKg / kol1000 : 0);
+        const kgPo1000 = Number(p?.kgPo1000 ?? 0) || (Number(p?.kolKg ?? p?.ukupno_kg ?? 0) > 0 && kol1000 > 0 ? Number(p?.kolKg ?? p?.ukupno_kg) / kol1000 : 0);
+        // ukupno kg naloga: iz stavke, ili izvedeno (kg/1000m × nalog(x1000m)) — da „Ukupno" radi i za €/kg
+        let kolKg = Number(p?.kolKg ?? p?.ukupno_kg ?? 0) || 0;
+        if (!(kolKg > 0) && kgPo1000 > 0 && kol1000 > 0) kolKg = kgPo1000 * kol1000;
         // €/kg: eksplicitno; ako ga nema → IZVEDI iz €/1000m ÷ (kg/1000m). Ne koristiti €/1000m kao €/kg.
         let ckg = Number(p?.cenaKg ?? p?.cena_kg ?? 0) || 0;
         if (!(ckg > 0) && c1000 > 0 && kgPo1000 > 0) ckg = c1000 / kgPo1000;
