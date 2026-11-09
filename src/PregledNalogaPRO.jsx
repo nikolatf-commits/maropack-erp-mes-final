@@ -490,6 +490,12 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     return supabase.from("magacin").update(patch).eq("id", r.id).then(({ error }) => { if (error && !greska) greska = error; });
                 }));
                 await supabase.from("materijal_stavke").delete().eq("nalog_ref", kod);
+                // Obriši i materijali_nalozi (nosi izbor rolni) — da stari izbor ne ostane
+                // i ne „procuri" na novi nalog ako se isti broj ponovo iskoristi.
+                try {
+                    if (masterId) await supabase.from("materijali_nalozi").delete().filter("parametri->>glavni_nalog_id", "eq", String(masterId));
+                    await supabase.from("materijali_nalozi").delete().filter("parametri->>broj_naloga", "eq", kod);
+                } catch (e) { }
 
                 // VERIFIKACIJA: pročitaj iste rolne i proveri da li ijedna JOŠ drži šifru naloga.
                 // Ako da (a nije bilo greške), RLS je tiho odbio UPDATE (USING/WITH CHECK).

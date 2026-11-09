@@ -181,30 +181,36 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         const pj = (v) => { if (!v) return null; if (typeof v === "object") return v; try { return JSON.parse(v); } catch (e) { return null; } };
         try {
             if (broj) {
-                const kandIzbori = [];
-                const dodaj = (arr) => { if (Array.isArray(arr) && arr.length) kandIzbori.push(arr); };
-                try {
-                    const { data: mn } = await supabase.from("materijali_nalozi")
-                        .select("parametri,id").filter("parametri->>broj_naloga", "eq", broj).order("id", { ascending: false }).limit(10);
-                    (mn || []).forEach((r) => { const pp = pj(r.parametri); if (pp) dodaj(pp.izabrane_rolne || pp.rezervisane_rolne); });
-                } catch (e) { }
+                // AUTORITATIVNO: izbor vezan za OVAJ master/operaciju (glavni_nalog_id / op).
+                // „Po broju naloga" hvata i STARE naloge sa istim brojem (obrisan pa ponovo
+                // napravljen isti broj) — zato ide SAMO kao fallback kad nema master izvora.
+                const kandMaster = [], kandBroj = [];
+                const push = (list, arr) => { if (Array.isArray(arr) && arr.length) list.push(arr); };
                 if (it.master?.id != null) {
                     try {
                         const { data: mn2 } = await supabase.from("materijali_nalozi")
                             .select("parametri,id").filter("parametri->>glavni_nalog_id", "eq", String(it.master.id)).order("id", { ascending: false }).limit(10);
-                        (mn2 || []).forEach((r) => { const pp = pj(r.parametri); if (pp) dodaj(pp.izabrane_rolne || pp.rezervisane_rolne); });
+                        (mn2 || []).forEach((r) => { const pp = pj(r.parametri); if (pp) push(kandMaster, pp.izabrane_rolne || pp.rezervisane_rolne); });
                     } catch (e) { }
                     try {
                         const { data: rn2 } = await supabase.from("radni_nalozi").select("parametri").eq("id", it.master.id).single();
                         const rp = pj(rn2 && rn2.parametri);
-                        if (rp) dodaj(rp.izabrane_rolne || rp.rezervisane_rolne);
+                        if (rp) push(kandMaster, rp.izabrane_rolne || rp.rezervisane_rolne);
                     } catch (e) { }
                 }
                 const opp = pj(it.op?.parametri_operacije) || pj(it.op?.parametri);
-                if (opp) dodaj(opp.izabrane_rolne || opp.rezervisane_rolne);
-
-                kandIzbori.sort((a, b) => b.length - a.length);     // najpotpuniji izbor prvi
-                const izabrane = kandIzbori[0] || null;
+                if (opp) push(kandMaster, opp.izabrane_rolne || opp.rezervisane_rolne);
+                // Fallback po broju — SAMO ako nema izbora vezanog za ovaj master (stariji nalozi).
+                if (!kandMaster.length) {
+                    try {
+                        const { data: mn } = await supabase.from("materijali_nalozi")
+                            .select("parametri,id").filter("parametri->>broj_naloga", "eq", broj).order("id", { ascending: false }).limit(10);
+                        (mn || []).forEach((r) => { const pp = pj(r.parametri); if (pp) push(kandBroj, pp.izabrane_rolne || pp.rezervisane_rolne); });
+                    } catch (e) { }
+                }
+                const izvor = kandMaster.length ? kandMaster : kandBroj;
+                izvor.sort((a, b) => b.length - a.length);     // najpotpuniji izbor OVOG naloga prvi
+                const izabrane = izvor[0] || null;
                 if (Array.isArray(izabrane) && izabrane.length) {
                     izabraneArr = izabrane;
                     dozvId = new Set(); dozvBr = new Set();
@@ -266,11 +272,12 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             // Ovo izbacuje zaostale rezervacije (rolne koje se ne nalaze na štampanom nalogu).
             const sve = Object.values(mapa);
             const filtrirane = sve.filter(naIzboru);
-            // SIGURNOSNA MREŽA: ako bi filter po izboru sakrio SVE rolne a rezervacije postoje,
-            // znači da izbor NIJE sinhronizovan sa rezervacijama (ili je u drugom formatu) —
-            // tada NE sakrivamo ništa, nego prikažemo rezervisane rolne. Magacioner nikad
-            // ne sme da ostane bez prikaza kad nalog stvarno ima rezervisane rolne.
-            rows = (filtrirane.length === 0 && sve.length > 0) ? sve : filtrirane;
+            // Ako IZBOR POSTOJI → prikaži STROGO samo rolne sa izbora (ostale magacin rolne
+            // sa istim/zaostalim brojem naloga se NE prikazuju). Rolne sa izbora koje nisu u
+            // magacin upitu dodaju se niže (dopuna sa naloga), pa magacioner nikad ne ostaje
+            // bez prikaza. „Sigurnosna mreža" (prikaži sve) radi SAMO kad izbora uopšte nema.
+            const imaIzbor = !!(dozvId && (dozvId.size || (dozvBr && dozvBr.size)));
+            rows = imaIzbor ? filtrirane : ((filtrirane.length === 0 && sve.length > 0) ? sve : filtrirane);
 
             // ── RUČNE ROLNE (ručni unos u kancelariji) ──────────────────────────
             // Sloj unet preko „Ručni unos" se NE rezerviše iz magacina (nema ga u
