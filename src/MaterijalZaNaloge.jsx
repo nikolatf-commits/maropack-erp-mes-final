@@ -36,6 +36,14 @@ function izvuciDozvMat(parametri) {
     });
     return out;
 }
+// Vrsta materijala iz NAZIVA proizvoda (npr. "BOPP-FF-320-30-1500" → "BOPP").
+// Pouzdano i kad struktura/templejt nije dostupna ili je ukrštena.
+function vrstaIzNaziva(s) {
+    const t = String(s || "").toUpperCase();
+    const kw = ["BOPP", "HDPE", "LDPE", "PET", "PVC", "CPP", "OPP", "OPA", "PAPIR", "PAP", "ALU", "CAST", "PA", "PP", "PS", "PE"];
+    for (let i = 0; i < kw.length; i++) { if (t.includes(kw[i])) return _mvrsta(kw[i]); }
+    return "";
+}
 // Da li rolna PRIPADA materijalu naloga. Nepoznati podaci → ne isključuj (da ne sakrijemo legitimnu).
 function rolnaOdgovaraMaterijalu(r, dozvMat) {
     if (!dozvMat || !dozvMat.length) return true;        // ne znamo strukturu → ne filtriraj
@@ -185,7 +193,6 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     async function ucitajDetalje(it, merge) {
         // Dozvoljeni materijal naloga (vrsta+debljina iz strukture) — da se rolne pogrešnog
         // materijala NIKAD ne prikažu magacioneru (PET na BOPP nalogu itd.).
-        let dozvMat = [];
         // Delimičan nalog: koji slojevi još nemaju materijal (administracija ih dodeljuje kad stigne).
         try {
             if (it.master?.id) {
@@ -193,7 +200,6 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const p = rn && rn.parametri;
                 const nd = (p && (p.nedodeljeni_slojevi || [])) || [];
                 if (Array.isArray(nd) && nd.length) setNedodeljeni(nd);
-                dozvMat = izvuciDozvMat(p);
             }
         } catch (e) { }
         // VAZNO: operativni nalog ima broj SA SUFIKSOM operacije:
@@ -222,36 +228,34 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         const pj = (v) => { if (!v) return null; if (typeof v === "object") return v; try { return JSON.parse(v); } catch (e) { return null; } };
         try {
             if (broj) {
-                // AUTORITATIVNO: izbor vezan za OVAJ master/operaciju (glavni_nalog_id / op).
-                // „Po broju naloga" hvata i STARE naloge sa istim brojem (obrisan pa ponovo
-                // napravljen isti broj) — zato ide SAMO kao fallback kad nema master izvora.
-                const kandMaster = [], kandBroj = [];
-                const push = (list, arr) => { if (Array.isArray(arr) && arr.length) list.push(arr); };
-                if (it.master?.id != null) {
+                // ── IZVOR ISTINE #1: izbor rolni na SAMOJ operaciji materijala ──────────────
+                // To je TAČNO ono što se štampa na nalogu (NalogLayoutPRO čita isti parametri
+                // operativnog naloga). Ovaj izvor ima APSOLUTNO prvenstvo — koje rolne su na
+                // nalogu, te i samo te stižu magacioneru. (materijali_nalozi ume da bude
+                // ukršten/zaostao kad se broj naloga ponovo iskoristi — zato NIJE primarni.)
+                let izabrane = null;
+                if (it.op?.id != null) {
                     try {
-                        const { data: mn2 } = await supabase.from("materijali_nalozi")
-                            .select("parametri,id").filter("parametri->>glavni_nalog_id", "eq", String(it.master.id)).order("id", { ascending: false }).limit(10);
-                        (mn2 || []).forEach((r) => { const pp = pj(r.parametri); if (pp) push(kandMaster, pp.izabrane_rolne || pp.rezervisane_rolne); });
+                        const { data: opRow } = await supabase.from("operativni_nalozi")
+                            .select("parametri, parametri_operacije").eq("id", it.op.id).single();
+                        const pp = pj(opRow && opRow.parametri_operacije) || pj(opRow && opRow.parametri);
+                        const arr = pp && (pp.izabrane_rolne || pp.rezervisane_rolne);
+                        if (Array.isArray(arr) && arr.length) izabrane = arr;
                     } catch (e) { }
+                }
+                // ── FALLBACK (samo stariji nalozi bez izbora na operaciji): radni_nalog ──
+                // VAŽNO: NE koristimo `materijali_nalozi` kao izvor filtera — baš on ume da bude
+                // ukršten/zaostao (PET na BOPP nalogu). Ako operacija nema izbor, PUŠTAMO da izvor
+                // bude MAGACIN po TAČNOM broju naloga (dodeljeno_nalogu) — isto što prikazuje i
+                // štampani/desktop nalog. Zato ovde NE pravimo filter po materijali_nalozi.
+                if (!izabrane && it.master?.id != null) {
                     try {
                         const { data: rn2 } = await supabase.from("radni_nalozi").select("parametri").eq("id", it.master.id).single();
                         const rp = pj(rn2 && rn2.parametri);
-                        if (rp) push(kandMaster, rp.izabrane_rolne || rp.rezervisane_rolne);
+                        const arr = rp && (rp.izabrane_rolne || rp.rezervisane_rolne);
+                        if (Array.isArray(arr) && arr.length) izabrane = arr;
                     } catch (e) { }
                 }
-                const opp = pj(it.op?.parametri_operacije) || pj(it.op?.parametri);
-                if (opp) push(kandMaster, opp.izabrane_rolne || opp.rezervisane_rolne);
-                // Fallback po broju — SAMO ako nema izbora vezanog za ovaj master (stariji nalozi).
-                if (!kandMaster.length) {
-                    try {
-                        const { data: mn } = await supabase.from("materijali_nalozi")
-                            .select("parametri,id").filter("parametri->>broj_naloga", "eq", broj).order("id", { ascending: false }).limit(10);
-                        (mn || []).forEach((r) => { const pp = pj(r.parametri); if (pp) push(kandBroj, pp.izabrane_rolne || pp.rezervisane_rolne); });
-                    } catch (e) { }
-                }
-                const izvor = kandMaster.length ? kandMaster : kandBroj;
-                izvor.sort((a, b) => b.length - a.length);     // najpotpuniji izbor OVOG naloga prvi
-                const izabrane = izvor[0] || null;
                 if (Array.isArray(izabrane) && izabrane.length) {
                     izabraneArr = izabrane;
                     dozvId = new Set(); dozvBr = new Set();
@@ -409,14 +413,6 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
             // isto kao da nalog stvarno nema rolne. Sada se vidi.
             msg && msg("Ne mogu da učitam rolne naloga: " + (e?.message || e), "err");
-        }
-        // TVRDI FILTER PO MATERIJALU: ukloni rolne čiji materijal ne odgovara strukturi naloga
-        // (npr. PET 12µ na BOPP 30µm nalogu). Ako ne znamo strukturu → ne filtriramo.
-        if (dozvMat && dozvMat.length) {
-            const pre = rows.length;
-            rows = rows.filter((r) => rolnaOdgovaraMaterijalu(r, dozvMat));
-            const skriveno = pre - rows.length;
-            if (skriveno > 0) msg && msg("⚠ " + skriveno + " rolni pogrešnog materijala je sakriveno (ne pripadaju ovom nalogu). Proveri rezervaciju u kancelariji.", "err");
         }
         setRefsInfo(broj);
         setRolls(rows);
