@@ -12,6 +12,43 @@ function qrCode(raw) { const s = String(raw || "").trim(); if (s.includes("|")) 
 // Operacija kojoj pripada materijal datog SLOJA: sloj 1 = štampa, sloj 2 = 1. kaширanje, sloj 3 = 2. kaширanje…
 function opZaSloj(sloj) { var k = Number(sloj) || 1; if (k <= 1) return "Materijal za štampu"; return "Materijal za " + (k - 1) + ". kaширanje"; }
 
+// ── Dozvoljeni MATERIJAL naloga (vrsta + debljina) iz strukture/templejta ──────
+// Služi da se magacioneru NIKAD ne prikaže rolna pogrešnog materijala (npr. PET na
+// BOPP nalogu), bez obzira da li je rezervacija negde ukrštena.
+function _mnum(v) { return Number(String(v ?? "").replace(",", ".").replace(/[^0-9.\-]/g, "")) || 0; }
+function _mvrsta(v) { return String(v || "").toUpperCase().replace(/\s+/g, "").replace(/[-_].*$/, ""); }
+function izvuciDozvMat(parametri) {
+    const p = parametri || {};
+    const tpl = p.template || p.templejt || {};
+    const pools = [
+        tpl.folija && tpl.folija.layers, tpl.kesa && tpl.kesa.layers, tpl.spulna && tpl.spulna.layers,
+        p.struktura, p.mats, p.layers, p.struktura_materijala,
+    ];
+    const out = [];
+    pools.forEach((arr) => {
+        if (!Array.isArray(arr)) return;
+        arr.forEach((l) => {
+            if (!l) return;
+            const vrsta = _mvrsta(l.vrsta || l.tip || l.material || l.materijal || l.naziv);
+            const deb = _mnum(l.debljina ?? l.deb ?? l.u ?? l.mikroni);
+            if (vrsta || deb) out.push({ vrsta, deb });
+        });
+    });
+    return out;
+}
+// Da li rolna PRIPADA materijalu naloga. Nepoznati podaci → ne isključuj (da ne sakrijemo legitimnu).
+function rolnaOdgovaraMaterijalu(r, dozvMat) {
+    if (!dozvMat || !dozvMat.length) return true;        // ne znamo strukturu → ne filtriraj
+    const rv = _mvrsta(r.vrsta || r.tip || r.snap_vrsta);
+    const rd = _mnum(r.deb ?? r.debljina ?? r.snap_debljina);
+    if (!rv && !rd) return true;                          // rolna bez podataka → ne isključuj
+    return dozvMat.some((m) => {
+        const vOk = !m.vrsta || !rv || m.vrsta === rv || m.vrsta.startsWith(rv) || rv.startsWith(m.vrsta);
+        const dOk = !m.deb || !rd || Math.abs(m.deb - rd) <= Math.max(2, m.deb * 0.15);
+        return vOk && dOk;
+    });
+}
+
 // Parsiranje QR lokacije (isti format kao u magacinu): direktna "LOK:..." ili delovi MAGACIN/RED/POLICA/POZICIJA
 function parseLokacijaQr(orig) {
     const s = String(orig || "").trim(); if (!s) return null;
@@ -146,6 +183,9 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     // (koristi se za ŽIVO osvežavanje kad administracija dopuni materijal, da magacioner
     //  ne izgubi već skenirane rolne, a nove (dopunjene) se same pojave).
     async function ucitajDetalje(it, merge) {
+        // Dozvoljeni materijal naloga (vrsta+debljina iz strukture) — da se rolne pogrešnog
+        // materijala NIKAD ne prikažu magacioneru (PET na BOPP nalogu itd.).
+        let dozvMat = [];
         // Delimičan nalog: koji slojevi još nemaju materijal (administracija ih dodeljuje kad stigne).
         try {
             if (it.master?.id) {
@@ -153,6 +193,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 const p = rn && rn.parametri;
                 const nd = (p && (p.nedodeljeni_slojevi || [])) || [];
                 if (Array.isArray(nd) && nd.length) setNedodeljeni(nd);
+                dozvMat = izvuciDozvMat(p);
             }
         } catch (e) { }
         // VAZNO: operativni nalog ima broj SA SUFIKSOM operacije:
@@ -368,6 +409,14 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             // Ranije: catch (e) {} — greska je nestajala, a ekran je izgledao
             // isto kao da nalog stvarno nema rolne. Sada se vidi.
             msg && msg("Ne mogu da učitam rolne naloga: " + (e?.message || e), "err");
+        }
+        // TVRDI FILTER PO MATERIJALU: ukloni rolne čiji materijal ne odgovara strukturi naloga
+        // (npr. PET 12µ na BOPP 30µm nalogu). Ako ne znamo strukturu → ne filtriramo.
+        if (dozvMat && dozvMat.length) {
+            const pre = rows.length;
+            rows = rows.filter((r) => rolnaOdgovaraMaterijalu(r, dozvMat));
+            const skriveno = pre - rows.length;
+            if (skriveno > 0) msg && msg("⚠ " + skriveno + " rolni pogrešnog materijala je sakriveno (ne pripadaju ovom nalogu). Proveri rezervaciju u kancelariji.", "err");
         }
         setRefsInfo(broj);
         setRolls(rows);
