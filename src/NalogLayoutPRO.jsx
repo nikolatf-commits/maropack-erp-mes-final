@@ -1060,7 +1060,9 @@ function pKesaMat(D, K) {
             // strukture — tražena rolna (npr. 760/29) ≠ izabrana (820/32). Bolje „—" nego laž.
             var vU = num(r.u) || 0;
             var vSir = num(r.sir) || 0;
-            var sirCell = vSir ? ((D.idealnaSir && sirImaOtpad(vSir, D.idealnaSir)) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
+            // Referenca za ivični otpad = idealna širina templejta, a ako je nema → ulazna širina kese.
+            var refSirK = num(D.idealnaSir) || num(K.sirMat) || 0;
+            var sirCell = vSir ? ((refSirK && sirImaOtpad(vSir, refSirK)) ? '<b style="color:#b91c1c">' + vSir + ' mm</b>' : (vSir + ' mm')) : '—';
             return '<tr><td>' + esc(r.qr || '—') + '</td><td>' + esc(r.n || '') + '</td><td>' + esc(r.oz || '') + '</td><td class="n">' + (vU ? (vU + ' µm') : '—') + '</td><td class="n">' + sirCell + '</td><td>' + esc(r.lot || '—') + '</td><td>📍 ' + esc(r.lok || '—') + '</td><td class="n">' + fmtN(r.alok || K.mMatPlus) + '</td><td class="n">' + (r.kg != null ? fmtN(r.kg) : (l.gm2 ? (l.gm2 * K.kgF).toFixed(1) : '—')) + '</td></tr>';
         }, 9) + '</tbody></table></div>' +
         foot('Pripremio (magacioner)', 'Datum / vreme', 'Preuzeo (proizvodnja)') + '</div>', 'Strana 1 · materijal');
@@ -1201,10 +1203,25 @@ function pKesa(D, K) {
         '<div style="border-top:1.5px solid #334155"><div style="background:#f1f5f9;text-align:center;font-weight:900;font-size:11px;padding:6px">NAPOMENA OPERATERA</div><div style="height:44px"></div></div>' +
         '</div>';
 
+    // ── IVIČNI OTPAD: ako je NAJŠIRA rezervisana rolna šira od ulazne širine kese,
+    // stvarni otpad NIJE 0 (templejt) nego rolna − ulazna širina (po dužini trake).
+    const _kRolSir = (Array.isArray(D.rolne) ? D.rolne : []).map(function (r) { return num(r.sir); }).filter(function (x) { return x > 0; });
+    const _kKoris = _kRolSir.length ? Math.max.apply(null, _kRolSir) : 0;
+    const _kUlaz = num(K.sirMat);
+    // Ostatak posle celih ulaznih širina (čist višekratnik → nema otpada, npr. 880 = 2×440).
+    const _kN = _kUlaz > 0 ? Math.floor((_kKoris + 0.5) / _kUlaz) : 0;
+    const _kOstatak = (_kN >= 1) ? (_kKoris - _kN * _kUlaz) : 0;
+    const _kImaIvicni = _kOstatak > 3;
+    const _kIvicni = _kImaIvicni ? _kOstatak : num(K.otpad);
+    const _kOtpadVal = _kImaIvicni ? (_kIvicni + ' mm (rolna ' + _kKoris + ' − ' + _kN + '×' + _kUlaz + ')') : (K.otpad + ' mm');
+    const _kIvicniNota = _kImaIvicni
+        ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c;margin-top:8px">⚠ <b>Ivični otpad ' + _kIvicni + ' mm</b> — rezervisana rolna je <b>' + _kKoris + ' mm</b>, a ulazna širina kese je <b>' + _kUlaz + ' mm</b> (' + _kKoris + ' − ' + _kN + '×' + _kUlaz + ' = <b>' + _kIvicni + ' mm</b> po celoj dužini trake). 💡 Za sledeću porudžbinu naruči rolnu širine <b>' + _kUlaz + ' mm</b> (ili višekratnik) da nema otpada.</div>'
+        : '';
+
     return pageWrap(D, hd(D, '🛍', 'NALOG ZA KESU — TEHNIČKE KARAKTERISTIKE', c, '3/4') + '<div class="body">' + identBlock(D.kupac, kesaTipLabel(K.tip), D.proizvod) + kesaStat(D, K) + kesaInfo(D, K) +
         '<div class="sec">' + secH(1, c, 'Dimenzije kese i parametri mašine', 'iz templejta') + '<div class="info">' +
         infoC('Širina (W)', K.W + ' mm') + infoC('Visina (H)', K.H + ' mm') + infoC('Klapna', K.KL + ' mm') + infoC('Falta (dno)', K.FA + ' mm') +
-        infoC('Korak na traci', K.korakK + ' mm') + infoC('Ban', K.ban + (K.ban > 1 ? ' trake' : ' traka')) + infoC('Ulazna širina', K.sirMat + ' mm') + infoC('Otpad', K.otpad + ' mm') + '</div></div>' +
+        infoC('Korak na traci', K.korakK + ' mm') + infoC('Ban', K.ban + (K.ban > 1 ? ' trake' : ' traka')) + infoC('Ulazna širina', K.sirMat + ' mm') + infoC('Otpad', _kOtpadVal) + '</div>' + _kIvicniNota + '</div>' +
 
         '<div class="sec">' + secH(2, COLm, 'Struktura materijala proizvoda', 'iz templejta') + matTabela + '</div>' +
 

@@ -105,6 +105,15 @@ export const KESA_OPCIJE = [
     // Zasebna karakteristika: perforacija za otkidanje na rolni — grubo ili fino.
     { k: "perf_otkidanje_rolna", l: "Perforacija za otkidanje na rolni", tip: "lista", vals: ["Gruba", "Fina"] },
 
+    // Reciklažna izjava: standardni (prazan) znak za reciklažu + slobodan tekst koji se
+    // AUTOMATSKI prelama u više redova da lepo stane pored znaka.
+    {
+        k: "reciklazna_izjava", l: "Reciklažna izjava (znak + tekst)", tip: "danet",
+        pos: ["odDna", "odVrha", "levo", "sirina", "visina"],
+        tekstPolja: [{ k: "tekst", l: "Tekst izjave (font se sam smanji da stane u širinu×visinu)" }],
+        crtez: "reciklazna_izjava",
+    },
+
     // Perforacija za otkinuti NA TELU KESE (različito od „na rolni") — bira se pozicija
     // (vrh/sredina/dno klapne ili telo kese) i opciono tačna mera (mm od vrha).
     // Prikazuje se kao crvena isprekidana linija na skici kese.
@@ -193,7 +202,7 @@ export const POS_LBL = {
 // Grupisanje opcija po celinama (za templejt i nalog)
 export const KESA_GRUPE = [
     { id: "konstrukcija", l: "Konstrukcija", c: "#b91c1c", keys: ["adh_traka", "duplofan", "poz_duplofan", "ukosena_klapna", "perf_otkinuti", "otvor_dno", "falta_dno", "var_dno", "tolerancija_kol", "tolerancija_dim"] },
-    { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa"] },
+    { id: "stampa", l: "Štampa", c: "#7c3aed", keys: ["stampa", "reciklazna_izjava"] },
     { id: "zumbe", l: "Zumbe i perforacija", c: "#0ea5e9", keys: ["eurozumba", "utor", "perf_igle", "okrugla_zumba", "poprecna_perf", "unakrsna_perf", "poprecni_var", "perf_telo", "perf_otkidanje_rolna"] },
     { id: "pakovanje", l: "Pakovanje", c: "#d97706", keys: ["hrana", "anleger", "pakovati", "kesa_po_rolni"] },
 ];
@@ -234,7 +243,12 @@ export function toCrtezKesa(kesa = {}) {
             const rupe = Array.isArray((pos[o.k] || {}).rupe) ? (pos[o.k] || {}).rupe : [];
             stdPos.okrugla_zumba = { rupe };
         }
-        if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa" && o.k !== "perf_telo") {
+        // Reciklažna izjava: pored pozicije nosi i slobodan TEKST koji se crta (prelama sam).
+        if (o.k === "reciklazna_izjava") {
+            const tR = txt[o.k] || {};
+            stdPos.reciklazna_izjava = { ...(pos[o.k] || {}), tekst: tR.tekst || "" };
+        }
+        if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa" && o.k !== "perf_telo" && o.k !== "reciklazna_izjava") {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }
     });
@@ -286,6 +300,12 @@ export function toCrtezKesa(kesa = {}) {
                 extra.push(String(t[k]));
             }
         });
+        // Reciklažna izjava: u legendi prikaži sam tekst izjave (♻), ne „DA".
+        if (o.k === "reciklazna_izjava") {
+            const tx = String(t.tekst || "").trim();
+            legend.push({ key: o.crtez || o.k, n: o.l, v: tx ? ("♻ " + tx) : "DA" });
+            return;
+        }
         legend.push({ key: o.crtez || o.k, n: o.l, v: (v + (extra.length ? " · " + extra.join(" · ") : "")).trim() });
     });
     return {

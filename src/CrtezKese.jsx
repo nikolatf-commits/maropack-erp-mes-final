@@ -82,6 +82,7 @@ export function kesaToConfig(kesa = {}) {
         otvorDno: !!o.otvor_dno,
         ojacanje: !!o.ojacanje,
         pakovanjeTrn: !!o.pakovanje_trn,
+        reciklaznaIzjava: !!o.reciklazna_izjava,   // univerzalni znak za reciklažu + slobodan tekst
         positions: kesa.positions || {},
         sirina: num(kesa.sirina) || 95,
         duzina: num(kesa.duzina) || 175,
@@ -103,6 +104,7 @@ const DEFAULTS = {
     duplofan: false, anleger: false, falznut: false, bocniVar: false,
     poprecniVar: false, perfTelo: false, unakrsnaPerf: false, mikroPerf: false, poprecnaPerf: false, abreiss: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
     bocnaFalta: false, bocnaMm: 0, vakuum: false,
+    reciklaznaIzjava: false,
     positions: {},
     stampaText: "",
     stampaDizajn: null,
@@ -138,6 +140,39 @@ function reciklazaSvg(cx, cy, s, broj, kod, color) {
     g += `<text x="0" y="${q(s * 0.10)}" font-size="${q(s * 0.30)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter">${esc(broj)}</text>`;
     if (kod) g += `<text x="0" y="${q(s * 0.82)}" font-size="${q(s * 0.26)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter">${esc(kod)}</text>`;
     return g + `</g>`;
+}
+
+// Prelom slobodnog teksta u redove po raspoloživoj širini (procena širine znaka ≈ fontPx×0.52).
+// Vrlo duge reči se tvrdo prelome da ne „iscure" van bloka.
+function wrapLines(text, fontPx, availW) {
+    const cw = fontPx * 0.52;
+    const maxChars = Math.max(4, Math.floor(availW / cw));
+    const words = String(text).trim().split(/\s+/).filter(Boolean);
+    const lines = []; let cur = "";
+    const push = (s) => { if (s) lines.push(s); };
+    for (let wd of words) {
+        // tvrdi prelom predugačke reči
+        while (wd.length > maxChars) { if (cur) { push(cur); cur = ""; } push(wd.slice(0, maxChars)); wd = wd.slice(maxChars); }
+        if (!cur) cur = wd;
+        else if ((cur.length + 1 + wd.length) <= maxChars) cur += " " + wd;
+        else { push(cur); cur = wd; }
+    }
+    push(cur);
+    return lines;
+}
+
+// Auto-fit: nađi NAJVEĆI font tako da se prelomljen tekst uklopi u okvir boxW×boxH.
+// Ako treba više redova, font se smanjuje dok sve ne stane (do minFs).
+function fitText(text, boxW, boxH, maxFs, minFs) {
+    maxFs = maxFs || 13; minFs = minFs || 5;
+    let best = { fs: minFs, lines: wrapLines(text, minFs, boxW), lh: minFs * 1.25 };
+    for (let fs = maxFs; fs >= minFs; fs -= 0.5) {
+        const lines = wrapLines(text, fs, boxW);
+        const lh = fs * 1.25;
+        if (lines.length * lh <= boxH) { best = { fs, lines, lh }; break; }
+        best = { fs, lines, lh };   // pamti poslednji (najmanji) ako ništa ne stane
+    }
+    return best;
 }
 
 function buildSvgPro(c, u, lang = "sr") {
@@ -335,6 +370,40 @@ function buildSvgPro(c, u, lang = "sr") {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
                 const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
                 g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+            }
+        }
+    }
+    // ── RECIKLAŽNA IZJAVA: ISTI (prazan) znak kao za PP + slobodan tekst.
+    // Korisnik unosi ŠIRINU i VISINU dela za tekst; font se SAM smanji da stane.
+    if (c.reciklaznaIzjava) {
+        const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        const rv = P.reciklazna_izjava || {};
+        const tekst = String(rv.tekst || "").trim();
+        // Okvir za TEKST (mm → px). Korisnikove vrednosti imaju prednost; inače razuman default.
+        const boxW = has(rv, "sirina") ? mm(rv.sirina) : bw * 0.52;
+        const boxH = has(rv, "visina") ? mm(rv.visina) : Math.max(bh * 0.14, 26);
+        // Znak — ISTI kao PP (tanki Möbius trougao), samo PRAZAN (bez broja/koda).
+        // Veličina znaka prati visinu okvira, u razumnim granicama.
+        const sym = Math.max(16, Math.min(boxH, bw * 0.30, 52));
+        const gap = Math.max(5, sym * 0.20);
+        // Horizontalno: „levo" = leva ivica bloka (znaka) od leve ivice kese.
+        const blkL = has(rv, "levo") ? x0 + mm(rv.levo) : x0 + 8;
+        const txX = blkL + sym + gap;                  // leva ivica teksta
+        // Vertikalno: „od dna" (donja ivica okvira) > „od vrha" (gornja ivica) > sredina tela.
+        const cyB = has(rv, "odDna") ? (y1 - mm(rv.odDna) - boxH / 2)
+            : has(rv, "odVrha") ? (y0 + mm(rv.odVrha) + boxH / 2)
+                : y0 + bh * 0.52;
+        // PP znak — centar znaka = centar okvira; prazan.
+        g += reciklazaSvg(blkL + sym / 2, cyB, sym, "", "", INK);
+        // Tekst — auto-fit u (boxW × boxH), vertikalno centriran uz znak.
+        if (tekst) {
+            const maxFs = Math.max(6, Math.min(13, boxH * 0.9));
+            const fit = fitText(tekst, boxW, boxH, maxFs, 5);
+            const txtH = fit.lines.length * fit.lh;
+            let ty = cyB - txtH / 2 + fit.fs * 0.82;
+            for (const ln of fit.lines) {
+                g += `<text x="${q(txX)}" y="${q(ty)}" font-size="${q(fit.fs)}" fill="${INK}" font-family="Inter" font-weight="600">${esc(ln)}</text>`;
+                ty += fit.lh;
             }
         }
     }
