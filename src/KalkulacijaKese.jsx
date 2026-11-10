@@ -468,11 +468,13 @@ export default function KalkulacijaKese({ setPage }) {
         const avgCenaKg = matBr > 0 ? ukCenaKg / matBr : 2.9;
 
         // DUPLO PLATNO (prednji + zadnji zid), ISTO kao nalog/metraža:
-        //   po širini: uz traku = 2×dužina + klapna + 2×falta ; popreko = širina
-        //   po dužini: uz traku = 2×širina                      ; popreko = dužina + klapna + falta
-        //   Površina po kesi = (uz traku) × (popreko).  FALTA ×2, KLAPNA ×1.
-        const korakK = orijentacija === 'duzina' ? (2 * sirina) : (2 * duzina + klapna + 2 * falta);
-        const poprecnoMm = orijentacija === 'duzina' ? (duzina + klapna + falta) : sirina;
+        //   IDEALNA ŠIRINA (popreko, određuje ban) = 2×(izabrana dimenzija) + klapna + falta
+        //   KORAK (uz traku, metraža) = DRUGA dimenzija (jednom, bez ×2)
+        //   po dužini: popreko = 2×dužina + klapna + falta ; uz traku = širina
+        //   po širini: popreko = 2×širina + klapna + falta ; uz traku = dužina
+        //   Površina po kesi = (popreko) × (uz traku).  ZID ×2, KLAPNA ×1, FALTA ×1.
+        const poprecnoMm = orijentacija === 'duzina' ? (2 * duzina + klapna + falta) : (2 * sirina + klapna + falta);
+        const korakK = orijentacija === 'duzina' ? sirina : duzina;
         const povrsinaM2PoKesi = (korakK * poprecnoMm) / 1000000; // m² materijala po kesi
         const tezKg1000 = povrsinaM2PoKesi * ukTezGm2;            // g po kesi = kg na 1000 kom
         const tezJedneG = tezKg1000;

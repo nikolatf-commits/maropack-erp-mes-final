@@ -47,7 +47,7 @@ const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',',
 let _PID = 0; // jedinstven id za SVG pattern (mikro perforacija)
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", perfOdLeveIvice = 0, perfOdDesneIvice = 0, perfGustina = "gusca", maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", perfOdLeveIvice = 0, perfOdDesneIvice = 0, perfGustina = "standardna", perfVelicinaRupe = 0, maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -114,8 +114,10 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
         const oL = num(perfOdLeveIvice), oR = num(perfOdDesneIvice);
         const xL = WEBX0 + oL * sxz, xR = WEBX1 - oR * sxz;
         const yT = WEBY0, yB = WEBY1, c = "#8b5cf6";
-        const redja = String(perfGustina) === 'redja';
-        const step = redja ? 13 : 7, rr = redja ? 1.8 : 1.4;
+        const gp = perfGustinaParams(perfGustina);
+        const step = gp.step;
+        const vr = num(perfVelicinaRupe, 0), baseR = step * 0.2;
+        const rr = Math.max(0.8, Math.min(vr > 0 ? baseR * (vr / 0.3) : baseR, step * 0.42));
         const pid = 'mpzd' + (_PID++);
         if (xR > xL + 2) {
             o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
@@ -133,7 +135,14 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
 
 // Kotirani prikaz perforacije — iz LISTE LINIJA (svaka: pozicija + strana + opcioni razmak).
 // linije = [{ mm (od leve ivice), poz (uneta vrednost), strana ("leva"|"desna"), razmak }]
-export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "gusca", raspored = "poravnato", maxWidth = 430 }) {
+// Parametri gustine mikro-perforacije (korak rešetke + labela). 3 nivoa + kompatibilnost sa starim.
+function perfGustinaParams(gustina) {
+    const g = String(gustina || "standardna").toLowerCase();
+    if (g === "najgusca" || g === "gusca") return { step: 5, label: "NAJGUŠĆA" };
+    if (g === "najredja" || g === "redja") return { step: 13, label: "NAJREĐA" };
+    return { step: 8, label: "STANDARDNA" };
+}
+export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "standardna", velicinaRupe = 0, raspored = "poravnato", maxWidth = 430 }) {
     const odV = num(odVrha), odD = num(odDna);
     const Wmm = num(sirina, 270) || 270, Hmm = num(visina, 600) || 600, gGlob = num(razmakRupa, 5) || 5;
     const sx = (WEBX1 - WEBX0) / Wmm, sy = (WEBY1 - WEBY0) / Hmm;
@@ -147,9 +156,13 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
         const xL = WEBX0 + oL * sx, xR = WEBX1 - oR * sx;
         const yT = WEBY0, yB = WEBY1;
         const c = "#8b5cf6";
-        const redja = String(gustina) === 'redja';
-        const step = redja ? 13 : 7;      // korak rešetke (px u crtežu)
-        const r = redja ? 1.8 : 1.4;      // poluprečnik tačkice
+        const gp = perfGustinaParams(gustina);
+        const step = gp.step;             // korak rešetke (px) — gušće/ređe po izboru gustine
+        // Veličina tačkice prati „Veličinu rupe" (mm): veća rupa → krupnija tačkica,
+        // ograničeno da se tačke ne spoje. Bez unosa → srazmerno koraku.
+        const vr = num(velicinaRupe, 0);
+        const baseR = step * 0.2;
+        const r = Math.max(0.8, Math.min(vr > 0 ? baseR * (vr / 0.3) : baseR, step * 0.42));
         const pid = 'mpz' + (_PID++);
         let s = rollParts();
         if (xR > xL + 2) {
@@ -165,8 +178,9 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
         } else {
             s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${(yT + yB) / 2}" text-anchor="middle" font-size="12.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Ivice se preklapaju — smanji odstojanja</text>`;
         }
-        // naslov: tip gustine
-        s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${yT - 24}" text-anchor="middle" font-size="12" font-weight="900" fill="${c}" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ${redja ? 'REĐA' : 'GUŠĆA'}</text>`;
+        // naslov: tip gustine (+ veličina rupe ako je uneta)
+        const rupaTxt = vr > 0 ? ` · Ø ${vr} mm` : '';
+        s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${yT - 24}" text-anchor="middle" font-size="12" font-weight="900" fill="${c}" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ${gp.label}${rupaTxt}</text>`;
         // kote: od leve / od desne ivice
         if (oL > 0) s += dimH(WEBX0, xL, WEBY0 - 8, oL + ' mm', c);
         if (oR > 0) s += dimH(xR, WEBX1, WEBY0 - 8, oR + ' mm', c);
@@ -345,7 +359,7 @@ export function RolnaDizajnEditor({ value = {}, onChange, hidePreview = false })
 // nema=true -> perforacije nema: sakriva se crtež perforacije i njegova polja,
 // ostaje SAMO prikaz "Dizajn na finalnoj rolni".
 export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }) {
-    const v = { tip: "linija", odVrha: 50, odDna: 50, sirina: 270, visina: 600, razmakRupa: 5, linije: null, pozLeve: "", pozDesne: "", odLeveIvice: 20, odDesneIvice: 20, gustina: "gusca", raspored: "poravnato", ...(value || {}) };
+    const v = { tip: "linija", odVrha: 50, odDna: 50, sirina: 270, visina: 600, razmakRupa: 5, linije: null, pozLeve: "", pozDesne: "", odLeveIvice: 20, odDesneIvice: 20, gustina: "standardna", velicinaRupe: "", raspored: "poravnato", ...(value || {}) };
     const jeZona = v.tip === "mikro_zona";
     const sirinaN = Number(v.sirina) || 0;
 
@@ -403,7 +417,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                 perfLinije={(!nema && imaPoz) ? perfLinije : []}
                 perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
                 perfRaspored={v.raspored}
-                perfOdLeveIvice={v.odLeveIvice} perfOdDesneIvice={v.odDesneIvice} perfGustina={v.gustina}
+                perfOdLeveIvice={v.odLeveIvice} perfOdDesneIvice={v.odDesneIvice} perfGustina={v.gustina} perfVelicinaRupe={v.velicinaRupe}
                 maxWidth={520} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>
@@ -428,11 +442,13 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                     {F("Od leve ivice (mm)", "odLeveIvice")}
                     {F("Od desne ivice (mm)", "odDesneIvice")}
                     <div><label style={_lab}>Gustina</label>
-                        <select style={_inp} value={v.gustina} onChange={(e) => set("gustina", e.target.value)}>
-                            <option value="gusca">Gušća</option>
-                            <option value="redja">Ređa</option>
+                        <select style={_inp} value={["najgusca", "standardna", "najredja"].includes(v.gustina) ? v.gustina : (v.gustina === "gusca" ? "najgusca" : (v.gustina === "redja" ? "najredja" : "standardna"))} onChange={(e) => set("gustina", e.target.value)}>
+                            <option value="standardna">Standardna</option>
+                            <option value="najredja">Najređa</option>
+                            <option value="najgusca">Najgušća</option>
                         </select>
                     </div>
+                    {F("Veličina rupe (mm)", "velicinaRupe")}
                     {F("Širina trake (mm)", "sirina")}
                     {F("Visina prikaza (mm)", "visina")}
                 </> : <>
@@ -479,7 +495,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>{jeZona ? "MIKRO PERFORACIJA (zona)" : "PERFORACIJA (kotirano)" + (imaPoz ? " — " + perfLinije.length + " linija" : " — unesi bar jednu liniju")}</div>
-                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} raspored={v.raspored} maxWidth={520} />
+                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} velicinaRupe={v.velicinaRupe} raspored={v.raspored} maxWidth={520} />
                 </div>
                 {dizajnBlok}
             </div>

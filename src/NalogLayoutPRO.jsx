@@ -320,8 +320,8 @@ function buildD(nalog) {
                 tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
                 // Raspored rupa: poravnato (default) / smaknute_kolone / cik_cak
                 raspored: String(pf.raspored || "poravnato"),
-                // ZONA mikro perforacije — margine od leve/desne ivice + gustina (gušća/ređa)
-                odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "gusca",
+                // ZONA mikro perforacije — margine od leve/desne ivice + gustina + veličina rupe
+                odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "standardna", velicinaRupe: pf.velicinaRupe || "",
             };
         })(),
     };
@@ -403,8 +403,12 @@ function perf(D, mw, mh) {
     if (String(P.tip) === 'mikro_zona') {
         const oLmm = num(P.odLeveIvice), oRmm = num(P.odDesneIvice);
         const xLz = WEBX0 + oLmm * sx, xRz = WEBX1 - oRmm * sx, zT = WEBY0, zB = WEBY1;
-        const c = "#8b5cf6", redja = String(P.gustina) === 'redja';
-        const step = redja ? 13 : 7, r = redja ? 1.8 : 1.4, pid = 'mpzn' + (_PID2++);
+        const c = "#8b5cf6";
+        const _g = String(P.gustina || "standardna").toLowerCase();
+        const step = (_g === 'najgusca' || _g === 'gusca') ? 5 : ((_g === 'najredja' || _g === 'redja') ? 13 : 8);
+        const _vr = num(P.velicinaRupe) || 0, _baseR = step * 0.2;
+        const r = Math.max(0.8, Math.min(_vr > 0 ? _baseR * (_vr / 0.3) : _baseR, step * 0.42));
+        const pid = 'mpzn' + (_PID2++);
         let z = "";
         if (xRz > xLz + 2) {
             z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="' + c + '10" stroke="' + c + '" stroke-width="1.6" stroke-dasharray="7 4"/>';
@@ -954,11 +958,13 @@ function pPerfBig(D) {
     const P = D.perf, zona = String(P.tip) === 'mikro_zona';
     var rspLbl = ({ poravnato: 'Poravnato', smaknute_kolone: 'Smaknute kolone', cik_cak: 'Cik-cak' })[String(P.raspored || 'poravnato')] || 'Poravnato';
     var jeRupe = String(P.tip) === 'rupe';
+    var gustLbl = (function (g) { g = String(g || 'standardna').toLowerCase(); if (g === 'najgusca' || g === 'gusca') return 'Najgušća'; if (g === 'najredja' || g === 'redja') return 'Najređa'; return 'Standardna'; })(P.gustina);
+    var rupaCell = (num(P.velicinaRupe) > 0) ? ('<div class="m"><b>Veličina rupe</b>Ø ' + num(P.velicinaRupe) + ' mm</div>') : '';
     const sub = zona
-        ? ('Mikro perforacija (zona) · ' + (String(P.gustina) === 'redja' ? 'ređa' : 'gušća') + ' · sve mere u mm')
+        ? ('Mikro perforacija (zona) · ' + gustLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') + ' · sve mere u mm')
         : (esc(P.tip) + ' · ' + ((P.linije && P.linije.length) ? (P.linije.length + ' linija') : (P.N + ' kolona')) + (jeRupe ? ' · raspored: ' + rspLbl.toLowerCase() : '') + ' · sve mere u mm');
     const meta = zona
-        ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + (String(P.gustina) === 'redja' ? 'Ređa' : 'Gušća') + '</div><div class="m"><b>Od leve</b>' + num(P.odLeveIvice) + ' mm</div><div class="m"><b>Od desne</b>' + num(P.odDesneIvice) + ' mm</div><div class="m"><b>Zona</b>' + Math.max(0, Math.round((P.Wm || 0) - num(P.odLeveIvice) - num(P.odDesneIvice))) + ' mm</div>')
+        ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + gustLbl + '</div>' + rupaCell + '<div class="m"><b>Od leve</b>' + num(P.odLeveIvice) + ' mm</div><div class="m"><b>Od desne</b>' + num(P.odDesneIvice) + ' mm</div><div class="m"><b>Zona</b>' + Math.max(0, Math.round((P.Wm || 0) - num(P.odLeveIvice) - num(P.odDesneIvice))) + ' mm</div>')
         : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div>' + (jeRupe ? '<div class="m"><b>Raspored</b>' + esc(rspLbl) + '</div>' : '<div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>'));
     return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + sub + '</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip">' + meta + '</div></div>', 'Strana · perforacija (prilog)');
 }
@@ -984,18 +990,18 @@ function kesaD(nalog) {
     const FA = num(k.falta) || num(k.faltaMm) || num(k.falta_mm) || num(k.gusset) || num(k.dno) || num(tk.falta) || num(tk.faltaMm);
     const skart = num(k.skart) || 5;
     // Orijentacija kese na materijalu — ISTO kao u templejtu (orderMetraze).
-    //  "sirina" (podrazumevano): širina kese ide POPREKO materijala (određuje ban), dužina ide UZ traku
-    //  "duzina": dužina+klapna+falta ide POPREKO (određuje ban), širina ide UZ traku
+    //  IDEALNA ŠIRINA (popreko, određuje ban) = 2×(izabrana dimenzija) + klapna + falta
+    //  "sirina" (podrazumevano): popreko = 2×širina+klapna+falta (ban), korak = dužina kese
+    //  "duzina": popreko = 2×dužina+klapna+falta (ban), korak = širina kese
     // Čita se k.orijentacija (templejt tako čuva vrednost). Ranije se čitalo "smerMaterijala"
     // koje templejt NIKAD nije upisivao, pa je nalog ignorisao izbor orijentacije.
     const orient = k.orijentacija || (t && t.kesa && t.kesa.orijentacija) || "sirina";
-    const Lfull = H + KL + FA;                                 // dužina + klapna + falta
     // DUPLO PLATNO (prednji + zadnji zid) se dobija iz PRESAVIJENE folije / creva:
-    // dupliranje ide u ŠIRINU materijala (ban × 2), a NE u dužinu trake (metraža ×1).
-    // Tako je matična rolna i kg isti (dužina×širina = oba zida), a ban/metraža realni
-    // (ranije: ×2 u dužini → duplo metara i dupli ban).
-    const poprecnoMm = orient === "duzina" ? (2 * Lfull) : (2 * W);  // staje po širini materijala (presavijeno ×2, × ban)
-    const uzduznoMm = orient === "duzina" ? W : (H + KL + FA);       // troši metražu (bez ×2)
+    // dupliranje ide u ŠIRINU materijala (idealna širina / ban), a NE u dužinu trake.
+    // IDEALNA ŠIRINA (popreko) = 2×(izabrana dimenzija) + klapna + falta  (klapna i falta JEDNOM)
+    // KORAK (uz traku, metraža) = DRUGA dimenzija, jednom (bez ×2).
+    const poprecnoMm = orient === "duzina" ? (2 * H + KL + FA) : (2 * W + KL + FA);  // idealna širina (ban)
+    const uzduznoMm = orient === "duzina" ? W : H;                  // troši metražu (druga dimenzija, bez ×2)
     const korakK = uzduznoMm;
     const smer = orient;                                       // za prikaz (povratna kompatibilnost)
     // Ban: ručni ima prednost; inače auto iz širine materijala (isto kao templejt).
@@ -1035,7 +1041,7 @@ function kesaInfo(D, K) {
 }
 function kesaObracun(K) {
     return (K.greske.length ? '<div class="ulaz" style="border-left-color:#dc2626;background:#fef2f2;color:#b91c1c">⚠ ' + K.greske.map(esc).join('<br>⚠ ') + '</div>' : '') +
-        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> korak = ' + (K.smer === 'duzina' ? (K.W + ' (širina kese)') : (K.H + ' (dužina) + ' + K.KL + ' (klapna) + ' + K.FA + ' (falta)')) + ' = <b>' + K.korakK + ' mm</b> <span style="color:#64748b">(duplo platno u širini/banu, ne u dužini)</span> &nbsp;·&nbsp; ' +
+        '<div class="ulaz"><b>Obračun (BAN = ' + K.ban + '):</b> idealna širina = ' + (K.smer === 'duzina' ? ('2×' + K.H + ' (dužina)') : ('2×' + K.W + ' (širina)')) + ' + ' + K.KL + ' (klapna) + ' + K.FA + ' (falta) = <b>' + K.poprecnoMm + ' mm</b> &nbsp;·&nbsp; korak = <b>' + K.korakK + ' mm</b> (' + (K.smer === 'duzina' ? 'širina kese' : 'dužina kese') + ') <span style="color:#64748b">(duplo platno u širini/banu, ne u dužini)</span> &nbsp;·&nbsp; ' +
         fmtN(K.kom) + ' kom × ' + (K.korakK / 1000).toFixed(3) + ' m = ' + fmtN(K.mTrake) + ' m trake &divide; ' + K.ban + ' = ' + fmtN(K.mMat) + ' m &nbsp;·&nbsp; +' + K.skart + '% škart = <b>' + fmtN(K.mMatPlus) + ' m matične rolne</b> (širina ' + K.sirMat + ' mm)</div>';
 }
 function kesaTotalKg(D, K) { return D.LAY.reduce(function (a, l) { return a + l.gm2 * K.kgF; }, 0).toFixed(1); }
@@ -1553,7 +1559,7 @@ function perfFromConfig(pf, width) {
         oL: num(pf.odLeve) || 15, oR: num(pf.odDesne) || 15, Wm: perfSir, Hm: num(pf.visina) || 600,
         tip: pf.tip || "linija", razmak: num(pf.razmakRupa) || 5, linije: linije,
         raspored: String(pf.raspored || "poravnato"),
-        odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "gusca",
+        odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "standardna", velicinaRupe: pf.velicinaRupe || "",
     };
 }
 // Jedan segment reza: matična širina + trake (plave = format/proizvod, sive = bočni ostatak → stanje).

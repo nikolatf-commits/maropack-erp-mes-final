@@ -593,30 +593,25 @@ function spulnaObracun(form) {
         greske,
     };
 }
-// Metraža materijala za nalog: kesa = kom × (dužina+klapna+falta) × (1+škart%); folija/špulna = poručena (m) × 1.05
+// Metraža materijala za nalog: kesa = kom × (druga dimenzija) ÷ ban × (1+škart%); idealna širina = 2×(izabrana)+klapna+falta; folija/špulna = poručena (m) × 1.05
 function orderMetraze(f) {
     const n = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     if (f.type === "kesa") {
         const k = f.kesa || {};
         const duzina = n(k.duzina), klapna = n(k.klapna), falta = n(k.falta);
         const W = n(k.sirina);                               // širina kese
-        const Lfull = duzina + klapna + falta;               // dužina kese + klapna + falta
         const sm = n(k.sirinaMaterijala) || n(f.idealnaSirinaMaterijala); // širina materijala (web) — jedinstveno polje gore
         const orient = k.orijentacija || "sirina";           // "sirina" = kesa po širini uz materijal
-        // ORIJENTACIJA menja šta ide POPREKO materijala (određuje BAN) a šta DUŽ (određuje korak/metražu):
-        //  • "sirina": širina kese ide popreko (ban = širina_mat ÷ širina), korak = dužina(×2)+klapna+falta
-        //  • "duzina": dužina kese ide popreko (ban = širina_mat ÷ (dužina+klapna+falta)), korak = širina(×2)
-        // DUPLO PLATNO: kesa ima PREDNJI I ZADNJI zid, pa se telo koje ide UZ traku duplira (×2).
-        //   Klapna i falta se dodaju samo JEDNOM (nisu deo dupliranja). acrossWeb/ban ostaje nepromenjen.
-        // DUPLO PLATNO (prednji + zadnji zid) se dobija iz PRESAVIJENE folije / creva.
-        // Zato dupliranje ide u ŠIRINU materijala (određuje BAN), a NE u dužinu trake:
-        //   • popreko (ban): jedan „red" zauzima 2× osnovnu dimenziju (presavijeno) → ban se prepolovi
-        //   • duž trake (metraža): telo kese se meri JEDNOM (ranije ×2 → duplo metara)
-        // Rezultat: ista matična rolna i kg (dužina×širina = oba zida), ali ban i metraža realni.
-        const acrossWeb = orient === "duzina" ? (2 * Lfull) : (2 * W);   // popreko → određuje ban (presavijeno ×2)
+        // IDEALNA ŠIRINA (popreko, određuje BAN) = 2×(izabrana dimenzija) + klapna + falta.
+        //   Duplo platno (prednji+zadnji zid, presavijena folija/crevo) → ZID se duplira (×2),
+        //   a klapna i falta se dodaju JEDNOM. Korak uz traku = DRUGA dimenzija (jednom, bez ×2).
+        //  • "duzina": popreko = 2×dužina+klapna+falta (ban), korak = širina kese
+        //  • "sirina": popreko = 2×širina+klapna+falta (ban), korak = dužina kese
+        // IDEALNA ŠIRINA (popreko, određuje ban) = 2×(izabrana dimenzija) + klapna + falta (klapna/falta JEDNOM)
+        const acrossWeb = orient === "duzina" ? (2 * duzina + klapna + falta) : (2 * W + klapna + falta);
         const alongWeb = orient === "duzina"
-            ? W                                        // po dužini: širina kese ide uz traku (bez ×2)
-            : (duzina + klapna + falta);               // po širini: dužina + klapna + falta (bez ×2)
+            ? W                                        // po dužini: širina kese ide uz traku (druga dimenzija, bez ×2)
+            : duzina;                                  // po širini: dužina kese ide uz traku (druga dimenzija, bez ×2)
         const banAuto = (sm > 0 && acrossWeb > 0) ? Math.max(1, Math.floor(sm / acrossWeb)) : 0;
         // Ručno upisan ban ima prednost; inače se računa iz širine materijala i orijentacije.
         const ban = Math.max(1, n(k.ban) || banAuto || 1);
@@ -3956,12 +3951,12 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         const m = orderMetraze(form);
                         if (!m.kom) return null;
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina kese — duž materijala" : "dužina+klapna+falta — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
+                            📐 <b>{m.kom.toLocaleString("sr-RS")} kom</b> × <b>{(m.duzM * 1000).toFixed(0)} mm</b> ({m.orient === "duzina" ? "širina kese — duž materijala" : "dužina kese — duž materijala"}) = <b>{m.mTrake.toLocaleString("sr-RS")} m</b> trake
                             &nbsp;÷&nbsp; <b style={{ color: m.ban > 1 ? "#b91c1c" : "#475569" }}>{m.ban} ban</b>{m.banAuto ? <span style={{ color: "#64748b" }}> (auto iz širine materijala)</span> : null}
                             &nbsp;×&nbsp; <b>(1 + {Number(form.kesa.skart) || 0}%)</b> škart
                             &nbsp;=&nbsp; <b style={{ color: "#059669" }}>{m.kolPlus.toLocaleString("sr-RS")} m</b> matične rolne
                             <div style={{ marginTop: 4, color: "#64748b" }}>
-                                Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide {m.orient === "duzina" ? "dužina kese (određuje ban)" : "širina kese (određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese (određuje metražu)" : "dužina+klapna+falta (određuje metražu)"}.
+                                Orijentacija: <b>{m.orient === "duzina" ? "kesa po dužini" : "kesa po širini"}</b> → popreko materijala ide idealna širina {m.orient === "duzina" ? "(2×dužina+klapna+falta, određuje ban)" : "(2×širina+klapna+falta, određuje ban)"}, a duž materijala {m.orient === "duzina" ? "širina kese (određuje metražu)" : "dužina kese (određuje metražu)"}.
                                 <div style={{ marginTop: 2, color: "#b45309", fontWeight: 600 }}>Duplo platno (prednji + zadnji zid) se dobija iz presavijene folije / creva → NE duplira dužinu trake (duplo je u širini materijala, tj. u banu).</div>
                             </div>
                             {m.ban > 1 && <div style={{ marginTop: 4, color: "#b91c1c", fontWeight: 700 }}>
@@ -3992,13 +3987,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         const orient = form.kesa.orijentacija || "sirina";
                         // acrossWeb (određuje ban) = ista logika kao u orderMetraze
                         const W = N_(form.kesa.sirina);
-                        const Lfull = N_(form.kesa.duzina) + N_(form.kesa.klapna) + N_(form.kesa.falta);
-                        const dim = orient === "duzina" ? Lfull : W;
+                        const KL = N_(form.kesa.klapna), FA = N_(form.kesa.falta);
+                        // IDEALNA ŠIRINA = 2×(izabrana dimenzija) + klapna + falta
+                        const dim = orient === "duzina" ? (2 * N_(form.kesa.duzina) + KL + FA) : (2 * W + KL + FA);
                         if (!(sm > 0 && dim > 0)) return null;
                         const banSug = Math.max(1, Math.floor(sm / dim));
                         const otpad = Math.round(sm - banSug * dim);
                         return <div style={{ marginTop: 10, fontSize: 12, color: "#475569", background: "#eff6ff", border: "1px dashed #93c5fd", borderRadius: 8, padding: "8px 10px" }}>
-                            📐 Predlog bana: <b style={{ color: "#1d4ed8" }}>{banSug}</b> &nbsp;(širina materijala {sm} mm ÷ {orient === "duzina" ? "dužina+klapna+falta" : "širina kese"} {dim} mm · ostatak {otpad} mm).
+                            📐 Predlog bana: <b style={{ color: "#1d4ed8" }}>{banSug}</b> &nbsp;(širina materijala {sm} mm ÷ idealna širina {orient === "duzina" ? "(2×dužina+klapna+falta)" : "(2×širina+klapna+falta)"} {dim} mm · ostatak {otpad} mm).
                             &nbsp;Ako ostaviš <b>ban</b> prazan, koristi se ovaj auto-ban u proračunu.
                         </div>;
                     })()}

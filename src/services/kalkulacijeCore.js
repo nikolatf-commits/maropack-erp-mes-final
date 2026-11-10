@@ -164,9 +164,11 @@ export function kalkulacijaFolije(u = {}) {
  *  adh: { odsecak, cena }, ostaleOpcijeEur (€ / 1000 kom)
  *
  *  MATERIJAL — DUPLO PLATNO (prednji + zadnji zid), ISTO kao nalog/metraža:
- *    po širini (podrazumevano): uz traku = 2×dužina + klapna + 2×falta ; popreko = širina
- *    po dužini:                 uz traku = 2×širina                      ; popreko = dužina + klapna + falta
- *    Površina po kesi = (uz traku) × (popreko).  FALTA ×2, KLAPNA ×1.
+ *    IDEALNA ŠIRINA (popreko, određuje ban) = 2×(izabrana dimenzija) + klapna + falta
+ *    KORAK (uz traku, metraža) = DRUGA dimenzija (jednom, bez ×2)
+ *    po širini (podrazumevano): popreko = 2×širina + klapna + falta ; uz traku = dužina
+ *    po dužini:                 popreko = 2×dužina + klapna + falta ; uz traku = širina
+ *    Površina po kesi = (popreko) × (uz traku).  ZID ×2, KLAPNA ×1, FALTA ×1.
  */
 export function kalkulacijaKese(u = {}) {
     const sirina = N(u.sirina), duzina = N(u.duzina), klapna = N(u.klapna), falta = N(u.falta);
@@ -182,16 +184,16 @@ export function kalkulacijaKese(u = {}) {
 
     // DUPLO PLATNO + orijentacija — isti model kao nalog (NalogLayoutPRO/kesaD)
     const orient = String(u.orijentacija || "sirina").toLowerCase().includes("du") ? "duzina" : "sirina";
-    const korakK = orient === "duzina" ? (2 * sirina) : (2 * duzina + klapna + 2 * falta); // mm uz traku
-    const poprecnoMm = orient === "duzina" ? (duzina + klapna + falta) : sirina;            // mm popreko (ban)
+    const poprecnoMm = orient === "duzina" ? (2 * duzina + klapna + falta) : (2 * sirina + klapna + falta); // mm popreko (ban) — idealna širina
+    const korakK = orient === "duzina" ? sirina : duzina;                                   // mm uz traku (druga dimenzija, bez ×2)
     const povrsinaM2 = (korakK * poprecnoMm) / 1000000;  // m² materijala po kesi
 
     // kg na 1000 komada = (g po kesi).  g po kesi = površina(m²) × g/m²
     const tezKg1000 = povrsinaM2 * ukTezGm2;
     if (orient === "duzina")
-        koraci.push(`Materijal po kesi (po dužini): (dužina+klapna+falta=${duzina}+${klapna}+${falta}=${poprecnoMm}) × (2×širina=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²`);
+        koraci.push(`Materijal po kesi (po dužini): idealna širina (2×dužina+klapna+falta=${2 * duzina}+${klapna}+${falta}=${poprecnoMm}) × (širina=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²  (prednji+zadnji zid ×2, klapna ×1, falta ×1)`);
     else
-        koraci.push(`Materijal po kesi (po širini): širina=${sirina} × (2×dužina+klapna+2×falta=${2 * duzina}+${klapna}+${2 * falta}=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²  (prednji+zadnji zid, falta ×2, klapna ×1)`);
+        koraci.push(`Materijal po kesi (po širini): idealna širina (2×širina+klapna+falta=${2 * sirina}+${klapna}+${falta}=${poprecnoMm}) × (dužina=${korakK}) = ${Math.round(korakK * poprecnoMm)} mm² = ${R4(povrsinaM2)} m²  (prednji+zadnji zid ×2, klapna ×1, falta ×1)`);
     koraci.push(`Težina 1000 kom: ${R4(povrsinaM2)} m² × ${R2(ukTezGm2)} g/m² = ${R4(tezKg1000)} kg`);
 
     const kgSaSkartom = tezKg1000 * (1 + skart / 100);

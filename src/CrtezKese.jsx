@@ -310,19 +310,27 @@ function buildSvgPro(c, u, lang = "sr") {
         const uy = has(uv, "odVrha") ? topY + mm(uv.odVrha) : (has(uv, "odDna") ? y1 - mm(uv.odDna) : y0 + bh * .5);
         return Math.max(y0 + 4, Math.min(y1 - 4, uy));
     })() : null;
-    // Poprečna perforacija — pozicija: od otvora (y0) > od vrha klapne (topY) > od dna (y1);
-    // „dubina" = razmak između dve paralelne linije (visina trake perforacije).
+    // POPREČNI VAR — pozicija: od otvora (y0) > od vrha klapne (topY) > od dna (y1);
+    // crta se kao tanka „merdevina" (dve bliske linije + crtice). „Iskoristiva dubina"
+    // je samo PODATAK na nalogu — NE crta se kao debljina trake (fiksno tanka).
+    const pvarV = P.poprecni_var || {};
+    const poprecniVarY = c.poprecniVar ? (() => {
+        const yy = has(pvarV, "odOtvora") ? y0 + mm(pvarV.odOtvora)
+            : has(pvarV, "odVrha") ? topY + mm(pvarV.odVrha)
+                : has(pvarV, "odDna") ? y1 - mm(pvarV.odDna)
+                    : y0 + bh * 0.62;                 // default: kao ranije
+        return Math.max(y0 + 4, Math.min(y1 - 8, yy));
+    })() : null;
+    const poprecniVarDub = 5;
+    // POPREČNA PERFORACIJA — jedna linija, ali na zadatoj poziciji (od otvora/od vrha/od dna).
     const ppV = P.poprecna_perf || {};
     const poprecnaY = c.poprecnaPerf ? (() => {
         const yy = has(ppV, "odOtvora") ? y0 + mm(ppV.odOtvora)
             : has(ppV, "odVrha") ? topY + mm(ppV.odVrha)
                 : has(ppV, "odDna") ? y1 - mm(ppV.odDna)
-                    : y0 + bh * 0.72;                 // default: pri dnu kese
-        return Math.max(y0 + 4, Math.min(y1 - 8, yy));
+                    : y0 + bh * 0.16;                 // default: kao ranije
+        return Math.max(y0 + 4, Math.min(y1 - 4, yy));
     })() : null;
-    // „Iskoristiva dubina" je samo PODATAK na nalogu — NE crta se kao debljina trake.
-    // Traka se uvek crta kao tanka merdevina (dve bliske linije + crtice), fiksno.
-    const poprecnaDub = 5;
     if (c.stampa) {
         const dz = c.stampaDizajn || null;
         const dzUrl = dz && (dz.url || dz.src || "");
@@ -464,15 +472,8 @@ function buildSvgPro(c, u, lang = "sr") {
     //  • poprečna perforacija — malo niže, ljubičasta
     if (c.abreiss) g += `<line x1="${q(x0 - 6)}" y1="${q(topY + 2)}" x2="${q(x1 + 6)}" y2="${q(topY + 2)}" stroke="${ACC}" stroke-width="1" stroke-dasharray="2 3"/>`;
     if (c.mikroPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .10)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .10)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="1 2"/>`;
-    // Poprečna perforacija — PRIKAZ: dve paralelne linije sa gustim crticama između (traka).
-    if (c.poprecnaPerf && poprecnaY != null) {
-        const PPC = "#7c3aed";
-        // Unutar ivica kese (ne viri van) — tanka merdevina.
-        const yT2 = poprecnaY, yB2 = poprecnaY + poprecnaDub, xa = x0, xb = x1;
-        g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PPC}" stroke-width="1"/>`;
-        g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width="1"/>`;
-        const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width=".7"/>`;
-    }
+    // Poprečna perforacija — jedna ljubičasta isprekidana linija na zadatoj poziciji.
+    if (c.poprecnaPerf && poprecnaY != null) g += `<line x1="${q(x0 - 6)}" y1="${q(poprecnaY)}" x2="${q(x1 + 6)}" y2="${q(poprecnaY)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 3"/>`;
     // UTOR (žleb) — kratka isprekidana vertikala na desnoj strani.
     if (c.falznut) { const uy = y0 + bh * .38; g += `<line x1="${q(x1 - 10)}" y1="${q(uy - 10)}" x2="${q(x1 - 10)}" y2="${q(uy + 10)}" stroke="${SUB}" stroke-width="1.2" stroke-dasharray="3 2"/>`; }
     // Otvor na dnu kese — mali krug pri dnu.
@@ -482,8 +483,15 @@ function buildSvgPro(c, u, lang = "sr") {
     // Bočni var — zaptivne trake uz obe bočne ivice.
     if (c.bocniVar) g += `<rect x="${q(x0)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/><rect x="${q(x1 - 4)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/>`;
     if (c.euroloch) { const ep = euroPath(ex, ey, eW); g += (eV.okrenuto ? `<g transform="rotate(180 ${q(ex)} ${q(ey)})">${ep}</g>` : ep); }
-    const pvY = y0 + bh * .62;
-    if (c.poprecniVar) g += `<line x1="${q(x0 + 3)}" y1="${q(pvY)}" x2="${q(x1 - 3)}" y2="${q(pvY)}" stroke="${SUB}" stroke-width="1.1" stroke-dasharray="7 3"/>`;
+    // Poprečni var — PRIKAZ: dve paralelne linije sa crticama između (merdevina), na zadatoj poziciji.
+    const pvY = poprecniVarY != null ? poprecniVarY : (y0 + bh * .62);
+    if (c.poprecniVar && poprecniVarY != null) {
+        const PVC = SUB;
+        const yT2 = pvY, yB2 = pvY + poprecniVarDub, xa = x0, xb = x1;
+        g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
+        g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
+        const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width=".7"/>`;
+    }
     // Perforacija za otkinuti na telu — crvena isprekidana linija preko cele širine.
     if (c.perfTelo && perfTeloY != null) g += `<line x1="${q(x0 - 6)}" y1="${q(perfTeloY)}" x2="${q(x1 + 6)}" y2="${q(perfTeloY)}" stroke="${ACC}" stroke-width="1.3" stroke-dasharray="3 3"/>`;
     // Unakrsna perforacija — linija sa X-markerima preko cele širine na zadatoj visini.
@@ -592,11 +600,17 @@ function buildSvgPro(c, u, lang = "sr") {
         if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
         // Unakrsna perforacija — „od vrha" ILI „od dna"
         if (c.unakrsnaPerf) { const uv = P.unakrsna_perf || {}; if (has(uv, "odVrha")) ok += vKota(topY, unakrsnaY, num(uv.odVrha), KC.unakrsna); else if (has(uv, "odDna")) ok += vKota(y1, unakrsnaY, num(uv.odDna), KC.unakrsna); }
-        // Poprečna perforacija — kota od otvora/vrha klapne (do gornje ivice trake) ili od dna (do donje ivice).
+        // Poprečni var — kota od otvora/vrha klapne (do gornje ivice trake) ili od dna (do donje ivice).
+        if (c.poprecniVar && poprecniVarY != null) {
+            if (has(pvarV, "odOtvora")) ok += vKota(y0, poprecniVarY, num(pvarV.odOtvora), KC.poprecna);
+            else if (has(pvarV, "odVrha")) ok += vKota(topY, poprecniVarY, num(pvarV.odVrha), KC.poprecna);
+            else if (has(pvarV, "odDna")) ok += vKota(y1, poprecniVarY + poprecniVarDub, num(pvarV.odDna), KC.poprecna);
+        }
+        // Poprečna perforacija — kota od otvora/vrha/dna do linije.
         if (c.poprecnaPerf && poprecnaY != null) {
             if (has(ppV, "odOtvora")) ok += vKota(y0, poprecnaY, num(ppV.odOtvora), KC.poprecna);
             else if (has(ppV, "odVrha")) ok += vKota(topY, poprecnaY, num(ppV.odVrha), KC.poprecna);
-            else if (has(ppV, "odDna")) ok += vKota(y1, poprecnaY + poprecnaDub, num(ppV.odDna), KC.poprecna);
+            else if (has(ppV, "odDna")) ok += vKota(y1, poprecnaY, num(ppV.odDna), KC.poprecna);
         }
         // Eurozumba — vertikalno: „od otvora" (od usta kese) ILI „od vrha"; „levo" od centra (horizontalno)
         if (c.euroloch) {
@@ -634,7 +648,7 @@ function buildSvgPro(c, u, lang = "sr") {
             }
             case "kosa_klapna": case "ukosena_klapna": case "klapna": return [kx1 - 12, ky + 4];
             case "perf_igle": case "mikroperforacija": return [cx, y0 + bh * .10];
-            case "poprecna_perf": return [cx, poprecnaY != null ? poprecnaY : y0 + bh * .72];
+            case "poprecna_perf": return [cx, poprecnaY != null ? poprecnaY : y0 + bh * .16];
             case "perf_telo": return [cx, perfTeloY != null ? perfTeloY : (ky + kl + 6)];
             case "unakrsna_perf": return [cx, unakrsnaY != null ? unakrsnaY : (y0 + bh * .5)];
             case "otvor_dno": return [cx, y1 - 8];

@@ -38,6 +38,7 @@ function getNavGroupsRaw(isAdmin, userRole) {
             items: [
                 { k: 'kalk_folija', l: 'Folije', i: '🎞️' },
                 { k: 'kalk_kesa', l: 'Kese', i: '🛍️' },
+                { k: 'kalk_tabak', l: 'Tabaci', i: '📄' },
                 { k: 'kalk_spulna', l: 'Špulne', i: '🧵' },
                 { k: 'kalkulacije_lista', l: 'Sve kalkulacije', i: '📋' },
                 { k: 'ai_kalk', l: 'AI Kalkulacije', i: '🤖' }

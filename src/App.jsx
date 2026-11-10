@@ -21,6 +21,7 @@ import PotrosniMaterijal from './PotrosniMaterijal.jsx';
 import PonudePRO from "./PonudePRO.jsx";
 import KalkulacijaFolije from "./KalkulacijaFolije.jsx";
 import KalkulacijaKese from "./KalkulacijaKese.jsx";
+import KalkulacijaTabaka from "./KalkulacijaTabaka.jsx";
 import KalkulacijaSpulne from "./KalkulacijaSpulne.jsx";
 import KalkulatorMaticnihRolni from "./KalkulatorMaticnihRolni.jsx";
 import PlanerRezanjaIzMagacina from "./PlanerRezanjaIzMagacina.jsx";
@@ -1357,6 +1358,10 @@ function MainAppContent() {
     const [pregPonuda, setPregPonuda] = useState(null);
     const [samoCekaMat, setSamoCekaMat] = useState(false);   // filter: prikaži samo naloge koji čekaju materijal
     const [godNalozi, setGodNalozi] = useState(String(new Date().getFullYear())); // filter „Glavni nalozi" po godini ("sve" = sve godine)
+    // Filteri „Glavni nalozi": status (podrazumevano aktivni — nezavršeni), kreator, pretraga po nazivu.
+    const [nalStatusF, setNalStatusF] = useState("aktivni"); // aktivni | u_toku | ceka | zavrseni | svi
+    const [nalKreatorF, setNalKreatorF] = useState("svi");
+    const [nalPretraga, setNalPretraga] = useState("");
     const [stampa, setStampa] = useState(null);
     const [uploading, setUploading] = useState(null);
     const [pdfLoading, setPdfLoading] = useState(false);
@@ -2254,6 +2259,13 @@ function MainAppContent() {
                             <KalkulacijaKese setPage={setPage} />
                         </div>
                     )}
+                    {/* KALKULACIJA TABAKA */}
+                    {page === "kalk_tabak" && (
+                        <div>
+                            <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
+                            <KalkulacijaTabaka setPage={setPage} />
+                        </div>
+                    )}
                     {/* KALKULACIJA ŠPULNE */}
                     {page === "kalk_spulna" && (
                         <div>
@@ -2357,6 +2369,31 @@ function MainAppContent() {
                                     {lista.map(function (g) { return <button key={g} onClick={function () { setGodNalozi(g); }} style={pill(godNalozi === g)}>📅 {g}</button>; })}
                                 </div>;
                             })()}
+                            {!pregNalog && (function () {
+                                // Traka filtera „Glavni nalozi": pretraga + status (podrazumevano aktivni) + kreator.
+                                var grp = {};
+                                db.nalozi.forEach(function (n) { var k = n.glavni_nalog_id || n.master_nalog_id || n.ponBr || n.broj_naloga || n.broj || "x"; (grp[k] = grp[k] || []).push(n); });
+                                var pp = function (obj) { try { var p = obj && obj.parametri; return p == null ? {} : (typeof p === "string" ? JSON.parse(p) : p); } catch (e) { return {}; } };
+                                var plm = function (obj) { try { var p = obj && obj.link_meta; return p == null ? {} : (typeof p === "string" ? JSON.parse(p) : p); } catch (e) { return {}; } };
+                                var kre = function (o) { return (o && (o.kreirao_ime || o.kreirao || o.napravio || o.kreirao_korisnik)) || ""; };
+                                var krSet = {};
+                                Object.keys(grp).forEach(function (k) {
+                                    var gr = grp[k]; var m = (db.master_nalozi || []).find(function (x) { return String(x.id) === String(k); });
+                                    var kr = kre(m) || kre(pp(m)) || kre(plm(m)) || (function () { for (var i = 0; i < gr.length; i++) { var v = kre(gr[i]) || kre(pp(gr[i])) || kre(plm(gr[i])); if (v) return v; } return ""; })();
+                                    if (kr) krSet[imeKorisnika(kr)] = 1;
+                                });
+                                var kreatori = Object.keys(krSet).sort();
+                                var spill = function (active) { return { border: "1px solid " + (active ? "#0f766e" : "#e2e8f0"), borderRadius: 999, padding: "6px 13px", fontWeight: 800, fontSize: 13, cursor: "pointer", background: active ? "#0f766e" : "#fff", color: active ? "#fff" : "#334155" }; };
+                                var statusi = [["aktivni", "Aktivni"], ["u_toku", "U toku"], ["ceka", "Čeka materijal"], ["zavrseni", "Završeni"], ["svi", "Svi"]];
+                                return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+                                    <input value={nalPretraga} onChange={function (e) { setNalPretraga(e.target.value); }} placeholder="🔎 Pretraga: broj, kupac, proizvod…" style={{ flex: "1 1 240px", minWidth: 200, border: "1px solid #cbd5e1", borderRadius: 10, padding: "9px 12px", fontSize: 13.5, fontWeight: 600 }} />
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{statusi.map(function (s) { return <button key={s[0]} onClick={function () { setNalStatusF(s[0]); }} style={spill(nalStatusF === s[0])}>{s[1]}</button>; })}</div>
+                                    <select value={nalKreatorF} onChange={function (e) { setNalKreatorF(e.target.value); }} style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "9px 12px", fontSize: 13.5, fontWeight: 700, background: "#fff" }}>
+                                        <option value="svi">👤 Svi kreatori</option>
+                                        {kreatori.map(function (k) { return <option key={k} value={k}>{k}</option>; })}
+                                    </select>
+                                </div>;
+                            })()}
                             {pregNalog ? (
                                 <PregledNalogaPRO
                                     key={pregNalog.id || pregNalog.broj_naloga}
@@ -2387,7 +2424,7 @@ function MainAppContent() {
                                             });
                                             if (!imaZaGod) return <div style={Object.assign({}, card, { textAlign: "center", padding: 40, color: "#94a3b8" })}>Nema naloga za godinu {godNalozi}. Izaberi „Sve godine" ili drugu godinu.</div>;
                                         }
-                                        return Object.keys(grupe).map(function (key) {
+                                        var _kartice = Object.keys(grupe).map(function (key) {
                                             var gr = grupe[key].slice().sort(function (a, b) { return (a.redosled || 0) - (b.redosled || 0); });
                                             var master = (db.master_nalozi || []).find(function (m) { return String(m.id) === String(key); });
                                             var br = (master && (master.broj_naloga || master.broj)) || gr[0].master_broj || gr[0].ponBr || gr[0].broj_naloga || key;
@@ -2441,6 +2478,16 @@ function MainAppContent() {
                                             // Koji slojevi čekaju (iz parametara) — da piše tačno šta fali.
                                             var grNedBr = (grParam && Array.isArray(grParam.nedodeljeni_slojevi)) ? grParam.nedodeljeni_slojevi.map(function (s) { return s && s.sloj; }).filter(Boolean) : [];
                                             if (samoCekaMat && !grCekaMat) return null;   // filter: samo nalozi koji čekaju materijal
+                                            // ── FILTERI: status / kreator / pretraga ──
+                                            // U TOKU = započeto (bar jedna operacija nije „ceka"), nije gotovo, ne čeka materijal.
+                                            var grZapoceto = gr.some(function (n) { var s = String(n.status || "").toLowerCase(); return s && s.indexOf("ceka") !== 0; });
+                                            var grUToku = !grGotov && !grCekaMat && grZapoceto;
+                                            if (nalStatusF === "aktivni" && grGotov) return null;
+                                            else if (nalStatusF === "u_toku" && !grUToku) return null;
+                                            else if (nalStatusF === "ceka" && !grCekaMat) return null;
+                                            else if (nalStatusF === "zavrseni" && !grGotov) return null;
+                                            if (nalKreatorF !== "svi" && imeKorisnika(grKreirao) !== nalKreatorF) return null;
+                                            if (nalPretraga.trim()) { var _q = nalPretraga.trim().toLowerCase(); if ([br, grKupac, grProizvod].join(" ").toLowerCase().indexOf(_q) < 0) return null; }
                                             return (
                                                 <div key={key} style={Object.assign({}, card, { marginBottom: 18, padding: 22 }, grCekaMat ? { borderTop: "4px solid #f97316", background: "#fffaf5" } : {})}>
                                                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
@@ -2495,6 +2542,9 @@ function MainAppContent() {
                                                 </div>
                                             );
                                         });
+                                        var _vid = _kartice.filter(Boolean);
+                                        if (!_vid.length) return <div style={Object.assign({}, card, { textAlign: "center", padding: 40, color: "#94a3b8" })}>{'Nema naloga za izabrane filtere' + (nalPretraga.trim() ? ' za „' + nalPretraga.trim() + '".' : '.') + ' Promeni status, kreatora ili pretragu.'}</div>;
+                                        return _vid;
                                     })()}
                                 </div>
                             )}

@@ -94,13 +94,13 @@ export const KESA_OPCIJE = [
         crtez: "okrugla_zumba"
     },
 
-    { k: "poprecna_perf", l: "Poprečna perforacija", tip: "danet", pos: ["odOtvora", "odVrha", "odDna", "dubina"], crtez: "poprecna_perf" },
+    { k: "poprecna_perf", l: "Poprečna perforacija", tip: "danet", pos: ["odOtvora", "odVrha", "odDna"], crtez: "poprecna_perf" },
 
     // Unakrsna perforacija — linija sa X-markerima preko cele širine, na zadatoj visini
     // (koliko od vrha ILI od dna). Prikazuje se na skici i na nalozima.
     { k: "unakrsna_perf", l: "Unakrsna perforacija", tip: "danet", pos: ["odVrha", "odDna"], crtez: "unakrsna_perf" },
 
-    { k: "poprecni_var", l: "Poprečni var", tip: "lista", vals: ["DA", "3mm"], crtez: "poprecni_var" },
+    { k: "poprecni_var", l: "Poprečni var", tip: "lista", vals: ["DA", "3mm"], pos: ["odOtvora", "odVrha", "odDna", "dubina"], crtez: "poprecni_var" },
 
     // Zasebna karakteristika: perforacija za otkidanje na rolni — grubo ili fino.
     { k: "perf_otkidanje_rolna", l: "Perforacija za otkidanje na rolni", tip: "lista", vals: ["Gruba", "Fina"] },
