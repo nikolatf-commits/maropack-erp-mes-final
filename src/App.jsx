@@ -1878,6 +1878,8 @@ function MainAppContent() {
         "jovana@maropack.rs": SVE_PROIZVODNJA,
         "tihana@maropack.rs": SVE_PROIZVODNJA,
         "bojan@maropack.rs": SVE_PROIZVODNJA,
+        "mirza@maropack.rs": SVE_PROIZVODNJA,   // Mirza A — isti pristup kao Jovana/Jelena/Tihana/Dunja
+        "jovan@maropack.rs": SVE_PROIZVODNJA,    // Jovan Z — isti pristup kao Jovana/Jelena/Tihana/Dunja
     };
     const mojEmail = String(user?.email || "").trim().toLowerCase();
     const dozvolaRegex = PRISTUP_PO_EMAILU[mojEmail] || null;
