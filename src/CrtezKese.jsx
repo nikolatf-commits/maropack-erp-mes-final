@@ -256,10 +256,14 @@ function buildSvgPro(c, u, lang = "sr") {
     const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
     const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
-    // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa default.
-    const ey = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
-        : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
-            : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
+    // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa „od dna", pa default.
+    const ey = (() => {
+        const yy = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
+            : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
+                : has(eV, "odDna") ? y1 - mm(eV.odDna)
+                    : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
+        return Math.max(eTop + 4, Math.min(y1 - 6, yy));
+    })();
     const psx = (P.stampa || {});
     // Podrazumevano polje štampe ide od VRHA tela (do klapne) skoro do dna i preko
     // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
@@ -316,7 +320,9 @@ function buildSvgPro(c, u, lang = "sr") {
                     : y0 + bh * 0.72;                 // default: pri dnu kese
         return Math.max(y0 + 4, Math.min(y1 - 8, yy));
     })() : null;
-    const poprecnaDub = Math.max(4, Math.min(has(ppV, "dubina") ? mm(ppV.dubina) : 6, 26));
+    // „Iskoristiva dubina" je samo PODATAK na nalogu — NE crta se kao debljina trake.
+    // Traka se uvek crta kao tanka merdevina (dve bliske linije + crtice), fiksno.
+    const poprecnaDub = 5;
     if (c.stampa) {
         const dz = c.stampaDizajn || null;
         const dzUrl = dz && (dz.url || dz.src || "");
@@ -461,7 +467,8 @@ function buildSvgPro(c, u, lang = "sr") {
     // Poprečna perforacija — PRIKAZ: dve paralelne linije sa gustim crticama između (traka).
     if (c.poprecnaPerf && poprecnaY != null) {
         const PPC = "#7c3aed";
-        const yT2 = poprecnaY, yB2 = poprecnaY + poprecnaDub, xa = x0 - 6, xb = x1 + 6;
+        // Unutar ivica kese (ne viri van) — tanka merdevina.
+        const yT2 = poprecnaY, yB2 = poprecnaY + poprecnaDub, xa = x0, xb = x1;
         g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PPC}" stroke-width="1"/>`;
         g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width="1"/>`;
         const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width=".7"/>`;
@@ -595,6 +602,7 @@ function buildSvgPro(c, u, lang = "sr") {
         if (c.euroloch) {
             if (has(eV, "odOtvora")) ok += vKota(y0, ey, num(eV.odOtvora), KC.euro);
             else if (has(eV, "odVrha")) ok += vKota(eTop, ey, num(eV.odVrha), KC.euro);
+            else if (has(eV, "odDna")) ok += vKota(y1, ey, num(eV.odDna), KC.euro);
             if (has(eV, "levo")) ok += hKota(cx, ex, ey - Math.max(eW * 0.17, 3) - 7, num(eV.levo), KC.euro);
         }
         // Okrugla zumba — kota „od otvora" (od usta kese do svake rupe koja je ima)

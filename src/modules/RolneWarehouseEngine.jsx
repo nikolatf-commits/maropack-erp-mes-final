@@ -1726,7 +1726,11 @@ export default function RolneWarehouseEngine({ db = {}, msg, forceMobile = false
         const q = filter.toLowerCase().trim();
         const matchesText = (val, needle) => String(val ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase().trim());
         return rolne.filter((r) => {
-            if (!isRollVisibleOnStock(r)) return false;
+            // Blokirane (npr. oštećene/zamenjene) OSTAJU vidljive u tabeli magacina da bi se
+            // mogle naći i otpisati/popisati — samo se ne nude za rezervaciju (to radi isRollVisibleOnStock drugde).
+            const _st = normalizeStatus(r.status);
+            if (_st === "obrisano") return false;
+            if (!isRollVisibleOnStock(r) && _st !== "blokirana") return false;
             if (q && ![r.qr, r.datum_ulaza, r.datum, r.datum_proizvodnje, r.datum_popisa, r.vrsta, r.pod_vrsta, r.oznaka_materijala, r.materijal, r.komercijalnaOznaka, r.proizvodjac, r.debljina, r.sirina, r.duzina, r.kg, r.lot, r.lokacija, r.status, r.master_nalog_id, r.napomena, r.komentar, r.dodeljeno_nalogu, r.rezervisano_za, r.popis, r.popis_broj].join(" ").toLowerCase().includes(q)) return false;
             if (columnFilters.datum && !matchesText(r.datum_ulaza || r.datum, columnFilters.datum)) return false;
             if (columnFilters.vrsta && !matchesText(r.vrsta, columnFilters.vrsta)) return false;
