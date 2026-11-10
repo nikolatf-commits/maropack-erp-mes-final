@@ -281,9 +281,12 @@ export default function KalkulacijaKese({ setPage }) {
     useEffect(() => {
         const raw = localStorage.getItem('editKalkulacija');
         if (!raw) return;
+        let kal = null;
+        try { kal = JSON.parse(raw); } catch (e) { localStorage.removeItem('editKalkulacija'); return; }
+        if (!kal || (kal.tip || '').toLowerCase() !== 'kesa') return; // nije kesa → ostavi ključ odgovarajućem ekranu
+        // NAŠ je (kesa) → ukloni ODMAH (jednokratno), da zaostali ključ kasnije ne preotme template prefill.
+        localStorage.removeItem('editKalkulacija');
         try {
-            const kal = JSON.parse(raw);
-            if ((kal.tip || '').toLowerCase() !== 'kesa') return; // samo kese ovde
             editLoaded.current = true;
             localStorage.removeItem('maropack_pending_template_calculation'); // ne dozvoli hijack
             // Kolona `id` je INTEGER — pseudo-id iz templejta ("KAL-TPL-...") ne sme u update.
@@ -350,7 +353,6 @@ export default function KalkulacijaKese({ setPage }) {
                 T(setStTip, pr.stTip); T(setStPov, pr.stPov); T(setStMotiv, pr.stMotiv); T(setStPoz, pr.stPoz);
                 if (Array.isArray(_ul.materijali) && _ul.materijali.length) setMaterijali(_ul.materijali);
             }
-            localStorage.removeItem('editKalkulacija');
         } catch (e) { /* ignore */ }
     }, []);
 

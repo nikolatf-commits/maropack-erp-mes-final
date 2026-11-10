@@ -3297,6 +3297,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         if (!sourceRecord.naziv) { msg && msg("Unesi naziv proizvoda pre kalkulacije", "err"); return; }
         const kal = templateToCalculation(sourceRecord);
         // localStorage hand-off za kalkulator + setDb (kao i pre)
+        // VAŽNO: obriši zaostali "editKalkulacija" ključ — inače bi stara (sačuvana) kalkulacija
+        // preotela prefill iz templejta (kalkulator učita nju umesto dimenzija iz templejta → falta 50, dužina 0).
+        localStorage.removeItem("editKalkulacija");
         const existing = JSON.parse(localStorage.getItem("maropack_template_kalkulacije") || "[]");
         localStorage.setItem("maropack_template_kalkulacije", JSON.stringify([kal, ...existing]));
         localStorage.setItem("maropack_pending_template_calculation", JSON.stringify(kal));
