@@ -367,8 +367,6 @@ export default function KalkulacijaKese({ setPage }) {
             setSourceLink({ product_master_id: rawMeta.product_master_id || tpl.product_master_id || null, template_id: rawMeta.template_id || rawMeta.source_template_id || null, product_template_id: rawMeta.product_template_id || rawMeta.source_template_id || null, template_version: rawMeta.template_version || tpl.template_version || 'V25', template_locked: !!rawMeta.template_locked || !!tpl.template_locked, operacije: rawMeta.operacije || [] });
         } catch { }
         const k = tpl.kesa || {};
-        // DIJAGNOSTIKA (privremeno): potvrđuje da se NOVA verzija prefill-a izvršava i šta dobija iz templejta.
-        try { console.log('%c[MAROPACK v27 prefill KESA]', 'color:#059669;font-weight:bold', { duzina: k.duzina, klapna: k.klapna, falta: k.falta, sirina: k.sirina, orijentacija: k.orijentacija, kesa: k }); } catch (e) { }
         setNaziv(tpl.naziv || k.naziv || '');
         setKupac(tpl.kupac || '');
         setKolicina(Number(k.kolicina || 0));

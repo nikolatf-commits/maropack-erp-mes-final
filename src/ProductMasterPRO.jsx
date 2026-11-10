@@ -668,8 +668,12 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             if (error) throw error;
             const dbId = data?.[0]?.id;
             const nextKal = { ...kal, id: dbId || kal.id, kalkulacija_id: dbId || null, db_id: dbId || null };
+            // ISTO kao dugme „Kreiraj kalkulaciju" u Template Engine-u: koristi TEMPLATE-PREFILL putanju
+            // (kalkulacija čita dimenzije iz nextKal.template.kesa/folija), a NE edit-putanju.
+            // Ranije se upisivao i "editKalkulacija" (bez top-level dimenzija) → kalkulacija je išla edit-putanjom
+            // i ostavljala dužinu 0 / faltu 50. Zato ga sada BRIŠEMO i upisujemo samo pending template.
+            localStorage.removeItem("editKalkulacija");
             localStorage.setItem("maropack_pending_template_calculation", JSON.stringify(nextKal));
-            localStorage.setItem("editKalkulacija", JSON.stringify(nextKal));
             if (setDb && data?.[0]) setDb(prev => ({ ...prev, kalkulacije: [data[0], ...(prev?.kalkulacije || [])] }));
             const targetPage = kal.tip === "kesa" ? "kalk_kesa" : kal.tip === "spulna" ? "kalk_spulna" : "kalk_folija";
             msg && msg("Kalkulacija je kreirana iz sačuvanog template-a i sačuvana u bazu");
@@ -704,7 +708,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                 mats: layers,
                 struktura: layers,
                 status: options.accepted ? "prihvaceno" : "draft_product_master",
-                nap: "Kreirano iz Product Master template-a",
+                nap: "",
                 product_master_id: product.product_master_id || template.product_master_id || null,
                 template_id: product.template_id || template.template_id || null,
                 template_version: product.verzija || template.template_version || "V1",
