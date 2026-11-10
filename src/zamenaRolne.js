@@ -44,10 +44,14 @@ export function nadjiZamenske(sveRolne, stara, opts = {}) {
         if (String(r.id) === String(stara.rolna_id)) return false;          // ne sama stara
         const st = String(r.status || "").toLowerCase();
         if (blok.some((b) => st.includes(b))) return false;                 // ne blokirana/iskorišćena
-        if (slobodnoM(r) <= 1) return false;                                // mora imati slobodnih metara
+        // SAMO SLOBODNE ROLNE NA STANJU — ne nudi rolne rezervisane za druge naloge.
+        if (num(r.rezervisano) > 0) return false;                           // ima rezervisanih metara → preskoči
+        if (String(r.dodeljeno_nalogu || "").trim() !== "") return false;   // dodeljena nekom nalogu → preskoči
+        if (st.includes("rezervis") || st.includes("delimičn") || st.includes("delimicn")) return false; // status rezervacije → preskoči
+        if (slobodnoM(r) <= 1) return false;                                // mora imati metara
         if (ideal && num(r.sirina) + 1 < ideal) return false;               // dovoljno široka (samo ako znamo idealnu)
         if (!istiMaterijal(r, stara)) return false;                         // isti materijal
-        return true;                                                        // metraža NIJE tvrdi filter — vidi rang
+        return true;
     });
     const refW = ideal || num(stara.sirina) || 0;
     return list.sort((a, b) => {
