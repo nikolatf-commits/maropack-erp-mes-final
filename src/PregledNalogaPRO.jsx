@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
+import { nadjiZamenske, zameniRolnu } from "./zamenaRolne.js";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { enrichNalogForPrint } from "./utils/nalogDataLink";
@@ -117,6 +118,16 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     }, [naloziProp, safeBrojKljuc, masterKljuc]);
 
     const [refreshTick, setRefreshTick] = useState(0);
+
+    // ── ZAMENA OŠTEĆENE ROLNE (admin) ──
+    const [zamStara, setZamStara] = useState(null);  // izbor-stavka koja se menja
+    const [zamKand, setZamKand] = useState([]);
+    const [zamSel, setZamSel] = useState(null);
+    const [zamBusy, setZamBusy] = useState(false);
+    const [zamLoad, setZamLoad] = useState(false);
+    const [zamOpen, setZamOpen] = useState(false);
+    const _znum = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const _zfmt = (n) => { const x = Number(n || 0); return Number.isFinite(x) ? x.toLocaleString("sr-RS", { maximumFractionDigits: 0 }) : "—"; };
 
     // Nalog napravljen u templejtu se ranije nije video dok se stranica ne osveži.
     //
@@ -602,6 +613,49 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         }
     }
 
+    // ── ZAMENA OŠTEĆENE ROLNE: materijal-operacija nosi izabrane_rolne (alocirano/sloj/idealna širina) ──
+    const matOp = useMemo(() => {
+        return (nalozi || []).find((n) => String(n.tip_naloga || n.tip || "").toLowerCase() === "materijal") || null;
+    }, [nalozi]);
+    const matIzbor = useMemo(() => {
+        const arr = matOp && (matOp.izabrane_rolne || matOp.rezervisane_rolne);
+        return (Array.isArray(arr) ? arr : []).filter((x) => x && x.rolna_id != null && _znum(x.alocirano_m) > 0);
+    }, [matOp]);
+
+    async function otvoriZamenu(stavka) {
+        setZamStara(stavka); setZamSel(null); setZamKand([]); setZamOpen(true); setZamLoad(true);
+        try {
+            const { data } = await supabase.from("magacin")
+                .select("id, br_rolne, qr_code, vrsta, tip, pod_vrsta, oznaka_materijala, deb, debljina, sirina, status, metraza, metraza_ost, rezervisano, kg_neto, kg, lot, palet, lokacija, dobavljac, datum_proizvodnje, datum")
+                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana", "formatirana"]).limit(1000);
+            const kand = nadjiZamenske(data || [], stavka, { ideal: _znum(stavka.format_ciljna) || _znum(stavka.sirina), trebaM: _znum(stavka.alocirano_m) });
+            setZamKand(kand);
+            setZamSel(kand.length ? kand[0].id : null);
+        } catch (e) { alert("Ne mogu da učitam zamenske rolne: " + (e?.message || e)); }
+        setZamLoad(false);
+    }
+    async function potvrdiZamenu() {
+        if (!zamStara || !zamSel) return;
+        const nova = zamKand.find((x) => String(x.id) === String(zamSel));
+        if (!nova) return;
+        setZamBusy(true);
+        try {
+            await zameniRolnu({
+                nalogRef: masterBroj,
+                opId: (matOp && matOp.id) || null,
+                materijaliNalogId: (matOp && matOp.materijali_nalog_id) || null,
+                proizvodNaziv: osnovniNalog.proizvod || osnovniNalog.naziv || (matOp && matOp.naziv) || "",
+                ideal: _znum(zamStara.format_ciljna) || _znum(zamStara.sirina) || 0,
+                staraStavka: zamStara,
+                nova,
+                blokiraj: true,
+            });
+            setZamOpen(false); setZamStara(null); setZamKand([]); setZamSel(null);
+            setRefreshTick((t) => t + 1);
+        } catch (e) { alert("Greška pri zameni: " + (e?.message || e)); }
+        setZamBusy(false);
+    }
+
     return (
         <div style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -654,6 +708,67 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                     </button>
                 ))}
             </div>
+
+            {/* ── REZERVISANE ROLNE — zameni oštećenu ── */}
+            {matIzbor.length > 0 && (
+                <div className="no-print" style={{ margin: "0 0 14px", padding: "12px 14px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: "#334155", textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>🎞️ Rezervisane rolne — zameni oštećenu</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        {matIzbor.map((s, i) => (
+                            <div key={(s.rolna_id || "") + "-" + (s.sloj || i)} style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 11px", background: "#f8fafc" }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 900, fontSize: 13.5 }}>{s.br_rolne || "—"} <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>· sloj {s.sloj || 1}</span></div>
+                                    <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 1 }}>{(s.snap_vrsta || s.materijal || "")}{s.snap_oznaka ? " · " + s.snap_oznaka : ""}{s.snap_debljina ? " · " + s.snap_debljina + "µ" : ""} · š {s.sirina || "—"} mm · planirano <b style={{ color: "#0f766e" }}>{_zfmt(s.alocirano_m)} m</b></div>
+                                </div>
+                                <button onClick={() => otvoriZamenu(s)} style={{ background: "#fff", border: "1.5px solid #fca5a5", color: "#b91c1c", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>🔁 Zameni</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ── MODAL: ZAMENA OŠTEĆENE ROLNE ── */}
+            {zamOpen && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+                    onClick={() => { if (!zamBusy) setZamOpen(false); }}>
+                    <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 580, maxHeight: "88vh", overflowY: "auto", padding: 18 }}>
+                        <div style={{ fontWeight: 950, fontSize: 18, color: "#b91c1c" }}>🔁 Zameni oštećenu rolnu</div>
+                        <div style={{ fontSize: 13, color: "#475569", marginTop: 4, marginBottom: 12 }}>
+                            Stara: <b>{(zamStara && zamStara.br_rolne) || "—"}</b> · {(zamStara && (zamStara.snap_vrsta || zamStara.materijal)) || ""}{zamStara && zamStara.snap_debljina ? " · " + zamStara.snap_debljina + "µ" : ""} · š {(zamStara && zamStara.sirina) || "—"} mm · planirano <b style={{ color: "#0f766e" }}>{_zfmt(zamStara && zamStara.alocirano_m)} m</b>
+                            <div style={{ color: "#94a3b8", marginTop: 2 }}>Stara ide „blokirana — oštećena"; nova preuzima iste metre.</div>
+                        </div>
+                        {zamLoad ? (
+                            <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontWeight: 800 }}>⏳ Tražim zamenske rolne…</div>
+                        ) : zamKand.length === 0 ? (
+                            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "12px 14px", fontWeight: 800, fontSize: 13 }}>
+                                Nema odgovarajuće zamenske rolne na stanju (isti materijal, širina ≥ idealna, dovoljno metara). Ništa nije promenjeno.
+                            </div>
+                        ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", textTransform: "uppercase", letterSpacing: .5 }}>Predlog (prva je najbolja) — izaberi</div>
+                                {zamKand.slice(0, 20).map((r, i) => {
+                                    const sel = String(zamSel) === String(r.id);
+                                    const slob = Math.max(0, _znum(r.metraza_ost ?? r.metraza) - _znum(r.rezervisano));
+                                    return (
+                                        <div key={r.id} onClick={() => setZamSel(r.id)}
+                                            style={{ border: "2px solid " + (sel ? "#16a34a" : "#e2e8f0"), background: sel ? "#f0fdf4" : "#fff", borderRadius: 11, padding: "10px 12px", cursor: "pointer" }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                                <div style={{ fontWeight: 900, fontSize: 13.5 }}>{sel ? "✓ " : ""}{r.br_rolne || r.qr_code || "—"}{i === 0 && <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 900, color: "#15803d", background: "#dcfce7", borderRadius: 999, padding: "2px 8px" }}>predlog</span>}</div>
+                                                <div style={{ fontSize: 12, fontWeight: 900, color: "#0f766e" }}>{_zfmt(slob)} m</div>
+                                            </div>
+                                            <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>{(r.vrsta || "")}{r.oznaka_materijala ? " · " + r.oznaka_materijala : ""}{r.deb ? " · " + r.deb + "µ" : ""} · š {r.sirina || "—"} mm · 📍 {r.lokacija || r.palet || "—"}{r.lot ? " · LOT " + r.lot : ""}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                            <button disabled={zamBusy} onClick={() => setZamOpen(false)} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px solid #cbd5e1", background: "#fff", color: "#475569", fontWeight: 900, cursor: "pointer" }}>Otkaži</button>
+                            <button disabled={zamBusy || !zamSel || zamKand.length === 0} onClick={potvrdiZamenu} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: (zamBusy || !zamSel || zamKand.length === 0) ? "#cbd5e1" : "#16a34a", color: "#fff", fontWeight: 900, cursor: "pointer" }}>{zamBusy ? "Menjam…" : "✓ Zameni rolnu"}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {aktivni && aktivni.id && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 14px", padding: "10px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 11 }}>

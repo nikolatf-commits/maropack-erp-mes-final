@@ -1107,6 +1107,7 @@ function pKesa(D, K) {
                 : (selV || 'DA');
         const extra = [];
         const p = posV || {};
+        if (p.pozicija) extra.push(String(p.pozicija));   // npr. „Na vrhu klapne" (duplofan, ADH, perf…)
         if (p.odstojanje) extra.push(String(p.odstojanje));
         if (p.odVrha) extra.push(p.odVrha + ' mm od vrha');
         if (p.odDna) extra.push(p.odDna + ' mm od dna');

@@ -185,10 +185,20 @@ function buildSvgPro(c, u, lang = "sr") {
     const bocna = !!c.bocnaFalta, vakuum = !!c.vakuum, bocnaMm = num(c.bocnaMm);
     const legend = (c.legend || []).filter((l) => l && l.n);
     const W = 520;
-    // Visina se prilagođava broju redova legende da se poslednji red NE seče.
-    // Legenda: 2 kolone, prvi red na y≈945, korak 32 px, podnaslov + pad ≈ 14 px.
-    const _halfLeg = Math.ceil(legend.length / 2);
-    const H = Math.max(1075, 945 + (_halfLeg > 0 ? (_halfLeg - 1) * 32 : 0) + 22);
+    // Legenda „POZICIJE / IZABRANE OPCIJE": vrednost (it.v) se PRELAMA u više redova da
+    // ne „iscuri" vodoravno. Raspored u 2 balansirane kolone sa promenljivom visinom.
+    const LEG_TOP = 945;                                   // y gde počinje prvi red legende
+    const LEG_AVAILW = ((W - 30) - 30) / 2 - 32;           // širina za tekst vrednosti u koloni
+    const legItems = legend.map((it) => ({ it, lines: it.v ? wrapLines(String(it.v), 10.5, LEG_AVAILW) : [] }));
+    const legItemH = (li) => 16 + Math.max(1, li.lines.length) * 13 + 9;   // naslov + redovi + razmak
+    const _legColY = [0, 0], legPos = [];
+    legItems.forEach((li, idx) => {
+        const cc = _legColY[0] <= _legColY[1] ? 0 : 1;     // u nižu kolonu
+        legPos.push({ li, idx, col: cc, y: _legColY[cc] });
+        _legColY[cc] += legItemH(li);
+    });
+    const legHeight = Math.max(_legColY[0], _legColY[1]);
+    const H = Math.max(1075, LEG_TOP + legHeight + 24);
     const s = Math.min(215 / sirina, 320 / duzina);
     const bw = sirina * s, bh = duzina * s;
     const kl = vrh === "klapna" ? Math.min(klMm * s, 64) : (vrh === "header" ? Math.min(extraMm * s, 52) : 0);
@@ -230,7 +240,13 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<rect x="${q(x0 + 4)}" y="${q(y0 + 4)}" width="${q(bw - 8)}" height="${q(bh - 8)}" fill="none" stroke="${SUB}" stroke-width="2.4" stroke-dasharray="2 2" opacity=".6"/>`;
     }
     if (vrh === "klapna") {
-        const kp = klTip === "schrag" ? `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky + kl * .5)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}` : `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}`;
+        // „schrag" (ukošena klapna) = RAVAN vrh sa blago ZASEČENIM gornjim uglovima (oba),
+        // ne cela kosa linija. bevX = horizontalni zasek, bevY = koliko se spušta niz ivicu.
+        const bevX = Math.min((kx1 - kx0) * 0.14, kl * 1.1);
+        const bevY = Math.min(kl * 0.5, (kx1 - kx0) * 0.14);
+        const kp = klTip === "schrag"
+            ? `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky + bevY)} L ${q(kx0 + bevX)} ${q(ky)} L ${q(kx1 - bevX)} ${q(ky)} L ${q(kx1)} ${q(ky + bevY)} L ${q(kx1)} ${q(y0)}`
+            : `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}`;
         g += `<path d="${kp}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
     } else if (vrh === "header") {
         g += `<rect x="${q(kx0)}" y="${q(ky)}" width="${q(kx1 - kx0)}" height="${q(kl)}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
@@ -269,15 +285,13 @@ function buildSvgPro(c, u, lang = "sr") {
     const posToY = (p) => {
         if (!p) return null;
         if (has(p, "odVrha")) {
-            // Mala mera (npr. 5 mm) u razmeri je svega par piksela, pa element „zalepi" za sam vrh.
-            // Zato garantujemo minimalan VIDLJIV razmak od vrha (≈ pozicija „na vrhu klapne"),
-            // a za veće mere se ponaša po razmeri.
-            const minY = hasFlap ? ky + Math.max(5, kl * 0.22) : y0 + 7;
+            // „Od vrha X mm" se meri od samog vrha klapne; mali minimalni razmak da bude vidljiv.
+            const minY = hasFlap ? ky + 4 : y0 + 5;
             return Math.max(minY, Math.min(y1 - 3, topY + mm(p.odVrha)));
         }
         let yy;
         switch (String(p.pozicija || "")) {
-            case "Na vrhu klapne": yy = hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6; break;
+            case "Na vrhu klapne": yy = hasFlap ? ky + 4 : y0 + 5; break;   // BAŠ na vrhu klapne
             case "Na sredini klapne": yy = hasFlap ? ky + kl * 0.5 : y0 + bh * 0.08; break;
             case "Na dnu klapne": yy = y0; break;
             case "Na telu kese": yy = y0 + bh * 0.18; break;
@@ -649,13 +663,16 @@ function buildSvgPro(c, u, lang = "sr") {
     if (!legend.length) {
         g += `<text x="${PADX}" y="${q(mY + 80)}" font-size="11" fill="${LINE}" font-family="Inter">— nema dodatnih opcija —</text>`;
     } else {
-        const half = Math.ceil(legend.length / 2);
+        const esc2 = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
         const colX = [PADX, PADX + (RXX - PADX) / 2 + 8];
-        legend.forEach((it, i) => {
-            const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba", "perf_telo"].includes(it.key) ? ACC : SUB)));
-            const isR = i >= half, row = isR ? i - half : i;
-            const lx = colX[isR ? 1 : 0], ly = mY + 84 + row * 32;
-            g += `<circle cx="${q(lx + 9)}" cy="${q(ly - 4)}" r="9" fill="#fff" stroke="${col}" stroke-width="1.5"/><text x="${q(lx + 9)}" y="${q(ly - 0.3)}" font-size="10.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${i + 1}</text><text x="${q(lx + 26)}" y="${q(ly - 6)}" font-size="12" fill="${INK}" font-weight="800" font-family="Inter">${String(it.n).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text><text x="${q(lx + 26)}" y="${q(ly + 8)}" font-size="10.5" fill="${SUB}" font-family="Inter">${String(it.v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`;
+        legPos.forEach(({ li, idx, col: ci, y }) => {
+            const it = li.it;
+            const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba", "perf_telo", "duplofan"].includes(it.key) ? ACC : SUB)));
+            const lx = colX[ci], ly = mY + 84 + y;
+            g += `<circle cx="${q(lx + 9)}" cy="${q(ly - 4)}" r="9" fill="#fff" stroke="${col}" stroke-width="1.5"/><text x="${q(lx + 9)}" y="${q(ly - 0.3)}" font-size="10.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter">${idx + 1}</text>`;
+            g += `<text x="${q(lx + 26)}" y="${q(ly - 6)}" font-size="12" fill="${INK}" font-weight="800" font-family="Inter">${esc2(it.n)}</text>`;
+            let vy = ly + 8;
+            for (const ln of li.lines) { g += `<text x="${q(lx + 26)}" y="${q(vy)}" font-size="10.5" fill="${SUB}" font-family="Inter">${esc2(ln)}</text>`; vy += 13; }
         });
     }
     return { inner: d + g, vbW: W, vbH: H };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase.js";
 import QRScannerModal from "../QRScannerModal.jsx";
+import { nadjiZamenske, zameniRolnu } from "../zamenaRolne.js";
 
 /* Magacioner: vidi naloge koji čekaju materijal i ROLNE KOJE SU VEĆ DODELJENE nalogu.
    NE bira materijal. Čekira svaku rolnu SKENIRANJEM QR koda.
@@ -104,6 +105,13 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [scanLocOpen, setScanLocOpen] = useState(false);
     const [nedodeljeni, setNedodeljeni] = useState([]);    // slojevi koji još nemaju materijal (čeka administraciju)
     const [vecIzdato, setVecIzdato] = useState({});        // rollId -> true (rolna već izdata ranije, npr. pre dopune)
+    // ── ZAMENA OŠTEĆENE ROLNE ──
+    const [zamR, setZamR] = useState(null);        // rolna koja se menja (r)
+    const [zamStara, setZamStara] = useState(null); // izgrađena "staraStavka"
+    const [zamKand, setZamKand] = useState([]);     // kandidati (zamenske rolne)
+    const [zamSel, setZamSel] = useState(null);     // izabrana zamenska rolna (id)
+    const [zamBusy, setZamBusy] = useState(false);
+    const [zamLoad, setZamLoad] = useState(false);
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -463,6 +471,60 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
         return num(r.metraza_ost ?? r.metraza);
     }
 
+    // ── ZAMENA OŠTEĆENE ROLNE ─────────────────────────────────────────────
+    async function otvoriZamenu(r) {
+        const st = stavkaMap[r.id] || {};
+        const staraStavka = {
+            rolna_id: r.id,
+            br_rolne: r.br_rolne || r.qr_code || null,
+            sloj: Number(st.sloj) || Number(r.sloj) || 1,
+            alocirano_m: num(st.alocirano_m) || alocRolne(r),
+            materijal: st.vrsta || r.vrsta || "",
+            snap_vrsta: st.vrsta || r.vrsta || "",
+            snap_pod_vrsta: st.pod_vrsta || r.pod_vrsta || "",
+            snap_oznaka: st.oznaka || r.oznaka_materijala || "",
+            debljina: st.debljina || r.deb || "",
+            snap_debljina: num(st.debljina || r.deb) || null,
+            format_ciljna: num(st.idealna_sirina) || null,
+            sirina: num(r.sirina) || null,
+            redni_rolne: 1,
+            materijali_nalog_id: st.materijali_nalog_id || null,
+        };
+        setZamR(r); setZamStara(staraStavka); setZamSel(null); setZamKand([]); setZamLoad(true);
+        try {
+            const { data } = await supabase.from("magacin")
+                .select("id, br_rolne, qr_code, vrsta, tip, pod_vrsta, oznaka_materijala, deb, debljina, sirina, status, metraza, metraza_ost, rezervisano, kg_neto, kg, lot, palet, lokacija, dobavljac, datum_proizvodnje, datum")
+                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana", "formatirana"]).limit(1000);
+            const kand = nadjiZamenske(data || [], staraStavka, { ideal: staraStavka.format_ciljna || staraStavka.sirina, trebaM: staraStavka.alocirano_m });
+            setZamKand(kand);
+            setZamSel(kand.length ? kand[0].id : null);
+        } catch (e) { msg && msg("Ne mogu da učitam zamenske rolne: " + (e?.message || e), "err"); }
+        setZamLoad(false);
+    }
+    async function potvrdiZamenu() {
+        if (!zamStara || !zamSel || !open) return;
+        const nova = zamKand.find((x) => String(x.id) === String(zamSel));
+        if (!nova) { msg && msg("Izaberi zamensku rolnu.", "err"); return; }
+        const nalogRef = String((open.master && open.master.broj_naloga) || (open.op && open.op.broj_naloga) || "").replace(/-(MATERIJAL|MAT)$/i, "").trim();
+        setZamBusy(true);
+        try {
+            await zameniRolnu({
+                nalogRef,
+                opId: (open.op && open.op.id) || null,
+                materijaliNalogId: zamStara.materijali_nalog_id || null,
+                proizvodNaziv: (open.master && (open.master.proizvod || open.master.naziv)) || "",
+                ideal: zamStara.format_ciljna || zamStara.sirina || 0,
+                staraStavka: zamStara,
+                nova,
+                blokiraj: true,
+            });
+            msg && msg("✓ Rolna zamenjena: " + (zamStara.br_rolne || "") + " → " + (nova.br_rolne || ""), "ok");
+            setZamR(null); setZamStara(null); setZamKand([]); setZamSel(null);
+            await ucitajDetalje(open, false);
+        } catch (e) { msg && msg("Greška pri zameni: " + (e?.message || e), "err"); }
+        setZamBusy(false);
+    }
+
     function tryCheck(text) {
         const code = qrCode(text).toUpperCase();
         const r = rolls.find((x) => String(x.qr_code || "").toUpperCase() === code || String(x.br_rolne || "").toUpperCase() === code);
@@ -646,6 +708,14 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                                     {num(izdato[r.id] ?? aloc) > ostatak && <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 800 }}>⚠ više nego na rolni</span>}
                                 </div>
                             )}
+                            {!r.rucni && !vecIzdato[r.id] && (
+                                <div style={{ marginTop: 8, textAlign: "right" }}>
+                                    <button onClick={(e) => { e.stopPropagation(); otvoriZamenu(r); }}
+                                        style={{ background: "#fff", border: "1.5px solid #fca5a5", color: "#b91c1c", borderRadius: 9, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                                        🔁 Zameni (oštećena)
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     );
                                 })}
@@ -670,6 +740,53 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                         </div>
                         <button disabled={!allDone || saving} onClick={izdaj} style={{ ...btn, background: allDone && !saving ? "#16a34a" : "#cbd5e1", color: "#fff", marginBottom: 8 }}>{saving ? "Izdajem..." : (allDone ? "📤 Izdaj i skini sa stanja" : "Skeniraj sve rolne (" + done + "/" + total + ")")}</button>
                         <button disabled={saving} onClick={potvrdi} style={{ ...btn, background: "#fff", color: "#475569", border: "1.5px solid #cbd5e1", fontSize: 13, padding: 11 }}>Samo spremljeno (bez skidanja metara)</button>
+                    </div>
+                )}
+
+                {/* ── MODAL: ZAMENA OŠTEĆENE ROLNE ── */}
+                {zamR && (
+                    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+                        onClick={() => { if (!zamBusy) { setZamR(null); setZamStara(null); setZamKand([]); setZamSel(null); } }}>
+                        <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: "18px 18px 0 0", width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", padding: 16 }}>
+                            <div style={{ fontWeight: 950, fontSize: 17, color: "#b91c1c" }}>🔁 Zameni oštećenu rolnu</div>
+                            <div style={{ fontSize: 13, color: "#475569", marginTop: 4, marginBottom: 10 }}>
+                                Stara: <b>{(zamStara && zamStara.br_rolne) || "—"}</b> · {(zamStara && zamStara.snap_vrsta) || ""}{zamStara && zamStara.snap_debljina ? " · " + zamStara.snap_debljina + "µ" : ""} · š {(zamStara && zamStara.sirina) || "—"} mm · planirano <b style={{ color: "#0f766e" }}>{fmt((zamStara && zamStara.alocirano_m) || 0)} m</b>
+                                <div style={{ color: "#94a3b8", marginTop: 2 }}>Stara ide „blokirana — oštećena"; nova preuzima iste metre.</div>
+                            </div>
+
+                            {zamLoad ? (
+                                <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontWeight: 800 }}>⏳ Tražim zamenske rolne…</div>
+                            ) : zamKand.length === 0 ? (
+                                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "12px 14px", fontWeight: 800, fontSize: 13 }}>
+                                    Nema odgovarajuće zamenske rolne na stanju (isti materijal, širina ≥ idealna, dovoljno metara). Ništa nije promenjeno.
+                                </div>
+                            ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", textTransform: "uppercase", letterSpacing: .5 }}>Predlog (prva je najbolja) — izaberi</div>
+                                    {zamKand.slice(0, 20).map((r, i) => {
+                                        const sel = String(zamSel) === String(r.id);
+                                        const slob = Math.max(0, num(r.metraza_ost ?? r.metraza) - num(r.rezervisano));
+                                        return (
+                                            <div key={r.id} onClick={() => setZamSel(r.id)}
+                                                style={{ border: "2px solid " + (sel ? "#16a34a" : "#e2e8f0"), background: sel ? "#f0fdf4" : "#fff", borderRadius: 11, padding: "10px 12px", cursor: "pointer" }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                                    <div style={{ fontWeight: 900, fontSize: 13.5 }}>{sel ? "✓ " : ""}{r.br_rolne || r.qr_code || "—"}{i === 0 && <span style={{ ...pill("#dcfce7", "#15803d"), marginLeft: 7 }}>predlog</span>}</div>
+                                                    <div style={{ fontSize: 12, fontWeight: 900, color: "#0f766e" }}>{fmt(slob)} m</div>
+                                                </div>
+                                                <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>{(r.vrsta || "")}{r.oznaka_materijala ? " · " + r.oznaka_materijala : ""}{r.deb ? " · " + r.deb + "µ" : ""} · š {r.sirina || "—"} mm · 📍 {r.lokacija || r.palet || "—"}{r.lot ? " · LOT " + r.lot : ""}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                                <button disabled={zamBusy} onClick={() => { setZamR(null); setZamStara(null); setZamKand([]); setZamSel(null); }}
+                                    style={{ ...btn, background: "#fff", color: "#475569", border: "1.5px solid #cbd5e1" }}>Otkaži</button>
+                                <button disabled={zamBusy || !zamSel || zamKand.length === 0} onClick={potvrdiZamenu}
+                                    style={{ ...btn, background: (zamBusy || !zamSel || zamKand.length === 0) ? "#cbd5e1" : "#16a34a", color: "#fff" }}>{zamBusy ? "Menjam…" : "✓ Zameni rolnu"}</button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
