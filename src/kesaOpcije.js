@@ -94,7 +94,7 @@ export const KESA_OPCIJE = [
         crtez: "okrugla_zumba"
     },
 
-    { k: "poprecna_perf", l: "Poprečna perforacija", tip: "danet", crtez: "poprecna_perf" },
+    { k: "poprecna_perf", l: "Poprečna perforacija", tip: "danet", pos: ["odOtvora", "odVrha", "odDna", "dubina"], crtez: "poprecna_perf" },
 
     // Unakrsna perforacija — linija sa X-markerima preko cele širine, na zadatoj visini
     // (koliko od vrha ILI od dna). Prikazuje se na skici i na nalozima.
@@ -197,6 +197,7 @@ export const POS_LBL = {
     odVrha: "Od vrha (mm)", odDna: "Od dna (mm)", levo: "Levo (mm)", desno: "Desno (mm)",
     sirina: "Širina (mm)", visina: "Visina (mm)", odstojanje: "Odstojanje (mm/tekst)",
     odIvice: "Od ivice (mm)", strana: "Referentna ivica", odOtvora: "Od otvora (mm)",
+    dubina: "Iskoristiva dubina (mm)",
 };
 
 // Grupisanje opcija po celinama (za templejt i nalog)
@@ -285,6 +286,7 @@ export function toCrtezKesa(kesa = {}) {
         if (p.odOtvora) extra.push(p.odOtvora + " mm od otvora");
         if (p.odVrha) extra.push(p.odVrha + " mm od vrha");
         if (p.odDna) extra.push(p.odDna + " mm od dna");
+        if (p.dubina) extra.push("iskoristiva dubina " + p.dubina + " mm");
         if (p.levo) extra.push(p.levo + " mm levo");
         if (p.sirina && p.visina) extra.push(p.sirina + "×" + p.visina + " mm");
         Object.keys(t).forEach((k) => {

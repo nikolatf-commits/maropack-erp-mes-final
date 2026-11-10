@@ -1109,8 +1109,10 @@ function pKesa(D, K) {
         const p = posV || {};
         if (p.pozicija) extra.push(String(p.pozicija));   // npr. „Na vrhu klapne" (duplofan, ADH, perf…)
         if (p.odstojanje) extra.push(String(p.odstojanje));
+        if (p.odOtvora) extra.push(p.odOtvora + ' mm od otvora');
         if (p.odVrha) extra.push(p.odVrha + ' mm od vrha');
         if (p.odDna) extra.push(p.odDna + ' mm od dna');
+        if (p.dubina) extra.push('iskoristiva dubina ' + p.dubina + ' mm');
         if (p.levo) extra.push(p.levo + ' mm levo');
         if (p.sirina && p.visina) extra.push(p.sirina + '×' + p.visina + ' mm');
         const tt = txtV || {};

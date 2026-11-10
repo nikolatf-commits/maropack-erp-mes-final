@@ -20,12 +20,13 @@ function slobodnoM(r) { return Math.max(0, rolnaMetraza(r) - num(r.rezervisano))
 function rolnaDatum(r) { const t = Date.parse(r.datum_proizvodnje || r.datum || ""); return isNaN(t) ? Infinity : t; }
 function formatTrake(w, ideal) { w = num(w); ideal = num(ideal); if (!ideal || w < ideal) return 1; return Math.max(1, Math.floor(w / ideal)); }
 
-// Ista vrsta materijala kao stara stavka (vrsta + debljina ±3µ; oznaka ako postoji na obe).
+// Ista vrsta materijala kao stara stavka. Toleriše razlike u opisu („BOPP" vs „BOPP Transparent")
+// i radi samo kad su OBA podatka poznata (da ne iskljuci legitimnu rolnu zbog praznog polja).
 function istiMaterijal(r, stara) {
     const rv = normMat(r.vrsta || r.tip), sv = normMat(stara.snap_vrsta || stara.materijal);
-    if (rv && sv && rv !== sv) return false;
+    if (rv && sv && rv !== sv && !rv.startsWith(sv) && !sv.startsWith(rv)) return false;
     const rd = num(r.deb || r.debljina), sd = num(stara.snap_debljina || stara.debljina);
-    if (rd && sd && Math.abs(rd - sd) > 3) return false;
+    if (rd && sd && Math.abs(rd - sd) > 5) return false;   // tolerancija debljine 5µ
     return true;
 }
 
@@ -33,25 +34,31 @@ function istiMaterijal(r, stara) {
 // sveRolne = rolne iz magacina (sa poljima: id, vrsta, deb/debljina, sirina, status,
 //            metraza/metraza_ost, rezervisano, datum…). stara = izbor-stavka koja se menja.
 export function nadjiZamenske(sveRolne, stara, opts = {}) {
-    const ideal = num(opts.ideal) || num(stara.format_ciljna) || num(stara.sirina);
-    const trebaM = num(opts.trebaM) || num(stara.alocirano_m);
+    // VAŽNO: idealna širina NE pada na širinu STARE rolne (ona ume biti šira od idealne,
+    // npr. 600 za idealnih 440) — to bi pogrešno izbacilo sve uže-ali-dovoljne rolne.
+    const ideal = num(opts.ideal) || num(stara.format_ciljna) || 0;
+    const trebaM = num(opts.trebaM) || num(stara.alocirano_m) || 0;
     const blok = ["blokiran", "iskorišć", "iskorisc", "u štampar", "u stampar"];
     const list = (sveRolne || []).filter((r) => {
         if (!r || r.id == null) return false;
         if (String(r.id) === String(stara.rolna_id)) return false;          // ne sama stara
         const st = String(r.status || "").toLowerCase();
         if (blok.some((b) => st.includes(b))) return false;                 // ne blokirana/iskorišćena
-        if (ideal && num(r.sirina) + 1 < ideal) return false;               // mora ≥ idealne širine
+        if (slobodnoM(r) <= 1) return false;                                // mora imati slobodnih metara
+        if (ideal && num(r.sirina) + 1 < ideal) return false;               // dovoljno široka (samo ako znamo idealnu)
         if (!istiMaterijal(r, stara)) return false;                         // isti materijal
-        if (trebaM && slobodnoM(r) < trebaM - 1) return false;              // dovoljno slobodnih m
-        return true;
+        return true;                                                        // metraža NIJE tvrdi filter — vidi rang
     });
+    const refW = ideal || num(stara.sirina) || 0;
     return list.sort((a, b) => {
-        const wa = Math.abs(num(a.sirina) - ideal), wb = Math.abs(num(b.sirina) - ideal);
-        if (wa !== wb) return wa - wb;                                      // najbliža idealnoj širina
+        // 1) prvo rolne sa DOVOLJNO metara, 2) najbliža (idealnoj/staroj) širina, 3) FIFO, 4) više slobodnih
+        const am = (!trebaM || slobodnoM(a) >= trebaM - 1) ? 0 : 1;
+        const bm = (!trebaM || slobodnoM(b) >= trebaM - 1) ? 0 : 1;
+        if (am !== bm) return am - bm;
+        if (refW) { const wa = Math.abs(num(a.sirina) - refW), wb = Math.abs(num(b.sirina) - refW); if (wa !== wb) return wa - wb; }
         const da = rolnaDatum(a), db = rolnaDatum(b);
-        if (da !== db) return da - db;                                      // FIFO (najstarija)
-        return slobodnoM(b) - slobodnoM(a);                                // više slobodnih m
+        if (da !== db) return da - db;
+        return slobodnoM(b) - slobodnoM(a);
     });
 }
 

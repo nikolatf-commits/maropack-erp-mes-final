@@ -626,9 +626,8 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
         setZamStara(stavka); setZamSel(null); setZamKand([]); setZamOpen(true); setZamLoad(true);
         try {
             const { data } = await supabase.from("magacin")
-                .select("id, br_rolne, qr_code, vrsta, tip, pod_vrsta, oznaka_materijala, deb, debljina, sirina, status, metraza, metraza_ost, rezervisano, kg_neto, kg, lot, palet, lokacija, dobavljac, datum_proizvodnje, datum")
-                .in("status", ["Na stanju", "Rezervisano", "Delimično rezervisano", "Formatirana", "formatirana"]).limit(1000);
-            const kand = nadjiZamenske(data || [], stavka, { ideal: _znum(stavka.format_ciljna) || _znum(stavka.sirina), trebaM: _znum(stavka.alocirano_m) });
+                .select("*").limit(3000);
+            const kand = nadjiZamenske(data || [], stavka, { ideal: _znum(stavka.format_ciljna) || 0, trebaM: _znum(stavka.alocirano_m) });
             setZamKand(kand);
             setZamSel(kand.length ? kand[0].id : null);
         } catch (e) { alert("Ne mogu da učitam zamenske rolne: " + (e?.message || e)); }

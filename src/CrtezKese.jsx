@@ -306,6 +306,17 @@ function buildSvgPro(c, u, lang = "sr") {
         const uy = has(uv, "odVrha") ? topY + mm(uv.odVrha) : (has(uv, "odDna") ? y1 - mm(uv.odDna) : y0 + bh * .5);
         return Math.max(y0 + 4, Math.min(y1 - 4, uy));
     })() : null;
+    // Poprečna perforacija — pozicija: od otvora (y0) > od vrha klapne (topY) > od dna (y1);
+    // „dubina" = razmak između dve paralelne linije (visina trake perforacije).
+    const ppV = P.poprecna_perf || {};
+    const poprecnaY = c.poprecnaPerf ? (() => {
+        const yy = has(ppV, "odOtvora") ? y0 + mm(ppV.odOtvora)
+            : has(ppV, "odVrha") ? topY + mm(ppV.odVrha)
+                : has(ppV, "odDna") ? y1 - mm(ppV.odDna)
+                    : y0 + bh * 0.72;                 // default: pri dnu kese
+        return Math.max(y0 + 4, Math.min(y1 - 8, yy));
+    })() : null;
+    const poprecnaDub = Math.max(4, Math.min(has(ppV, "dubina") ? mm(ppV.dubina) : 6, 26));
     if (c.stampa) {
         const dz = c.stampaDizajn || null;
         const dzUrl = dz && (dz.url || dz.src || "");
@@ -447,7 +458,14 @@ function buildSvgPro(c, u, lang = "sr") {
     //  • poprečna perforacija — malo niže, ljubičasta
     if (c.abreiss) g += `<line x1="${q(x0 - 6)}" y1="${q(topY + 2)}" x2="${q(x1 + 6)}" y2="${q(topY + 2)}" stroke="${ACC}" stroke-width="1" stroke-dasharray="2 3"/>`;
     if (c.mikroPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .10)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .10)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="1 2"/>`;
-    if (c.poprecnaPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .16)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .16)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 3"/>`;
+    // Poprečna perforacija — PRIKAZ: dve paralelne linije sa gustim crticama između (traka).
+    if (c.poprecnaPerf && poprecnaY != null) {
+        const PPC = "#7c3aed";
+        const yT2 = poprecnaY, yB2 = poprecnaY + poprecnaDub, xa = x0 - 6, xb = x1 + 6;
+        g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PPC}" stroke-width="1"/>`;
+        g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width="1"/>`;
+        const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PPC}" stroke-width=".7"/>`;
+    }
     // UTOR (žleb) — kratka isprekidana vertikala na desnoj strani.
     if (c.falznut) { const uy = y0 + bh * .38; g += `<line x1="${q(x1 - 10)}" y1="${q(uy - 10)}" x2="${q(x1 - 10)}" y2="${q(uy + 10)}" stroke="${SUB}" stroke-width="1.2" stroke-dasharray="3 2"/>`; }
     // Otvor na dnu kese — mali krug pri dnu.
@@ -529,7 +547,7 @@ function buildSvgPro(c, u, lang = "sr") {
     //  • vertikalne kote (od vrha / od dna) idu desno od kese, u „trakama" da se
     //    ne preklapaju; horizontalne (levo / od centra) idu iznad elementa.
     {
-        const KC = { adh: ACC, duplofan: "#6366f1", perf_telo: ACC, unakrsna: "#0ea5e9", euro: SUB, stampa: TEAL };
+        const KC = { adh: ACC, duplofan: "#6366f1", perf_telo: ACC, unakrsna: "#0ea5e9", poprecna: "#7c3aed", euro: SUB, stampa: TEAL };
         // Vertikalne kote idu LEVO od kese (brojevi/legenda su desno → nema preklapanja).
         // „Trake" (lanes) se slažu dalje ulevo tek kad bi se dve kote preklopile po visini.
         const leftBase = x0 - (kl > 0 ? 92 : 68);
@@ -567,6 +585,12 @@ function buildSvgPro(c, u, lang = "sr") {
         if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
         // Unakrsna perforacija — „od vrha" ILI „od dna"
         if (c.unakrsnaPerf) { const uv = P.unakrsna_perf || {}; if (has(uv, "odVrha")) ok += vKota(topY, unakrsnaY, num(uv.odVrha), KC.unakrsna); else if (has(uv, "odDna")) ok += vKota(y1, unakrsnaY, num(uv.odDna), KC.unakrsna); }
+        // Poprečna perforacija — kota od otvora/vrha klapne (do gornje ivice trake) ili od dna (do donje ivice).
+        if (c.poprecnaPerf && poprecnaY != null) {
+            if (has(ppV, "odOtvora")) ok += vKota(y0, poprecnaY, num(ppV.odOtvora), KC.poprecna);
+            else if (has(ppV, "odVrha")) ok += vKota(topY, poprecnaY, num(ppV.odVrha), KC.poprecna);
+            else if (has(ppV, "odDna")) ok += vKota(y1, poprecnaY + poprecnaDub, num(ppV.odDna), KC.poprecna);
+        }
         // Eurozumba — vertikalno: „od otvora" (od usta kese) ILI „od vrha"; „levo" od centra (horizontalno)
         if (c.euroloch) {
             if (has(eV, "odOtvora")) ok += vKota(y0, ey, num(eV.odOtvora), KC.euro);
@@ -602,7 +626,7 @@ function buildSvgPro(c, u, lang = "sr") {
             }
             case "kosa_klapna": case "ukosena_klapna": case "klapna": return [kx1 - 12, ky + 4];
             case "perf_igle": case "mikroperforacija": return [cx, y0 + bh * .10];
-            case "poprecna_perf": return [cx, y0 + bh * .16];
+            case "poprecna_perf": return [cx, poprecnaY != null ? poprecnaY : y0 + bh * .72];
             case "perf_telo": return [cx, perfTeloY != null ? perfTeloY : (ky + kl + 6)];
             case "unakrsna_perf": return [cx, unakrsnaY != null ? unakrsnaY : (y0 + bh * .5)];
             case "otvor_dno": return [cx, y1 - 8];
