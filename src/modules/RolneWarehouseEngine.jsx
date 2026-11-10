@@ -429,7 +429,9 @@ function rolnaSlobodnoM(r) { return Math.max(0, rolnaUkupnoM(r) - rolnaRezM(r));
 function efektivniStatus(r) {
     const base = normalizeStatus(r?.status);
     // Statusi sa posebnim badge-om (ne računaju „Delimično“) — status je merodavan.
-    if (["proizvodnja", "stamparija", "vraceno_stamp"].includes(base)) return base;
+    // „blokirana" (npr. oštećena/zamenjena) UVEK ostaje blokirana, bez obzira na metre,
+    // da se vidi u tabeli i nađe filterom „Blokirana".
+    if (["proizvodnja", "stamparija", "vraceno_stamp", "blokirana"].includes(base)) return base;
     const total = rolnaUkupnoM(r);
     let rez = Math.min(total, rolnaRezM(r));
     if (rez === 0 && base === "rezervisana") rez = total; // starija puna rezervacija bez metara
