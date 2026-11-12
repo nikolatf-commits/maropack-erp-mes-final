@@ -38,6 +38,7 @@ const OPIS_ALATA = {
     cene_materijala: "Gledam cene…",
     kalkulacija_folije: "Računam kalkulaciju folije…",
     kalkulacija_kese: "Računam kalkulaciju kese…",
+    kalkulacija_tabaka: "Računam kalkulaciju tabaka…",
     kalkulacija_spulne: "Računam kalkulaciju špulne…",
     kalkulacija_iz_mejla: "Čitam upit iz mejla i punim kalkulaciju…",
     procitaj_kalkulacije: "Čitam sačuvane kalkulacije…",
@@ -231,7 +232,10 @@ KALKULACIJE IZ MEJLA (VAŽNO):
 - Ako u jednom mejlu ima VIŠE stavki/proizvoda, uradi kalkulaciju za svaku posebno i prikaži ih listom.
 
 KALKULACIJE:
-- Umeš da izračunaš kalkulaciju za foliju, kesu i špulnu — po ZVANIČNIM Maropack formulama (alati kalkulacija_*).
+- Umeš da izračunaš kalkulaciju za foliju, kesu, TABAK (ravan list) i špulnu — po ZVANIČNIM Maropack formulama (alati kalkulacija_folije / kalkulacija_kese / kalkulacija_tabaka / kalkulacija_spulne).
+- TABAK = ravan list (sheet/Zuschnitt): jednoslojno platno, površina = širina × dužina (BEZ duplo-platna, klapne i falte). Dorade (perforacija, rupe/zumbe, presavijanje) daj kao zbir u ostaleOpcijeEur (€/1000 kom). Čuva se alatom sacuvaj_kalkulaciju sa tip="tabak".
+- KESA — idealna širina materijala (ban) = 2×(izabrana dimenzija) + klapna + falta: po dužini = 2×dužina+klapna+falta (korak = širina), po širini = 2×širina+klapna+falta (korak = dužina). Zid se duplira (prednji+zadnji), klapna i falta se dodaju JEDNOM.
+- KESA dorade/opcije koje postoje u sistemu (prepoznaj ih iz mejla i uključi kao ostaleOpcijeEur / napomenu): duplofan (ADH/permanentna traka, pozicija npr. „na vrhu klapne"), eurozumba, okrugla zumba, anleger, ojačanje, štampa, reciklažna izjava (znak + tekst), poprečna perforacija (pozicija od vrha/od otvora/od dna), poprečni var (iskoristiva dubina), unakrsna perforacija, mikro perforacija (gustina + veličina rupe), ukošena klapna, otvor/var/falta na dnu, perforacija za otkidanje, pakovanje za hranu. Pozicije (od vrha/od dna/na vrhu klapne) utiču na crtež/nalog, ne na cenu — cena dorada ide kroz ostaleOpcijeEur.
 - Cene NE izmišljaj: prvo pozovi cene_materijala, a ako cene nema u bazi — pitaj korisnika.
 - Ako korisnik ne zada škart i maržu, koristi uobičajeno (škart 10%, marža 27% za foliju) i JASNO napiši da si to pretpostavio.
 - Uvek prikaži razrađen račun (polje "koraci") da korisnik vidi kako si došao do cene, pa tek onda konačnu cenu.
@@ -587,6 +591,14 @@ export async function ponistiRadnje(zaPonistiti = []) {
 }
 
 export async function potvrdiPlan(plan, messages = []) {
+    // KO JE POKRENUO AI AKCIJU — ulogovani korisnik (za audit „ko je kliknuo").
+    let korisnikIme = "AI agent";
+    try {
+        const { data: ures } = await supabase.auth.getUser();
+        const u = ures && ures.user;
+        korisnikIme = (u && (u.user_metadata?.ime || u.user_metadata?.full_name || u.user_metadata?.name || u.email)) || "AI agent";
+    } catch (e) { }
+
     const izvrseno = [];
     for (const stavka of plan) {
         const r = await izvrsiAlat(stavka.alat, stavka.ulaz);
@@ -601,7 +613,7 @@ export async function potvrdiPlan(plan, messages = []) {
     try {
         await supabase.from("ai_akcije").insert(izvrseno.map((x) => ({
             tip: "AI_AGENT", naziv: x.opis, payload: { poruka: x.poruka },
-            status: x.ok ? "izvrseno" : "greska", korisnik: "agent", created_at: new Date().toISOString(),
+            status: x.ok ? "izvrseno" : "greska", korisnik: korisnikIme, created_at: new Date().toISOString(),
         })));
     } catch (e) { }
 

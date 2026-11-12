@@ -12,7 +12,8 @@ import { supabase } from "../supabase.js";
 import { nadjiSpojRolne } from "../modules/spojRolneMatch.js";
 import { predloziFormatiranje } from "../modules/formatiranjeEngine.js";
 import { dodeliBrojeveNaloga } from "../modules/dodeliBrojeve.js";
-import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne } from "./kalkulacijeCore.js";
+import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne, kalkulacijaTabaka } from "./kalkulacijeCore.js";
+import { imeKorisnika } from "../dashboardShared.js";
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
 import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace } from "../services/erpMesCore.js";
@@ -971,6 +972,24 @@ export const ALATI = {
         async izvrsi(a) { return kalkulacijaKese(a); },
     },
 
+    kalkulacija_tabaka: {
+        cita: true,
+        opis: "Računa kalkulaciju TABAKA (ravan list) po formulama Maropack-a. Ravan list = jednoslojno platno (BEZ duplo-platna, klapne i falte): površina = širina × dužina. Vraća cenu na 1000 komada i po komadu. Opcije (perforacija, rupe/zumbe, presavijanje) daj kao zbir u ostaleOpcijeEur (€/1000 kom).",
+        ulaz: {
+            sirina: { type: "number", description: "Širina lista u mm" },
+            duzina: { type: "number", description: "Dužina lista u mm" },
+            sirinaMaterijala: { type: "number", description: "Opciono: širina ulazne rolne u mm (za ban i ivični otpad)" },
+            kolicina: { type: "number", description: "Broj komada (listova)" },
+            materijali: { type: "array", description: "Slojevi [{tezina g/m², cena €/kg}]", items: { type: "object" } },
+            skart: { type: "number" }, marza: { type: "number" },
+            ostaleOpcijeEur: { type: "number", description: "Zbir dorada (perforacija, rupe/zumbe, presavijanje) u € na 1000 kom" },
+            kasiranjeCena: { type: "number", description: "€/m² — za višeslojni (prolaza = slojevi − 1)" },
+            transportCena: { type: "number", description: "€/kg" },
+            setup_masina: { type: "number", description: "Podešavanje mašine, € na 1000 kom (ne ulazi u maržu)" },
+        },
+        async izvrsi(a) { return kalkulacijaTabaka(a); },
+    },
+
     kalkulacija_spulne: {
         cita: true,
         opis: "Računa kalkulaciju ŠPULNE po formulama Maropack-a. Vraća cenu po špulni i na 1000 m.",
@@ -990,10 +1009,11 @@ export const ALATI = {
 
     kalkulacija_iz_mejla: {
         cita: true,
-        opis: "IZ TEKSTA MEJLA/UPITA popunjava i računa kalkulaciju. TI (AI) prvo pročitaj mejl i izvuci polja (tip, dimenzije, slojevi materijala + debljine, količina, kupac, rok, dorade, oznaka upita), pa prosledi ovamo. Alat SAM prepozna tip (folija/kesa/špulna) ako nije zadat, popuni default škart/maржu i izračuna. Ako u mejlu NEMA cene materijala, PRE ovoga pozovi cene_materijala pa upiši cene u slojeve. Vraća 'prepoznato' + 'kalkulacija' + gotov 'ulaz_za_cuvanje' koji prosleđuješ alatu sacuvaj_kalkulaciju kad korisnik potvrdi.",
+        opis: "IZ TEKSTA MEJLA/UPITA popunjava i računa kalkulaciju. TI (AI) prvo pročitaj mejl i izvuci polja (tip, dimenzije, slojevi materijala + debljine, količina, kupac, rok, dorade, oznaka upita), pa prosledi ovamo. Alat SAM prepozna tip (folija/kesa/tabak/špulna) ako nije zadat, popuni default škart/maржu i izračuna. Tabak = ravan list (sheet/Zuschnitt) — širina × dužina, bez klapne/falte. Ako u mejlu NEMA cene materijala, PRE ovoga pozovi cene_materijala pa upiši cene u slojeve. Vraća 'prepoznato' + 'kalkulacija' + gotov 'ulaz_za_cuvanje' koji prosleđuješ alatu sacuvaj_kalkulaciju kad korisnik potvrdi.",
         ulaz: {
             tekst: { type: "string", description: "Ceo tekst mejla/upita — koristi se za auto-prepoznavanje tipa i kontrolu" },
-            tip: { type: "string", description: "folija | kesa | spulna | auto (podrazumevano auto)" },
+            tip: { type: "string", description: "folija | kesa | tabak | spulna | auto (podrazumevano auto)" },
+            sirinaMaterijala: { type: "number", description: "Tabak: širina ulazne rolne u mm (za ban i ivični otpad) — opciono" },
             naziv: { type: "string", description: "Naziv proizvoda ako se vidi iz mejla" },
             kupac: { type: "string" },
             oznaka: { type: "string", description: "Broj/oznaka upita ako postoji (npr. UP-2026-014)" },
@@ -1021,14 +1041,15 @@ export const ALATI = {
             if (!tip || tip === "auto") {
                 const s = UP(tekst);
                 // Srpski + engleski + NEMAČKI ključne reči
-                if (/(KESA|KESE|KESIC|DOYPACK|DOJPAK|VREC|VREĆ|STOJE|STAND ?UP|ZIP|FLOW ?PACK|BEUTEL|TÜTE|TUTE|STANDBODEN|STANDBEUTEL|FLACHBEUTEL|SEITENFALT|DRUCKVERSCHLUSS)/.test(s)) tip = "kesa";
+                if (/(TABAK|TABACI|RAVAN ?LIST|RAVNI ?LIST|SHEET|ZUSCHNITT|FLACHBOGEN|BOGEN|PRECUT|PRE-?CUT|SECI NA LIST|KROJENO)/.test(s)) tip = "tabak";
+                else if (/(KESA|KESE|KESIC|DOYPACK|DOJPAK|VREC|VREĆ|STOJE|STAND ?UP|ZIP|FLOW ?PACK|BEUTEL|TÜTE|TUTE|STANDBODEN|STANDBEUTEL|FLACHBEUTEL|SEITENFALT|DRUCKVERSCHLUSS)/.test(s)) tip = "kesa";
                 else if (/(SPULN|ŠPULN|TRAKA|TRAKE|SPOOL|SILIKON|ETIKET|ROLNIC|KLEBEBAND|SILIKONPAPIER|TRENNPAPIER|ETIKETT|SPULE|SCHMALROLLE|SCHNEIDEBAND)/.test(s)) tip = "spulna";
                 else tip = "folija";  // Folie / Deckelfolie / Verbundfolie / Kaschierung → default
             }
             if (tip === "špulna") tip = "spulna";
             // 2) Default škart/marža po tipu ako nisu u mejlu
-            const skart = a.skart != null ? N(a.skart) : (tip === "kesa" ? 10 : tip === "spulna" ? 2 : 10);
-            const marza = a.marza != null ? N(a.marza) : (tip === "kesa" ? 30 : tip === "spulna" ? 40 : 27);
+            const skart = a.skart != null ? N(a.skart) : (tip === "kesa" ? 10 : tip === "spulna" ? 2 : tip === "tabak" ? 10 : 10);
+            const marza = a.marza != null ? N(a.marza) : (tip === "kesa" ? 30 : tip === "spulna" ? 40 : tip === "tabak" ? 30 : 27);
             const materijali = Array.isArray(a.materijali) ? a.materijali : [];
             const napomene = [];
             if (a.skart == null) napomene.push(`Škart nije naveden u mejlu → default ${skart}%.`);
@@ -1043,6 +1064,10 @@ export const ALATI = {
                 if (!N(a.duzina)) napomene.push("Kesa bez dužine — proveri mejl.");
                 ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta), orijentacija: a.orijentacija || "sirina", kolicina: N(a.kolicina) || 1000, materijali, skart, marza, stampaCena: N(a.stampaCena), transportCena: N(a.transport), ostaleOpcijeEur: N(a.ostaleOpcijeEur) };
                 rez = kalkulacijaKese(ulaz);
+            } else if (tip === "tabak") {
+                if (!N(a.duzina)) napomene.push("Tabak (ravan list) bez dužine — proveri mejl.");
+                ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), sirinaMaterijala: N(a.sirinaMaterijala), kolicina: N(a.kolicina) || 1000, materijali, skart, marza, ostaleOpcijeEur: N(a.ostaleOpcijeEur), transportCena: N(a.transport) };
+                rez = kalkulacijaTabaka(ulaz);
             } else if (tip === "spulna") {
                 ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), tezinaGM2: N(a.tezinaGM2), cenaM2: N(a.cenaM2), skart, marza, kolicina: N(a.kolicina) || 1, transport: N(a.transport) };
                 rez = kalkulacijaSpulne(ulaz);
@@ -1060,9 +1085,11 @@ export const ALATI = {
                     rok: T(a.rok) || null,
                     dimenzije: tip === "kesa"
                         ? { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta) }
-                        : tip === "spulna"
-                            ? { sirina_trake: N(a.sirina), duzina_m: N(a.duzina), gm2: N(a.tezinaGM2) }
-                            : { sirina: N(a.sirina), metraza: N(a.metraza) || 1000 },
+                        : tip === "tabak"
+                            ? { sirina_lista: N(a.sirina), duzina_lista: N(a.duzina), sirina_materijala: N(a.sirinaMaterijala) || null }
+                            : tip === "spulna"
+                                ? { sirina_trake: N(a.sirina), duzina_m: N(a.duzina), gm2: N(a.tezinaGM2) }
+                                : { sirina: N(a.sirina), metraza: N(a.metraza) || 1000 },
                     kolicina: N(a.kolicina) || null,
                     materijali: materijali.map((m) => ({ naziv: T(m.naziv || m.vrsta), debljina: N(m.debljina) || null, gm2: N(m.tezina) || null, cena_kg: N(m.cena) || null })),
                     dorade: Array.isArray(a.opcije) ? a.opcije : [],
@@ -1196,6 +1223,16 @@ export const ALATI = {
             if (!a.sa_ponudom) {
                 const broj = await sledeciBrojNaloga();
                 const tplZaNalog = templejtSaKolicinom(t.sirovo, t.tip, kolicina, jed);
+                // KO JE KLIKNUO: ulogovani korisnik koji je preko „Pitaj AI" napravio nalog.
+                // Čita se iz Supabase sesije (self-contained, bez izmene AIPomoc-a).
+                let kreatorAI = "AI agent";
+                try {
+                    const { data: ures } = await supabase.auth.getUser();
+                    const u = ures && ures.user;
+                    const metaIme = (u && (u.user_metadata?.ime || u.user_metadata?.full_name || u.user_metadata?.name)) || "";
+                    const ime = metaIme || (u && u.email ? imeKorisnika(u.email) : "");
+                    if (ime) kreatorAI = ime + " (AI)";   // npr. „Nikola (AI)" — lista prikazuje 👤 i mapira ime
+                } catch (e) { }
                 const zajednicko = {
                     broj_naloga: broj, tip_proizvoda: t.tip,
                     kupac: T(a.kupac) || "", naziv: t.naziv, proizvod: t.naziv,
@@ -1203,6 +1240,8 @@ export const ALATI = {
                 const { data: master, error: mErr } = await supabase.from("radni_nalozi").insert([{
                     ...zajednicko,
                     status: "ceka_magacin",
+                    kreirao_ime: kreatorAI,
+                    datum: new Date().toLocaleDateString("sr-RS"),
                     parametri: {
                         sifra: t.sirovo?.sifra || "",
                         pis_broj: T(t.sirovo?.pisBroj) || "",
@@ -1506,9 +1545,9 @@ export const ALATI = {
 
     sacuvaj_kalkulaciju: {
         cita: false,
-        opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje.",
+        opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). Tabak se čuva u kalkulacije_kese sa tip='tabak'. MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje.",
         ulaz: {
-            tip: { type: "string", description: "folija | kesa | spulna" },
+            tip: { type: "string", description: "folija | kesa | tabak | spulna" },
             naziv: { type: "string", description: "Naziv proizvoda" },
             kupac: { type: "string", description: "Kupac" },
             oznaka: { type: "string", description: "Opciono: broj/oznaka upita (npr. UP-2026-014) — da se kalkulacija kasnije nađe po toj oznaci" },
@@ -1528,6 +1567,14 @@ export const ALATI = {
                 red = {
                     naziv, kupac, kolicina: N(u.kolicina) || 1000, skart: N(u.skart), marza: N(u.marza),
                     sirina: N(u.sirina), duzina: N(u.duzina), klapna: N(u.klapna), falta: N(u.falta),
+                    materijali: u.materijali || [], rezultati: rez,
+                };
+            } else if (tip === "tabak" || tip === "tabaci") {
+                rez = kalkulacijaTabaka(u); tabela = "kalkulacije_kese"; // tabak se čuva u kalkulacije_kese sa tip='tabak'
+                red = {
+                    tip: "tabak",
+                    naziv, kupac, kolicina: N(u.kolicina) || 1000, skart: N(u.skart), marza: N(u.marza),
+                    sirina: N(u.sirina), duzina: N(u.duzina), sirina_materijala: N(u.sirinaMaterijala),
                     materijali: u.materijali || [], rezultati: rez,
                 };
             } else if (tip === "spulna" || tip === "špulna") {

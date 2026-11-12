@@ -317,3 +317,81 @@ export function kalkulacijaSpulne(u = {}) {
         koraci,
     };
 }
+
+// ═════════════════════════════ TABAK (ravan list) ════════════════════════════
+/**
+ * Ulaz:
+ *  sirina (mm), duzina (mm), sirinaMaterijala (mm, opciono — za ban i ivični otpad)
+ *  materijali: [{ tezina (g/m²), cena (€/kg) }]  (do 4 sloja)
+ *  skart (%), marza (%), kolicina (kom)
+ *  ostaleOpcijeEur (€ / 1000 kom — perforacija, rupe/zumbe, presavijanje…)
+ *  transportCena (€/kg), kasiranjeCena (€/m² — za višeslojni, prolaza = slojevi−1)
+ *  setup_masina (€ / 1000 kom — ne ulazi u maržu)
+ * TABAK = ravan list, jednoslojno platno: površina = širina × dužina (BEZ duplo-platna, klapne, falte).
+ */
+export function kalkulacijaTabaka(u = {}) {
+    const W = N(u.sirina), L = N(u.duzina), WM = N(u.sirinaMaterijala);
+    const kolicina = N(u.kolicina) || 1000;
+    const skart = N(u.skart), marza = N(u.marza);
+    const materijali = Array.isArray(u.materijali) ? u.materijali : [];
+    const koraci = [];
+
+    let sumTez = 0, sumCena = 0, br = 0;
+    materijali.forEach((m) => { const t = N(m.tezina ?? m.gm2); if (t > 0) { sumTez += t; sumCena += N(m.cena); br++; } });
+    const avgCena = br > 0 ? sumCena / br : 0;
+    koraci.push(`Ukupna gramaža slojeva: ${R2(sumTez)} g/m² · prosečna cena ${R2(avgCena)} €/kg`);
+
+    const povrsinaM2 = (W * L) / 1000000;                 // m² po listu
+    const tezKg1000 = povrsinaM2 * sumTez;                // g po listu = kg na 1000 kom
+    koraci.push(`Materijal po listu: širina ${W} × dužina ${L} = ${Math.round(W * L)} mm² = ${R4(povrsinaM2)} m² × ${R2(sumTez)} g/m² = ${R4(tezKg1000)} kg/1000 kom`);
+
+    const kgSaSkartom = tezKg1000 * (1 + skart / 100);
+    const cenaMatKom = kgSaSkartom * avgCena;             // €/1000 kom
+    koraci.push(`Materijal: ${R4(kgSaSkartom)} kg (sa škartom ${skart}%) × ${R2(avgCena)} €/kg = ${eur(cenaMatKom)} /1000 kom`);
+
+    const ban = (WM > 0 && W > 0) ? Math.max(1, Math.floor(WM / W)) : 1;
+    const otpadMm = (WM > 0 && W > 0) ? Math.max(0, WM - ban * W) : 0;
+    if (WM > 0) koraci.push(`Ban po širini materijala: ${WM} ÷ ${W} = ${ban} (ivični otpad ${otpadMm} mm)`);
+
+    const m2Po1000 = povrsinaM2 * 1000;
+    const kasProlazi = Math.max(0, br - 1);
+    const kasTr = N(u.kasiranjeCena) * m2Po1000 * kasProlazi;
+    if (kasTr) koraci.push(`Kaширanje: ${N(u.kasiranjeCena)} €/m² × ${R2(m2Po1000)} m²/1000 × ${kasProlazi} prolaza = ${eur(kasTr)}`);
+
+    const ostale = N(u.ostaleOpcijeEur);
+    if (ostale) koraci.push(`Ostale opcije (perforacija, zumbe, presavijanje…): ${eur(ostale)} /1000 kom`);
+
+    const trTr = N(u.transportCena) * tezKg1000;
+    if (trTr) koraci.push(`Transport: ${N(u.transportCena)} €/kg × ${R4(tezKg1000)} kg = ${eur(trTr)}`);
+
+    const osnovna = cenaMatKom + ostale + kasTr + trTr;
+    const setupPer1000 = N(u.setup_masina);
+    const konacna = osnovna * (1 + marza / 100) + setupPer1000;
+    const valFak = kolicina / 1000;
+
+    koraci.push(`OSNOVNA /1000 kom = ${eur(osnovna)}`);
+    koraci.push(`+ marža ${marza}% → ${eur(osnovna * (1 + marza / 100))} /1000 kom`);
+    if (setupPer1000) koraci.push(`+ podešavanje mašine (bez marže): ${eur(setupPer1000)} /1000 kom`);
+    koraci.push(`KONAČNA ${eur(konacna)} /1000 kom = ${R4(konacna / 1000)} € po komadu`);
+
+    return {
+        tip: "tabak", jedinica: "€ / 1000 kom",
+        povrsina_m2_po_listu: R4(povrsinaM2),
+        ban, ivicni_otpad_mm: otpadMm,
+        kg_na_1000_kom: R4(tezKg1000),
+        troskovi: { materijal: R2(cenaMatKom), ostale_opcije: R2(ostale), kasiranje: R2(kasTr), transport: R2(trTr) },
+        osnovna_cena: R2(osnovna),
+        konacna_cena: R2(konacna),
+        cena_po_komadu: R4(konacna / 1000),
+        za_ceo_nalog: { kolicina_kom: kolicina, ukupno_kg: R4(tezKg1000 * (1 + skart / 100) * valFak), vrednost: R2(konacna * valFak) },
+        potrebno_materijala: [{
+            sloj: "materijal tabaka",
+            sirina_mm: W,
+            duzina_m: Math.round((kolicina * L) / 1000),
+            duzina_sa_skartom_m: Math.ceil((kolicina * L) / 1000 * (1 + skart / 100)),
+            kg: R2(tezKg1000 * valFak),
+            kg_sa_skartom: R2(tezKg1000 * (1 + skart / 100) * valFak),
+        }],
+        koraci,
+    };
+}

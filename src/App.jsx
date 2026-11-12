@@ -2445,6 +2445,12 @@ function MainAppContent() {
                                             var grKreirao = kreiraoPolja(master) || kreiraoPolja(parseParam(master)) || kreiraoPolja(parseLM(master))
                                                 || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])) || kreiraoPolja(parseLM(gr[i])); if (v) return v; } return ""; })()
                                                 || "";
+                                            // STARI AI NALOZI: nemaju upisanog kreatora, ali u parametri.izvor stoji „AI agent".
+                                            // Da ne budu prazni, prikaži bar „AI agent" (ko tačno — nije ni sačuvano za te stare naloge).
+                                            if (!grKreirao) {
+                                                var _izvAI = String((parseParam(master) && parseParam(master).izvor) || (gr[0] && parseParam(gr[0]) && parseParam(gr[0]).izvor) || "");
+                                                if (/\bAI\b/i.test(_izvAI)) grKreirao = "AI agent";
+                                            }
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
                                             var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || (grParam && grParam.datum_isporuke) || gr[0].rok_isporuke || (function () { var p0 = parseParam(gr[0]); return p0 && p0.datum_isporuke; })() || "";
                                             var grRok = grRokRaw ? (isNaN(new Date(grRokRaw).getTime()) ? String(grRokRaw) : new Date(grRokRaw).toLocaleDateString("sr-RS")) : "";

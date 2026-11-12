@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase.js';
 import { useAuth } from './auth/AuthProvider';
+import MaterialLayersTablePRO from './components/MaterialLayersTablePRO.jsx';
 
 // =====================================================================
 // KalkulacijaTabaka — kalkulacija cene za TABAK (ravan list).
@@ -14,12 +15,37 @@ const n = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
 const eur = (v) => (n(v)).toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt = (v, d = 1) => (n(v)).toLocaleString('sr-RS', { maximumFractionDigits: d });
 
+// ===================== BAZA MATERIJALA (isto kao Kalkulacija Kese) =====================
+const MAT_TEZ = {
+    'OPP': { '15': 13.65, '18': 16.38, '20': 18.2, '25': 22.75, '28': 25.48, '30': 27.3, '35': 31.85, '40': 36.4, '45': 40.95, '50': 45.5, '60': 54.6, '70': 63.7 },
+    'BOPP': { '5': 4.55, '10': 9.1, '15': 13.65, '18': 16.38, '20': 18.2, '25': 22.75, '28': 25.48, '30': 27.3, '35': 31.85, '40': 36.4, '45': 40.95, '50': 45.5, '55': 50.05, '60': 54.6, '65': 59.15, '70': 63.7 },
+    'BOPP SEDEF': { '5': 3.25, '10': 6.5, '15': 9.75, '20': 13, '25': 16.25, '30': 19.5, '35': 22.75, '38': 24.7, '40': 26, '45': 29.25 },
+    'BOPP BELI': { '5': 4.55, '10': 9.1, '15': 13.65, '20': 18.2, '25': 22.75, '30': 27.3, '35': 31.85, '40': 36.4, '45': 40.95, '50': 45.5 },
+    'LDPE': { '10': 9.25, '15': 13.875, '20': 18.5, '25': 23.125, '30': 27.75, '35': 32.375, '40': 37, '45': 41.625, '50': 46.25, '55': 50.875, '60': 55.5 },
+    'CPP': { '5': 4.55, '10': 9.1, '15': 13.65, '18': 16.38, '20': 18.2, '25': 22.75, '28': 25.48, '30': 27.3, '35': 31.85, '40': 36.4, '45': 40.95, '50': 45.5 },
+    'PET': { '12': 16.8, '15': 21, '19': 26.6, '20': 28, '36': 50.4, '50': 70 },
+    'OPA': { '12': 13.2, '15': 16.5, '20': 22, '25': 27.5, '30': 33, '40': 44 },
+    'PA': { '10': 11.4, '15': 17.1, '20': 22.8, '30': 34.2, '40': 45.6 },
+    'PA/PE koestruzija': { '10': 10, '15': 15, '20': 20, '30': 30, '40': 40, '50': 50 },
+    'ALU': { '7': 18.97, '9': 24.39, '12': 32.52, '15': 40.65, '20': 54.2, '30': 81.3 },
+    'CELULOZA': { '10': 14.5, '20': 29, '30': 43.5, '40': 58, '50': 72.5 },
+    'PAPIR': { '40': 40, '50': 50, '60': 60, '70': 70, '80': 80, '90': 90, '100': 100 },
+};
+const MAT_TIPOVI = Object.keys(MAT_TEZ);
+const debOpcije = (tip) => Object.keys(MAT_TEZ[tip] || { '30': 1 });
+const tezinaZa = (tip, deb) => (MAT_TEZ[tip] && MAT_TEZ[tip][String(deb)]) || 0;
+
+const GREEN = '#059669', GREEN_D = '#047857';
+
 const S = {
-    wrap: { maxWidth: 1180, margin: '0 auto', padding: '8px 4px 60px' },
-    card: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, marginBottom: 14 },
-    h: { fontSize: 13, fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-    label: { fontSize: 10.5, fontWeight: 800, color: '#64748b', display: 'block', marginBottom: 3 },
-    inp: { width: '100%', border: '1px solid #cbd5e1', borderRadius: 9, padding: '8px 10px', fontSize: 13.5, fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
+    wrap: { maxWidth: 1240, margin: '0 auto', padding: '0 0 70px', background: '#f1f5f9', minHeight: '100vh' },
+    hdr: { background: `linear-gradient(135deg,${GREEN},${GREEN_D})`, padding: '20px 24px', borderRadius: 14, color: '#fff', margin: '10px 10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 8px 24px rgba(5,150,105,.25)' },
+    body: { padding: '0 10px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 14, alignItems: 'start' },
+    card: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: '0 1px 3px rgba(15,23,42,.04)' },
+    h: { fontSize: 11, fontWeight: 900, color: GREEN, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
+    label: { fontSize: 10, fontWeight: 800, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' },
+    inp: { width: '100%', border: '1px solid #cbd5e1', borderRadius: 9, padding: '8px 10px', fontSize: 13.5, fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#fff' },
+    sel: { width: '100%', border: '1px solid #cbd5e1', borderRadius: 9, padding: '8px 10px', fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#fff', cursor: 'pointer' },
     grid: (c) => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit,minmax(${c}px,1fr))`, gap: 10 }),
 };
 
@@ -38,7 +64,7 @@ function F({ label, value, onChange, type = 'text', suffix }) {
 // Opcija: čekboks + naziv + ćelija za cenu (€/1000 kom)
 function Opt({ label, active, onToggle, cena, setCena, cenaVidljiva = true }) {
     return (
-        <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1.5px solid ' + (active ? '#16a34a' : '#e2e8f0'), background: active ? '#f0fdf4' : '#fff', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
+        <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1.5px solid ' + (active ? GREEN : '#e2e8f0'), background: active ? '#f0fdf4' : '#fff', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
             <input type="checkbox" checked={active} readOnly style={{ pointerEvents: 'none' }} />
             <span style={{ flex: 1, fontWeight: 800, fontSize: 13, color: '#334155' }}>{label}</span>
             {active && cenaVidljiva && (
@@ -61,7 +87,7 @@ export default function KalkulacijaTabaka({ setPage }) {
     const [kolicina, setKolicina] = useState(0);
     const [skart, setSkart] = useState(10);
     const [marza, setMarza] = useState(30);
-    const [setupMasina, setSetupMasina] = useState(0);   // € ukupno, jednokratno (ne ulazi u maržu)
+    const [setupMasina, setSetupMasina] = useState(0);   // € ukupno, jednokratno (ne ulazi u maржu)
     const [datumIsp, setDatumIsp] = useState('');
     const [zeljCena, setZeljCena] = useState(0);         // željena cena €/1000 → izračuna izvedenu maржu
     const [napomena, setNapomena] = useState('');
@@ -87,8 +113,20 @@ export default function KalkulacijaTabaka({ setPage }) {
 
     const toggle = (k) => setOpts((p) => ({ ...p, [k]: !p[k] }));
     const setMat = (i, patch) => setMaterijali((arr) => arr.map((m, idx) => idx === i ? { ...m, ...patch } : m));
-    const addMat = () => setMaterijali((arr) => [...arr, { tip: '', debljina: '', tezina: 0, cena: 0 }]);
+    const addMat = () => setMaterijali((arr) => [...arr, { tip: 'OPP', debljina: '30', tezina: tezinaZa('OPP', '30'), cena: 0 }]);
     const delMat = (i) => setMaterijali((arr) => arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr);
+
+    // Promena VRSTE → postavi prvu debljinu i auto-težinu
+    const matVrsta = (i, tip) => {
+        const debs = debOpcije(tip);
+        const deb = debs[0];
+        setMat(i, { tip, debljina: deb, tezina: tezinaZa(tip, deb) });
+    };
+    // Promena DEBLJINE → auto-težina
+    const matDeb = (i, deb) => {
+        const tip = materijali[i]?.tip || 'OPP';
+        setMat(i, { debljina: deb, tezina: tezinaZa(tip, deb) });
+    };
 
     // ── Učitavanje za IZMENU (iz liste) — localStorage 'maropack_edit_kalk_tabak' ──
     useEffect(() => {
@@ -109,7 +147,7 @@ export default function KalkulacijaTabaka({ setPage }) {
             setSirina(n(k.sirina ?? p.sirina));
             setDuzina(n(k.duzina ?? p.duzina));
             setSirinaMaterijala(n(p.sirinaMaterijala ?? k.sirina_materijala));
-            if (Array.isArray(k.materijali) && k.materijali.length) setMaterijali(k.materijali);
+            if (Array.isArray(k.materijali) && k.materijali.length) setMaterijali(k.materijali.map((m) => ({ ...m, vrsta: m.vrsta || m.tip || 'OPP', tip: m.tip || m.vrsta || 'OPP', debljina: String(m.debljina ?? ''), tezina: n(m.tezina ?? m.gm2 ?? m.tezinaGm2 ?? m.gsm), cena: n(m.cena ?? m.cena_kg) })));
             const u = (k.rezultati && k.rezultati._ulaz) || {};
             if (u.opts) setOpts({ perforacija: false, zumbe: false, pakHrana: false, presavijanje: false, ...u.opts });
             if (u.cene) {
@@ -128,7 +166,7 @@ export default function KalkulacijaTabaka({ setPage }) {
     useEffect(() => {
         const W = n(sirina), L = n(duzina), WM = n(sirinaMaterijala), kol = n(kolicina);
         let sumTez = 0, sumCena = 0, br = 0;
-        materijali.forEach((m) => { if (n(m.tezina) > 0) { sumTez += n(m.tezina); sumCena += n(m.cena); br++; } });
+        materijali.forEach((m) => { const t = n(m.tezina ?? m.gm2 ?? m.tezinaGm2 ?? m.gsm ?? m.gramatura); if (t > 0) { sumTez += t; sumCena += n(m.cena ?? m.cena_kg); br++; } });
         const avgCena = br > 0 ? sumCena / br : 0;
 
         // TABAK = ravan list (jednoslojno platno): površina = širina × dužina.
@@ -182,12 +220,14 @@ export default function KalkulacijaTabaka({ setPage }) {
     async function sacuvaj() {
         try {
             if (!naziv.trim()) { alert('Unesi naziv.'); return; }
+            const tezM = (m) => n(m.tezina ?? m.gm2 ?? m.tezinaGm2 ?? m.gsm ?? m.gramatura);
             const materijali_struktura = (materijali || []).map((m) => ({
-                vrsta: m.vrsta || m.tip || '', pod_vrsta: m.pod_vrsta || '', oznaka: m.oznaka || '',
-                debljina: n(m.debljina), gm2: n(m.tezina), cena: n(m.cena),
+                vrsta: m.vrsta || m.tip || '', pod_vrsta: m.pod_vrsta || m.podVrsta || '', oznaka: m.oznaka || m.oznaka_materijala || '',
+                proizvodjac: m.proizvodjac || m.proizvođač || '',
+                debljina: n(m.debljina), gm2: tezM(m), cena: n(m.cena ?? m.cena_kg),
             }));
-            const avgTez = materijali.length ? materijali.reduce((a, m) => a + n(m.tezina), 0) / materijali.length : 0;
-            const avgCena = materijali.length ? materijali.reduce((a, m) => a + n(m.cena), 0) / materijali.length : 0;
+            const avgTez = materijali.length ? materijali.reduce((a, m) => a + tezM(m), 0) / materijali.length : 0;
+            const avgCena = materijali.length ? materijali.reduce((a, m) => a + n(m.cena ?? m.cena_kg), 0) / materijali.length : 0;
 
             // za kasniji templejt/nalog
             localStorage.setItem('maropack_pending_nalog', JSON.stringify({
@@ -254,100 +294,128 @@ export default function KalkulacijaTabaka({ setPage }) {
     }
 
     const Rb = ({ k, v, c }) => (
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
             <span style={{ color: '#64748b' }}>{k}</span><span style={{ fontWeight: 800, color: c || '#0f172a' }}>{v}</span>
         </div>
     );
+    const Box = ({ label, value, bg, bd, col }) => (
+        <div style={{ background: bg, border: '1px solid ' + bd, borderRadius: 11, padding: '11px 13px', textAlign: 'center' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 800, color: col, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>{label}</div>
+            <div style={{ fontSize: 22, fontWeight: 950, color: col, lineHeight: 1 }}>{value}</div>
+        </div>
+    );
+
+    const matHdrCol = { fontSize: 9.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' };
+    const matCols = '1.4fr 0.9fr 0.9fr 0.9fr 34px';
 
     return (
         <div style={S.wrap}>
-            <div style={{ fontSize: 20, fontWeight: 950, color: '#0f172a', margin: '4px 4px 14px' }}>📄 Kalkulacija tabaka (ravan list)</div>
-
-            <div style={S.card}>
-                <div style={S.h}>Osnovni podaci</div>
-                <div style={S.grid(170)}>
-                    <F label="Naziv proizvoda" value={naziv} onChange={setNaziv} />
-                    <F label="Kupac" value={kupac} onChange={setKupac} />
-                    <F label="Oznaka / broj upita" value={oznakaUpita} onChange={setOznakaUpita} />
-                    <F label="Količina (kom)" value={kolicina} onChange={setKolicina} type="number" />
-                    <F label="Škart (%)" value={skart} onChange={setSkart} type="number" />
-                    <F label="Marža (%)" value={marza} onChange={setMarza} type="number" />
-                    <F label="Podešavanje mašine (€ ukupno)" value={setupMasina} onChange={setSetupMasina} type="number" />
-                    <F label="Datum isporuke" value={datumIsp} onChange={setDatumIsp} type="date" />
+            <div style={S.hdr}>
+                <div>
+                    <div style={{ fontSize: 19, fontWeight: 950, display: 'flex', alignItems: 'center', gap: 8 }}>📄 Kalkulacija tabaka</div>
+                    <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>Ravan list — cena €/1000 kom &amp; €/kg</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 10, opacity: 0.85, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Konačna cena</div>
+                    <div style={{ fontSize: 24, fontWeight: 950 }}>{eur(rez.konacna)} €<span style={{ fontSize: 12, opacity: 0.85 }}> /1000</span></div>
                 </div>
             </div>
 
-            <div style={S.card}>
-                <div style={S.h}>Dimenzije</div>
-                <div style={S.grid(150)}>
-                    <F label="Širina lista (mm)" value={sirina} onChange={setSirina} type="number" />
-                    <F label="Dužina lista (mm)" value={duzina} onChange={setDuzina} type="number" />
-                    <F label="Širina materijala (mm)" value={sirinaMaterijala} onChange={setSirinaMaterijala} type="number" />
-                </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
-                    Ban (traka po širini): <b>{rez.ban || 1}</b> &nbsp;·&nbsp; Korak na traci: <b>{fmt(rez.korak)}</b> mm
-                    {n(rez.otpadMm) > 0 ? <span style={{ color: '#b91c1c' }}> &nbsp;·&nbsp; ivični otpad <b>{fmt(rez.otpadMm)}</b> mm</span> : null}
-                </div>
-            </div>
-
-            <div style={S.card}>
-                <div style={S.h}>Materijal (slojevi)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr 0.9fr 0.9fr 34px', gap: 6, fontSize: 9.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>
-                    <div>Vrsta</div><div>Debljina (µm)</div><div>Težina (g/m²)</div><div>Cena (€/kg)</div><div></div>
-                </div>
-                {materijali.map((m, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr 0.9fr 0.9fr 34px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                        <input value={m.tip || ''} onChange={(e) => setMat(i, { tip: e.target.value })} style={S.inp} placeholder="npr. CPP" />
-                        <input type="number" value={m.debljina} onChange={(e) => setMat(i, { debljina: e.target.value })} style={S.inp} />
-                        <input type="number" value={m.tezina} onChange={(e) => setMat(i, { tezina: e.target.value })} style={S.inp} />
-                        <input type="number" value={m.cena} onChange={(e) => setMat(i, { cena: e.target.value })} style={S.inp} />
-                        <button onClick={() => delMat(i)} style={{ border: '1px solid #fecaca', color: '#b91c1c', background: '#fff', borderRadius: 8, fontWeight: 900, cursor: 'pointer', padding: '7px 0' }}>✕</button>
+            <div style={S.body}>
+                {/* ── LEVO: FORMA ── */}
+                <div style={{ minWidth: 0 }}>
+                    <div style={S.card}>
+                        <div style={S.h}>Osnovni podaci</div>
+                        <div style={S.grid(170)}>
+                            <F label="Naziv proizvoda" value={naziv} onChange={setNaziv} />
+                            <F label="Kupac" value={kupac} onChange={setKupac} />
+                            <div>
+                                <label style={{ fontSize: 11, fontWeight: 800, color: '#b45309', display: 'block', marginBottom: 4 }}>🔖 Broj / oznaka upita</label>
+                                <input type="text" value={oznakaUpita} onChange={(e) => setOznakaUpita(e.target.value)} placeholder="npr. UP-2026-014" style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #f59e0b', borderRadius: 6, fontSize: 13, fontWeight: 700, background: '#fffbeb', boxSizing: 'border-box' }} />
+                            </div>
+                            <F label="Količina (kom)" value={kolicina} onChange={setKolicina} type="number" />
+                            <F label="Škart (%)" value={skart} onChange={setSkart} type="number" />
+                            <F label="Marža (%)" value={marza} onChange={setMarza} type="number" />
+                            <F label="Podešavanje mašine (€ ukupno)" value={setupMasina} onChange={setSetupMasina} type="number" />
+                            <F label="Datum isporuke" value={datumIsp} onChange={setDatumIsp} type="date" />
+                        </div>
                     </div>
-                ))}
-                <button onClick={addMat} style={{ border: '1px dashed #94a3b8', background: '#f8fafc', color: '#475569', borderRadius: 9, padding: '7px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer' }}>+ Dodaj sloj</button>
-                <div style={{ ...S.grid(150), marginTop: 10 }}>
-                    <F label="Kaширanje (€/m²) — za višeslojni" value={kasCena} onChange={setKasCena} type="number" />
-                    <F label="Transport (€/kg)" value={trCena} onChange={setTrCena} type="number" />
-                </div>
-            </div>
 
-            <div style={S.card}>
-                <div style={S.h}>Opcije i dorada</div>
-                <div style={S.grid(230)}>
-                    <Opt label="Perforacija" active={opts.perforacija} onToggle={() => toggle('perforacija')} cena={perfCena} setCena={setPerfCena} />
-                    <Opt label="Rupe / zumbe" active={opts.zumbe} onToggle={() => toggle('zumbe')} cena={zumbeCena} setCena={setZumbeCena} />
-                    <Opt label="Presavijanje (faltanje lista)" active={opts.presavijanje} onToggle={() => toggle('presavijanje')} cena={presCena} setCena={setPresCena} />
-                    <Opt label="Pakovanje za hranu" active={opts.pakHrana} onToggle={() => toggle('pakHrana')} cenaVidljiva={false} />
-                </div>
-                {opts.pakHrana ? <div style={{ marginTop: 8, fontSize: 11.5, color: '#065f46', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '7px 10px' }}>⚠ Pakovanje za hranu — upotreba rukavica, mrežica za kosu, bez dlaka; čist pogon.</div> : null}
-                <div style={{ marginTop: 10 }}>
-                    <label style={S.label}>Napomena</label>
-                    <input value={napomena} onChange={(e) => setNapomena(e.target.value)} style={S.inp} placeholder="npr. pakovanje, posebni zahtevi…" />
-                </div>
-            </div>
+                    <div style={S.card}>
+                        <div style={S.h}>Dimenzije</div>
+                        <div style={S.grid(150)}>
+                            <F label="Širina lista (mm)" value={sirina} onChange={setSirina} type="number" />
+                            <F label="Dužina lista (mm)" value={duzina} onChange={setDuzina} type="number" />
+                            <F label="Širina materijala (mm)" value={sirinaMaterijala} onChange={setSirinaMaterijala} type="number" />
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#475569', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, padding: '7px 10px' }}>
+                            📐 Ban (traka po širini): <b style={{ color: GREEN_D }}>{rez.ban || 1}</b> &nbsp;·&nbsp; Korak na traci: <b>{fmt(rez.korak)}</b> mm
+                            {n(rez.otpadMm) > 0 ? <span style={{ color: '#b91c1c' }}> &nbsp;·&nbsp; ivični otpad <b>{fmt(rez.otpadMm)}</b> mm</span> : null}
+                        </div>
+                    </div>
 
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'stretch' }}>
-                <div style={{ ...S.card, flex: '1 1 320px', margin: 0 }}>
-                    <div style={S.h}>Rezultat</div>
-                    <Rb k="Materijal (€/1000)" v={eur(rez.materijal)} />
-                    <Rb k="Opcije (€/1000)" v={eur(rez.opcije)} />
-                    {n(rez.kasiranje) > 0 ? <Rb k="Kaширanje (€/1000)" v={eur(rez.kasiranje)} /> : null}
-                    {n(rez.transport) > 0 ? <Rb k="Transport (€/1000)" v={eur(rez.transport)} /> : null}
-                    <Rb k="Osnovna (€/1000)" v={eur(rez.osnovna)} />
-                    {n(rez.setup1000) > 0 ? <Rb k="Podešavanje (€/1000)" v={eur(rez.setup1000)} /> : null}
-                    <div style={{ borderTop: '1px solid #e2e8f0', margin: '6px 0' }} />
-                    <Rb k="KONAČNA (€/1000 kom)" v={eur(rez.konacna)} c="#15803d" />
-                    <Rb k="€ / kom" v={eur(rez.perKom)} />
-                    <Rb k="€ / kg (sa maржom)" v={eur(rez.cenaPoKgSaMarza)} />
-                    <Rb k="Ukupno nalog (€)" v={eur(rez.vrednostKon)} c="#1d4ed8" />
-                    <Rb k="Ukupno kg" v={fmt(rez.ukKg)} />
+                    <div style={S.card}>
+                        <div style={S.h}>Materijal (slojevi)</div>
+                        {/* Isti selektor kao kod kese/folije: Vrsta · Pod vrsta · Oznaka · Proizvođač · Debljina → težina iz master liste */}
+                        <MaterialLayersTablePRO
+                            title=""
+                            layers={materijali}
+                            maxLayers={4}
+                            showPrice={true}
+                            showWidth={false}
+                            showFlags={false}
+                            onChange={(next) => setMaterijali(next)}
+                            onAdd={(row) => setMaterijali([...materijali, row])}
+                            onRemove={(idx) => delMat(idx)}
+                        />
+                        <div style={{ ...S.grid(170), marginTop: 12 }}>
+                            <F label="Kaширanje (€/m²) — za višeslojni" value={kasCena} onChange={setKasCena} type="number" />
+                            <F label="Transport (€/kg)" value={trCena} onChange={setTrCena} type="number" />
+                        </div>
+                    </div>
+
+                    <div style={S.card}>
+                        <div style={S.h}>Opcije i dorada</div>
+                        <div style={S.grid(230)}>
+                            <Opt label="Perforacija" active={opts.perforacija} onToggle={() => toggle('perforacija')} cena={perfCena} setCena={setPerfCena} />
+                            <Opt label="Rupe / zumbe" active={opts.zumbe} onToggle={() => toggle('zumbe')} cena={zumbeCena} setCena={setZumbeCena} />
+                            <Opt label="Presavijanje (faltanje lista)" active={opts.presavijanje} onToggle={() => toggle('presavijanje')} cena={presCena} setCena={setPresCena} />
+                            <Opt label="Pakovanje za hranu" active={opts.pakHrana} onToggle={() => toggle('pakHrana')} cenaVidljiva={false} />
+                        </div>
+                        {opts.pakHrana ? <div style={{ marginTop: 10, fontSize: 11.5, color: '#065f46', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '7px 10px' }}>⚠ Pakovanje za hranu — upotreba rukavica, mrežica za kosu, bez dlaka; čist pogon.</div> : null}
+                        <div style={{ marginTop: 12 }}>
+                            <label style={S.label}>Napomena</label>
+                            <input value={napomena} onChange={(e) => setNapomena(e.target.value)} style={S.inp} placeholder="npr. pakovanje, posebni zahtevi…" />
+                        </div>
+                    </div>
                 </div>
-                <div style={{ ...S.card, flex: '1 1 260px', margin: 0 }}>
-                    <div style={S.h}>Provera cene</div>
-                    <F label="Željena cena (€/1000)" value={zeljCena} onChange={setZeljCena} type="number" />
-                    <div style={{ marginTop: 8, fontSize: 13, color: '#475569' }}>Izvedena marža: <b style={{ color: n(rez.izrMarza) >= n(marza) ? '#15803d' : '#b45309' }}>{fmt(rez.izrMarza)}%</b></div>
-                    <button onClick={sacuvaj} style={{ marginTop: 16, width: '100%', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 11, padding: '12px', fontWeight: 900, fontSize: 15, cursor: 'pointer' }}>💾 {editId ? 'Sačuvaj izmene' : 'Sačuvaj kalkulaciju'}</button>
-                    {typeof setPage === 'function' ? <button onClick={() => setPage('kalkulacije_lista')} style={{ marginTop: 8, width: '100%', background: '#fff', color: '#475569', border: '1.5px solid #cbd5e1', borderRadius: 11, padding: '10px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>← Lista kalkulacija</button> : null}
+
+                {/* ── DESNO: REZULTAT (sticky) ── */}
+                <div style={{ position: 'sticky', top: 10 }}>
+                    <div style={S.card}>
+                        <div style={S.h}>Rezultat</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                            <Box label="€ / 1000 kom" value={eur(rez.konacna)} bg="#f0fdf4" bd="#86efac" col="#15803d" />
+                            <Box label="€ / kom" value={eur(rez.perKom)} bg="#fffbeb" bd="#fcd34d" col="#92400e" />
+                            <Box label="Ukupno nalog €" value={eur(rez.vrednostKon)} bg="#eff6ff" bd="#bfdbfe" col="#1d4ed8" />
+                            <Box label="Ukupno kg" value={fmt(rez.ukKg)} bg="#fff7ed" bd="#fed7aa" col="#c2410c" />
+                        </div>
+                        <Rb k="Materijal (€/1000)" v={eur(rez.materijal)} />
+                        <Rb k="Opcije (€/1000)" v={eur(rez.opcije)} />
+                        {n(rez.kasiranje) > 0 ? <Rb k="Kaширanje (€/1000)" v={eur(rez.kasiranje)} /> : null}
+                        {n(rez.transport) > 0 ? <Rb k="Transport (€/1000)" v={eur(rez.transport)} /> : null}
+                        <Rb k="Osnovna (€/1000)" v={eur(rez.osnovna)} />
+                        {n(rez.setup1000) > 0 ? <Rb k="Podešavanje (€/1000)" v={eur(rez.setup1000)} /> : null}
+                        <Rb k="€ / kg (sa maржom)" v={eur(rez.cenaPoKgSaMarza)} />
+                    </div>
+
+                    <div style={S.card}>
+                        <div style={S.h}>Provera cene</div>
+                        <F label="Željena cena (€/1000)" value={zeljCena} onChange={setZeljCena} type="number" />
+                        <div style={{ marginTop: 10, fontSize: 13, color: '#475569' }}>Izvedena marža: <b style={{ color: n(rez.izrMarza) >= n(marza) ? '#15803d' : '#b45309' }}>{fmt(rez.izrMarza)}%</b></div>
+                        <button onClick={sacuvaj} style={{ marginTop: 16, width: '100%', background: `linear-gradient(135deg,${GREEN},${GREEN_D})`, color: '#fff', border: 'none', borderRadius: 11, padding: '13px', fontWeight: 900, fontSize: 15, cursor: 'pointer', boxShadow: '0 6px 16px rgba(5,150,105,.3)' }}>💾 {editId ? 'Sačuvaj izmene' : 'Sačuvaj kalkulaciju'}</button>
+                        {typeof setPage === 'function' ? <button onClick={() => setPage('kalkulacije_lista')} style={{ marginTop: 8, width: '100%', background: '#fff', color: '#475569', border: '1.5px solid #cbd5e1', borderRadius: 11, padding: '10px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>← Lista kalkulacija</button> : null}
+                    </div>
                 </div>
             </div>
         </div>

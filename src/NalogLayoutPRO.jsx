@@ -168,8 +168,10 @@ function buildD(nalog) {
         klise: b.klise || "",
         lab: (i + 1) + "\u00b7" + (b.oznaka || b.tip || "boja") + (b.klise ? "\u00b7" + b.klise : ""),
     }));
-    // perforacija
-    const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija : {};
+    // perforacija — folija (perforacija/formati) ili KESA (pre-korak „perforacija pre kese", isti oblik iz PerforacijaEditor-a)
+    const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija
+        : (kesa.perforacija && typeof kesa.perforacija === "object" && (kesa.perforacijaPreKese || kesa.formiranjePreKese)) ? kesa.perforacija
+            : {};
     // kg (svi slojevi na matičnoj rolni) + jedinica koju je korisnik zadao + da li ima perforacije
     const kgUkupno = LAY.reduce((s, l) => s + (num(l.gm2) || 0) * kgF, 0);
     // + dodatak (škart): matična rolna i kilaža koje se stvarno skidaju iz magacina
@@ -198,7 +200,7 @@ function buildD(nalog) {
         stampa: napOp.stampa || (st && st.napomena) || "",
         kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || (spulna.kasiranje && spulna.kasiranje.napomena) || "",
         lakiranje: napOp.lakiranje || (folija.lakiranje && folija.lakiranje.napomena) || "",
-        rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || "",
+        rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || (kesa && kesa.formiranjeNapomena) || "",
         kesa: napOp.kesa || (kesa && kesa.izradaNapomena) || (kesa && kesa.napomena) || "",
         formatiranje: napOp.formatiranje || (folija.formatiranje && folija.formatiranje.napomena) || (sp.formatiranje && sp.formatiranje.napomena) || "",
         spulna: napOp.spulna || sp.napomena || (folija.spulna && folija.spulna.napomena) || ""

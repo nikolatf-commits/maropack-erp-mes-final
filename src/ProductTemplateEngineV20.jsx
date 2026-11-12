@@ -355,6 +355,9 @@ const defaultForm = {
     datumIsporuke: "",            // Datum isporuke (rok) — ide u nalog (radni_nalozi.datum_isporuke) i prikazuje se kod glavnih naloga
     nedeljaIsporuke: "",          // Nedelja isporuke (KW) — prikazuje se uz Rok na nalozima (folija/kesa/špulna)
     svrha: "",                    // ZA ŠTA je proizvod (npr. "folija za posudu PE", "duplex za sir", "kesa za kafu")
+    // Tok proizvodnje (faze) — SAMO INFORMATIVNO: redosled faza kroz koje proizvod prolazi.
+    // Snima se uz templejt i uvek se vidi kad se otvori. NE utiče na auto-logiku operacija/naloga.
+    faze: [],
     napomena: "",
     // Napomena PO OPERACIJI — unosi se ovde, povlači se na odgovarajući nalog operacije
     napomene: { materijal: "", stampa: "", lakiranje: "", kasiranje: "", rezanje: "", formatiranje: "", kesa: "", spulna: "" },
@@ -453,6 +456,13 @@ const defaultForm = {
         zoomLevel: "100",
         options: {},
         positions: {},
+        // Pre-korak na rezaču (kao kod folije): formiranje (sečenje na idealnu širinu) i/ili
+        // perforacija PRE nego što materijal ode na mašinu za kese. Kad je bar jedno uključeno,
+        // nalog dobija operaciju „perforacija_rezanje" (rezač) pre operacije „kesa".
+        formiranjePreKese: false,
+        perforacijaPreKese: false,
+        perforacija: null,          // isti oblik kao folija (PerforacijaEditor): { tip, odVrha, odDna, sirina, visina, razmakRupa, linije[] }
+        formiranjeNapomena: "",
         // Slika za IZGLED NA SKICI KESE — ODVOJEN fajl od dizajna za štampu.
         skicaDizajn: {},
         // Napomene po operacijama (inline, kao kod folije) — povlače se na odgovarajući nalog
@@ -1766,7 +1776,11 @@ function makeProductMasterIdFromTemplate(source = {}) {
 
 function inferTemplateOperations(tpl = {}) {
     const tip = tpl.type || 'folija';
-    if (tip === 'kesa') return ['materijal', 'kasiranje', 'kesa'];
+    if (tip === 'kesa') {
+        const k = tpl.kesa || {};
+        const preRezac = !!(k.formiranjePreKese || k.perforacijaPreKese);
+        return ['materijal', 'kasiranje', ...(preRezac ? ['perforacija_rezanje'] : []), 'kesa'];
+    }
     if (tip === 'spulna') {
         const sl = tpl.spulna?.layers || [];
         const imaKas = sl.length > 1 || Number(tpl.spulna?.kasiranje?.brojKasiranja) > 0;
@@ -1780,10 +1794,16 @@ function inferTemplateOperations(tpl = {}) {
     return ops;
 }
 
+// Ikonice za „Tok proizvodnje (faze)" — čisto vizuelno, informativno.
+const FAZE_SVE = ["Štampa", "Kaширanje", "Lakiranje", "Formatiranje", "Rezanje", "Perforacija", "Perforacija+Rezanje", "Izrada kese", "Izrada špulne"];
+const FAZE_IKONA = { "Štampa": "🖨️", "Kaширanje": "🧷", "Lakiranje": "✨", "Formatiranje": "📐", "Rezanje": "✂️", "Perforacija": "⠿", "Perforacija+Rezanje": "✂️", "Izrada kese": "🛍️", "Izrada špulne": "🧵" };
+const fazaIkona = (f) => FAZE_IKONA[f] || "▫️";
+
 function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaNalog, onDopunaDone }) {
     const { t } = useLang();
     const [form, setForm] = useState(() => clone(defaultForm));
     const [activeTab, setActiveTab] = useState("folija");
+    const [fazaCustom, setFazaCustom] = useState("");   // unos „druge" faze (informativni tok proizvodnje)
     const [nalogModal, setNalogModal] = useState(false);
     const [nalogRolne, setNalogRolne] = useState([]);
     const [nalogIzbor, setNalogIzbor] = useState({});
@@ -2025,10 +2045,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             return ["materijal", ...(imaKasiranje ? ["kasiranje"] : []), ...(trebaFormat ? ["formatiranje"] : []), "spulna"];
         }
         if (form.type === "kesa") {
+            // Pre-korak na rezaču: kad je uključeno formiranje i/ili perforacija pre kese,
+            // ubacujemo operaciju „perforacija_rezanje" (rezač) PRE operacije „kesa".
+            const k = form.kesa || {};
+            const preRezac = !!(k.formiranjePreKese || k.perforacijaPreKese);
             return ["materijal",
                 ...(imaStampu ? ["stampa"] : []),
                 ...(imaLak ? ["lakiranje"] : []),
                 ...(imaKasiranje ? ["kasiranje"] : []),
+                ...(preRezac ? ["perforacija_rezanje"] : []),
                 "kesa"];
         }
         return ["materijal",
@@ -3405,6 +3430,53 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             <ToggleButton active={form.type === "spulna"} onClick={() => setType("spulna")}>🧵 {t("tmpl.spulna")}</ToggleButton>
         </div>
 
+        {/* TOK PROIZVODNJE (FAZE) — SAMO INFORMATIVNO, na vrhu, uvek vidljivo, snima se uz templejt */}
+        <Section title="🏭 Tok proizvodnje (faze)" color="#0d9488">
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
+                Samo informativno — redosled faza kroz koje proizvod prolazi. Snima se uz templejt i uvek se vidi kad ga otvoriš. Ne utiče na naloge.
+            </div>
+
+            {/* TOK — stepper */}
+            <div style={{ background: "linear-gradient(135deg,#f0fdfa,#ecfeff)", border: "1px solid #99f6e4", borderRadius: 14, padding: "16px 16px", marginBottom: 14 }}>
+                {(form.faze || []).length === 0
+                    ? <div style={{ color: "#64748b", fontSize: 12.5, fontStyle: "italic" }}>Nema unetih faza — dodaj ih dugmićima ispod.</div>
+                    : <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
+                        {(form.faze || []).map((f, i) => (
+                            <span key={i} style={{ display: "inline-flex", alignItems: "center" }}>
+                                {i > 0 && <span style={{ color: "#2dd4bf", fontWeight: 900, fontSize: 18, margin: "0 7px" }}>→</span>}
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #5eead4", borderRadius: 12, padding: "6px 10px 6px 6px", boxShadow: "0 1px 3px rgba(13,148,136,.15)", fontWeight: 800, fontSize: 13, color: "#0f172a" }}>
+                                    <span style={{ width: 22, height: 22, borderRadius: 999, background: "linear-gradient(135deg,#14b8a6,#0d9488)", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{i + 1}</span>
+                                    <span style={{ fontSize: 15 }}>{fazaIkona(f)}</span>
+                                    <span>{f}</span>
+                                    <span onClick={() => update("faze", (form.faze || []).filter((_, j) => j !== i))} title="Ukloni" style={{ marginLeft: 2, width: 18, height: 18, borderRadius: 999, background: "#f1f5f9", color: "#94a3b8", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 900, cursor: "pointer", lineHeight: 1 }}>×</span>
+                                </span>
+                            </span>
+                        ))}
+                    </div>}
+                {(form.faze || []).length > 0 &&
+                    <div style={{ marginTop: 12 }}>
+                        <button onClick={() => update("faze", [])} style={{ border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 8, padding: "5px 12px", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🗑 Obriši sve</button>
+                    </div>}
+            </div>
+
+            {/* DODAJ FAZU */}
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Dodaj fazu</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {FAZE_SVE.map((f) => (
+                    <button key={f} onClick={() => update("faze", [...(form.faze || []), f])} style={{ display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", borderRadius: 10, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                        <span style={{ fontSize: 14 }}>{fazaIkona(f)}</span>{f}
+                        <span style={{ color: "#0d9488", fontWeight: 900, fontSize: 15 }}>+</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* DRUGA FAZA */}
+            <div style={{ display: "flex", gap: 7, marginTop: 10, maxWidth: 400 }}>
+                <input value={fazaCustom} onChange={e => setFazaCustom(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { const v = fazaCustom.trim(); if (v) { update("faze", [...(form.faze || []), v]); setFazaCustom(""); } } }} placeholder="Druga faza (upiši pa Enter)…" style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, boxSizing: "border-box" }} />
+                <button onClick={() => { const v = fazaCustom.trim(); if (v) { update("faze", [...(form.faze || []), v]); setFazaCustom(""); } }} style={{ border: "none", background: "linear-gradient(135deg,#14b8a6,#0d9488)", color: "#fff", borderRadius: 10, padding: "8px 16px", fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>Dodaj</button>
+            </div>
+        </Section>
+
         <Section title={t("tmpl.osnovni")} color={GREEN}>
             {/* Red 1 — Identifikacija */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 12 }}>
@@ -4004,6 +4076,45 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     <Grid cols={1}>
                         <TextArea label="📝 Napomena (izrada kese) — ide na nalog za kesu" value={form.kesa.izradaNapomena || ""} onChange={v => update("kesa.izradaNapomena", v)} placeholder="napomena za mašinu za kese (zavar, falta, dno...)..." />
                     </Grid>
+                </Section>
+
+                {/* PRE-KORAK NA REZAČU (kao kod folije): formiranje i/ili perforacija pre mašine za kese */}
+                <Section title="✂️ Formiranje i perforacija (pre mašine za kese)" color="#ea580c">
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
+                        Kao kod folije — kad je uključeno, materijal prvo ide na <b>rezač</b> (formiranje na idealnu širinu i/ili perforacija), pa tek onda na <b>mašinu za kese</b>. Isključeno = kesa se pravi direktno iz materijala (postojeći tok).
+                    </div>
+                    <Grid cols={2}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: "8px 10px", border: "1.5px solid " + (form.kesa.formiranjePreKese ? "#ea580c" : "#e2e8f0"), borderRadius: 10, background: form.kesa.formiranjePreKese ? "#fff7ed" : "#fff" }}>
+                            <input type="checkbox" checked={!!form.kesa.formiranjePreKese} onChange={e => update("kesa.formiranjePreKese", e.target.checked)} />
+                            Formiranje pre kese (sečenje na rezaču)
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: "8px 10px", border: "1.5px solid " + (form.kesa.perforacijaPreKese ? "#ea580c" : "#e2e8f0"), borderRadius: 10, background: form.kesa.perforacijaPreKese ? "#fff7ed" : "#fff" }}>
+                            <input type="checkbox" checked={!!form.kesa.perforacijaPreKese} onChange={e => {
+                                const on = e.target.checked;
+                                setForm(prev => {
+                                    const n = clone(prev);
+                                    n.kesa.perforacijaPreKese = on;
+                                    if (on && !n.kesa.perforacija) {
+                                        const sir = Number(String(n.kesa.sirina || "").replace(",", ".")) || 270;
+                                        n.kesa.perforacija = { tip: "linija", odVrha: 50, odDna: 50, sirina: sir, visina: 600, razmakRupa: 5, linije: [{ poz: "", strana: "leva", razmak: "" }] };
+                                    }
+                                    return n;
+                                });
+                            }} />
+                            Perforacija pre kese
+                        </label>
+                    </Grid>
+                    {form.kesa.perforacijaPreKese && (
+                        <div style={{ marginTop: 12 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: "#9a3412", marginBottom: 6 }}>PERFORACIJA (isto kao folija) — crta se i kotira na nalogu za rezač</div>
+                            <PerforacijaEditor value={form.kesa.perforacija} onChange={v => update("kesa.perforacija", v)} />
+                        </div>
+                    )}
+                    {(form.kesa.formiranjePreKese || form.kesa.perforacijaPreKese) && (
+                        <Grid cols={1}>
+                            <TextArea label="📝 Napomena (formiranje/perforacija) — ide na nalog za rezač" value={form.kesa.formiranjeNapomena || ""} onChange={v => update("kesa.formiranjeNapomena", v)} placeholder="napomena za rezač (formiranje, perforacija...)..." />
+                        </Grid>
+                    )}
                 </Section>
 
                 <Section title={t("tmpl.materijali")} color={GREEN}>
