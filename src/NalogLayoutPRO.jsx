@@ -125,15 +125,32 @@ function buildD(nalog) {
     // Štampa: za kesu uzmi kesa.stampa (pun blok kao kod folije), inače folija.stampa.
     // Tako nalog za štampu KESE prikazuje mašinu, boje i dizajn na rolni — isto kao folija.
     const st = (jeKesa ? (kesa && kesa.stampa) : (folija && folija.stampa)) || {};
-    const sirinaMat = num(rz.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(LAY[0] && LAY[0].sirina) || num(nalog.sirina) || 840;
+    let sirinaMat = num(rz.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(LAY[0] && LAY[0].sirina) || num(nalog.sirina) || 840;
 
     // rezanje - MORA pre kgF, jer broj traka ulazi u obracun kilaze
     let lanes = Array.isArray(rz.sirineTraka) && rz.sirineTraka.length ? rz.sirineTraka.map(num).filter(Boolean) : [];
     if (typeof rz.sirineTraka === "string" && !lanes.length) lanes = String(rz.sirineTraka).split(",").map(num).filter(Boolean);
     if (!lanes.length && Array.isArray(rz.trake) && rz.trake.length) lanes = rz.trake.map((x) => num(x.sirina || x.width)).filter(Boolean);
     if (!lanes.length && num(rz.brojTraka) && num(rz.sirinaTrake)) lanes = Array.from({ length: num(rz.brojTraka) }, () => num(rz.sirinaTrake));
-    const usedW = lanes.reduce((s, x) => s + x, 0);
-    const otpad = num(rz.otpad) || Math.max(0, sirinaMat - usedW);
+    let usedW = lanes.reduce((s, x) => s + x, 0);
+    let otpad = num(rz.otpad) || Math.max(0, sirinaMat - usedW);
+
+    // KESA — pre-korak „perforacija/rezanje" na rezaču: traka = IDEALNA ŠIRINA kese
+    // (2×izabrana+klapna+falta), ban = širina_materijala ÷ idealna, ivični otpad = ostatak.
+    // Bez ovoga je ta strana vukla folija-polja (prazno → 8×85, pogrešan otpad).
+    if (jeKesa && (kesa.perforacijaPreKese || kesa.formiranjePreKese)) {
+        const _ko = kesa.orijentacija || "sirina";
+        const _kH = num(kesa.duzina), _kW = num(kesa.sirina), _kKL = num(kesa.klapna), _kFA = num(kesa.falta);
+        const _kIdeal = Math.round(_ko === "duzina" ? (2 * _kH + _kKL + _kFA) : (2 * _kW + _kKL + _kFA));
+        const _kMat = num(kesa.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || _kIdeal;
+        if (_kIdeal > 0) {
+            const _ban = Math.max(1, Math.floor(_kMat / _kIdeal));
+            sirinaMat = _kMat;
+            lanes = Array.from({ length: _ban }, () => _kIdeal);
+            usedW = _ban * _kIdeal;
+            otpad = Math.max(0, _kMat - usedW);
+        }
+    }
 
     // ---- OBRACUN (ispravljeno) ----
     // `kolicina` = metri GOTOVE TRAKE. Rezanje NE skracuje duzinu - multiplicira je po traci.
