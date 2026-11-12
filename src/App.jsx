@@ -2445,11 +2445,25 @@ function MainAppContent() {
                                             var grKreirao = kreiraoPolja(master) || kreiraoPolja(parseParam(master)) || kreiraoPolja(parseLM(master))
                                                 || (function () { for (var i = 0; i < gr.length; i++) { var v = kreiraoPolja(gr[i]) || kreiraoPolja(parseParam(gr[i])) || kreiraoPolja(parseLM(gr[i])); if (v) return v; } return ""; })()
                                                 || "";
-                                            // STARI AI NALOZI: nemaju upisanog kreatora, ali u parametri.izvor stoji „AI agent".
-                                            // Da ne budu prazni, prikaži bar „AI agent" (ko tačno — nije ni sačuvano za te stare naloge).
+                                            // „KAKO je nastao nalog" (kad kreator nije upisan):
+                                            //  • AI alat → parametri.izvor sadrži „AI agent"
+                                            //  • iz PONUDE → parametri.ponuda_id/ponuda_broj (RPC ne upisuje kreatora na nalog)
+                                            // Kreatora onda uzmemo iz ponude (ko je napravio/poslao/prihvatio), a „kako" prikažemo kao čip.
+                                            var grKako = "";
                                             if (!grKreirao) {
-                                                var _izvAI = String((parseParam(master) && parseParam(master).izvor) || (gr[0] && parseParam(gr[0]) && parseParam(gr[0]).izvor) || "");
-                                                if (/\bAI\b/i.test(_izvAI)) grKreirao = "AI agent";
+                                                var _mp = parseParam(master), _gp = parseParam(gr[0]);
+                                                var _izvAI = String(_mp.izvor || _gp.izvor || "");
+                                                if (/\bAI\b/i.test(_izvAI)) { grKreirao = "AI agent"; grKako = "preko AI"; }
+                                                else {
+                                                    var _pid = _mp.ponuda_id || (master && master.ponuda_id) || _gp.ponuda_id;
+                                                    var _pbroj = _mp.ponuda_broj || _gp.ponuda_broj || "";
+                                                    var _pon = (_pid != null) ? (db.ponude || []).find(function (p) { return String(p.id) === String(_pid); }) : null;
+                                                    if (_pon || _pbroj) {
+                                                        grKreirao = (_pon && (_pon.kreirao_ime || _pon.prihvatio_ime || _pon.poslato_ime || _pon.kreirao)) || grKreirao;
+                                                        grKako = "iz ponude " + ((_pon && (_pon.broj || _pon.ponBr)) || _pbroj || "");
+                                                        if (_pon && /AI/i.test(String(_pon.nap || _pon.napomena || ""))) grKako += " · preko AI";
+                                                    }
+                                                }
                                             }
                                             var grDatum = (master && master.created_at) ? new Date(master.created_at).toLocaleDateString("sr-RS") : "";
                                             var grRokRaw = (master && (master.rok_isporuke || master.rok || master.datum_isporuke)) || (grParam && grParam.datum_isporuke) || gr[0].rok_isporuke || (function () { var p0 = parseParam(gr[0]); return p0 && p0.datum_isporuke; })() || "";
@@ -2504,6 +2518,7 @@ function MainAppContent() {
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grKupac}</span>
                                                         <span style={{ fontWeight: 800, fontSize: 16, color: "#1d4ed8" }}>{grProizvod}</span>
                                                         {grKreirao ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>👤 {imeKorisnika(grKreirao)}</span> : null}
+                                                        {grKako ? <span title="Kako je nalog nastao" style={{ fontWeight: 800, fontSize: 12, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 10px" }}>📄 {grKako}</span> : null}
                                                         {grDatum ? <span style={{ fontWeight: 800, fontSize: 16, color: "#64748b" }}>📅 {grDatum}</span> : null}
                                                         {grGotov ? (<>
                                                             <span style={{ fontWeight: 900, fontSize: 16, color: "#fff", background: "linear-gradient(135deg,#16a34a,#15803d)", borderRadius: 999, padding: "4px 14px" }}>✅ GOTOVO{grGotovDatum ? " · " + grGotovDatum : ""}</span>
