@@ -24,6 +24,22 @@ const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
 const T = (v) => String(v ?? "").trim();
 const UP = (v) => T(v).toUpperCase();
 
+// Otporan upis: ako baza prijavi "Could not find the 'X' column", izbaci TU kolonu i pokušaj
+// ponovo (isto kao UI verzije čuvanja). Tako AI čuvanje ne pada zbog jedne nepoznate kolone.
+async function insertOtporno(tabela, red, selectCols = "id") {
+    let payload = { ...red }, error = null, data = null;
+    const izbacene = [];
+    for (let i = 0; i < 15; i++) {
+        const r = await supabase.from(tabela).insert([payload]).select(selectCols);
+        error = r.error; data = r.data;
+        if (!error) break;
+        const m = String((error && error.message) || "").match(/Could not find the '([^']+)' column/i);
+        if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) { delete payload[m[1]]; izbacene.push(m[1]); continue; }
+        break;
+    }
+    return { data: (data && data[0]) || null, error, izbacene };
+}
+
 // Pretraga nezavisna od kvačica i redosleda reči: "maxi spanać" nađe "SPANAC 600 HR MAXI"
 const BEZKV = (v) => String(v ?? "").toLowerCase()
     .replace(/š/g, "s").replace(/ć/g, "c").replace(/č/g, "c").replace(/ž/g, "z").replace(/đ/g, "dj")
@@ -1621,12 +1637,12 @@ export const ALATI = {
                 };
             }
 
-            const { data: upisana, error } = await supabase.from(tabela).insert([red]).select("id");
+            const { data: upisana, error, izbacene } = await insertOtporno(tabela, red, "id");
             if (error) return { ok: false, poruka: "Upis u " + tabela + " nije uspeo: " + error.message };
             return {
-                ponistivo: upisana && upisana[0] ? { tabela, ids: [upisana[0].id] } : null,
+                ponistivo: upisana ? { tabela, ids: [upisana.id] } : null,
                 ok: true,
-                poruka: `Kalkulacija „${naziv}" (${tip}) sačuvana u ${tabela}. Konačna cena: ${rez.konacna_cena} ${rez.jedinica}.`,
+                poruka: `Kalkulacija „${naziv}" (${tip}) sačuvana u ${tabela}. Konačna cena: ${rez.konacna_cena} ${rez.jedinica}.` + (izbacene.length ? ` (preskočene nepoznate kolone: ${izbacene.join(", ")})` : ""),
                 konacna_cena: rez.konacna_cena, jedinica: rez.jedinica,
             };
         },
@@ -1780,7 +1796,7 @@ export const ALATI = {
             if (a.perforacija && typeof a.perforacija === "object") { data.perforacija = a.perforacija; data.kpdf = { enabled: true, ...a.perforacija }; }
             if (a.rezanje && typeof a.rezanje === "object") data.rezanje = a.rezanje;
             const tplId = "TPL-" + Date.now();
-            const { data: upisan, error } = await supabase.from("proizvodi").insert([{
+            const { data: upisan, error, izbacene } = await insertOtporno("proizvodi", {
                 tip, naziv, kupac: T(a.kupac) || null, status: "Aktivan",
                 sir: N(a.idealna_sirina) || null,
                 mats: slojevi, materijali_struktura: slojevi,
@@ -1791,11 +1807,11 @@ export const ALATI = {
                 // AI-templejt otvorio prazan. Zato upisujemo ceo templejt i tu.
                 standardi: { tip, kupac: T(a.kupac) || null, template_version: "V1", izvor: "AI agent", record: { tip, naziv, data } },
                 datum: new Date().toLocaleDateString("sr-RS"),
-            }]).select("id");
+            }, "id");
             if (error) return { ok: false, poruka: "Templejt nije sačuvan: " + error.message };
             return {
-                ok: true, poruka: `Templejt „${naziv}" sačuvan (${slojevi.length} sloj/a).`, template_id: tplId,
-                ponistivo: upisan && upisan[0] ? { tabela: "proizvodi", ids: [upisan[0].id] } : null,
+                ok: true, poruka: `Templejt „${naziv}" sačuvan (${slojevi.length} sloj/a).` + (izbacene.length ? ` (preskočene kolone: ${izbacene.join(", ")})` : ""), template_id: tplId,
+                ponistivo: upisan ? { tabela: "proizvodi", ids: [upisan.id] } : null,
             };
         },
     },
@@ -1827,12 +1843,23 @@ export const ALATI = {
             } catch (e) { }
             const broj = "PON-" + god + "-" + String(redni).padStart(4, "0");
             const tip = (T(a.tip) || "folija").toLowerCase();
-            const { data: pon, error } = await supabase.from("ponude").insert([{
+            // KO JE NAPRAVIO ponudu (ulogovani korisnik preko AI) — da ponuda ima kreatora,
+            // i da se taj „ko" kasnije vidi i na nalogu nastalom iz ponude.
+            let kreatorAI = "AI agent";
+            try {
+                const { data: ures } = await supabase.auth.getUser();
+                const uu = ures && ures.user;
+                const metaIme = (uu && (uu.user_metadata?.ime || uu.user_metadata?.full_name || uu.user_metadata?.name)) || "";
+                const ime = metaIme || (uu && uu.email ? imeKorisnika(uu.email) : "");
+                if (ime) kreatorAI = ime + " (AI)";
+            } catch (e) { }
+            const { data: pon, error } = await insertOtporno("ponude", {
                 broj, datum: new Date().toLocaleDateString("sr-RS"),
                 kupac, naziv: proizvod, proizvod, tip, tip_proizvoda: tip,
                 kol: N(a.kolicina) || null, kolicina: N(a.kolicina) || null,
                 cena_ukorak: null, cena_ukupno: N(a.vrednost_ukupno) || null,
                 status: "Nova",
+                kreirao_ime: kreatorAI, kreirao: kreatorAI,
                 nap: T(a.napomena) || "Kreirano preko AI agenta",
                 podaci: {
                     jedinica: T(a.jedinica) || "m",
@@ -1840,7 +1867,7 @@ export const ALATI = {
                     vrednost: N(a.vrednost_ukupno) || null,
                     izvor: "AI agent",
                 },
-            }]).select("id, broj").maybeSingle();
+            }, "id, broj");
             if (error) return { ok: false, poruka: "Ponuda nije kreirana: " + error.message };
             return {
                 ok: true, poruka: `Ponuda ${(pon && pon.broj) || broj} napravljena za ${kupac} — ${proizvod}.`,
