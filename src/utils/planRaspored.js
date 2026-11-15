@@ -13,7 +13,7 @@
 //  Zavisnosti: operacija ne kreće pre nego što je prethodna GOTOVA ZA SLEDEĆU
 //  (za štampu/eksterno lakiranje = „stiglo iz štamparije"; interna štampa = „završeno").
 // ─────────────────────────────────────────────────────────────────────────────
-import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, jeGotovZaSledecu, jeStiglo, jePoslato, canonRef } from "./nalogMetrika.js";
+import { procenaMinNaMasini, REDOSLED_OPERACIJA, redosledOperacija, jeGotov, jeGotovZaSledecu, jeStiglo, jePoslato, canonRef } from "./nalogMetrika.js";
 
 // ── radni kalendar (konstante) ───────────────────────────────────────────────
 export const DAN_OD = 6 * 60;          // radni dan počinje 06:00
@@ -143,11 +143,12 @@ export function izracunajRaspored({ machines, plan, orderMap, opStatusi, sidro }
     // ključ prethodne NEZAVRŠENE operacije (kroz REDOSLED), ili null
     const prethodna = (o) => {
         const moj = OP2KEY[o.opTip] || o.opTip;
-        const i = REDOSLED_OPERACIJA.indexOf(moj);
-        if (i <= 0) return null;
         const mape = opStatusi[canonRef(o.id)] || {};
+        const R = redosledOperacija(mape);   // lakiranje spoja (2+ materijala) ide POSLE kaširanja
+        const i = R.indexOf(moj);
+        if (i <= 0) return null;
         for (let j = i - 1; j >= 0; j--) {
-            const k = REDOSLED_OPERACIJA[j];
+            const k = R[j];
             if (mape[k] !== undefined && !jeGotovZaSledecu(mape[k], k)) return k;
         }
         return null;

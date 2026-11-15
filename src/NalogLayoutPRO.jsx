@@ -900,37 +900,54 @@ function pKas(D) {
         '<div class="sec">' + secH(1, c, 'Tok kaširanja po prolazima', (Math.max(0, L.length - 1)) + ' kaširanja') + cards + '</div>' +
         '<div class="sec">' + secH(2, c, 'Parametri kaširanja', 'iz templejta') + '<div class="info">' + infoC('Tip lepka', D.kas.tipLepka) + infoC('Odnos', D.kas.odnos) + infoC('Nanos', D.kas.nanos) + infoC('Broj kaširanja', D.kas.broj) + infoC('Širina valjka', D.kas.valjak ? (fmtN(D.kas.valjak) + ' mm') : '—') + infoC('Redosled', L.map(komp).join('  /  ')) + infoC('Ukupna debljina', D.TOTu + ' µm') + '</div></div>' +
         napHtml(D, 'kasiranje') +
-        foot('Operater kaširanja', 'Kontrola kvaliteta', 'Predao u rezanje') + '</div>', 'Strana · kaširanje');
+        foot('Operater kaširanja', 'Kontrola kvaliteta', (L.filter(function (x) { return x.lak; }).length >= 2) ? 'Predao u lakiranje (spoj)' : 'Predao u rezanje') + '</div>', 'Strana · kaširanje');
 }
 
 function pLak(D) {
     const c = COLs; const L = D.LAY;
     // Lak SAMO na sloj(eve) sa čekiranim "lak". Bez toga — nema šta da se lakira.
+    //  • 1 čekiran sloj  → lakira se taj materijal, PRE kaširanja;
+    //  • 2+ čekirana sloja → lakira se SPOJ tih materijala, POSLE kaširanja.
     const lakSlojevi = L.filter(function (x) { return x.lak; });
+    const jeSpoj = lakSlojevi.length >= 2;
     const idxOf = function (s) { return L.indexOf(s) + 1; };
-    // Statistike gore = SAMO lakirani sloj, ne ceo laminat (npr. 20µm, ne 40µm).
+    const imeSloja = function (s) { return esc(s.n || '') + (s.oz ? ' ' + esc(s.oz) : '') + ' ' + s.u + ' µm'; };
+    const spojTxt = lakSlojevi.map(imeSloja).join('  +  ');
+    const susedni = lakSlojevi.every(function (s, j) { return j === 0 || idxOf(s) === idxOf(lakSlojevi[j - 1]) + 1; });
+    // Statistike gore = SAMO lakirani sloj / spoj, ne ceo laminat (npr. 20µm, ne 40µm).
     const debLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.u) || 0); }, 0);
     const kgLak = lakSlojevi.reduce(function (s, x) { return s + (Number(x.gm2) || 0) * D.kgF; }, 0);
     const statLak = '<div class="stats">' +
         stat(T("nalog.kolicina"), fmtN(D.metriMat), 'm', COLm) +
-        stat('Debljina', debLak || '—', 'µm', '#0ea5e9') +
-        stat('Materijala', lakSlojevi.length || '—', lakSlojevi.length === 1 ? 'sloj' : 'sloja', '#14b8a6') +
-        stat('Težina', kgLak ? kgLak.toFixed(1) : '—', 'kg', COLp) + '</div>';
+        stat(jeSpoj ? 'Debljina spoja' : 'Debljina', debLak || '—', 'µm', '#0ea5e9') +
+        stat(jeSpoj ? 'Spoj' : 'Materijala', lakSlojevi.length || '—', jeSpoj ? 'materijala' : (lakSlojevi.length === 1 ? 'sloj' : 'sloja'), '#14b8a6') +
+        stat(jeSpoj ? 'Težina spoja' : 'Težina', kgLak ? kgLak.toFixed(1) : '—', 'kg', COLp) + '</div>';
+    const redovi = lakSlojevi.map(function (s) { return '<tr><td><span class="dot-c" style="background:' + s.c + '"></span>' + idxOf(s) + '</td><td>' + esc(s.n || '—') + '</td><td>' + esc(s.pv || '—') + '</td><td>' + esc(s.oz || '—') + '</td><td>' + esc(s.pr || '—') + '</td><td class="n">' + s.u + ' µm</td><td class="n">' + (s.gm2 ? (s.gm2 * D.kgF).toFixed(1) : '—') + '</td><td>' + (s.st ? '✓' : '—') + '</td></tr>'; }).join('');
+    const redSpoj = jeSpoj ? '<tr class="tot"><td colspan="5" style="text-align:right">SPOJ UKUPNO (bez lepka)</td><td class="n">' + debLak + ' µm</td><td class="n">' + (kgLak ? kgLak.toFixed(1) : '—') + '</td><td></td></tr>' : '';
     const telo = lakSlojevi.length
-        ? lakSlojevi.map(function (s) { return '<tr><td><span class="dot-c" style="background:' + s.c + '"></span>' + idxOf(s) + '</td><td>' + esc(s.n || '—') + '</td><td>' + esc(s.pv || '—') + '</td><td>' + esc(s.oz || '—') + '</td><td>' + esc(s.pr || '—') + '</td><td class="n">' + s.u + ' µm</td><td class="n">' + (s.gm2 ? (s.gm2 * D.kgF).toFixed(1) : '—') + '</td><td>' + (s.st ? '✓' : '—') + '</td></tr>'; }).join('')
+        ? redovi + redSpoj
         : '<tr><td colspan="8" style="color:#94a3b8;text-align:center;padding:12px">Nijedan sloj nije označen za lakiranje.</td></tr>';
-    const ulaz = lakSlojevi.length
-        ? 'lak se nanosi na ' + lakSlojevi.map(function (s) { return esc(s.n || '') + (s.oz ? ' ' + esc(s.oz) : '') + ' (' + s.u + ' µm)'; }).join(', ') + '.'
-        : 'Nijedan sloj nije označen za lakiranje.';
-    return pageWrap(D, hd(D, '✨', 'NALOG ZA LAKIRANJE', c, 'lakiranje') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statLak +
-        '<div class="ulaz"><b>Ulaz:</b> ' + ulaz + '</div>' +
+    const ulaz = !lakSlojevi.length
+        ? 'Nijedan sloj nije označen za lakiranje.'
+        : jeSpoj
+            ? 'kaširan <b>spoj ' + lakSlojevi.length + ' materijala</b>: <b>' + spojTxt + '</b>. Lakira se <b>POSLE kaširanja</b> — lak se nanosi na gotov spoj, ne na pojedinačan materijal.'
+            : 'lak se nanosi na <b>jedan materijal</b>: ' + imeSloja(lakSlojevi[0]) + (L.length > 1 ? ' — <b>PRE kaširanja</b>.' : '.');
+    const upoz = (jeSpoj && !susedni)
+        ? '<div class="ulaz" style="border-color:#f59e0b;background:#fffbeb;color:#92400e"><b>Pažnja:</b> materijali označeni za lak nisu susedni slojevi — proveriti templejt.</div>'
+        : '';
+    // Kome se predaje: spoj je već kaširan → ide dalje (rezanje / kesarka); jedan materijal → u kaširanje (ako ga ima).
+    const dalje = D.jeKesa ? 'Predao na kesarku' : 'Predao u rezanje';
+    const predao = jeSpoj ? dalje : (L.length > 1 ? 'Predao u kaširanje' : dalje);
+    return pageWrap(D, hd(D, '✨', jeSpoj ? 'NALOG ZA LAKIRANJE SPOJA' : 'NALOG ZA LAKIRANJE', c, 'lakiranje') + '<div class="body">' + identBlock(D.kupac, D.tipLabel, D.proizvod) + statLak +
+        '<div class="ulaz"><b>Ulaz:</b> ' + ulaz + '</div>' + upoz +
         '<div class="sec">' + secH(1, c, 'Parametri lakiranja', 'iz templejta') + '<div class="info">' +
         infoC('Tip laka', D.lak.tip) + infoC('Mašina', D.lak.masina) + infoC('Strana', D.lak.strana) + infoC('Nanos (g/m²)', D.lak.nanos) +
         infoC('Pokrivenost', D.lak.pokrivenost) + infoC('Sušenje', D.lak.susenje) + infoC('Širina materijala', D.sirinaMat + ' mm') + infoC('Metraža', fmtN(D.metriMat) + ' m') +
+        (jeSpoj ? infoC('Lakira se', 'SPOJ: ' + lakSlojevi.map(function (s) { return (s.n || '') + ' ' + s.u + 'µm'; }).join(' + ')) + infoC('Redosled', 'posle kaširanja') : '') +
         '</div></div>' +
-        '<div class="sec">' + secH(2, c, 'Materijal koji se lakira', 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'Kg', n: 1 }, 'Štampan'], c) + '<tbody>' + telo + '</tbody></table></div>' +
+        '<div class="sec">' + secH(2, c, jeSpoj ? 'Spoj koji se lakira' : 'Materijal koji se lakira', jeSpoj ? (lakSlojevi.length + ' materijala · kaširano') : 'iz templejta') + '<table>' + th(['Sloj', 'Vrsta', 'Pod-vrsta', 'Oznaka', 'Proizvođač', { t: 'Debljina (µm)', n: 1 }, { t: 'Kg', n: 1 }, 'Štampan'], c) + '<tbody>' + telo + '</tbody></table></div>' +
         napHtml(D, 'lakiranje') +
-        foot('Operater lakiranja', 'Kontrola kvaliteta', 'Predao u kaширanje') + '</div>', 'Strana · lakiranje');
+        foot('Operater lakiranja', 'Kontrola kvaliteta', predao) + '</div>', 'Strana · lakiranje');
 }
 
 function pRez(D) {
@@ -1116,7 +1133,7 @@ function pKesaKas(D, K) {
         infoC('Redosled', L.map(komp).join('  /  ')) + infoC('Ukupna debljina', D.TOTu + ' µm') +
         infoC('Metara', fmtN(K.mMatPlus) + ' m') + infoC('Ukupno kg', kesaTotalKg(D, K) + ' kg') + '</div></div>' +
         napHtml(D, 'kasiranje') +
-        foot('Operater kaširanja', 'Kontrola kvaliteta', 'Predao na kesarku') + '</div>', 'Strana 2 · kaširanje');
+        foot('Operater kaširanja', 'Kontrola kvaliteta', (L.filter(function (x) { return x.lak; }).length >= 2) ? 'Predao u lakiranje (spoj)' : 'Predao na kesarku') + '</div>', 'Strana 2 · kaširanje');
 }
 
 /* 3/4 tehnicke karakteristike */

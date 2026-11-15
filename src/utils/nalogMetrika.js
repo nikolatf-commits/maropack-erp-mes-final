@@ -175,6 +175,40 @@ export function stvarnoMin(n) {
 // PRE svih mašinskih operacija — tako blokada „čeka prethodnu" pravilno veže: formatiranje čeka
 // samo materijal, a štampa/rezanje/kesa/špulna čekaju formatiranje kad ga nalog ima.
 export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "kesa", "spulna"];
+
+// LAKIRANJE SPOJA: kad su u templejtu za lak čekirana 2 ili više materijala, ne lakira se
+// pojedinačan materijal nego SPOJ — pa lakiranje ide POSLE kaširanja:
+//   materijal → (formatiranje) → štampa → kaširanje → lakiranje → rezanje / kesa
+// Jedan čekiran materijal = lakiranje PRE kaširanja (standardni redosled iznad).
+export const REDOSLED_LAK_POSLE = ["materijal", "formatiranje", "stampa", "kasiranje", "lakiranje", "perforacija_rezanje", "kesa", "spulna"];
+
+// Koliko slojeva templejta ima čekiran „lak". -1 = nepoznato (red ne nosi templejt).
+export function brojLakSlojeva(tpl) {
+    const t0 = safeJson(tpl, null);
+    if (!t0 || typeof t0 !== "object") return -1;
+    const t = (t0.data && typeof t0.data === "object" && (t0.data.folija || t0.data.kesa || t0.data.spulna)) ? t0.data : t0;
+    const tip = t.type || t.tip;
+    const grana = (tip && t[tip]) || t.folija || t.kesa || t.spulna || null;
+    const L = (grana && Array.isArray(grana.layers)) ? grana.layers : (Array.isArray(t.layers) ? t.layers : null);
+    if (!L) return -1;
+    return L.filter((l) => l && (l.lak || l.lakiranje)).length;
+}
+
+// Templejt ugrađen u red naloga (operativni ili glavni), ili null.
+function templejtReda(n) {
+    if (!n) return null;
+    const par = safeJson(n.parametri, {});
+    const parRes = safeJson(par.res, {});
+    const res = safeJson(n.res, {});
+    const rez = safeJson(n.rezultati, {});
+    const od = safeJson(n.order_data, {});
+    return par.template || parRes.template || res.template || rez.template || n.product_template || n.template || od.template || null;
+}
+
+// Redosled operacija za JEDAN nalog (ops = stavka iz mapaOperacija).
+export function redosledOperacija(ops) {
+    return (ops && ops.__lakPosle) ? REDOSLED_LAK_POSLE : REDOSLED_OPERACIJA;
+}
 export const jeGotov = (status) => /^zavr/i.test(String(status || ""));
 
 // Operacije koje ODLAZE u štampariju i moraju da se VRATE ("stiglo iz štamparije").
@@ -209,8 +243,13 @@ export function jeGotovZaSledecu(status, opKljucStr) {
 }
 
 // Mapa statusa po glavnom nalogu: { "MP-2026-0001": { materijal:"...", stampa:"..." } }
+// Uz statuse, svaki nalog nosi i SKRIVENU oznaku __lakPosle (ne ulazi u Object.keys):
+// true = lakira se spoj (2+ materijala čekirano za lak) → lakiranje ide POSLE kaširanja.
+// Izvor: broj lak-slojeva u templejtu naloga; ako red ne nosi templejt, gleda se kolona
+// „redosled" (lakiranje upisano posle kaširanja).
 export function mapaOperacija(sviNalozi) {
     const m = {};
+    const meta = {};
     (Array.isArray(sviNalozi) ? sviNalozi : []).forEach((n) => {
         const broj = String(n.broj_naloga || n.broj || "").trim();
         if (!broj) return;
@@ -218,6 +257,16 @@ export function mapaOperacija(sviNalozi) {
         const k = opKljuc(n);
         if (k === "ostalo") return;
         (m[master] = m[master] || {})[k] = String(n.status || "ceka");
+        const mm = (meta[master] = meta[master] || { lak: -1, rl: 0, rk: 0 });
+        if (mm.lak < 0) mm.lak = brojLakSlojeva(templejtReda(n));
+        if (k === "lakiranje") mm.rl = Number(n.redosled) || 0;
+        if (k === "kasiranje") mm.rk = Number(n.redosled) || 0;
+    });
+    Object.keys(m).forEach((master) => {
+        const ops = m[master], mm = meta[master];
+        if (!mm || ops.lakiranje === undefined || ops.kasiranje === undefined) return;
+        const posle = mm.lak >= 0 ? mm.lak >= 2 : (mm.rl > 0 && mm.rk > 0 && mm.rl > mm.rk);
+        if (posle) Object.defineProperty(ops, "__lakPosle", { value: true, enumerable: false });
     });
     return m;
 }
@@ -226,11 +275,12 @@ export function mapaOperacija(sviNalozi) {
 // Za eksterne operacije (štampa/lakiranje) "gotovo" znači "stiglo iz štamparije", ne samo
 // "završeno" — pa kaширanje ostaje blokirano dok se materijal fizički ne vrati.
 export function nadjiBlokadu(masterBroj, mojKljuc, mapa) {
-    const i = REDOSLED_OPERACIJA.indexOf(mojKljuc);
-    if (i <= 0) return null;
     const ops = (mapa && mapa[canonRef(masterBroj)]) || {};
+    const R = redosledOperacija(ops);   // lakiranje spoja ide POSLE kaširanja
+    const i = R.indexOf(mojKljuc);
+    if (i <= 0) return null;
     for (let j = i - 1; j >= 0; j--) {
-        const k = REDOSLED_OPERACIJA[j];
+        const k = R[j];
         if (ops[k] !== undefined && !jeGotovZaSledecu(ops[k], k)) return k;
     }
     return null;

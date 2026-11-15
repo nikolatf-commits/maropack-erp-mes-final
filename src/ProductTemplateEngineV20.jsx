@@ -544,6 +544,56 @@ function deepMergeForma(dst, src) {
     return src;
 }
 
+// KALKULACIJA → POSTOJEĆI TEMPLEJT: spaja podatke iz kalkulacije preko sačuvanog templejta.
+//  • prazne vrednosti iz kalkulacije ("" / null) NE brišu ono što templejt već ima;
+//  • false / 0 su prave vrednosti (npr. odčekirana opcija) i prenose se;
+//  • slojevi (layers): isti materijal na istom mestu se dopunjava, drugačiji se zamenjuje.
+function spojiIzKalkulacije(dst, src, kljuc) {
+    const prazno = (v) => v === undefined || v === null || v === "";
+    if (Array.isArray(src)) {
+        if (!src.length) return Array.isArray(dst) ? dst : src;
+        if (kljuc === "layers" && Array.isArray(dst)) {
+            const nrm = (l) => String((l && (l.vrsta || l.tip || l.material || l.materijal)) || "").trim().toLowerCase() + "|" + String((l && (l.debljina ?? l.deb)) ?? "").trim();
+            return src.map((l, i) => (dst[i] && nrm(dst[i]) === nrm(l)) ? spojiIzKalkulacije(dst[i], l) : l);
+        }
+        return src.slice();
+    }
+    if (src && typeof src === "object") {
+        const out = (dst && typeof dst === "object" && !Array.isArray(dst)) ? { ...dst } : {};
+        Object.keys(src).forEach((k) => {
+            if (prazno(src[k]) && !prazno(out[k])) return;
+            out[k] = spojiIzKalkulacije(out[k], src[k], k);
+        });
+        return out;
+    }
+    return src;
+}
+
+// Nađi red u tabeli `proizvodi` od kog potiče kalkulacija (id reda → template_id → product_master_id).
+async function nadjiProizvodZaPrenos(t, payload) {
+    const jedan = async (kol, vr) => {
+        try {
+            const { data } = await supabase.from("proizvodi").select("*").eq(kol, vr).order("id", { ascending: true }).limit(1);
+            return (data && data[0]) || null;
+        } catch (e) { return null; }
+    };
+    const ceo = (v) => { const n = Number(v); return (Number.isInteger(n) && n > 0 && n < 2000000000) ? n : null; };
+    const tekst = (v) => (typeof v === "string" && v.trim()) ? v.trim() : null;
+    const pmid = tekst(t.product_master_id) || tekst(payload.product_id);
+    const tid = tekst(t.template_id) || tekst(t.product_template_id);
+    let red = null;
+    const id1 = ceo(payload.product_row_id) || ceo(t.product_template_id) || ceo(payload.product_id);
+    if (id1) red = await jedan("id", id1);
+    if (!red && tid) red = await jedan("template_id", tid);
+    if (!red && pmid) red = await jedan("product_master_id", pmid);
+    // Rezervni ID-jevi koje Baza proizvoda sama sklapa kad kolona nije popunjena: "PROD-12" / "TPL-12"
+    if (!red) {
+        const m = String(pmid || "").match(/^PROD-(\d{1,9})$/) || String(tid || "").match(/^TPL-(\d{1,9})$/);
+        if (m && ceo(m[1])) red = await jedan("id", ceo(m[1]));
+    }
+    return red;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ŠPULNA — obračun. Isti lanac kao u nalogu (NalogLayoutPRO.spulnaD),
 // proveren protiv Excel naloga 0150/2026 (Lil Packaging, trake 20 mm):
@@ -1102,6 +1152,21 @@ function MaterialLayersOneRowTable({ title = "MATERIJALI", layers = [], onAdd, o
                     })()}
                 </div>
                 <div style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>✅ {t("tmpl.legenda_stampa")} &nbsp;|&nbsp; ☑ {t("tmpl.legenda_lak")}</div>
+                {(() => {
+                    // Pravilo laka: 1 čekiran (L) = lakira se taj materijal PRE kaširanja;
+                    // 2 ili više = lakira se SPOJ tih materijala POSLE kaširanja.
+                    const idx = safeLayers.map((l, i) => (l && l.lak) ? i : -1).filter(i => i >= 0);
+                    if (!idx.length) return <div style={{ marginTop: 6, fontSize: 12, color: "#64748b", fontWeight: 700 }}>✨ Lak (kolona L): čekiraj <b>jedan</b> materijal → lakira se taj materijal, pre kaširanja. Čekiraj <b>dva ili više</b> → lakira se njihov spoj, posle kaširanja.</div>;
+                    const ime = (l) => [l.vrsta || l.material || l.materijal || "materijal", l.debljina ? (l.debljina + "µ") : ""].filter(Boolean).join(" ");
+                    const spoj = idx.length >= 2;
+                    const susedni = idx.every((v, j) => j === 0 || v === idx[j - 1] + 1);
+                    return <div style={{ marginTop: 8, padding: "9px 12px", borderRadius: 10, border: "1px solid " + (spoj ? "#c4b5fd" : "#bfdbfe"), background: spoj ? "#f5f3ff" : "#eff6ff", fontSize: 12.5, fontWeight: 800, color: spoj ? "#5b21b6" : "#1d4ed8" }}>
+                        {spoj
+                            ? <>✨ Lakira se <b>SPOJ {idx.length} materijala</b>: {idx.map(i => "#" + (i + 1) + " " + ime(safeLayers[i])).join("  +  ")} — lakiranje ide <b>POSLE kaširanja</b>.</>
+                            : <>✨ Lakira se <b>jedan materijal</b>: #{idx[0] + 1} {ime(safeLayers[idx[0]])} — lakiranje ide <b>PRE kaširanja</b>.</>}
+                        {spoj && !susedni && <div style={{ marginTop: 4, color: "#b45309" }}>⚠️ Čekirani materijali nisu jedan do drugog (preskočen je sloj između). Spoj čine susedni slojevi — proveri čekiranje.</div>}
+                    </div>;
+                })()}
             </div>
         </div>
     </div>;
@@ -1789,7 +1854,12 @@ function inferTemplateOperations(tpl = {}) {
     const layers = tpl.folija?.layers || [];
     const ops = ['materijal'];
     if (layers.some(l => l?.stampa || l?.stamp || l?.Š) || tpl.folija?.stampa?.brojBoja) ops.push('stampa');
-    if (layers.length > 1 || tpl.folija?.kasiranje?.brojKasiranja) ops.push('kasiranje');
+    // Lak: 1 čekiran materijal → pre kaširanja; 2+ (spoj) → posle kaširanja.
+    const brLak = layers.filter(l => l?.lak).length;
+    const imaKas = layers.length > 1 || !!tpl.folija?.kasiranje?.brojKasiranja;
+    if (brLak > 0 && !(brLak >= 2 && imaKas)) ops.push('lakiranje');
+    if (imaKas) ops.push('kasiranje');
+    if (brLak >= 2 && imaKas) ops.push('lakiranje');
     ops.push('perforacija_rezanje');
     return ops;
 }
@@ -2028,12 +2098,18 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
 
         // Lakiranje je zasebna operacija — nastaje SAMO kad je čekiran "lak" na sloju.
         // (Boja tipa "Lak" u štampi se NE računa kao lakiranje.)
-        const imaLak = L.some(l => l.lak);
+        //  • 1 čekiran materijal  → lakira se taj materijal, PRE kaširanja;
+        //  • 2+ čekirana materijala → lakira se SPOJ tih materijala, POSLE kaširanja.
+        const brLak = L.filter(l => l && l.lak).length;
+        const imaLak = brLak > 0;
 
         const kas = (form.type === "folija" ? form.folija?.kasiranje
             : form.type === "kesa" ? form.kesa?.kasiranje
                 : form.type === "spulna" ? form.spulna?.kasiranje : null) || {};
         const imaKasiranje = L.length > 1 || Number(kas.brojKasiranja) > 0;
+        const lakNaSpoj = brLak >= 2 && imaKasiranje;
+        const lakPre = (imaLak && !lakNaSpoj) ? ["lakiranje"] : [];
+        const lakPosle = lakNaSpoj ? ["lakiranje"] : [];
 
         if (form.type === "spulna") {
             // Tok špulne: materijal → KAŠIRANJE (na širokom materijalu) → FORMATIRANJE
@@ -2051,15 +2127,17 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const preRezac = !!(k.formiranjePreKese || k.perforacijaPreKese);
             return ["materijal",
                 ...(imaStampu ? ["stampa"] : []),
-                ...(imaLak ? ["lakiranje"] : []),
+                ...lakPre,
                 ...(imaKasiranje ? ["kasiranje"] : []),
+                ...lakPosle,
                 ...(preRezac ? ["perforacija_rezanje"] : []),
                 "kesa"];
         }
         return ["materijal",
             ...(imaStampu ? ["stampa"] : []),
-            ...(imaLak ? ["lakiranje"] : []),
+            ...lakPre,
             ...(imaKasiranje ? ["kasiranje"] : []),
+            ...lakPosle,
             "perforacija_rezanje"];
     }
 
@@ -2805,7 +2883,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 if (op === "materijal") return imaCov ? "ceka_magacin" : "ceka_materijal";
                 if (!delimican) return "ceka";
                 if (op === "formatiranje") return imaCov ? "ceka" : "ceka_materijal";
-                if (op === "stampa" || op === "lakiranje") return stampaMoze ? "ceka" : "ceka_materijal";
+                // Lakiranje SPOJA (ide posle kaširanja) traži ceo laminat → čeka materijal kao kaširanje.
+                const lakSpoj = op === "lakiranje" && opTipovi.includes("kasiranje") && opTipovi.indexOf("lakiranje") > opTipovi.indexOf("kasiranje");
+                if (op === "stampa" || (op === "lakiranje" && !lakSpoj)) return stampaMoze ? "ceka" : "ceka_materijal";
                 return "ceka_materijal";
             };
             const ops = opTipovi.map((op, i) => ({
@@ -3139,31 +3219,68 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     }, []);
 
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem("maropack_pending_template_edit");
-            if (!raw) return;
-            const payload = JSON.parse(raw);
-            const tpl = payload?.template;
-            if (!tpl || typeof tpl !== "object") return;
-            const t = clone(tpl);
-            const tip = t.type || form?.type || "folija";
-            // Spoji sekciju iz kalkulacije preko postojećih default-a (da polja koja kalkulacija
-            // NE šalje — perforacija, rezanje, mašina, boje… — ostanu popunjena). Duboki merge:
-            // ugnježdeni objekti (npr. rezanje, options) se spajaju, a nizovi (layers) zamene.
-            const next = {
-                ...form,
-                ...t,
-                [tip]: deepMergeForma(form?.[tip] || {}, t[tip] || {}),
-                db_id: payload.product_id || t.db_id || null,
-                template_locked: true
-            };
-            setForm(next);
-            setActiveTab(next.type || "folija");
-            localStorage.removeItem("maropack_pending_template_edit");
-            msg && msg(payload.fromCalc ? "Podaci iz kalkulacije učitani u templejt" : "Template učitan iz Product Master baze");
-        } catch (e) {
-            msg && msg("Template nije učitan: " + (e?.message || e), "err");
-        }
+        let ziv = true;
+        (async () => {
+            try {
+                const raw = localStorage.getItem("maropack_pending_template_edit");
+                if (!raw) return;
+                const payload = JSON.parse(raw);
+                const tpl = payload?.template;
+                if (!tpl || typeof tpl !== "object") return;
+                const t = clone(tpl);
+                const tip = t.type || form?.type || "folija";
+
+                // KALKULACIJA → TEMPLEJT: ako kalkulacija potiče od POSTOJEĆEG proizvoda, njegov sačuvani
+                // templejt je OSNOVA, a preko njega idu podaci iz kalkulacije (dimenzije, materijali,
+                // čekirane tehničke opcije). Tako se ne gubi ono što kalkulacija ne zna (pozicije,
+                // štampa, dizajn, perforacija…) i „Sačuvaj izmene" ide na PRAVI proizvod.
+                let baza = null, bazaId = null;
+                // (Za sada samo KESA — kalkulacija kese šalje tačno ona polja koja templejt kese čita.)
+                const izKalkKese = !!payload.fromCalc && tip === "kesa";
+                if (izKalkKese) {
+                    const red = await nadjiProizvodZaPrenos(t, payload);
+                    if (red) {
+                        const std = red.standardi || {}, rec = std.record || {};
+                        const d = rec.data || (red.res && red.res.template) || null;
+                        if (d && typeof d === "object") { baza = clone(d); bazaId = red.id; }
+                    }
+                }
+                if (!ziv) return;   // (StrictMode: prvi prolaz se odbacuje, drugi završava posao)
+
+                let next;
+                if (baza) {
+                    const sekcijaBaza = deepMergeForma(form?.[tip] || {}, baza[tip] || {});
+                    const sekcija = spojiIzKalkulacije(sekcijaBaza, t[tip] || {});
+                    // Identitet proizvoda (naziv, kupac, šifra, ID-jevi) ostaje iz baze proizvoda.
+                    if (sekcijaBaza.naziv) sekcija.naziv = sekcijaBaza.naziv;
+                    next = { ...form, ...baza, [tip]: sekcija, type: baza.type || tip, db_id: bazaId, template_locked: true };
+                    if (!next.template_id && t.template_id) next.template_id = t.template_id;
+                    if (!next.product_master_id && t.product_master_id) next.product_master_id = t.product_master_id;
+                } else {
+                    // Spoji sekciju preko postojećih default-a (da polja koja izvor NE šalje — perforacija,
+                    // rezanje, mašina, boje… — ostanu popunjena). Duboki merge: ugnježdeni objekti
+                    // (npr. rezanje, options) se spajaju, a nizovi (layers) zamene.
+                    const nId = Number(payload.product_id);
+                    next = {
+                        ...form,
+                        ...t,
+                        [tip]: deepMergeForma(form?.[tip] || {}, t[tip] || {}),
+                        // iz kalkulacije stiže product_master_id (tekst) — to NIJE id reda u bazi
+                        db_id: izKalkKese ? ((Number.isInteger(nId) && nId > 0) ? nId : null) : (payload.product_id || t.db_id || null),
+                        template_locked: true
+                    };
+                }
+                setForm(next);
+                setActiveTab(next.type || "folija");
+                localStorage.removeItem("maropack_pending_template_edit");
+                msg && msg(payload.fromCalc
+                    ? (baza ? "Podaci iz kalkulacije upisani u postojeći templejt „" + (next.naziv || "") + "“ — proveri i klikni Sačuvaj izmene" : "Podaci iz kalkulacije učitani u templejt")
+                    : "Template učitan iz Product Master baze");
+            } catch (e) {
+                msg && msg("Template nije učitan: " + (e?.message || e), "err");
+            }
+        })();
+        return () => { ziv = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -3803,7 +3920,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                             <TextArea label="Napomena (lakiranje)" value={form.folija.lakiranje?.napomena || ""} onChange={v => update("folija.lakiranje.napomena", v)} />
                         </div>
                     </Grid>
-                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" ili boja tipa „Lak". Ovi podaci idu na nalog za lakiranje.</div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Lak se izvodi kao zasebna operacija kad neki sloj ima čekiran „lak" (kolona L). Jedan čekiran materijal = lakira se taj materijal, pre kaširanja. Dva ili više = lakira se spoj tih materijala, posle kaširanja. Ovi podaci idu na nalog za lakiranje.</div>
                 </Section>
 
                 <Section title={t("tmpl.kasiranje")} color={BLUE}>

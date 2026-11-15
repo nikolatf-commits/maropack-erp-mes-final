@@ -249,6 +249,11 @@ export function toCrtezKesa(kesa = {}) {
             const tR = txt[o.k] || {};
             stdPos.reciklazna_izjava = { ...(pos[o.k] || {}), tekst: tR.tekst || "" };
         }
+        // Anleger: širina trake je u izboru (npr. „135µm/30mm/BELI" → 30 mm) — crtež je crta u razmeri.
+        if (o.k === "anleger") {
+            const ma = String(sel[o.k] || "").match(/(\d+)\s*mm/i);
+            stdPos.anleger = { ...(pos[o.k] || {}), traka: ma ? ma[1] : "" };
+        }
         if (o.pos && o.crtez && o.k !== "eurozumba" && o.k !== "stampa" && o.k !== "perf_telo" && o.k !== "reciklazna_izjava") {
             stdPos[o.crtez] = { ...(stdPos[o.crtez] || {}), ...(pos[o.k] || {}) };
         }

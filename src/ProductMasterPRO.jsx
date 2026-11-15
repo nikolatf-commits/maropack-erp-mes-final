@@ -85,7 +85,9 @@ function normalizeLayer(l = {}, product = {}) {
 function productDataForm(p = {}, tip = normalizeTip(p.tip)) {
     const std = p.standardi || {};
     const rec = std.record || {};
-    const existing = p.data || p.template || rec.data;
+    // Ceo templejt (sa čekiranim tehničkim opcijama, pozicijama…) živi u standardi.record.data
+    // i u res.template (drugi nosilac). Čitamo OBA — inače se opcije ne bi prenele u kalkulaciju.
+    const existing = p.data || p.template || rec.data || (p.res && (p.res.template || p.res.templejt));
     if (existing && typeof existing === "object") {
         return {
             ...existing,

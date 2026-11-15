@@ -53,14 +53,15 @@ function mapTemplateLayerToKesaMaterial(layer) {
 }
 
 // Template kese čuva tehničke opcije pod ključevima iz kesaOpcije.js (snake_case),
-// a kalkulacija koristi svoje (camelCase). Bez ovog mapiranja se čekirane opcije iz
-// templejta NE bi videle u kalkulaciji. Zadržavamo i originalni ključ, i dodajemo
-// onaj koji kalkulacija čita, pa se opcija pravilno označi.
+// a kalkulacija koristi svoje (camelCase). Ovo mapiranje ih povezuje U OBA SMERA:
+//   templejt → kalkulacija: čekirano u templejtu se čekira u kalkulaciji;
+//   kalkulacija → templejt: čekirano / odčekirano u kalkulaciji se prenosi u templejt.
 const KESA_OPT_MAP = {
     adh_traka: "adhTraka",
     ukosena_klapna: "kosaKlapna",
     perf_otkinuti: "perfOtk",
     perf_telo: "perfOtk",
+    perf_otkidanje_rolna: "perfOtk",
     otvor_dno: "otvorDno",
     falta_dno: "faltaDno",
     var_dno: "varDno",
@@ -70,35 +71,61 @@ const KESA_OPT_MAP = {
     unakrsna_perf: "unakrsnaPerf",
     poprecni_var: "poprecniVar",
     hrana: "pakHrana",
-    // već isti u oba: duplofan, eurozumba, anleger, utor, stampa, ojacanje
+    // već isti u oba: duplofan, eurozumba, anleger, utor, stampa
 };
+// Tri opcije templejta („za otkinuti na rolni", „za otkinuti" na telu, „za otkidanje na rolni")
+// u kalkulaciji su JEDNA stavka („Perf. otkidanje").
+const KESA_PERF_GRUPA = ["perf_otkinuti", "perf_telo", "perf_otkidanje_rolna"];
+// Opcije koje postoje SAMO u kalkulaciji (trošak, nije tehnička karakteristika templejta).
+const KESA_SAMO_KALK = ["busenje", "kontVar", "ojacanje", "klise", "perforacija"];
+
 function mapKesaOptionsZaKalkulaciju(src) {
-    const out = {};
-    Object.keys(src || {}).forEach((k) => {
-        const v = src[k];
-        out[k] = v;                                   // zadrži original (kompatibilnost)
-        if (KESA_OPT_MAP[k]) out[KESA_OPT_MAP[k]] = v; // dodaj pod imenom koje kalkulacija čita
+    const o = src || {}, out = {};
+    Object.keys(o).forEach((k) => { out[k] = o[k]; });       // zadrži original (vraća se u templejt)
+    // Kalkulacijski ključ je čekiran ako je čekirana BAR JEDNA opcija templejta koja ga hrani
+    // (ranije je druga, nečekirana opcija iste grupe mogla da „pregazi" čekiranu).
+    Object.keys(KESA_OPT_MAP).forEach((tk) => {
+        const ck = KESA_OPT_MAP[tk];
+        if (o[tk]) out[ck] = true; else if (out[ck] === undefined) out[ck] = false;
     });
     return out;
 }
-// OBRNUTO (kalkulacija → templejt): kalkulacija koristi camelCase, templejt čita snake_case.
-// Bez ovoga se čekirane opcije ne bi videle u templejtu kad se prebace iz kalkulacije.
+// OBRNUTO (kalkulacija → templejt). Kalkulacija je MERODAVNA za sve opcije koje prikazuje:
+// čekirano → čekirano u templejtu, odčekirano → odčekirano. Opcije koje kalkulacija ne
+// prikazuje (pakovati, reciklažna izjava, tolerancije…) vraćaju se netaknute.
 const KESA_OPT_MAP_REV = {
-    adhTraka: "adh_traka", kosaKlapna: "ukosena_klapna", perfOtk: "perf_otkinuti",
+    adhTraka: "adh_traka", kosaKlapna: "ukosena_klapna",
     otvorDno: "otvor_dno", faltaDno: "falta_dno", varDno: "var_dno", perfVrucim: "perf_igle",
     okruglaZumba: "okrugla_zumba", poprecnaPerf: "poprecna_perf", unakrsnaPerf: "unakrsna_perf",
     poprecniVar: "poprecni_var", pakHrana: "hrana",
-    // već isti u oba: duplofan, eurozumba, anleger, utor, stampa, ojacanje
 };
+const KESA_OPT_ISTI = ["duplofan", "eurozumba", "anleger", "utor", "stampa"];
 function mapKesaOptionsZaTemplejt(src) {
-    const out = {};
-    Object.keys(src || {}).forEach((k) => {
-        const v = src[k];
-        out[k] = v;                                       // zadrži original
-        if (KESA_OPT_MAP_REV[k]) out[KESA_OPT_MAP_REV[k]] = v; // dodaj snake_case koji templejt čita
-    });
+    const o = src || {}, out = {};
+    const preskoci = new Set([...Object.keys(KESA_OPT_MAP_REV), ...Object.keys(KESA_OPT_MAP), ...KESA_SAMO_KALK, ...KESA_OPT_ISTI, "perfOtk"]);
+    // 1) opcije templejta koje kalkulacija ne prikazuje — vrati kako su došle
+    Object.keys(o).forEach((k) => { if (!preskoci.has(k)) out[k] = o[k]; });
+    // 2) opcije koje kalkulacija prikazuje — stanje iz kalkulacije
+    Object.keys(KESA_OPT_MAP_REV).forEach((ck) => { out[KESA_OPT_MAP_REV[ck]] = !!o[ck]; });
+    KESA_OPT_ISTI.forEach((k) => { out[k] = !!o[k]; });
+    // 3) „Perf. otkidanje": čekirano → ostaje ona varijanta koja je bila u templejtu
+    //    (ako nijedna nije bila → „Perforirana za otkinuti na rolni"); odčekirano → sve tri isključene.
+    if (o.perfOtk) {
+        const bile = KESA_PERF_GRUPA.filter((k) => !!o[k]);
+        KESA_PERF_GRUPA.forEach((k) => { out[k] = bile.length ? bile.includes(k) : (k === "perf_otkinuti"); });
+    } else {
+        KESA_PERF_GRUPA.forEach((k) => { out[k] = false; });
+    }
     return out;
 }
+// Eurozumba: templejt piše „MALA(30x10x5)", kalkulacija „MALA (30×10×5)" — poveži po veličini.
+const EZ_KALK = { MALA: "MALA (30×10×5)", SREDNJA: "SREDNJA (32×10×5)", VELIKA: "VELIKA (35×12×5)", SPECIJALNA: "SPECIJALNA" };
+const EZ_TPL = { MALA: "MALA(30x10x5)", SREDNJA: "SREDNJA(32x10x5)", VELIKA: "VELIKA(35x12x5)", SPECIJALNA: "SPECIJALNA" };
+const ezRec = (v) => { const m = String(v || "").toUpperCase().match(/MALA|SREDNJA|VELIKA|SPECIJALNA/); return m ? m[0] : ""; };
+const KESA_ST_TIPOVI = ["Štampa vrućim pečatom crna boja", "Štampa vrućim pečatom zlatna boja", "Štampa vrućim pečatom srebrna boja", "Štampa vrućim pečatom zelena boja", "Štampa vrućim pečatom", "Flexo štampa", "Termotransfer"];
+const KESA_PAKOVANJA = ["U bunt ide 200 kom", "U bunt ide 100 kom", "U keseice po 100 kom", "U kutiju ide 500 kom", "U kutiju ide 1000 kom", "Gore i dole karton sa banderolom", "Banderola"];
+// Opcije templejta tipa „samo DA" i liste sa podrazumevanim „DA" — da templejt posle prenosa ne ostane bez izbora.
+const KESA_SEL_DA = ["adh_traka", "otvor_dno", "var_dno", "perf_igle", "poprecna_perf", "unakrsna_perf", "hrana", "okrugla_zumba", "ukosena_klapna", "poprecni_var"];
 
 // ===================== STILOVI (module-scope, statični) =====================
 const s = {
@@ -272,6 +299,9 @@ export default function KalkulacijaKese({ setPage }) {
     const [pakovanje, setPakovanje] = useState('U bunt ide 200 kom');
     const [napomena, setNapomena] = useState('');
     const [sourceLink, setSourceLink] = useState(null);
+    // Detalji tehničkih opcija iz templejta koje kalkulacija ne prikazuje (pozicije u mm, izbori iz
+    // lista, tekstovi, tip kese) — čuvaju se da se pri povratku u templejt NIŠTA ne izgubi.
+    const [tplExtra, setTplExtra] = useState({});
     const [editId, setEditId] = useState(null); // id učitane kalkulacije (null = nova)
     // Zastavica: kad korisnik otvori sačuvanu kalkulaciju, template prefill NE sme da je pregazi.
     // (edit-efekat obriše editKalkulacija pre template-efekta, pa ne može preko localStorage-a.)
@@ -352,6 +382,10 @@ export default function KalkulacijaKese({ setPage }) {
                 S(setOzD, pr.ozD); T(setOzPoz, pr.ozPoz); T(setAnTip, pr.anTip);
                 T(setStTip, pr.stTip); T(setStPov, pr.stPov); T(setStMotiv, pr.stMotiv); T(setStPoz, pr.stPoz);
                 if (Array.isArray(_ul.materijali) && _ul.materijali.length) setMaterijali(_ul.materijali);
+                // Veza sa proizvodom/templejtom + detalji opcija (da „Sačuvaj kao templejt" i posle
+                // ponovnog otvaranja kalkulacije pogodi PRAVI proizvod i ništa ne izgubi).
+                if (_ul.sourceLink && typeof _ul.sourceLink === 'object') setSourceLink(_ul.sourceLink);
+                if (_ul.tplExtra && typeof _ul.tplExtra === 'object') setTplExtra(_ul.tplExtra);
             }
         } catch (e) { /* ignore */ }
     }, []);
@@ -385,8 +419,27 @@ export default function KalkulacijaKese({ setPage }) {
         setGrafika(k.grafika || 'Novi posao');
         setMaterijali(((k.layers || tpl.materijali_struktura || tpl.mats || [])).map(mapTemplateLayerToKesaMaterial).filter(m => m.tip));
         setOpts(mapKesaOptionsZaKalkulaciju(k.options || {}));
+        // DETALJI čekiranih opcija (tip trake, veličina eurozumbe, tip štampe…) — da se u kalkulaciji
+        // ne mora ponovo birati ono što je već izabrano u templejtu.
+        {
+            const sel = k.optSel || {}, pos = k.positions || {}, txt = k.optText || {};
+            const nn = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
+            if (sel.duplofan) setDupTip(sel.duplofan);
+            const dpoz = String(sel.poz_duplofan || (pos.duplofan || {}).pozicija || '');
+            if (/tel/i.test(dpoz)) setDupPoz('Na telu kese'); else if (/klapn/i.test(dpoz)) setDupPoz('Na klapni');
+            if (ezRec(sel.eurozumba)) setEzVel(EZ_KALK[ezRec(sel.eurozumba)]);
+            if (nn((pos.eurozumba || {}).odDna) > 0) setEzDist(nn(pos.eurozumba.odDna));
+            if (sel.anleger) setAnTip(sel.anleger);
+            if (sel.stampa) setStTip(sel.stampa);
+            const ts = txt.stampa || {};
+            if (ts.motiv) setStMotiv(ts.motiv);
+            if (ts.povrsina) setStPov(ts.povrsina);
+            const rupe = Array.isArray((pos.okrugla_zumba || {}).rupe) ? pos.okrugla_zumba.rupe : [];
+            if (rupe[0] && nn(rupe[0].precnik) > 0) setOzD(nn(rupe[0].precnik));
+            setTplExtra({ tipKese: k.tipKese || '', optSel: sel, positions: pos, optText: txt });
+        }
         setTrCena(Number(k.transportKg || 0));
-        setPakovanje(k.pakovanje || '');
+        setPakovanje(k.pakovanje || ((k.options || {}).pakovati ? ((k.optSel || {}).pakovati || '') : ''));
         setNapomena(tpl.napomena || 'Kalkulacija kreirana iz Product Template-a');
     }, []);
 
@@ -489,7 +542,12 @@ export default function KalkulacijaKese({ setPage }) {
         const stmTr = opts.stampa ? (tezKg1000 * stCena) : 0;
         // ADH traka — dužina trake (m po kesi) × cena po metru (€/m) × 1000 kom = €/1000 kom.
         const adhTr = opts.adhTraka ? ((Number(adhOds) || 0) * (Number(adhCena) || 0) * 1000) : 0;
-        const ojTr = opts.ojacanje ? (sirina / 1000 * ojSir / 1000 * (ojDeb * 0.91) * ojCena * 1000) : 0;
+        // OJAČANJE — traka dužine = širina kese:
+        //   kg / 1000 kom = širina kese (m) × širina ojačanja (m) × gramatura (debljina µ × 0,91 g/m²)
+        //   (grama po kesi = kilograma na 1000 kesa), pa × cena €/kg = €/1000 kom.
+        // Ranije je formula imala još jedno „× 1000" viška → trošak je izlazio 1000 puta veći.
+        const ojKg = opts.ojacanje ? ((Number(sirina) || 0) / 1000 * (Number(ojSir) || 0) / 1000 * ((Number(ojDeb) || 0) * 0.91)) : 0;
+        const ojTr = ojKg * (Number(ojCena) || 0);
 
         const klUk = klBr * klCena;
         const kliseTr = opts.klise ? (klUk / (kolicina / 1000)) : 0;
@@ -560,6 +618,8 @@ export default function KalkulacijaKese({ setPage }) {
             materijal: cenaMatKom,
             stampa: stmTr,
             adh: adhTr,
+            ojacanje: ojTr,
+            ojacanjeKg: ojKg,
             ostaleOpcije,
             transport: trTr,
             klise: kliseTr,
@@ -716,7 +776,8 @@ export default function KalkulacijaKese({ setPage }) {
                             tolerancija, grafika, pakovanje, napomena
                         },
                         params: { dupTip, dupPoz, ezVel, ezDist, ozD, ozPoz, anTip, stTip, stPov, stMotiv, stPoz },
-                        materijali, lepak, lak
+                        materijali, lepak, lak,
+                        sourceLink, tplExtra
                     }
                 },
                 osnovna_cena: rez.osnovna || 0,
@@ -773,9 +834,34 @@ export default function KalkulacijaKese({ setPage }) {
     // ===================== SAČUVAJ KAO TEMPLEJT (kalkulacija → templejt) =====================
     function sacuvajKaoTemplejt() {
         try {
+            // TEHNIČKE OPCIJE → templejt: čekirano/odčekirano + izbori iz lista (tip trake, veličina
+            // eurozumbe, tip štampe…). Detalji koje kalkulacija ne prikazuje (pozicije u mm, tekstovi)
+            // vraćaju se onakvi kakvi su došli iz templejta.
+            const optsTpl = mapKesaOptionsZaTemplejt(opts || {});
+            const selTpl = { ...(tplExtra.optSel || {}) };
+            KESA_SEL_DA.forEach((kk) => { if (optsTpl[kk] && !selTpl[kk]) selTpl[kk] = 'DA'; });
+            if (optsTpl.duplofan && dupTip) selTpl.duplofan = dupTip;
+            if (optsTpl.eurozumba && ezRec(ezVel) && ezRec(ezVel) !== ezRec(selTpl.eurozumba)) selTpl.eurozumba = EZ_TPL[ezRec(ezVel)];
+            if (optsTpl.anleger && anTip) selTpl.anleger = anTip;
+            if (optsTpl.stampa && stTip) selTpl.stampa = stTip;
+            const posTpl = { ...(tplExtra.positions || {}) };
+            if (optsTpl.duplofan && dupPoz && !(posTpl.duplofan || {}).pozicija && (posTpl.duplofan || {}).odVrha == null) {
+                posTpl.duplofan = { ...(posTpl.duplofan || {}), pozicija: /tel/i.test(dupPoz) ? 'Na telu kese' : 'Na sredini klapne' };
+            }
+            {
+                // „Odstojanje od dna" eurozumbe ide u templejt samo ako tamo još NEMA zadate visine.
+                const pe = posTpl.eurozumba || {};
+                const imaVis = ['odVrha', 'odOtvora', 'odDna'].some((x) => pe[x] !== undefined && pe[x] !== null && pe[x] !== '');
+                if (optsTpl.eurozumba && !imaVis && Number(ezDist) > 0) posTpl.eurozumba = { ...pe, odDna: String(ezDist) };
+            }
+            const txtTpl = { ...(tplExtra.optText || {}) };
+            if (optsTpl.stampa && (stMotiv || stPov)) {
+                txtTpl.stampa = { ...(txtTpl.stampa || {}), ...(stMotiv ? { motiv: stMotiv } : {}), ...(stPov ? { povrsina: stPov } : {}) };
+            }
             const form = {
                 type: 'kesa',
                 naziv, kupac,
+                product_template_id: sourceLink?.product_template_id || null,
                 product_master_id: sourceLink?.product_master_id || null,
                 template_id: sourceLink?.template_id || sourceLink?.product_template_id || null,
                 template_version: sourceLink?.template_version || 'V1',
@@ -809,14 +895,18 @@ export default function KalkulacijaKese({ setPage }) {
                         stampa: !!(m.stampa || m.st || m.Š),
                         lak: !!(m.lakira || m.lak || m.L)
                     })),
-                    options: mapKesaOptionsZaTemplejt(opts || {}),
+                    options: optsTpl,
+                    optSel: selTpl,
+                    positions: posTpl,
+                    optText: txtTpl,
+                    ...(tplExtra.tipKese ? { tipKese: tplExtra.tipKese } : {}),
                     transportKg: String(trCena ?? ''),
                     pakovanje: pakovanje || '',
                     setupMasina: String(setupMasina ?? ''),
                     datum: datumIsp || ''
                 }
             };
-            localStorage.setItem('maropack_pending_template_edit', JSON.stringify({ template: form, product_id: sourceLink?.product_master_id || null, fromCalc: true }));
+            localStorage.setItem('maropack_pending_template_edit', JSON.stringify({ template: form, product_id: sourceLink?.product_master_id || null, product_row_id: sourceLink?.product_template_id || null, fromCalc: true }));
             if (typeof setPage === 'function') { setPage('template_engine'); }
             else { alert('✅ Podaci su spremljeni za templejt. Otvori tab „Templejt" — automatski će se učitati.'); }
         } catch (err) {
@@ -1012,7 +1102,7 @@ export default function KalkulacijaKese({ setPage }) {
                                 <Opt label="Pakovanje za hranu" active={opts.pakHrana} onToggle={() => toggle('pakHrana')} cena={phranaCena} setCena={setPhranaCena} />
                                 <Opt label="Bušenje rupe" active={opts.busenje} onToggle={() => toggle('busenje')} cena={buCena} setCena={setBuCena} />
                                 <Opt label="ADH traka" active={opts.adhTraka} onToggle={() => toggle('adhTraka')} />
-                                <Opt label="Ojačanje" active={opts.ojacanje} onToggle={() => toggle('ojacanje')} cena={ojCena} setCena={setOjCena} />
+                                <Opt label="Ojačanje" active={opts.ojacanje} onToggle={() => toggle('ojacanje')} />
                                 <Opt label="Trošak klišea" active={opts.klise} onToggle={() => toggle('klise')} cena={klCena} setCena={setKlCena} />
                                 <Opt label="Perf. vrućim iglama" active={opts.perfVrucim} onToggle={() => toggle('perfVrucim')} cena={pvCena} setCena={setPvCena} />
                             </div>
@@ -1045,6 +1135,7 @@ export default function KalkulacijaKese({ setPage }) {
                                             <option>MALA (30×10×5)</option>
                                             <option>SREDNJA (32×10×5)</option>
                                             <option>VELIKA (35×12×5)</option>
+                                            <option>SPECIJALNA</option>
                                         </Sel>
                                         <Field label="Odstojanje od dna (mm)" value={ezDist} onChange={setEzDist} type="number" />
                                         <Field label="Cena €/1000kom" value={ezCena} onChange={setEzCena} type="number" />
@@ -1057,10 +1148,8 @@ export default function KalkulacijaKese({ setPage }) {
                                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#166534', marginBottom: '9px' }}>🖨️ Štampa</div>
                                     <div style={s.grid3}>
                                         <Sel label="Tip štampe" value={stTip} onChange={setStTip}>
-                                            <option>Štampa vrućim pečatom crna boja</option>
-                                            <option>Štampa vrućim pečatom zlatna boja</option>
-                                            <option>Flexo štampa</option>
-                                            <option>Termotransfer</option>
+                                            {KESA_ST_TIPOVI.map(v => <option key={v}>{v}</option>)}
+                                            {stTip && !KESA_ST_TIPOVI.includes(stTip) && <option>{stTip}</option>}
                                         </Sel>
                                         <Field label="Površina štampe" value={stPov} onChange={setStPov} />
                                         <Field label="Motiv/tekst štampe" value={stMotiv} onChange={setStMotiv} />
@@ -1096,11 +1185,18 @@ export default function KalkulacijaKese({ setPage }) {
                             {opts.ojacanje && (
                                 <div style={{ marginTop: '12px', padding: '12px', background: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: '8px' }}>
                                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#5b21b6', marginBottom: '9px' }}>🔲 Ojačanje</div>
-                                    <div style={s.grid4}>
-                                        <Field label="Dim. kese" value={sirina} onChange={() => { }} type="number" readOnly auto />
+                                    <div style={s.grid3}>
+                                        <Field label="Širina kese (mm)" value={sirina} onChange={() => { }} type="number" readOnly auto />
                                         <Field label="Širina ojačanja (mm)" value={ojSir} onChange={setOjSir} type="number" />
                                         <Field label="Debljina (µ)" value={ojDeb} onChange={setOjDeb} type="number" />
+                                    </div>
+                                    <div style={{ ...s.grid3, marginTop: '8px' }}>
                                         <Field label="Cena €/kg" value={ojCena} onChange={setOjCena} type="number" />
+                                        <Field label="Kg/1000kom" value={Number((rez.ojacanjeKg || 0).toFixed(3))} onChange={() => { }} type="number" readOnly auto />
+                                        <Field label="Ukupno €/1000kom" value={Number((rez.ojacanje || 0).toFixed(2))} onChange={() => { }} type="number" readOnly auto />
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '6px' }}>
+                                        Širina kese × širina ojačanja × (debljina × 0,91 g/m²) = kg na 1000 kom, pa × cena po kg.
                                     </div>
                                 </div>
                             )}
@@ -1127,13 +1223,8 @@ export default function KalkulacijaKese({ setPage }) {
                             </div>
                             <div style={{ marginTop: '9px' }}>
                                 <Sel label="Pakovanje" value={pakovanje} onChange={setPakovanje}>
-                                    <option>U bunt ide 200 kom</option>
-                                    <option>U bunt ide 100 kom</option>
-                                    <option>U keseice po 100 kom</option>
-                                    <option>U kutiju ide 500 kom</option>
-                                    <option>U kutiju ide 1000 kom</option>
-                                    <option>Gore i dole karton sa banderolom</option>
-                                    <option>Banderola</option>
+                                    {KESA_PAKOVANJA.map(v => <option key={v}>{v}</option>)}
+                                    {pakovanje && !KESA_PAKOVANJA.includes(pakovanje) && <option>{pakovanje}</option>}
                                 </Sel>
                             </div>
                         </div>
@@ -1177,6 +1268,10 @@ export default function KalkulacijaKese({ setPage }) {
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
                                 <span style={{ fontSize: '10px', color: '#64748b' }}>ADH traka</span>
                                 <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.adh)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Ojačanje</span>
+                                <span style={{ fontSize: '13px', fontWeight: 800 }}>{f2(rez.ojacanje)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
                                 <span style={{ fontSize: '10px', color: '#64748b' }}>Ostale opcije</span>

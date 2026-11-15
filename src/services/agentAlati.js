@@ -152,12 +152,15 @@ function operacijeZaTemplejt(tpl, tip) {
     const brojBoja = Number(st.brojBoja) || 0;
     const imaBoje = Array.isArray(st.boje) && st.boje.some((b) => b && b.tip !== "Lak");
     const imaStampu = L.some((l) => l.st || l.stampa || l.stampa_se || l["Š"]) || brojBoja > 0 || imaBoje;
-    const imaLak = L.some((l) => l.lak);
+    // Lak: 1 čekiran materijal = lakiranje PRE kaširanja; 2+ = lakira se SPOJ → POSLE kaširanja.
+    const brLak = L.filter((l) => l && l.lak).length;
+    const imaLak = brLak > 0;
     const kas = grana.kasiranje || {};
     const imaKasiranje = L.length > 1 || Number(kas.brojKasiranja) > 0;
+    const lakNaSpoj = brLak >= 2 && imaKasiranje;
 
     if (tip === "spulna") return ["materijal", "spulna"];
-    const sredina = [...(imaStampu ? ["stampa"] : []), ...(imaLak ? ["lakiranje"] : []), ...(imaKasiranje ? ["kasiranje"] : [])];
+    const sredina = [...(imaStampu ? ["stampa"] : []), ...(imaLak && !lakNaSpoj ? ["lakiranje"] : []), ...(imaKasiranje ? ["kasiranje"] : []), ...(lakNaSpoj ? ["lakiranje"] : [])];
     if (tip === "kesa") return ["materijal", ...sredina, "kesa"];
     return ["materijal", ...sredina, "perforacija_rezanje"];
 }

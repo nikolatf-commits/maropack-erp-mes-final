@@ -208,8 +208,11 @@ export function kalkulacijaKese(u = {}) {
     if (adhTr) koraci.push(`ADH traka: ${eur(adhTr)}`);
 
     const oj = u.ojacanje || {};
-    const ojTr = u.ojacanjeOn ? (sirina / 1000) * (N(oj.sirina) / 1000) * (N(oj.debljina) * 0.91) * N(oj.cena) * 1000 : 0;
-    if (ojTr) koraci.push(`Ojačanje: ${eur(ojTr)}`);
+    // Ojačanje: kg/1000 kom = širina kese (m) × širina ojačanja (m) × (debljina µ × 0,91 g/m²); × €/kg.
+    // (Ranije je formula imala još jedno „× 1000" viška → trošak 1000 puta veći.)
+    const ojKg = u.ojacanjeOn ? (sirina / 1000) * (N(oj.sirina) / 1000) * (N(oj.debljina) * 0.91) : 0;
+    const ojTr = ojKg * N(oj.cena);
+    if (ojTr) koraci.push(`Ojačanje: ${R4(ojKg)} kg/1000 kom × ${N(oj.cena)} €/kg = ${eur(ojTr)}`);
 
     const klise = u.klise || {};
     const kliseTr = u.kliseOn ? (N(klise.broj) * N(klise.cena)) / (kolicina / 1000) : 0;
