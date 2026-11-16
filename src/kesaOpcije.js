@@ -67,6 +67,7 @@ export const KESA_OPCIJE = [
                     ["odIvice", "Od ivice (mm)"],
                     ["odDna", "Od dna (mm)"],
                     ["odOtvora", "Od otvora (mm)"],
+                    ["okrenut", "Okreni znak", ["Ne", "180°"]],
                 ],
             },
         ],
@@ -233,6 +234,7 @@ export function toCrtezKesa(kesa = {}) {
                 reklOdIvice: tS.reciklaza_odIvice || "",
                 reklOdDna: tS.reciklaza_odDna || "",
                 reklOdOtvora: tS.reciklaza_odOtvora || "",
+                reklOkrenut: tS.reciklaza_okrenut || "",
             };
             stampaText = tS.motiv || "";   // reciklažni znak se CRTA kao simbol (vidi CrtezKese)
         }

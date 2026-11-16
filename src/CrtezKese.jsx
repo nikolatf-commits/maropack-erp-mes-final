@@ -121,7 +121,7 @@ const kotaV = (x, y1, y2, ox, t) => { let q = `<line x1="${ox}" y1="${y1}" x2="$
 
 // Reciklažni znak (Möbius loop) — trougao sa 3 strelice u krug, zaobljena temena,
 // broj u sredini i kod ispod. cx,cy = centar trougla; s = veličina.
-function reciklazaSvg(cx, cy, s, broj, kod, color) {
+function reciklazaSvg(cx, cy, s, broj, kod, color, rot) {
     const q = (n) => Math.round(n * 100) / 100;
     const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
     color = color || "#0f172a";
@@ -129,7 +129,8 @@ function reciklazaSvg(cx, cy, s, broj, kod, color) {
     const P = (a, r) => [r * Math.cos(a * Math.PI / 180), -r * Math.sin(a * Math.PI / 180)];
     const T = P(90, R), L = P(210, R), Rp = P(330, R);
     const lerp = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
-    let g = `<g transform="translate(${q(cx)} ${q(cy)})">`;
+    // Samo TROUGAO (strelice) se rotira (npr. 180°); broj i kod ostaju uspravni (čitljivi).
+    let g = `<g transform="translate(${q(cx)} ${q(cy)})"><g transform="rotate(${q(Number(rot) || 0)})">`;
     for (let i = 0; i < 3; i++) {
         g += `<g transform="rotate(${-i * 120})">`;
         const pStart = lerp(L, T, 0.30), inApex = lerp(L, T, 0.82), outApex = lerp(T, Rp, 0.18);
@@ -139,6 +140,7 @@ function reciklazaSvg(cx, cy, s, broj, kod, color) {
         g += `<polygon points="${q(tip[0])},${q(tip[1])} ${q(base[0] + n[0] * hw)},${q(base[1] + n[1] * hw)} ${q(base[0] - n[0] * hw)},${q(base[1] - n[1] * hw)}" fill="${color}"/>`;
         g += `</g>`;
     }
+    g += `</g>`;   // kraj rotiranog trougla
     g += `<text x="0" y="${q(s * 0.10)}" font-size="${q(s * 0.30)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(broj)}</text>`;
     if (kod) g += `<text x="0" y="${q(s * 0.82)}" font-size="${q(s * 0.26)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(kod)}</text>`;
     return g + `</g>`;
@@ -418,7 +420,12 @@ function buildSvgPro(c, u, lang = "sr") {
             if (poz) {
                 const desna = /desn/i.test(String(psx.reklStrana || ""));
                 const rs = Math.max(13, Math.min(bw * 0.17, 30));
-                const halfW = rs * 0.5, topOff = rs * 0.5, botOff = rs * 0.92;
+                // Rotacija znaka (180° — teme nadole). Granice okvira se STEŽU na sam trougao
+                // (ne ispod „PP" teksta) da kote dodiruju ĆOŠAK trougla; pri 180° se vrh/dno zamene.
+                const okrenut = /180/.test(String(psx.reklOkrenut || ""));
+                const halfW = rs * 0.47;
+                const topOff = okrenut ? rs * 0.30 : rs * 0.53;   // centar → gornja ivica trougla
+                const botOff = okrenut ? rs * 0.53 : rs * 0.30;   // centar → donja ivica trougla
                 const odIv = has(psx, "reklOdIvice") ? mm(psx.reklOdIvice) : 0;
                 // Vertikalno: „od otvora" (gornja ivica znaka od usta kese) ima prednost, inače „od dna".
                 const fromTop = has(psx, "reklOdOtvora");
@@ -429,7 +436,7 @@ function buildSvgPro(c, u, lang = "sr") {
                 if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
                 const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // BOČNA (near) ivica znaka ka ivici kese
                 const cornerY = fromTop ? symTop : boxB;               // ĆOŠAK znaka: near-bočna × (gornja kod „od otvora" / donja kod „od dna")
-                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK, okrenut ? 180 : 0);
                 reklSidro = [desna ? rcx - halfW : rcx + halfW, rcy];
                 // Pomoćne linije: near-bočna ivica (uspravna) + ivica ćoška (vodoravna) → kote padaju tačno na ĆOŠAK.
                 g += `<line x1="${q(nearX)}" y1="${q(symTop)}" x2="${q(nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
@@ -463,7 +470,7 @@ function buildSvgPro(c, u, lang = "sr") {
             } else {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
                 const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
-                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK, /180/.test(String(psx.reklOkrenut || "")) ? 180 : 0);
                 reklSidro = [rcx + rs * 0.5, rcy];
             }
         }
