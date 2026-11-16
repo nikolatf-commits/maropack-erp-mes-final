@@ -61,11 +61,12 @@ export const KESA_OPCIJE = [
         selPolja: [
             {
                 k: "reciklaza", l: "Reciklažni znak", vals: RECIKLAZNI_ZNACI, prazno: "— bez znaka —",
-                // Pozicija znaka se KOTIRA od ivica kese: leva/desna ivica + od dna.
+                // Pozicija znaka se KOTIRA od ivica kese do ĆOŠKA znaka: leva/desna ivica + (od dna ILI od otvora).
                 pos: [
                     ["strana", "Referentna ivica", ["Od leve ivice", "Od desne ivice"]],
                     ["odIvice", "Od ivice (mm)"],
                     ["odDna", "Od dna (mm)"],
+                    ["odOtvora", "Od otvora (mm)"],
                 ],
             },
         ],
@@ -231,6 +232,7 @@ export function toCrtezKesa(kesa = {}) {
                 reklStrana: tS.reciklaza_strana || "",
                 reklOdIvice: tS.reciklaza_odIvice || "",
                 reklOdDna: tS.reciklaza_odDna || "",
+                reklOdOtvora: tS.reciklaza_odOtvora || "",
             };
             stampaText = tS.motiv || "";   // reciklažni znak se CRTA kao simbol (vidi CrtezKese)
         }
@@ -301,7 +303,8 @@ export function toCrtezKesa(kesa = {}) {
                 const rp = [];
                 if (t.reciklaza_strana) rp.push(String(t.reciklaza_strana).replace(/^Od\s+/i, "").replace(/\s*ivice$/i, " ivica"));
                 if (t.reciklaza_odIvice) rp.push(t.reciklaza_odIvice + " mm od ivice");
-                if (t.reciklaza_odDna) rp.push(t.reciklaza_odDna + " mm od dna");
+                if (t.reciklaza_odOtvora) rp.push(t.reciklaza_odOtvora + " mm od otvora");
+                else if (t.reciklaza_odDna) rp.push(t.reciklaza_odDna + " mm od dna");
                 extra.push("♲ " + t[k] + (rp.length ? " (" + rp.join(", ") + ")" : ""));
             } else {
                 extra.push(String(t[k]));

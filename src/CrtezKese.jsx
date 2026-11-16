@@ -414,24 +414,26 @@ function buildSvgPro(c, u, lang = "sr") {
         if (psx.reciklaza) {
             const mch = String(psx.reciklaza).trim().match(/^(\S+)\s*(.*)$/);
             const broj = mch ? mch[1] : "", kod = mch ? (mch[2] || "").trim() : "";
-            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna");
+            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna") || has(psx, "reklOdOtvora");
             if (poz) {
                 const desna = /desn/i.test(String(psx.reklStrana || ""));
                 const rs = Math.max(13, Math.min(bw * 0.17, 30));
                 const halfW = rs * 0.5, topOff = rs * 0.5, botOff = rs * 0.92;
                 const odIv = has(psx, "reklOdIvice") ? mm(psx.reklOdIvice) : 0;
-                const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0;
-                const boxB = y1 - odDn;             // donja ivica znaka
-                const rcy = boxB - botOff;          // centar znaka (y)
-                const symTop = rcy - topOff;        // gornja ivica znaka (bbox)
+                // Vertikalno: „od otvora" (gornja ivica znaka od usta kese) ima prednost, inače „od dna".
+                const fromTop = has(psx, "reklOdOtvora");
+                let symTop, boxB, rcy;
+                if (fromTop) { symTop = y0 + mm(psx.reklOdOtvora); rcy = symTop + topOff; boxB = rcy + botOff; }
+                else { const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0; boxB = y1 - odDn; rcy = boxB - botOff; symTop = rcy - topOff; }
                 let rcx;
                 if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
-                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // BOČNA ivica znaka ka ivici kese
+                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // BOČNA (near) ivica znaka ka ivici kese
+                const cornerY = fromTop ? symTop : boxB;               // ĆOŠAK znaka: near-bočna × (gornja kod „od otvora" / donja kod „od dna")
                 g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK);
                 reklSidro = [desna ? rcx - halfW : rcx + halfW, rcy];
-                // Tanke referentne (pomoćne) linije — bočna i donja ivica znaka (da se kota meri do IVICE, ne do vrha)
+                // Pomoćne linije: near-bočna ivica (uspravna) + ivica ćoška (vodoravna) → kote padaju tačno na ĆOŠAK.
                 g += `<line x1="${q(nearX)}" y1="${q(symTop)}" x2="${q(nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
-                g += `<line x1="${q(desna ? nearX : rcx - halfW)}" y1="${q(boxB)}" x2="${q(desna ? rcx + halfW : nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                g += `<line x1="${q(desna ? nearX : rcx - halfW)}" y1="${q(cornerY)}" x2="${q(desna ? rcx + halfW : nearX)}" y2="${q(cornerY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
                 // KOTE — tanke linije + broj sa belim OREOLOM (bez belog pravougaonika),
                 // jer je kota nad telom kese (folijom), pa kutija ne sme da iskače.
                 const haloH = (xa, xb, yy, tt) => {
@@ -447,15 +449,17 @@ function buildSvgPro(c, u, lang = "sr") {
                         + `<path d="${arr(xx, ya2, 'u')}" fill="${INK}"/><path d="${arr(xx, yb2, 'd')}" fill="${INK}"/>`
                         + `<text x="${q(xx)}" y="${q(my2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" transform="rotate(-90 ${q(xx)} ${q(my2)})" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
                 };
-                if (desna) g += haloH(nearX, x1, rcy, String(num(psx.reklOdIvice) || 0));
-                else g += haloH(x0, nearX, rcy, String(num(psx.reklOdIvice) || 0));
-                // vertikalna od dna kese do DONJE ivice znaka
-                // Uska kesa: kota „od dna" ide VAN kese (unutra bi gazila sam znak).
-                const uzak = bw < 110;
-                const vx = uzak ? (desna ? x1 + 14 : x0 - 14)
-                    : (desna ? Math.min(x1 - 9, rcx + halfW + 13) : Math.max(x0 + 9, rcx - halfW - 13));
-                if (uzak) g += ext(desna ? rcx + halfW : rcx - halfW, boxB, desna ? vx + 3 : vx - 3, boxB) + ext(desna ? x1 : x0, y1, desna ? vx + 3 : vx - 3, y1);
-                g += haloV(boxB, y1, vx, String(num(psx.reklOdDna) || 0));
+                // VODORAVNA (od ivice) — na visini ĆOŠKA, od ivice kese do near-bočne ivice znaka.
+                if (has(psx, "reklOdIvice")) {
+                    if (desna) g += haloH(nearX, x1, cornerY, String(num(psx.reklOdIvice) || 0));
+                    else g += haloH(x0, nearX, cornerY, String(num(psx.reklOdIvice) || 0));
+                }
+                // USPRAVNA — na near-bočnoj ivici (ista uspravna kao ćošak): „od otvora" od usta kese (y0) do
+                // GORNJE ivice znaka, „od dna" od dna kese (y1) do DONJE ivice znaka.
+                if (fromTop ? has(psx, "reklOdOtvora") : has(psx, "reklOdDna")) {
+                    const vref = fromTop ? y0 : y1;
+                    g += haloV(Math.min(vref, cornerY), Math.max(vref, cornerY), nearX, String(num(fromTop ? psx.reklOdOtvora : psx.reklOdDna) || 0));
+                }
             } else {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
                 const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
