@@ -440,7 +440,8 @@ function perf(D, mw, mh) {
         } else {
             z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + ((zT + zB) / 2) + '" text-anchor="middle" font-size="12.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Ivice se preklapaju</text>';
         }
-        z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (zT - 24) + '" text-anchor="middle" font-size="12" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ' + (redja ? 'REĐA' : 'GUŠĆA') + '</text>';
+        const _gLbl = (_g === 'najredja' || _g === 'redja') ? 'REĐA' : ((_g === 'najgusca' || _g === 'gusca') ? 'GUŠĆA' : 'STANDARDNA');
+        z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (zT - 24) + '" text-anchor="middle" font-size="12" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ' + _gLbl + '</text>';
         if (oLmm > 0) z += dimH(WEBX0, xLz, WEBY0 - 8, oLmm + ' mm', null, c);
         if (oRmm > 0) z += dimH(xRz, WEBX1, WEBY0 - 8, oRmm + ' mm', null, c);
         if (xRz > xLz + 2) { const zonaMm = Math.max(0, Math.round(Wm - oLmm - oRmm)); z += dimH(xLz, xRz, WEBY1 + 20, 'zona ' + zonaMm + ' mm', null, c); }
