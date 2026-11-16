@@ -532,6 +532,35 @@ function perf(D, mw, mh) {
 // uspravne tačkice na poziciji linije + kota od ivice trake do linije (svaka linija svoja lestvica).
 function perfUTraci(x, sPx, w, pcfg, topY, h, koteBaseY) {
     var col = '#9333ea';
+    // MIKRO ZONA: cela traka (između leve i desne ivice) se ispuni rešetkom tačkica — NE jedna linija.
+    if (String(pcfg.tip) === 'mikro_zona') {
+        var sc = sPx / (w || 1);
+        var oL = num(pcfg.odLeveIvice) || 0, oR = num(pcfg.odDesneIvice) || 0;
+        var zx0 = x + Math.min(sPx, oL * sc), zx1 = x + sPx - Math.min(sPx, oR * sc);
+        var oz = '';
+        if (zx1 <= zx0 + 1) {
+            oz += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 3) + '" text-anchor="middle" font-size="7" font-weight="800" fill="#b91c1c">ivice</text>';
+            return { svg: oz, lanes: 1 };
+        }
+        var g = String(pcfg.gustina || 'standardna').toLowerCase();
+        var step = (g === 'najgusca' || g === 'gusca') ? 4 : ((g === 'najredja' || g === 'redja') ? 8 : 6);
+        var vrz = num(pcfg.velicinaRupe) || 0;
+        var rz = vrz > 0 ? Math.max(0.6, Math.min(vrz * 0.2 * sc, step * 0.42)) : Math.max(0.7, step * 0.22);
+        var pid = 'zp' + (_PID2++);
+        oz += '<defs><pattern id="' + pid + '" width="' + step + '" height="' + (step * 2) + '" patternUnits="userSpaceOnUse">'
+            + '<circle cx="' + (step / 2) + '" cy="' + (step / 2) + '" r="' + rz + '" fill="' + col + '"/>'
+            + '<circle cx="0" cy="' + (step * 1.5) + '" r="' + rz + '" fill="' + col + '"/>'
+            + '<circle cx="' + step + '" cy="' + (step * 1.5) + '" r="' + rz + '" fill="' + col + '"/></pattern></defs>';
+        oz += '<rect x="' + zx0 + '" y="' + (topY + 4) + '" width="' + (zx1 - zx0) + '" height="' + (h - 8) + '" fill="' + col + '12" stroke="' + col + '" stroke-width="0.8" stroke-dasharray="3 2"/>';
+        oz += '<rect x="' + zx0 + '" y="' + (topY + 4) + '" width="' + (zx1 - zx0) + '" height="' + (h - 8) + '" fill="url(#' + pid + ')"/>';
+        // Kote leve/desne ivice (samo kad ima mesta) + oznaka širine zone.
+        if (sPx >= 60) {
+            if (oL > 0) { oz += '<line x1="' + x + '" y1="' + koteBaseY + '" x2="' + zx0 + '" y2="' + koteBaseY + '" stroke="' + col + '" stroke-width="0.9"/><text x="' + ((x + zx0) / 2) + '" y="' + (koteBaseY - 3) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '" stroke="#fff" stroke-width="2" paint-order="stroke">' + Math.round(oL) + '</text>'; }
+            if (oR > 0) { oz += '<line x1="' + zx1 + '" y1="' + koteBaseY + '" x2="' + (x + sPx) + '" y2="' + koteBaseY + '" stroke="' + col + '" stroke-width="0.9"/><text x="' + ((zx1 + x + sPx) / 2) + '" y="' + (koteBaseY - 3) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '" stroke="#fff" stroke-width="2" paint-order="stroke">' + Math.round(oR) + '</text>'; }
+        }
+        if (sPx >= 34) oz += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7" font-weight="800" fill="' + col + '">zona</text>';
+        return { svg: oz, lanes: 1 };
+    }
     var makro = String(pcfg.tip) === 'rupe';
     var r = makro ? 2 : 1.3, gap = makro ? 9 : 5;
     var yTop = topY + 6, yBot = topY + h - 6;
@@ -1666,29 +1695,16 @@ function formatiBar(sirinaMat, trake, perfById) {
         o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>';
         var pcfg = perfOf(t);
         if (pcfg) {
-            var makro = String(pcfg.tip) === 'rupe';
-            var r = makro ? 2 : 1.3, gap = makro ? 9 : 5;
-            var yTop = topY + 20, yBot = topY + h - 5;   // uspravne kolone tačkica unutar trake
-            var linije = linijeOf(pcfg, w);
-            linije.forEach(function (L, li) {
-                var poz = parseFloat(L.poz); if (isNaN(poz)) return;
-                var desna = String(L.strana) === "desna";
-                var frac = desna ? (w - poz) / (w || 1) : poz / (w || 1);
-                frac = Math.max(0, Math.min(1, frac));
-                var lx = x + frac * sPx, edgeX = desna ? (x + sPx) : x;
-                // uspravna perforacija (tačkice)
-                for (var yy = yTop; yy <= yBot; yy += gap) o += '<circle cx="' + lx + '" cy="' + yy + '" r="' + r + '" fill="' + col + '"/>';
-                // KOTA od ivice formata do linije (svaka linija svoja lestvica)
-                var laneY = koteBase + li * laneH;
-                o += '<line x1="' + lx + '" y1="' + (topY + h) + '" x2="' + lx + '" y2="' + laneY + '" stroke="' + col + '" stroke-width="0.6" stroke-dasharray="2 2"/>';
-                o += '<line x1="' + edgeX + '" y1="' + laneY + '" x2="' + lx + '" y2="' + laneY + '" stroke="' + col + '" stroke-width="0.9"/>';
-                o += '<line x1="' + edgeX + '" y1="' + (laneY - 3) + '" x2="' + edgeX + '" y2="' + (laneY + 3) + '" stroke="' + col + '" stroke-width="0.9"/>';
-                o += '<line x1="' + lx + '" y1="' + (laneY - 3) + '" x2="' + lx + '" y2="' + (laneY + 3) + '" stroke="' + col + '" stroke-width="0.9"/>';
-                o += '<text x="' + ((edgeX + lx) / 2) + '" y="' + (laneY - 3) + '" text-anchor="middle" font-size="8" font-weight="800" fill="' + col + '" stroke="#fff" stroke-width="2.2" paint-order="stroke">' + Math.round(poz) + ' mm ' + (desna ? '(D)' : '(L)') + '</text>';
-            });
-            // Natpis „mikro · N linija" samo kad traka ima dovoljno širine — na uskim trakama bi se gužvao sa kotama.
-            if (sPx >= 46) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '">' + (makro ? 'makro' : 'mikro') + ' · ' + linije.length + (linije.length === 1 ? ' linija' : ' linije') + '</text>';
-            else o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7" font-weight="800" fill="' + col + '">' + (makro ? 'M' : 'µ') + '</text>';
+            // Zajednička funkcija za crtanje perforacije u traci (linije, rupe ILI zona).
+            var _pr = perfUTraci(x, sPx, w, pcfg, topY, h, koteBase);
+            o += _pr.svg;
+            // Natpis „mikro · N linija" (samo za linije/rupe, kad traka ima dovoljno širine).
+            if (String(pcfg.tip) !== 'mikro_zona') {
+                var _makro = String(pcfg.tip) === 'rupe';
+                var _nlin = (Array.isArray(pcfg.linije) && pcfg.linije.filter(function (L) { return L && String(L.poz) !== "" && !isNaN(parseFloat(L.poz)); }).length) || 1;
+                if (sPx >= 46) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '">' + (_makro ? 'makro' : 'mikro') + ' · ' + _nlin + (_nlin === 1 ? ' linija' : ' linije') + '</text>';
+                else o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7" font-weight="800" fill="' + col + '">' + (_makro ? 'M' : 'µ') + '</text>';
+            }
         }
         o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + (pcfg ? 14 : h / 2 + 4)) + '" text-anchor="middle" font-size="10" font-weight="900" fill="' + txt + '">' + w + '</text>';
         if (stanje) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 16) + '" text-anchor="middle" font-size="8" font-weight="800" fill="#94a3b8">→ stanje</text>';

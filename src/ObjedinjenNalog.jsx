@@ -174,21 +174,74 @@ function _genPatterns(ws, W) {
     ws.forEach((w, i) => { const n = Math.floor(W / w); if (n <= 0) return; const counts = new Array(ws.length).fill(0); counts[i] = n; const key = counts.join(","); if (!eff.some(p => p.counts.join(",") === key)) eff.push({ counts, otpad: W - n * w }); });
     return eff.sort((a, b) => a.otpad - b.otpad);
 }
-function _bnb(ws, need, max, patterns) {
+// TOLERANCIJA KOLIČINE po proizvodu: proizvedeno sme od −15% do +25% poručenog,
+// da bi se matica bolje iskoristila (manji otpad). Fiksno (bez podešavanja u UI).
+const TOL_DOLE = 0.15, TOL_GORE = 0.25;
+const donjaGranica = (need) => Math.max(1, Math.ceil(need * (1 - TOL_DOLE)));
+const gornjaGranica = (need) => Math.max(donjaGranica(need), Math.floor(need * (1 + TOL_GORE)));
+
+// Branch & bound: maksimizuje ISKORIŠĆENJE matice = minimizuje PROCENAT otpada (otpad ÷ (W × skidanja)).
+// Proizvedeno mora biti u opsegu [lower, upper] po širini; kod jednakog procenta bira raspored NAJBLIŽI
+// poručenom. Procenat (a ne apsolutni otpad) je ključan — inače bi rešenje uvek išlo na −15% (manje traka
+// = manje ukupnog otpada), što nije bolje iskorišćenje materijala.
+function _bnb(ws, W, lower, upper, need, patterns) {
     const nP = patterns.length, nW = ws.length;
     const suff = Array.from({ length: nP + 1 }, () => new Array(nW).fill(0));
-    for (let i = nP - 1; i >= 0; i--) for (let k = 0; k < nW; k++) { let cap = Infinity; for (let j = 0; j < nW; j++) if (patterns[i].counts[j] > 0) cap = Math.min(cap, Math.floor(max[j] / patterns[i].counts[j])); if (cap === Infinity) cap = 0; suff[i][k] = suff[i + 1][k] + patterns[i].counts[k] * cap; }
-    let best = { waste: Infinity, counts: null }; const chosen = new Array(nP).fill(0); let guard = 0;
-    const dfs = (i, produced, waste) => {
-        if (++guard > 4000000) return;
-        if (waste >= best.waste) return;
-        for (let k = 0; k < nW; k++) if (produced[k] + suff[i][k] < need[k]) return;
-        if (i === nP) { let ok = true; for (let k = 0; k < nW; k++) if (produced[k] < need[k]) { ok = false; break; } if (ok) best = { waste, counts: chosen.slice() }; return; }
-        let cap = Infinity; for (let k = 0; k < nW; k++) if (patterns[i].counts[k] > 0) cap = Math.min(cap, Math.floor((max[k] - produced[k]) / patterns[i].counts[k])); if (cap === Infinity) cap = 0;
-        for (let n = 0; n <= cap; n++) { chosen[i] = n; const np = produced.slice(); for (let k = 0; k < nW; k++) np[k] += patterns[i].counts[k] * n; dfs(i + 1, np, waste + n * patterns[i].otpad); }
-        chosen[i] = 0;
+    for (let i = nP - 1; i >= 0; i--) for (let k = 0; k < nW; k++) { let cap = Infinity; for (let j = 0; j < nW; j++) if (patterns[i].counts[j] > 0) cap = Math.min(cap, Math.floor(upper[j] / patterns[i].counts[j])); if (cap === Infinity) cap = 0; suff[i][k] = suff[i + 1][k] + patterns[i].counts[k] * cap; }
+    const EPS = 1e-9;   // odstupanje od poručenog je sekundarni kriterijum (ne nadjačava procenat otpada)
+    const metrike = (counts) => {
+        let waste = 0, slabs = 0; const prod = new Array(nW).fill(0);
+        for (let i = 0; i < nP; i++) { const n = counts[i]; if (!n) continue; slabs += n; waste += n * patterns[i].otpad; for (let k = 0; k < nW; k++) prod[k] += patterns[i].counts[k] * n; }
+        let dev = 0; for (let k = 0; k < nW; k++) dev += Math.abs(prod[k] - need[k]);
+        return { pct: slabs > 0 ? waste / (W * slabs) : Infinity, dev, slabs, waste };
     };
-    dfs(0, new Array(nW).fill(0), 0);
+
+    // PASS 1 (pohlepno, brzo): dok neka širina nije dostigla donju granicu, dodaj šablon sa
+    // NAJMANJIM otpadom koji pomaže toj širini a ne prelazi gornju granicu. Daje sigurno izvodljivo
+    // „seme" u linearnom vremenu (bez obzira na broj širina), pa uvek imamo validan rezultat.
+    let seed = null;
+    (function () {
+        const counts = new Array(nP).fill(0), prod = new Array(nW).fill(0); let safety = 0;
+        while (true) {
+            var manjak = false; for (var k = 0; k < nW; k++) if (prod[k] < lower[k]) { manjak = true; break; }
+            if (!manjak) { seed = counts; return; }
+            var bi = -1;
+            for (var i = 0; i < nP; i++) {   // patterns su sortirani po otpadu rastuće
+                var okUp = true, helps = false;
+                for (var k2 = 0; k2 < nW; k2++) { var np = prod[k2] + patterns[i].counts[k2]; if (np > upper[k2]) { okUp = false; break; } if (patterns[i].counts[k2] > 0 && prod[k2] < lower[k2]) helps = true; }
+                if (okUp && helps) { bi = i; break; }
+            }
+            if (bi < 0) return;   // ne može da se pokrije u opsegu → seme ostaje null (rezerva niže)
+            counts[bi]++; for (var k3 = 0; k3 < nW; k3++) prod[k3] += patterns[bi].counts[k3];
+            if (++safety > 2000000) return;
+        }
+    })();
+
+    let best = { score: Infinity, pct: Infinity, dev: Infinity, counts: null };
+    if (seed) { const m = metrike(seed); best = { score: m.pct + m.dev * EPS, pct: m.pct, dev: m.dev, counts: seed }; }
+
+    // PASS 2: poboljšaj po PROCENTU (najbolje iskorišćenje); kreće od semena kao početnog najboljeg.
+    (function () {
+        const chosen = new Array(nP).fill(0); let guard = 0;
+        const dfs = (i, produced, waste, slabs) => {
+            if (++guard > 2500000) return;
+            for (let k = 0; k < nW; k++) if (produced[k] + suff[i][k] < lower[k]) return;
+            if (i === nP) {
+                if (slabs <= 0) return;
+                for (let k = 0; k < nW; k++) if (produced[k] < lower[k] || produced[k] > upper[k]) return;
+                const pct = waste / (W * slabs);
+                let dev = 0; for (let k = 0; k < nW; k++) dev += Math.abs(produced[k] - need[k]);
+                const score = pct + dev * EPS;
+                if (score < best.score) best = { score, pct, dev, counts: chosen.slice() };
+                return;
+            }
+            let cap = Infinity; for (let k = 0; k < nW; k++) if (patterns[i].counts[k] > 0) cap = Math.min(cap, Math.floor((upper[k] - produced[k]) / patterns[i].counts[k])); if (cap === Infinity) cap = 0; if (cap < 0) cap = 0;
+            for (let n = 0; n <= cap; n++) { chosen[i] = n; const np = produced.slice(); for (let k = 0; k < nW; k++) np[k] += patterns[i].counts[k] * n; dfs(i + 1, np, waste + n * patterns[i].otpad, slabs + n); }
+            chosen[i] = 0;
+        };
+        dfs(0, new Array(nW).fill(0), 0, 0);
+    })();
+
     return best;
 }
 function optimizujRez(products, W, slabLen, rolneList) {
@@ -198,12 +251,14 @@ function optimizujRez(products, W, slabLen, rolneList) {
     const widths = Object.values(byW).sort((a, b) => b.w - a.w);
     const ws = widths.map(x => x.w), need = widths.map(x => x.need);
     const patterns = _genPatterns(ws, W);
-    // CILJ: najmanji otpad — uvek popuni širinu korisnom (traženom) širinom umesto da
-    // ostatak ide na stanje. Zato labav gornji limit (dozvoljeno prekoračenje zadatog
-    // koliko treba da nema otpada); B&B i tako minimizuje otpad pa ne preteruje.
-    const maxOf = (f) => widths.map(x => x.need + Math.ceil(W / x.w) * f + 2);
-    let sol = _bnb(ws, need, maxOf(3), patterns);
-    if (!sol || !sol.counts) sol = _bnb(ws, need, maxOf(10), patterns);
+    // CILJ: najmanji otpad — proizvedeno sme da varira −15% / +25% po proizvodu (bolja iskorišćenost
+    // matice), a kod jednakog otpada se bira raspored najbliži poručenom.
+    const lower = widths.map(x => donjaGranica(x.need));
+    const upper = widths.map(x => gornjaGranica(x.need));
+    let sol = _bnb(ws, W, lower, upper, need, patterns);
+    // Rezerva: ako opseg nije ispunjiv (npr. vrlo male količine), vrati se na klasično „tačno ili više".
+    if (!sol || !sol.counts) { const looseUpper = widths.map(x => x.need + Math.ceil(W / x.w) * 3 + 2); sol = _bnb(ws, W, need, looseUpper, need, patterns); }
+    if (!sol || !sol.counts) { const looseUpper = widths.map(x => x.need + Math.ceil(W / x.w) * 10 + 2); sol = _bnb(ws, W, need, looseUpper, need, patterns); }
     const produced = {}; ws.forEach(w => produced[w] = 0);
     const plan = [];
     if (sol && sol.counts) sol.counts.forEach((seg, i) => {
@@ -215,7 +270,10 @@ function optimizujRez(products, W, slabLen, rolneList) {
     plan.sort((a, b) => b.primary - a.primary);
     const slabs = plan.reduce((a, p) => a + p.count, 0);
     const need2 = {}; widths.forEach(x => need2[x.w] = x.need);
-    const izlaz = widths.map(x => ({ sir: x.w, duz: x.duz, kom: produced[x.w] || 0, treba: x.need, naziv: x.naziv }));
+    // Isporuka = sve do +25% poručenog (gornja granica opsega). Pošto proizvedeno normalno ne prelazi
+    // +25%, „na stanje" je 0. Samo kad opseg nije fizički moguć (jedno skidanje daje više komada nego
+    // +25%), višak preko +25% ide „na stanje". „poruceno" pamti pravu poručenu količinu za prikaz.
+    const izlaz = widths.map(x => ({ sir: x.w, duz: x.duz, kom: produced[x.w] || 0, treba: gornjaGranica(x.need), poruceno: x.need, naziv: x.naziv }));
     // spajanje dužine preko rolni (FIFO)
     const rr = (rolneList || []).map(r => ({ br: r.br_rolne || r.maticna_id, maticna_id: r.maticna_id, slob: N_(r.slob), used: 0, _r: r._r }));
     const skidanja = []; let ri = 0; let dovoljno = true;
@@ -509,7 +567,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
                 const trake = []; Object.keys(pt.c).sort((a, b) => b - a).forEach(w => { for (let k = 0; k < pt.c[w]; k++) trake.push({ sirina_mm: +w }); });
                 return { count: pt.count, otpad: pt.otpad, trake };
             });
-            const izlaz = (plan.izlaz || []).map(x => ({ sir: x.sir, duz: x.duz, kom: x.kom, treba: x.treba, naziv: x.naziv }));
+            const izlaz = (plan.izlaz || []).map(x => ({ sir: x.sir, duz: x.duz, kom: x.kom, treba: x.treba, poruceno: x.poruceno, naziv: x.naziv }));
             const skidanja = (plan.skidanja || []).map(s => ({ i: s.i, delovi: s.delovi, nepotpuno: !!s.nepotpuno }));
             const optimizator = { W: plan.W, slabLen: plan.slabLen, planReza, izlaz, skidanja, slabs: plan.slabs, metara: plan.metaraTreba, otpadPct: plan.otpadPct, matice: maticeRich };
 
@@ -709,7 +767,7 @@ export default function ObjedinjenNalog({ msg, operater }) {
 
                     {/* OPTIMIZACIJA REZA — info */}
                     <div style={{ margin: "2px 0 12px", padding: "9px 12px", border: "1px solid #bfdbfe", background: "#f8fbff", borderRadius: 10, fontSize: 12.5, fontWeight: 700, color: "#1d4ed8" }}>
-                        ⚙️ Rez se automatski optimizuje — puni se širina matične da otpad bude najmanji (dozvoljeno +20% preko zadatog), a metri se nastavljaju preko više matičnih rolni.
+                        ⚙️ Rez se automatski optimizuje — puni se širina matične da otpad bude najmanji. Količina po proizvodu sme da varira <b>−15% do +25%</b> radi bolje iskorišćenosti (sve u tom opsegu je isporuka); kod jednakog otpada bira se najbliže poručenom. Metri se nastavljaju preko više matičnih rolni.
                     </div>
 
                     {/* IZBOR MATIČNIH ROLNI — bogat prikaz kao kod naloga za materijal */}
