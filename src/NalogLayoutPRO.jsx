@@ -467,6 +467,9 @@ function perf(D, mw, mh) {
         var raspored = String(P.raspored || 'poravnato');
         var smakKol = raspored === 'smaknute_kolone' && rupe;
         var cikCak = raspored === 'cik_cak' && rupe;
+        // Prečnik rupe (mm) → poluprečnik u px; bez unosa ostaje fiksno 2.
+        var _vrMm = num(P.velicinaRupe) || 0;
+        var rupaR = _vrMm > 0 ? Math.max(1.3, Math.min((_vrMm / 2) * sx, 7)) : 2;
         var xsAll = items.map(function (it) { return it.x; }).sort(function (a, b) { return a - b; });
         var colStep = xsAll.length > 1 ? (xsAll[xsAll.length - 1] - xsAll[0]) / (xsAll.length - 1) : 0;
         var hx = cikCak ? colStep / 2 : 0;
@@ -475,7 +478,7 @@ function perf(D, mw, mh) {
         items.forEach(function (it, idx) {
             const gap = it.razmak || gGlob;
             var yoff = yoffOf(idx, gap);
-            if (rupe) { var k = 0; for (let y = yT + yoff; y <= yB + 0.5; y += gap * sy) { var cx = it.x + ((cikCak && (k % 2 === 1)) ? hx : 0); o += '<circle cx="' + cx + '" cy="' + y + '" r="2" fill="' + it.c + '"/>'; k++; } }
+            if (rupe) { var k = 0; for (let y = yT + yoff; y <= yB + 0.5; y += gap * sy) { var cx = it.x + ((cikCak && (k % 2 === 1)) ? hx : 0); o += '<circle cx="' + cx + '" cy="' + y + '" r="' + rupaR + '" fill="' + it.c + '"/>'; k++; } }
             else { o += '<line x1="' + it.x + '" y1="' + yT + '" x2="' + it.x + '" y2="' + yB + '" stroke="' + it.c + '" stroke-width="2.5" stroke-dasharray="8 5"/>'; }
             o += '<circle cx="' + it.x + '" cy="' + (it.gore ? (yT + yoff) : yB) + '" r="3.2" fill="' + it.c + '"/>';
         });
@@ -525,11 +528,42 @@ function perf(D, mw, mh) {
     return sW(rp(mw > 320) + o, mw, mh, '0 ' + vbY + ' 600 ' + vbH);
 }
 // mode: "obe" (otpad podeljen levo+desno), "leva" (ceo otpad levo), "desna" (ceo otpad desno)
+// Perforacija UNUTAR jedne trake (zajedničko za objedinjeni plan reza i samostalni nalog za rezanje):
+// uspravne tačkice na poziciji linije + kota od ivice trake do linije (svaka linija svoja lestvica).
+function perfUTraci(x, sPx, w, pcfg, topY, h, koteBaseY) {
+    var col = '#9333ea';
+    var makro = String(pcfg.tip) === 'rupe';
+    var r = makro ? 2 : 1.3, gap = makro ? 9 : 5;
+    var yTop = topY + 6, yBot = topY + h - 6;
+    var lj = (pcfg && Array.isArray(pcfg.linije)) ? pcfg.linije.filter(function (L) { return L && String(L.poz) !== "" && !isNaN(parseFloat(L.poz)); }) : [];
+    if (!lj.length) lj = [{ poz: w / 2, strana: "leva" }];
+    var laneH = 12, o = '';
+    lj.forEach(function (L, li) {
+        var poz = parseFloat(L.poz); if (isNaN(poz)) return;
+        var desna = String(L.strana) === "desna";
+        var frac = desna ? (w - poz) / (w || 1) : poz / (w || 1); frac = Math.max(0, Math.min(1, frac));
+        var lx = x + frac * sPx, edgeX = desna ? (x + sPx) : x;
+        for (var yy = yTop; yy <= yBot; yy += gap) o += '<circle cx="' + lx + '" cy="' + yy + '" r="' + r + '" fill="' + col + '"/>';
+        var laneY = koteBaseY + li * laneH;
+        o += '<line x1="' + lx + '" y1="' + (topY + h) + '" x2="' + lx + '" y2="' + laneY + '" stroke="' + col + '" stroke-width="0.6" stroke-dasharray="2 2"/>';
+        o += '<line x1="' + edgeX + '" y1="' + laneY + '" x2="' + lx + '" y2="' + laneY + '" stroke="' + col + '" stroke-width="0.9"/>';
+        o += '<line x1="' + edgeX + '" y1="' + (laneY - 3) + '" x2="' + edgeX + '" y2="' + (laneY + 3) + '" stroke="' + col + '" stroke-width="0.9"/>';
+        o += '<line x1="' + lx + '" y1="' + (laneY - 3) + '" x2="' + lx + '" y2="' + (laneY + 3) + '" stroke="' + col + '" stroke-width="0.9"/>';
+        o += '<text x="' + ((edgeX + lx) / 2) + '" y="' + (laneY - 3) + '" text-anchor="middle" font-size="8" font-weight="800" fill="' + col + '" stroke="#fff" stroke-width="2.2" paint-order="stroke">' + Math.round(poz) + ' mm ' + (desna ? '(D)' : '(L)') + '</text>';
+    });
+    if (sPx >= 40) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7" font-weight="800" fill="' + col + '">' + (makro ? 'makro' : 'mikro') + '</text>';
+    return { svg: o, lanes: lj.length };
+}
+
 function rezSvg(D, mode) {
     const nNum = function (v) { var n = Number(String(v == null ? "" : v).replace(",", ".")); return isNaN(n) ? 0 : n; };
     mode = (mode === "leva" || mode === "desna" || mode === "obe") ? mode : (D.rez.rasporedOtpada || "obe");
     const ideal = nNum(D.rez.sirinaMat) || 840;
     const lanes = D.rez.lanes.length ? D.rez.lanes : Array.from({ length: D.rez.brojTraka || 8 }, () => D.rez.sirinaTrake || 85);
+    // Perforacija po traci (samostalni nalog): svi rezovi su isti proizvod → ista perforacija u svakoj traci.
+    const perfCfg = (D.imaPerforaciju && D.perf) ? D.perf : null;
+    const perfLanes = perfCfg ? (Array.isArray(perfCfg.linije) && perfCfg.linije.length ? perfCfg.linije.length : 1) : 0;
+    const perfH = perfCfg ? (perfLanes * 12 + 8) : 0;
     const used = lanes.reduce((s, x) => s + nNum(x), 0);
     // Stvarno korišćena rolna: najšira rezervisana rolna (ako je šira od idealne → ima ivični otpad)
     const rolneSir = (Array.isArray(D.rolne) ? D.rolne : []).map(function (r) { return nNum(r.sir); }).filter(function (x) { return x > 0; });
@@ -552,18 +586,24 @@ function rezSvg(D, mode) {
     let x = X0; const lPx = leftWe * scale, rPx = rightWe * scale;
     // Levi ivični otpad
     o += wasteRect(x, lPx); x += lPx;
-    lanes.forEach(function (lw, i) { const sPx = nNum(lw) * scale; o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/><text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 4) + '" text-anchor="middle" font-size="11" font-weight="900" fill="#1d4ed8">' + (i + 1) + '</text><text x="' + (x + sPx / 2) + '" y="' + (topY + h + 13) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#334155">' + lw + '</text>'; x += sPx; });
+    const perfKoteBase = topY + h + 22;   // lestvica kota perforacije počinje ispod oznake širine trake
+    lanes.forEach(function (lw, i) {
+        const sPx = nNum(lw) * scale;
+        o += '<rect x="' + x + '" y="' + topY + '" width="' + sPx + '" height="' + h + '" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/><text x="' + (x + sPx / 2) + '" y="' + (topY + (perfCfg ? 13 : h / 2 + 4)) + '" text-anchor="middle" font-size="11" font-weight="900" fill="#1d4ed8">' + (i + 1) + '</text><text x="' + (x + sPx / 2) + '" y="' + (topY + h + 13) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#334155">' + lw + '</text>';
+        if (perfCfg) o += perfUTraci(x, sPx, nNum(lw), perfCfg, topY, h, perfKoteBase).svg;
+        x += sPx;
+    });
     // Desni ivični otpad
     o += wasteRect(x, rPx);
     // Gornja kota = STVARNA širina rolne; donja (uža) kota = korisna širina traka
     o += dimH(X0, X1, topY - 16, (edge > 0.5 ? ('rolna ' + Math.round(total)) : (Math.round(total))) + ' mm');
     if (edge > 0.5) {
         const uX0 = X0 + lPx, uX1 = X1 - rPx;
-        o += dimH(uX0, uX1, topY + h + 26, 'korisno ' + Math.round(used) + ' mm');
-        o += '<text x="' + ((X0 + X1) / 2) + '" y="' + (topY + h + 46) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#b91c1c">⚠ Ivični otpad ' + Math.round(edge) + ' mm — rolna je šira od idealne (' + Math.round(ideal) + ' mm)</text>';
+        o += dimH(uX0, uX1, topY + h + 26 + perfH, 'korisno ' + Math.round(used) + ' mm');
+        o += '<text x="' + ((X0 + X1) / 2) + '" y="' + (topY + h + 46 + perfH) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#b91c1c">⚠ Ivični otpad ' + Math.round(edge) + ' mm — rolna je šira od idealne (' + Math.round(ideal) + ' mm)</text>';
     }
-    const vb = edge > 0.5 ? '0 0 710 150' : '0 0 710 120';
-    return '<svg viewBox="' + vb + '" width="100%" style="max-width:640px;background:#fff">' + o + '</svg>';
+    const vbH = (edge > 0.5 ? 150 : 120) + perfH;
+    return '<svg viewBox="0 0 710 ' + vbH + '" width="100%" style="max-width:640px;background:#fff">' + o + '</svg>';
 }
 
 const COLm = '#d97706', COLs = '#2563eb', COLk = '#4338ca', COLp = '#7c3aed';
@@ -999,10 +1039,10 @@ function pPerfBig(D) {
     var rupaCell = (num(P.velicinaRupe) > 0) ? ('<div class="m"><b>Veličina rupe</b>Ø ' + num(P.velicinaRupe) + ' mm</div>') : '';
     const sub = zona
         ? ('Mikro perforacija (zona) · ' + gustLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') + ' · sve mere u mm')
-        : (esc(P.tip) + ' · ' + ((P.linije && P.linije.length) ? (P.linije.length + ' linija') : (P.N + ' kolona')) + (jeRupe ? ' · raspored: ' + rspLbl.toLowerCase() : '') + ' · sve mere u mm');
+        : (esc(P.tip) + ' · ' + ((P.linije && P.linije.length) ? (P.linije.length + ' linija') : (P.N + ' kolona')) + (jeRupe ? ' · raspored: ' + rspLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') : '') + ' · sve mere u mm');
     const meta = zona
         ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + gustLbl + '</div>' + rupaCell + '<div class="m"><b>Od leve</b>' + num(P.odLeveIvice) + ' mm</div><div class="m"><b>Od desne</b>' + num(P.odDesneIvice) + ' mm</div><div class="m"><b>Zona</b>' + Math.max(0, Math.round((P.Wm || 0) - num(P.odLeveIvice) - num(P.odDesneIvice))) + ' mm</div>')
-        : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div>' + (jeRupe ? '<div class="m"><b>Raspored</b>' + esc(rspLbl) + '</div>' : '<div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>'));
+        : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div>' + (jeRupe ? '<div class="m"><b>Raspored</b>' + esc(rspLbl) + '</div>' + rupaCell : '<div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>'));
     return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + sub + '</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip">' + meta + '</div></div>', 'Strana · perforacija (prilog)');
 }
 
@@ -1646,7 +1686,9 @@ function formatiBar(sirinaMat, trake, perfById) {
                 o += '<line x1="' + lx + '" y1="' + (laneY - 3) + '" x2="' + lx + '" y2="' + (laneY + 3) + '" stroke="' + col + '" stroke-width="0.9"/>';
                 o += '<text x="' + ((edgeX + lx) / 2) + '" y="' + (laneY - 3) + '" text-anchor="middle" font-size="8" font-weight="800" fill="' + col + '" stroke="#fff" stroke-width="2.2" paint-order="stroke">' + Math.round(poz) + ' mm ' + (desna ? '(D)' : '(L)') + '</text>';
             });
-            o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '">' + (makro ? 'makro' : 'mikro') + ' · ' + linije.length + (linije.length === 1 ? ' linija' : ' linije') + '</text>';
+            // Natpis „mikro · N linija" samo kad traka ima dovoljno širine — na uskim trakama bi se gužvao sa kotama.
+            if (sPx >= 46) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="' + col + '">' + (makro ? 'makro' : 'mikro') + ' · ' + linije.length + (linije.length === 1 ? ' linija' : ' linije') + '</text>';
+            else o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h - 4) + '" text-anchor="middle" font-size="7" font-weight="800" fill="' + col + '">' + (makro ? 'M' : 'µ') + '</text>';
         }
         o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + (pcfg ? 14 : h / 2 + 4)) + '" text-anchor="middle" font-size="10" font-weight="900" fill="' + txt + '">' + w + '</text>';
         if (stanje) o += '<text x="' + (x + sPx / 2) + '" y="' + (topY + h / 2 + 16) + '" text-anchor="middle" font-size="8" font-weight="800" fill="#94a3b8">→ stanje</text>';
@@ -1672,9 +1714,16 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     if (opt && Array.isArray(opt.matice) && opt.matice.length) matice = opt.matice;
 
     // ── 1) PROIZVODI IZ NALOGA (naziv, dimenzija, hilzna, poručeno, broj rolni) ──
+    // Perforacija templejta (folija) — rezerva kad proizvod nema svoju: ista perforacija ide na sve formate.
+    var perfTpl = (tpl.folija && tpl.folija.perforacija && typeof tpl.folija.perforacija === 'object') ? tpl.folija.perforacija : null;
     var prodList = (stavke && stavke.length)
-        ? stavke.map(function (s) { return { naziv: s.naziv, sifra: s.sifra, sir: s.sirina_mm, duz: s.duzina_m, hilzna: s.hilzna || hilznaTpl, poruceno: (s.poruceno_kol ? (fmtN(s.poruceno_kol) + ' ' + (s.poruceno_jed || '')) : '—'), rolni: s.rolni_kom, perf: null }; })
-        : formati.map(function (f) { return { naziv: f.napomena, sifra: '', sir: f.sirina_mm, duz: f.duzina_m, hilzna: hilznaTpl, poruceno: '—', rolni: f.rolni_kom, perf: f.perforacija }; });
+        ? stavke.map(function (s) { return { naziv: s.naziv, sifra: s.sifra, sir: s.sirina_mm, duz: s.duzina_m, hilzna: s.hilzna || hilznaTpl, poruceno: (s.poruceno_kol ? (fmtN(s.poruceno_kol) + ' ' + (s.poruceno_jed || '')) : '—'), rolni: s.rolni_kom, perf: s.perforacija || s.perf || perfTpl || null }; })
+        : formati.map(function (f) { return { naziv: f.napomena, sifra: '', sir: f.sirina_mm, duz: f.duzina_m, hilzna: hilznaTpl, poruceno: '—', rolni: f.rolni_kom, perf: f.perforacija || perfTpl || null }; });
+    // Mapa perforacije po širini formata (W<mm>) — da se perforacija nacrta UNUTAR trake u planu reza,
+    // i u optimizator-grani (gde trake nose samo širinu) i kao rezerva u klasičnoj grani.
+    var perfW = {};
+    prodList.forEach(function (p) { var w = Number(p.sir) || 0; if (p.perf && w > 0) { var k = 'W' + Math.round(w); if (!perfW[k]) perfW[k] = { sirina_mm: w, perforacija: perfFromConfig(p.perf, w) }; } });
+    var perfKey = function (w) { var k = 'W' + Math.round(Number(w) || 0); return perfW[k] ? k : null; };
     var ukRolniProd = prodList.reduce(function (a, p) { return a + (Number(p.rolni) || 0); }, 0);
     var prodRows = prodList.map(function (p, i) {
         var perfTxt = p.perf ? (String(p.perf.tip) === 'rupe' ? 'makro (rupe)' : 'mikro (linija)') : '—';
@@ -1687,10 +1736,10 @@ function pFormatiProdukt(D, nalog, planF, vrsta) {
     if (opt) {
         planRezaBr = opt.planReza.length;
         planRows = opt.planReza.map(function (pt) {
-            var trake = (pt.trake || []).map(function (t) { return { sirina_mm: t.sirina_mm, potreba_id: 'p' }; });
+            var trake = (pt.trake || []).map(function (t) { return { sirina_mm: t.sirina_mm, potreba_id: perfKey(t.sirina_mm) || 'p' }; });
             var pills = trake.map(function (t) { return '<span style="display:inline-block;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:7px;padding:2px 8px;font-weight:800;font-size:11px;margin:1px 2px">' + t.sirina_mm + ' mm</span>'; }).join('');
             var otp = Number(pt.otpad) > 0 ? '<span style="color:#b91c1c;font-weight:800;font-size:11.5px">otpad ' + pt.otpad + ' mm</span>' : '<span style="color:#16a34a;font-weight:800;font-size:11.5px">bez otpada</span>';
-            return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#f8fafc;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:900;font-size:12.5px;margin-bottom:5px"><span>' + pt.count + '× skidanje · ' + (opt.W || '') + ' mm → reže se</span>' + otp + '</div><div style="margin-bottom:4px">' + pills + '</div>' + formatiBar(opt.W, trake, {}) + '</div>';
+            return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#f8fafc;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:900;font-size:12.5px;margin-bottom:5px"><span>' + pt.count + '× skidanje · ' + (opt.W || '') + ' mm → reže se</span>' + otp + '</div><div style="margin-bottom:4px">' + pills + '</div>' + formatiBar(opt.W, trake, perfW) + '</div>';
         }).join('');
     } else {
         var _patSig = function (m) { var t = ((m.plan_reza || [])[0] || {}).trake || []; return t.map(function (x) { return (x.potreba_id != null ? 'P' : 'S') + x.sirina_mm; }).sort().join('+'); };

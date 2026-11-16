@@ -203,6 +203,9 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
     // „cik_cak" = svaki drugi red pomeren ustranu za pola razmaka između linija.
     const smakKol = raspored === 'smaknute_kolone' && tip === 'rupe';
     const cikCak = raspored === 'cik_cak' && tip === 'rupe';
+    // Prečnik rupe (mm) → poluprečnik u px (vodoravna razmera), ograničen da ostane vidljiv i da se ne spoji.
+    const _vrMm = num(velicinaRupe, 0);
+    const rupaR = _vrMm > 0 ? Math.max(1.3, Math.min((_vrMm / 2) * sx, 7)) : 2;
     const xsAll = items.map((it) => it.x).sort((a, b) => a - b);
     const colStep = xsAll.length > 1 ? (xsAll[xsAll.length - 1] - xsAll[0]) / (xsAll.length - 1) : 0;
     const hx = cikCak ? colStep / 2 : 0;
@@ -212,7 +215,7 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
     items.forEach((it, idx) => {
         const gap = it.razmak || gGlob;
         const yoff = yoffOf(idx, gap);
-        if (tip === 'rupe') { let k = 0; for (let y = yTop + yoff; y <= yBot + 0.5; y += gap * sy) { const cx = it.x + ((cikCak && (k % 2 === 1)) ? hx : 0); o += `<circle cx="${cx}" cy="${y}" r="2" fill="${it.c}"/>`; k++; } }
+        if (tip === 'rupe') { let k = 0; for (let y = yTop + yoff; y <= yBot + 0.5; y += gap * sy) { const cx = it.x + ((cikCak && (k % 2 === 1)) ? hx : 0); o += `<circle cx="${cx}" cy="${y}" r="${rupaR}" fill="${it.c}"/>`; k++; } }
         else { o += `<line x1="${it.x}" y1="${yTop}" x2="${it.x}" y2="${yBot}" stroke="${it.c}" stroke-width="2.5" stroke-dasharray="8 5"/>`; }
         o += `<circle cx="${it.x}" cy="${it.gore ? (yTop + yoff) : yBot}" r="3.2" fill="${it.c}"/>`;
     });
@@ -457,6 +460,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                     {F("Širina trake (mm)", "sirina")}
                     {F("Visina prikaza (mm)", "visina")}
                     {F("Razmak rupa — podrazumevano (mm)", "razmakRupa")}
+                    {v.tip === "rupe" && F("Veličina rupe Ø (mm)", "velicinaRupe")}
                     {v.tip === "rupe" && <div><label style={_lab}>Raspored rupa</label>
                         <select style={_inp} value={v.raspored || "poravnato"} onChange={(e) => set("raspored", e.target.value)}>
                             <option value="poravnato">Poravnato</option>
