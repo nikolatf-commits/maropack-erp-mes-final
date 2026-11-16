@@ -293,14 +293,19 @@ function buildSvgPro(c, u, lang = "sr") {
     const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const eHH = Math.max(eW * 0.34, 5), eRb = Math.max(eW * 0.16, 3);   // visina tela zumbe + „kapica" na vrhu
     const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
+    // REFERENCA euro zumbe = VRH POLUKRUGA (kapica), ne centar rupe. Mera „od vrha/od otvora/od dna"
+    // se meri do polukruga. eApexOff = razmak od centra do vrha polukruga; polukrug je gore (−),
+    // odnosno dole kad je zumba okrenuta (+).
+    const eApexOff = eHH / 2 + eRb;
+    const eApexDir = eV.okrenuto ? 1 : -1;
     // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa „od dna", pa default.
-    const ey = (() => {
-        const yy = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
-            : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
-                : has(eV, "odDna") ? y1 - mm(eV.odDna)
-                    : ((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12);
-        return Math.max(eTop + 4, Math.min(y1 - 6, yy));
-    })();
+    let eyRef = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
+        : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
+            : has(eV, "odDna") ? y1 - mm(eV.odDna)
+                : (((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12) + eApexDir * eApexOff);   // default: zadrži raniji centar
+    // Centar rupe iz reference polukruga, pa clamp da rupa ostane u kesi, pa uskladi referencu.
+    let ey = Math.max(eTop + eHH / 2 + eRb + 2, Math.min(y1 - eHH / 2 - eRb - 2, eyRef - eApexDir * eApexOff));
+    eyRef = ey + eApexDir * eApexOff;
     const psx = (P.stampa || {});
     // Podrazumevano polje štampe ide od VRHA tela (do klapne) skoro do dna i preko
     // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
@@ -685,9 +690,10 @@ function buildSvgPro(c, u, lang = "sr") {
         }
         // Eurozumba — vertikalno: „od otvora" (od usta kese) ILI „od vrha"; „levo" od centra (horizontalno)
         if (c.euroloch) {
-            if (has(eV, "odOtvora")) ok += vKota(y0, ey, num(eV.odOtvora), KC.euro);
-            else if (has(eV, "odVrha")) ok += vKota(eTop, ey, num(eV.odVrha), KC.euro);
-            else if (has(eV, "odDna")) ok += vKota(y1, ey, num(eV.odDna), KC.euro);
+            // Kota se meri do VRHA POLUKRUGA (eyRef), ne do centra rupe.
+            if (has(eV, "odOtvora")) ok += vKota(y0, eyRef, num(eV.odOtvora), KC.euro);
+            else if (has(eV, "odVrha")) ok += vKota(eTop, eyRef, num(eV.odVrha), KC.euro);
+            else if (has(eV, "odDna")) ok += vKota(y1, eyRef, num(eV.odDna), KC.euro);
             if (has(eV, "levo")) ok += hKota(cx, ex, ey - eHH / 2 - eRb - 8, num(eV.levo), KC.euro);
         }
         // Okrugla zumba — kota „od otvora" (od usta kese do svake rupe koja je ima)
