@@ -129,7 +129,7 @@ function reciklazaSvg(cx, cy, s, broj, kod, color, rot) {
     const P = (a, r) => [r * Math.cos(a * Math.PI / 180), -r * Math.sin(a * Math.PI / 180)];
     const T = P(90, R), L = P(210, R), Rp = P(330, R);
     const lerp = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
-    // Samo TROUGAO (strelice) se rotira (npr. 180°); broj i kod ostaju uspravni (čitljivi).
+    // Ceo znak (trougao + broj + kod) se rotira zajedno (npr. 180°).
     let g = `<g transform="translate(${q(cx)} ${q(cy)})"><g transform="rotate(${q(Number(rot) || 0)})">`;
     for (let i = 0; i < 3; i++) {
         g += `<g transform="rotate(${-i * 120})">`;
@@ -140,9 +140,9 @@ function reciklazaSvg(cx, cy, s, broj, kod, color, rot) {
         g += `<polygon points="${q(tip[0])},${q(tip[1])} ${q(base[0] + n[0] * hw)},${q(base[1] + n[1] * hw)} ${q(base[0] - n[0] * hw)},${q(base[1] - n[1] * hw)}" fill="${color}"/>`;
         g += `</g>`;
     }
-    g += `</g>`;   // kraj rotiranog trougla
     g += `<text x="0" y="${q(s * 0.10)}" font-size="${q(s * 0.30)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(broj)}</text>`;
     if (kod) g += `<text x="0" y="${q(s * 0.82)}" font-size="${q(s * 0.26)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(kod)}</text>`;
+    g += `</g>`;   // kraj rotirane celine (trougao + tekst)
     return g + `</g>`;
 }
 
@@ -365,7 +365,10 @@ function buildSvgPro(c, u, lang = "sr") {
                     : y0 + bh * 0.62;                 // default: kao ranije
         return Math.max(y0 + 4, Math.min(y1 - 8, yy));
     })() : null;
-    const poprecniVarDub = 5;
+    // Iskoristiva dubina vara — ako je uneta, var se crta u toj stvarnoj dubini (u razmeri), inače tanak prikaz.
+    const poprecniVarDub = (c.poprecniVar && poprecniVarY != null && has(pvarV, "dubina"))
+        ? Math.max(4, Math.min(mm(pvarV.dubina), (y1 - 6) - poprecniVarY))
+        : 5;
     // POPREČNA PERFORACIJA — jedna linija, ali na zadatoj poziciji (od otvora/od vrha/od dna).
     const ppV = P.poprecna_perf || {};
     const poprecnaY = c.poprecnaPerf ? (() => {
@@ -416,31 +419,40 @@ function buildSvgPro(c, u, lang = "sr") {
         if (psx.reciklaza) {
             const mch = String(psx.reciklaza).trim().match(/^(\S+)\s*(.*)$/);
             const broj = mch ? mch[1] : "", kod = mch ? (mch[2] || "").trim() : "";
-            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna") || has(psx, "reklOdOtvora");
+            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna") || has(psx, "reklOdOtvora") || has(psx, "reklOdVrha");
             if (poz) {
                 const desna = /desn/i.test(String(psx.reklStrana || ""));
                 const rs = Math.max(13, Math.min(bw * 0.17, 30));
-                // Rotacija znaka (180° — teme nadole). Granice okvira se STEŽU na sam trougao
-                // (ne ispod „PP" teksta) da kote dodiruju ĆOŠAK trougla; pri 180° se vrh/dno zamene.
+                // Rotacija (180° — teme nadole). Trougao ima ŠILJAK (jedan vrh) i RAVNU bazu (dva ćoška).
                 const okrenut = /180/.test(String(psx.reklOkrenut || ""));
-                const halfW = rs * 0.47;
-                const topOff = okrenut ? rs * 0.30 : rs * 0.53;   // centar → gornja ivica trougla
-                const botOff = okrenut ? rs * 0.53 : rs * 0.30;   // centar → donja ivica trougla
+                const apexOff = rs * 0.53;   // centar → ŠILJAK (teme)
+                const baseOff = rs * 0.30;   // centar → RAVNA baza
+                const halfW = rs * 0.47;     // centar → bočni ćošak baze
+                const tipGore = !okrenut;    // šiljak je GORE kad znak nije okrenut
+                const topOff = tipGore ? apexOff : baseOff;   // centar → gornja krajnja tačka
+                const botOff = tipGore ? baseOff : apexOff;   // centar → donja krajnja tačka
                 const odIv = has(psx, "reklOdIvice") ? mm(psx.reklOdIvice) : 0;
-                // Vertikalno: „od otvora" (gornja ivica znaka od usta kese) ima prednost, inače „od dna".
+                // Uspravno: „od otvora" (od usta, gornja krajnja tačka) ima prednost, inače „od dna".
                 const fromTop = has(psx, "reklOdOtvora");
-                let symTop, boxB, rcy;
-                if (fromTop) { symTop = y0 + mm(psx.reklOdOtvora); rcy = symTop + topOff; boxB = rcy + botOff; }
-                else { const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0; boxB = y1 - odDn; rcy = boxB - botOff; symTop = rcy - topOff; }
+                let rcy;
+                if (fromTop) rcy = (y0 + mm(psx.reklOdOtvora)) + topOff;
+                else { const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0; rcy = (y1 - odDn) - botOff; }
+                const symTop = rcy - topOff, boxB = rcy + botOff;   // gornja / donja krajnja tačka znaka
                 let rcx;
                 if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
-                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // BOČNA (near) ivica znaka ka ivici kese
-                const cornerY = fromTop ? symTop : boxB;               // ĆOŠAK znaka: near-bočna × (gornja kod „od otvora" / donja kod „od dna")
+                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // bočni ćošak baze ka ivici kese
+                const baseY = tipGore ? boxB : symTop;                 // visina RAVNE baze (nasuprot šiljku)
+                const vEndY = fromTop ? symTop : boxB;                 // krajnja tačka znaka ka meri
+                const vref = fromTop ? y0 : y1;                        // od usta (y0) / od dna (y1)
+                // Da li uspravna mera gleda ka ŠILJKU? (gornja mera + šiljak gore, ili donja mera + šiljak dole)
+                const kaSiljku = fromTop ? tipGore : !tipGore;
+                const vx = kaSiljku ? rcx : nearX;                     // ka šiljku → sredina; ka bazi → bočni ćošak
                 g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK, okrenut ? 180 : 0);
                 reklSidro = [desna ? rcx - halfW : rcx + halfW, rcy];
-                // Pomoćne linije: near-bočna ivica (uspravna) + ivica ćoška (vodoravna) → kote padaju tačno na ĆOŠAK.
-                g += `<line x1="${q(nearX)}" y1="${q(symTop)}" x2="${q(nearX)}" y2="${q(boxB)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
-                g += `<line x1="${q(desna ? nearX : rcx - halfW)}" y1="${q(cornerY)}" x2="${q(desna ? rcx + halfW : nearX)}" y2="${q(cornerY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                // Pomoćne linije: bočna ivica baze (uspravna) + sama baza (vodoravna).
+                g += `<line x1="${q(nearX)}" y1="${q(baseY)}" x2="${q(nearX)}" y2="${q(kaSiljku ? vEndY : baseY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                g += `<line x1="${q(rcx - halfW)}" y1="${q(baseY)}" x2="${q(rcx + halfW)}" y2="${q(baseY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                if (kaSiljku) g += `<line x1="${q(rcx)}" y1="${q(baseY)}" x2="${q(rcx)}" y2="${q(vEndY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
                 // KOTE — tanke linije + broj sa belim OREOLOM (bez belog pravougaonika),
                 // jer je kota nad telom kese (folijom), pa kutija ne sme da iskače.
                 const haloH = (xa, xb, yy, tt) => {
@@ -456,16 +468,15 @@ function buildSvgPro(c, u, lang = "sr") {
                         + `<path d="${arr(xx, ya2, 'u')}" fill="${INK}"/><path d="${arr(xx, yb2, 'd')}" fill="${INK}"/>`
                         + `<text x="${q(xx)}" y="${q(my2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" transform="rotate(-90 ${q(xx)} ${q(my2)})" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
                 };
-                // VODORAVNA (od ivice) — na visini ĆOŠKA, od ivice kese do near-bočne ivice znaka.
+                // VODORAVNA (od ivice) — do bočnog ćoška BAZE, na visini baze (uvek stvaran ćošak trougla).
                 if (has(psx, "reklOdIvice")) {
-                    if (desna) g += haloH(nearX, x1, cornerY, String(num(psx.reklOdIvice) || 0));
-                    else g += haloH(x0, nearX, cornerY, String(num(psx.reklOdIvice) || 0));
+                    if (desna) g += haloH(nearX, x1, baseY, String(num(psx.reklOdIvice) || 0));
+                    else g += haloH(x0, nearX, baseY, String(num(psx.reklOdIvice) || 0));
                 }
-                // USPRAVNA — na near-bočnoj ivici (ista uspravna kao ćošak): „od otvora" od usta kese (y0) do
-                // GORNJE ivice znaka, „od dna" od dna kese (y1) do DONJE ivice znaka.
-                if (fromTop ? has(psx, "reklOdOtvora") : has(psx, "reklOdDna")) {
-                    const vref = fromTop ? y0 : y1;
-                    g += haloV(Math.min(vref, cornerY), Math.max(vref, cornerY), nearX, String(num(fromTop ? psx.reklOdOtvora : psx.reklOdDna) || 0));
+                // USPRAVNA — ka ŠILJKU (po sredini znaka) kad je teme na toj strani, inače ka bočnom ćošku baze.
+                const vval = fromTop ? psx.reklOdOtvora : psx.reklOdDna;
+                if (vval !== undefined && vval !== "" && vval !== null) {
+                    g += haloV(Math.min(vref, vEndY), Math.max(vref, vEndY), vx, String(num(vval) || 0));
                 }
             } else {
                 const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
@@ -568,6 +579,15 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
         g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
         const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width=".7"/>`;
+        // KOTA iskoristive dubine (desno od kese): meri od gornje do donje ivice vara.
+        if (has(pvarV, "dubina")) {
+            const dx = xb + 16;
+            g += ext(xb, yT2, dx + 3, yT2) + ext(xb, yB2, dx + 3, yB2);
+            g += `<line x1="${q(dx)}" y1="${q(yT2)}" x2="${q(dx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
+            g += `<path d="${arr(dx, yT2, 'u')}" fill="${PVC}"/><path d="${arr(dx, yB2, 'd')}" fill="${PVC}"/>`;
+            const my = (yT2 + yB2) / 2;
+            g += `<rect x="${q(dx - 9)}" y="${q(my - 9)}" width="18" height="18" rx="2.5" fill="#fff" stroke="${PVC}" stroke-width=".6"/><text x="${q(dx)}" y="${q(my + 3)}" font-size="9" fill="${PVC}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" transform="rotate(-90 ${q(dx)} ${q(my)})">${num(pvarV.dubina)}</text>`;
+        }
     }
     // Perforacija za otkinuti na telu — crvena isprekidana linija preko cele širine.
     if (c.perfTelo && perfTeloY != null) g += `<line x1="${q(linijaX(perfTeloY)[0])}" y1="${q(perfTeloY)}" x2="${q(linijaX(perfTeloY)[1])}" y2="${q(perfTeloY)}" stroke="${ACC}" stroke-width="1.3" stroke-dasharray="3 3"/>`;
@@ -582,7 +602,17 @@ function buildSvgPro(c, u, lang = "sr") {
     const anH = Math.max(5, mm(anV.traka));
     const anY = has(anV, "odVrha") ? Math.max(topY + 1, Math.min(y1 - anH - 2, topY + mm(anV.odVrha))) : y0 + 5;
     if (c.anleger) {
-        g += traka(anY, anY + anH, 6, 8, "#dbeafe", BLUE, ".9", 'fill-opacity=".6"');
+        let anT = anY, anB = anY + anH;
+        // Anleger ne sme da ide PREKO poprečnog vara — staje na var (do njega).
+        if (c.poprecniVar && poprecniVarY != null) {
+            const vT = poprecniVarY, vB = poprecniVarY + poprecniVarDub;
+            if (anT < vB && anB > vT) {                 // traka se preklapa sa varom
+                const anC = (anT + anB) / 2, vC = (vT + vB) / 2;
+                if (anC <= vC) anB = vT;                 // Anleger je iznad → staje na gornju ivicu vara
+                else anT = vB;                           // Anleger je ispod → kreće od donje ivice vara
+            }
+        }
+        if (anB - anT > 1) g += traka(anT, anB, 6, 8, "#dbeafe", BLUE, ".9", 'fill-opacity=".6"');
     }
     // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno/otvor) + prečnikom.
     let ozOtvorKote = [];

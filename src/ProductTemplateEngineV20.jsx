@@ -107,14 +107,20 @@ function parseDatum(d) {
     return Number.isNaN(t) ? NaN : t;
 }
 
-// Datum za FIFO (najstarije prvo). Prvo GODINA PROIZVODNJE (isti datum koji se prikazuje na listi),
-// pa prijem/ulaz kao fallback; ako datuma nema, LOT/br_rolne.
+// Datum za FIFO (najstarije prvo). MORA da gleda ISTI datum koji se PRIKAZUJE na listi
+// (datum_proizvodnje, pa datum) — inače bi sortiralo po prijemu a prikazivalo proizvodnju,
+// pa bi auto davalo noviju rolnu iako postoji starija. Prijem/ulaz je tek fallback.
 function rolnaDatum(r) {
-    const d = r.datum_proizvodnje ?? r.datum_prijema ?? r.datum_ulaza ?? r.datum_ulaza_rolne ?? r.created_at ?? r.datum ?? null;
-    const t = parseDatum(d);
-    if (!Number.isNaN(t)) return t;
-    const n = parseInt(String(r.lot ?? r.br_rolne ?? "").replace(/\D/g, ""), 10);
-    return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
+    // Primarno: isti ključ kao prikaz (datum_proizvodnje || datum).
+    for (const k of ["datum_proizvodnje", "datum", "datum_prijema", "datum_ulaza", "datum_ulaza_rolne", "created_at"]) {
+        if (r[k] == null || r[k] === "") continue;
+        const t = parseDatum(r[k]);
+        if (!Number.isNaN(t)) return t;
+    }
+    // Bez ispravnog datuma → rolna ide NA KRAJ (kao najnovija), da NIKAD ne preskoči stvarno
+    // stariju rolnu. (Raniji fallback na LOT broj je davao sićušnu vrednost koja je „glumila
+    // najstariju" i gurala rolnu bez datuma na prvo mesto — baš suprotno od FIFO.)
+    return Number.MAX_SAFE_INTEGER;
 }
 
 function rolnaMetraza(r) { return Number(r.metraza_ost ?? r.metraza ?? 0) || 0; }
@@ -2433,7 +2439,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (slob(r) <= 0) return false;
             if (minFormat < 1e9 && nnum(r.sirina) < minFormat) return false;
             return true;
-        }).sort((a, b) => new Date(a.datum_prijema || a.datum || a.created_at || 0) - new Date(b.datum_prijema || b.datum || b.created_at || 0));
+        }).sort((a, b) => rolnaDatum(a) - rolnaDatum(b));   // FIFO po ISTOM datumu koji se prikazuje (datum_proizvodnje), kao i ostatak app-a
     }
     const _perfById = () => { const potrebe = (formatiPlan && formatiPlan.potrebe) || formatiPotrebe(); const o = {}; potrebe.forEach(p => { o[p.id] = { perforacija: p.perforacija, napomena: p.napomena, sirina_mm: p.sirina_mm, palete: p.palete || "", kolNaPaleti: p.kolNaPaleti || "" }; }); return { potrebe, perfById: o }; };
     // Preračunaj plan rezanja za IZABRANE rolne (br_rolne[]).

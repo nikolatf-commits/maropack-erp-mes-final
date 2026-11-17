@@ -186,7 +186,27 @@ function buildD(nalog) {
         lab: (i + 1) + "\u00b7" + (b.oznaka || b.tip || "boja") + (b.klise ? "\u00b7" + b.klise : ""),
     }));
     // perforacija — folija (perforacija/formati) ili KESA (pre-korak „perforacija pre kese", isti oblik iz PerforacijaEditor-a)
-    const pf = (folija.perforacija && typeof folija.perforacija === "object") ? folija.perforacija
+    // VAŽNO: perforacija se podešava na FOLIJA-nivou (form.folija.perforacija), ali `folija` ovde
+    // zna da bude razrešen iz praznijeg izvora (order_data/linked) bez perforacije, a u formati-režimu
+    // može da živi i PO FORMATU ili u planu. Zato je tražimo redom na svim mestima — da se uvek prikaže.
+    const _validPerf = (c) => (c && typeof c === "object" && c.nema !== true &&
+        (!!c.tip || (Array.isArray(c.linije) && c.linije.length) || num(c.kolone || c.brojKolona) > 0 || c.enabled === true || !!c.poprecna_perf || !!c.mikroperforacija)) ? c : null;
+    const _folijaPerf = (function () {
+        // 1) direktno folija / templejt-folija / order_data-folija
+        var kand = [folija && folija.perforacija, t && t.folija && t.folija.perforacija, od && od.folija && od.folija.perforacija];
+        for (var i = 0; i < kand.length; i++) { var v = _validPerf(kand[i]); if (v) return v; }
+        // 2) po formatu (formati režim: perforacija na pojedinačnom formatu)
+        var fmts = (folija && folija.formati) || (t && t.folija && t.folija.formati) || [];
+        if (Array.isArray(fmts)) for (var j = 0; j < fmts.length; j++) { var vf = _validPerf(fmts[j] && fmts[j].perforacija); if (vf) return vf; }
+        // 3) iz plana formatiranja (perfById) — prva stavka sa perforacijom
+        var _par = nalog && nalog.parametri; if (typeof _par === "string") { try { _par = JSON.parse(_par); } catch (e) { _par = null; } }
+        var plan = (_par && _par.plan_formatiranja) || (t && t.plan_formatiranja) || null;
+        var pb = plan && plan.perfById;
+        if (pb) for (var k in pb) { if (pb[k]) { var vp = _validPerf(pb[k].perforacija); if (vp) return vp; } }
+        return null;
+    })();
+    const pf = _folijaPerf
+        ? _folijaPerf
         : (kesa.perforacija && typeof kesa.perforacija === "object" && (kesa.perforacijaPreKese || kesa.formiranjePreKese)) ? kesa.perforacija
             : {};
     // kg (svi slojevi na matičnoj rolni) + jedinica koju je korisnik zadao + da li ima perforacije
@@ -341,6 +361,8 @@ function buildD(nalog) {
                 raspored: String(pf.raspored || "poravnato"),
                 // ZONA mikro perforacije — margine od leve/desne ivice + gustina + veličina rupe
                 odLeveIvice: num(pf.odLeveIvice) || 0, odDesneIvice: num(pf.odDesneIvice) || 0, gustina: pf.gustina || "standardna", velicinaRupe: pf.velicinaRupe || "",
+                // VIŠE ZONA mikro perforacije — svaka: {odLeve, sirina, odVrha, odDna}
+                zone: Array.isArray(pf.zone) ? pf.zone : [],
             };
         })(),
     };
@@ -412,6 +434,20 @@ function rollRez(D, mw, mh) {
     o += dimH(X0, X1, yT - 16, total + ' mm');
     return sW(o, mw, mh);
 }
+// Normalizuje mikro-zone u niz {odLeve, sirina, odVrha, odDna}. Novi format P.zone[], fallback jedna zona.
+function normZonePerf(P, Wm, gv, gd) {
+    var nz = function (x) { var n = Number(String(x == null ? "" : x).replace(",", ".")); return isFinite(n) ? n : 0; };
+    if (Array.isArray(P.zone) && P.zone.length) {
+        return P.zone.map(function (z) {
+            z = z || {};
+            var ov = (z.odVrha === "" || z.odVrha == null) ? gv : nz(z.odVrha);
+            var od = (z.odDna === "" || z.odDna == null) ? gd : nz(z.odDna);
+            return { odLeve: nz(z.odLeve), sirina: nz(z.sirina), odVrha: ov, odDna: od };
+        });
+    }
+    var oL = nz(P.odLeveIvice), oR = nz(P.odDesneIvice);
+    return [{ odLeve: oL, sirina: Math.max(0, (Number(Wm) || 0) - oL - oR), odVrha: gv, odDna: gd }];
+}
 function perf(D, mw, mh) {
     const P = D.perf, oV = P.oV, oD = P.oD, Wm = P.Wm || 840, Hm = P.Hm || 600;
     const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm;
@@ -420,31 +456,36 @@ function perf(D, mw, mh) {
     // ── MIKRO PERFORACIJA (ZONA): popuni traku između leve i desne ivice
     //    tačkicama u SMAKNUTIM redovima; gušća = sitnije/gušće, ređa = krupnije/ređe.
     if (String(P.tip) === 'mikro_zona') {
-        const oLmm = num(P.odLeveIvice), oRmm = num(P.odDesneIvice);
-        const xLz = WEBX0 + oLmm * sx, xRz = WEBX1 - oRmm * sx, zT = WEBY0, zB = WEBY1;
         const c = "#8b5cf6";
         const _g = String(P.gustina || "standardna").toLowerCase();
         const step = (_g === 'najgusca' || _g === 'gusca') ? 5 : ((_g === 'najredja' || _g === 'redja') ? 13 : 8);
         const _vr = num(P.velicinaRupe) || 0, _baseR = step * 0.2;
         const r = Math.max(0.8, Math.min(_vr > 0 ? _baseR * (_vr / 0.3) : _baseR, step * 0.42));
-        const pid = 'mpzn' + (_PID2++);
-        let z = "";
-        if (xRz > xLz + 2) {
-            z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="' + c + '10" stroke="' + c + '" stroke-width="1.6" stroke-dasharray="7 4"/>';
-            z += '<defs><pattern id="' + pid + '" width="' + step + '" height="' + (step * 2) + '" patternUnits="userSpaceOnUse">'
-                + '<circle cx="' + (step / 2) + '" cy="' + (step / 2) + '" r="' + r + '" fill="' + c + '"/>'
-                + '<circle cx="0" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
-                + '<circle cx="' + step + '" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
-                + '</pattern></defs>';
-            z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="url(#' + pid + ')"/>';
-        } else {
-            z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + ((zT + zB) / 2) + '" text-anchor="middle" font-size="12.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Ivice se preklapaju</text>';
-        }
+        // VIŠE ZONA: P.zone = [{odLeve, sirina, odVrha, odDna}]. Fallback: jedna zona iz odLeveIvice/odDesneIvice.
+        const zoneP = normZonePerf(P, Wm, oV, oD);
         const _gLbl = (_g === 'najredja' || _g === 'redja') ? 'REĐA' : ((_g === 'najgusca' || _g === 'gusca') ? 'GUŠĆA' : 'STANDARDNA');
-        z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (zT - 24) + '" text-anchor="middle" font-size="12" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ' + _gLbl + '</text>';
-        if (oLmm > 0) z += dimH(WEBX0, xLz, WEBY0 - 8, oLmm + ' mm', null, c);
-        if (oRmm > 0) z += dimH(xRz, WEBX1, WEBY0 - 8, oRmm + ' mm', null, c);
-        if (xRz > xLz + 2) { const zonaMm = Math.max(0, Math.round(Wm - oLmm - oRmm)); z += dimH(xLz, xRz, WEBY1 + 20, 'zona ' + zonaMm + ' mm', null, c); }
+        let z = '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (WEBY0 - (zoneP.length > 1 ? 54 : 24)) + '" text-anchor="middle" font-size="12" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ' + _gLbl + (zoneP.length > 1 ? ' · ' + zoneP.length + ' zone' : '') + '</text>';
+        zoneP.forEach(function (zn, i) {
+            const xLz = WEBX0 + zn.odLeve * sx, xRz = WEBX0 + (zn.odLeve + zn.sirina) * sx;
+            const zT = WEBY0 + zn.odVrha * sy, zB = WEBY1 - zn.odDna * sy;
+            if (xRz > xLz + 2 && zB > zT + 2) {
+                const pid = 'mpzn' + (_PID2++);
+                z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="' + c + '10" stroke="' + c + '" stroke-width="1.6" stroke-dasharray="7 4"/>';
+                z += '<defs><pattern id="' + pid + '" width="' + step + '" height="' + (step * 2) + '" patternUnits="userSpaceOnUse">'
+                    + '<circle cx="' + (step / 2) + '" cy="' + (step / 2) + '" r="' + r + '" fill="' + c + '"/>'
+                    + '<circle cx="0" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
+                    + '<circle cx="' + step + '" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/>'
+                    + '</pattern></defs>';
+                z += '<rect x="' + xLz + '" y="' + zT + '" width="' + (xRz - xLz) + '" height="' + (zB - zT) + '" fill="url(#' + pid + ')"/>';
+                if (zoneP.length > 1) z += '<text x="' + ((xLz + xRz) / 2) + '" y="' + (zT + 14) + '" text-anchor="middle" font-size="11" font-weight="900" fill="' + c + '" stroke="#fff" stroke-width="3" paint-order="stroke">Z' + (i + 1) + '</text>';
+                if (zn.odLeve > 0) z += dimH(WEBX0, xLz, WEBY0 - 8 - (i % 3) * 14, zn.odLeve + ' mm', null, c);
+                z += dimH(xLz, xRz, WEBY1 + 20 + (i % 3) * 16, 'zona ' + Math.round(zn.sirina) + ' mm', null, c);
+                if (zn.odVrha > 0) z += dimV(xLz - 10, WEBY0, zT, zn.odVrha + '');
+                if (zn.odDna > 0) z += dimV(xLz - 10, zB, WEBY1, zn.odDna + '');
+            } else {
+                z += '<text x="' + ((WEBX0 + WEBX1) / 2) + '" y="' + (WEBY0 + 20 + i * 18) + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Z' + (i + 1) + ': zona van rolne</text>';
+            }
+        });
         return sW(rp(mw > 320) + z, mw, mh, '0 0 600 760');
     }
     const gGlob = num(P.razmak) || 5, rupe = String(P.tip) === 'rupe';
@@ -1066,11 +1107,12 @@ function pPerfBig(D) {
     var jeRupe = String(P.tip) === 'rupe';
     var gustLbl = (function (g) { g = String(g || 'standardna').toLowerCase(); if (g === 'najgusca' || g === 'gusca') return 'Najgušća'; if (g === 'najredja' || g === 'redja') return 'Najređa'; return 'Standardna'; })(P.gustina);
     var rupaCell = (num(P.velicinaRupe) > 0) ? ('<div class="m"><b>Veličina rupe</b>Ø ' + num(P.velicinaRupe) + ' mm</div>') : '';
+    var _zoneMeta = zona ? normZonePerf(P, P.Wm || 0, num(P.oV), num(P.oD)) : [];
     const sub = zona
-        ? ('Mikro perforacija (zona) · ' + gustLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') + ' · sve mere u mm')
+        ? ('Mikro perforacija (zona) · ' + gustLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') + (_zoneMeta.length > 1 ? ' · ' + _zoneMeta.length + ' zone' : '') + ' · sve mere u mm')
         : (esc(P.tip) + ' · ' + ((P.linije && P.linije.length) ? (P.linije.length + ' linija') : (P.N + ' kolona')) + (jeRupe ? ' · raspored: ' + rspLbl.toLowerCase() + (num(P.velicinaRupe) > 0 ? ' · Ø ' + num(P.velicinaRupe) + ' mm' : '') : '') + ' · sve mere u mm');
     const meta = zona
-        ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + gustLbl + '</div>' + rupaCell + '<div class="m"><b>Od leve</b>' + num(P.odLeveIvice) + ' mm</div><div class="m"><b>Od desne</b>' + num(P.odDesneIvice) + ' mm</div><div class="m"><b>Zona</b>' + Math.max(0, Math.round((P.Wm || 0) - num(P.odLeveIvice) - num(P.odDesneIvice))) + ' mm</div>')
+        ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + gustLbl + '</div>' + rupaCell + '<div class="m"><b>Broj zona</b>' + _zoneMeta.length + '</div>' + _zoneMeta.map(function (z, i) { return '<div class="m"><b>Z' + (i + 1) + '</b>od leve ' + Math.round(z.odLeve) + ' · šir. ' + Math.round(z.sirina) + ' mm' + ((z.odVrha || z.odDna) ? ' (↑' + Math.round(z.odVrha) + '/↓' + Math.round(z.odDna) + ')' : '') + '</div>'; }).join(''))
         : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div>' + (jeRupe ? '<div class="m"><b>Raspored</b>' + esc(rspLbl) + '</div>' + rupaCell : '<div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>'));
     return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + sub + '</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip">' + meta + '</div></div>', 'Strana · perforacija (prilog)');
 }
