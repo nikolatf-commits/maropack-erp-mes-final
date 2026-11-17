@@ -77,20 +77,22 @@ function _getData(nalog) {
     const folija = linked.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
     const kesa = linked.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
     const spulna = linked.spulna || od.spulna || t.spulna || (t.data && t.data.spulna) || {};
+    const tabak = linked.tabak || od.tabak || t.tabak || (t.data && t.data.tabak) || {};
     const pdf = linked.pdf || od.pdf || t.pdf || {};
-    return { linked, od, t, folija, kesa, spulna, pdf };
+    return { linked, od, t, folija, kesa, spulna, tabak, pdf };
 }
 
 function buildLayers(nalog) {
-    const { od, folija, kesa, spulna } = getData(nalog);
+    const { od, folija, kesa, spulna, tabak } = getData(nalog);
     const tip_ = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase();
     const jeKesa = tip_.includes("kes");
     const jeSpulna = tip_.includes("spul") || tip_.includes("špul");
-    const src = jeSpulna ? spulna : (jeKesa ? kesa : folija);
+    const jeTabak = tip_.includes("tabak") || tip_.includes("tabac");
+    const src = jeTabak ? tabak : (jeSpulna ? spulna : (jeKesa ? kesa : folija));
     const normalized = normalizeLayers(nalog, nalog.tip_proizvoda || nalog.tip) || [];
     const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : (Array.isArray(src.layers) && src.layers.length ? src.layers : normalized)) || [];
     return arr.slice(0, 6).map((m, i) => ({
-        n: m.vrsta || m.materijal || m.naziv || ("Sloj " + (i + 1)),
+        n: m.vrsta || m.materijal || m.material || m.naziv || ("Sloj " + (i + 1)),
         pv: m.pod_vrsta || m.podvrsta || m.podVrsta || "",
         oz: m.oznaka || m.oznaka_materijala || "",
         pr: m.proizvodjac || m.proizvođač || "",
@@ -107,9 +109,10 @@ function buildLayers(nalog) {
 
 /* ---------- D (podaci za v6) ---------- */
 function buildD(nalog) {
-    const { od, t, folija, kesa, spulna } = getData(nalog);
+    const { od, t, folija, kesa, spulna, tabak } = getData(nalog);
     const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
     const jeSpulna = /spul|špul/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
+    const jeTabak = /tabak|tabac/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const LAY = buildLayers(nalog);
     const TOTu = LAY.reduce((s, l) => s + l.u, 0);
     // Poručena količina + JEDINICA (m / kom / kg). Konverzija u metre GOTOVE trake ide niže,
@@ -275,7 +278,7 @@ function buildD(nalog) {
             try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; }
             return (p && (p.broj_porudzbine || p.brojPorudzbine)) || t.brojPorudzbine || t.broj_porudzbine || od.brojPorudzbine || od.broj_porudzbine || nalog.broj_porudzbine || "";
         })(),
-        tipLabel: (jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
+        tipLabel: (jeTabak ? "Tabak" : jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
         // Dimenzije: širina × dužina KOMADA (mm). Ako dužina komada nije upisana na početku
         // templejta, prikaži METRAŽU FINALNE ROLNE (izračunatu iz prečnika ili unetu u rezanju).
         dimenzije: num(t.dimenzijaDuzina)
@@ -290,7 +293,7 @@ function buildD(nalog) {
         // Korona tretman (folija) — provlači se na sve naloge
         koronaTretman: t.koronaTretman || t.korona || od.koronaTretman || nalog.korona_tretman || "",
         koronaNapomena: t.koronaNapomena || od.koronaNapomena || nalog.korona_napomena || "",
-        metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna,
+        metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna, jeTabak,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         // Više dizajna na rolni (montaža) — folija: dizajni[] + trake[]; fotomarker/QR su u slici.
         viseDizajna: (st.viseDizajna && typeof st.viseDizajna === "object") ? st.viseDizajna : { enabled: false },
@@ -398,7 +401,53 @@ function ah(x, y, dir) { var d; if (dir == 'r') d = 'M' + x + ' ' + y + ' l 9 -3
 function dimH(x1, x2, y, t, fy, color) { var C = color || '#1e40af'; var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 8) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="' + C + '" stroke-width="1.3"/>' + '<line x1="' + x1 + '" y1="' + (y - 4) + '" x2="' + x1 + '" y2="' + (y + 4) + '" stroke="' + C + '" stroke-width="1.3"/><line x1="' + x2 + '" y1="' + (y - 4) + '" x2="' + x2 + '" y2="' + (y + 4) + '" stroke="' + C + '" stroke-width="1.3"/>'; var mx = (x1 + x2) / 2, w = Math.max(44, String(t).length * 7 + 12); o += '<rect x="' + (mx - w / 2) + '" y="' + (y - 9) + '" width="' + w + '" height="15" rx="2.5" fill="#fff" stroke="' + C + '" stroke-width="0.9"/><text x="' + mx + '" y="' + (y + 1.5) + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="' + C + '">' + t + '</text>'; return o; }
 function dimV(x, y1, y2, t, fx) { var o = ''; if (fx != null) { o += '<line x1="' + fx + '" y1="' + y1 + '" x2="' + (x - 8) + '" y2="' + y1 + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + fx + '" y1="' + y2 + '" x2="' + (x - 8) + '" y2="' + y2 + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '" stroke="#1e40af" stroke-width="1.1"/>' + ah(x, y1, 'd') + ah(x, y2, 'u'); var my = (y1 + y2) / 2; o += '<rect x="' + (x - 8) + '" y="' + (my - 23) + '" width="16" height="46" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + x + '" y="' + my + '" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e40af" transform="rotate(-90 ' + x + ' ' + my + ')">' + t + '</text>'; return o; }
 function dimSmall(x1, x2, y, t, fy) { var o = ''; if (fy != null) { o += '<line x1="' + x1 + '" y1="' + fy + '" x2="' + x1 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/><line x1="' + x2 + '" y1="' + fy + '" x2="' + x2 + '" y2="' + (y + 4) + '" stroke="#bcd3f7" stroke-width="0.9"/>'; } o += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#1e40af" stroke-width="1.1"/><line x1="' + x1 + '" y1="' + (y - 3) + '" x2="' + x1 + '" y2="' + (y + 3) + '" stroke="#1e40af"/><line x1="' + x2 + '" y1="' + (y - 3) + '" x2="' + x2 + '" y2="' + (y + 3) + '" stroke="#1e40af"/>'; var mx = (x1 + x2) / 2; o += '<rect x="' + (mx - 13) + '" y="' + (y - 23) + '" width="26" height="14" rx="2" fill="#fff" stroke="#dbeafe" stroke-width="0.6"/><text x="' + mx + '" y="' + (y - 13) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#1e40af">' + t + '</text>'; return o; }
-function roll(D, mw, mh) {
+// Samo MARKERI perforacije (bez kota) u koordinatama rolne (WEBX0..WEBX1 / WEBY0..WEBY1)
+// — da se preklope PREKO dizajna na finalnoj rolni, isto kao prikaz u templejtu.
+function perfMarks(D) {
+    const P = D.perf;
+    if (!P || !D.imaPerforaciju) return "";
+    const Wm = P.Wm || 840, Hm = P.Hm || 600;
+    const sx = (WEBX1 - WEBX0) / Wm, sy = (WEBY1 - WEBY0) / Hm;
+    const yT = WEBY0 + num(P.oV) * sy, yB = WEBY1 - num(P.oD) * sy;
+    const c = "#8b5cf6";
+    if (String(P.tip) === 'mikro_zona') {
+        const _g = String(P.gustina || 'standardna').toLowerCase();
+        const step = (_g === 'najgusca' || _g === 'gusca') ? 5 : ((_g === 'najredja' || _g === 'redja') ? 13 : 8);
+        const _vr = num(P.velicinaRupe) || 0, baseR = step * 0.2;
+        const r = Math.max(0.8, Math.min(_vr > 0 ? baseR * (_vr / 0.3) : baseR, step * 0.42));
+        const zones = normZonePerf(P, Wm, num(P.oV), num(P.oD));
+        let o = "";
+        zones.forEach(function (z) {
+            const xL = WEBX0 + z.odLeve * sx, xR = WEBX0 + (z.odLeve + z.sirina) * sx;
+            const zt = WEBY0 + z.odVrha * sy, zb = WEBY1 - z.odDna * sy;
+            if (xR > xL + 2 && zb > zt + 2) {
+                const pid = 'mpov' + (_PID2++);
+                o += '<rect x="' + xL + '" y="' + zt + '" width="' + (xR - xL) + '" height="' + (zb - zt) + '" fill="' + c + '22" stroke="' + c + '" stroke-width="1.4" stroke-dasharray="6 4"/>';
+                o += '<defs><pattern id="' + pid + '" width="' + step + '" height="' + (step * 2) + '" patternUnits="userSpaceOnUse"><circle cx="' + (step / 2) + '" cy="' + (step / 2) + '" r="' + r + '" fill="' + c + '"/><circle cx="0" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/><circle cx="' + step + '" cy="' + (step * 1.5) + '" r="' + r + '" fill="' + c + '"/></pattern></defs>';
+                o += '<rect x="' + xL + '" y="' + zt + '" width="' + (xR - xL) + '" height="' + (zb - zt) + '" fill="url(#' + pid + ')"/>';
+            }
+        });
+        return o;
+    }
+    const rupe = String(P.tip) === 'rupe', gGlob = num(P.razmak) || 5;
+    const lin = Array.isArray(P.linije) ? P.linije : [];
+    let o = "";
+    if (lin.length) {
+        const _vrMm = num(P.velicinaRupe) || 0;
+        const rupaR = _vrMm > 0 ? Math.max(1.3, Math.min((_vrMm / 2) * sx, 7)) : 2;
+        lin.forEach(function (L) {
+            const x = WEBX0 + num(L.mm) * sx;
+            if (x < WEBX0 || x > WEBX1) return;
+            if (rupe) { const gap = Math.max(3, (num(L.razmak) || gGlob) * sy); for (let y = yT; y <= yB + 0.5; y += gap) o += '<circle cx="' + x + '" cy="' + y + '" r="' + rupaR + '" fill="' + c + '"/>'; }
+            else o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="' + c + '" stroke-width="2.4" stroke-dasharray="8 5" opacity=".95"/>';
+        });
+    } else {
+        const N = Math.max(2, P.N || 2), oL = num(P.oL), oR = num(P.oR), xF = WEBX0 + oL * sx, xL2 = WEBX1 - oR * sx, st = (xL2 - xF) / (N - 1);
+        for (let i = 0; i < N; i++) { const x = xF + st * i; o += '<line x1="' + x + '" y1="' + yT + '" x2="' + x + '" y2="' + yB + '" stroke="' + c + '" stroke-width="2.2" stroke-dasharray="9 5"/>'; }
+    }
+    return o;
+}
+function roll(D, mw, mh, withPerf) {
     const wW = WEBX1 - WEBX0, wH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const dz = D.dizajn || {};
     const url = dz.url || dz.slika || "";
@@ -413,10 +462,12 @@ function roll(D, mw, mh) {
         const cy = WEBY0 + slot * (i + 0.5);
         t += '<g transform="translate(' + cx + ',' + cy + ') rotate(' + rot + ') scale(' + mir + ',1)"><image href="' + Dimg + '" x="' + (-IW / 2) + '" y="' + (-IH / 2) + '" width="' + IW + '" height="' + IH + '" preserveAspectRatio="none"/></g>';
     }
-    return sW(rp(mw > 320) + '<clipPath id="c1"><rect x="' + WEBX0 + '" y="' + WEBY0 + '" width="' + wW + '" height="' + wH + '"/></clipPath><g clip-path="url(#c1)">' + t + '</g>', mw, mh);
+    // Perforacija PREKO dizajna (kao u templejtu) — samo markeri, isečeni na telo rolne.
+    const perfSvg = withPerf ? perfMarks(D) : "";
+    return sW(rp(mw > 320) + '<clipPath id="c1"><rect x="' + WEBX0 + '" y="' + WEBY0 + '" width="' + wW + '" height="' + wH + '"/></clipPath><g clip-path="url(#c1)">' + t + perfSvg + '</g>', mw, mh);
 }
 // Finalna rolna za REZANJE: ista slika kao štampa ali sa rotacijom "Dizajn na finalnoj rolni".
-function rollFinal(D, mw, mh) { return roll(Object.assign({}, D, { dizajn: D.dizajnRolna || D.dizajn }), mw, mh); }
+function rollFinal(D, mw, mh) { return roll(Object.assign({}, D, { dizajn: D.dizajnRolna || D.dizajn }), mw, mh, true); }
 function rollRez(D, mw, mh) {
     // Vertikalna finalna rolna (kao kod štampe), ali web prikazuje RASPORED TRAKA (slitting) — kao u templejtu (rezanje), ne dizajn štampe.
     var total = D.rez.sirinaMat || 840;
@@ -1099,6 +1150,82 @@ function pRez(D) {
         '<div class="ulaz" style="margin-top:16px">🖼 <b>Izgled na finalnoj rolni</b>' + (D.imaPerforaciju ? ' i <b>perforacija (kotirano)</b> su na posebnim stranama.' : ' je na posebnoj strani. (Bez perforacije.)') + '</div>' +
         napHtml(D, 'rezanje') +
         foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · perforacija/rezanje');
+}
+
+// ── TABAK: podaci za nalog rezanja na tabake (iz matične rolne) ──
+function tabakD(nalog) {
+    const { t, tabak } = getData(nalog);
+    const tb = tabak || {};
+    const W = num(tb.sirina), L = num(tb.duzina);
+    const WM = num(tb.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(nalog.sirina) || 0;
+    const kom = num(tb.kolicina);
+    const ban = (WM > 0 && W > 0) ? Math.max(1, Math.floor(WM / W)) : 1;
+    const otpad = Math.max(0, Math.round(WM - ban * W));
+    const redova = ban > 0 ? Math.ceil(kom / ban) : kom;
+    const mMat = redova * (L / 1000);
+    const perRolniM = (L > 0) ? ban * Math.floor(1000 / L) : 0;
+    const rz = tb.rezanje || {};
+    return {
+        W, L, WM, kom, ban, otpad, redova, mMat, perRolniM,
+        presavijanje: !!tb.presavijanje, pakovanjeHrana: !!tb.pakovanjeHrana,
+        perforacija: tb.perforacija, rupe: tb.rupe,
+        dorada: rz.dorada || "", nacinPakovanja: rz.nacinPakovanja || "", pakovanje: tb.pakovanje || "",
+    };
+}
+
+// Šematski crtež: matična rolna (širina) → ban tabaka popreko (+ bočni otpad), rez po dužini (korak).
+function tabakCrtez(T) {
+    const X0 = 60, X1 = 660, topY = 54;
+    const WM = T.WM || 1, W = T.W || 1, ban = T.ban || 1, otpad = Math.max(0, T.otpad || 0);
+    const sx = (X1 - X0) / WM;
+    const colW = W * sx, otW = otpad * sx;
+    const rowH = 92, nRows = 3, botY = topY + nRows * rowH;
+    let s = '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + (nRows * rowH) + '" fill="#ecfeff" stroke="#0e7490" stroke-width="1.4"/>';
+    let x = X0;
+    for (let c2 = 0; c2 < ban; c2++) {
+        s += '<rect x="' + x + '" y="' + topY + '" width="' + colW + '" height="' + (nRows * rowH) + '" fill="#cffafe" fill-opacity=".5" stroke="#0891b2" stroke-width="1"/>';
+        if (colW > 22) s += '<text x="' + (x + colW / 2) + '" y="' + (topY + rowH / 2 + 4) + '" text-anchor="middle" font-size="12" font-weight="900" fill="#0e7490">T' + (c2 + 1) + '</text>';
+        x += colW;
+    }
+    if (otW > 1) {
+        s += '<rect x="' + x + '" y="' + topY + '" width="' + otW + '" height="' + (nRows * rowH) + '" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>';
+        if (otW > 14) s += '<text x="' + (x + otW / 2) + '" y="' + (topY + nRows * rowH / 2) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#b91c1c" transform="rotate(-90 ' + (x + otW / 2) + ' ' + (topY + nRows * rowH / 2) + ')">OTPAD ' + otpad + '</text>';
+    }
+    for (let r = 1; r < nRows; r++) { const y = topY + r * rowH; s += '<line x1="' + X0 + '" y1="' + y + '" x2="' + X1 + '" y2="' + y + '" stroke="#dc2626" stroke-width="1.1" stroke-dasharray="7 4"/>'; }
+    s += '<text x="' + ((X0 + X1) / 2) + '" y="' + (botY + 24) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#64748b">… rez na svakih ' + T.L + ' mm (korak) · redova ukupno: ' + fmtN(T.redova) + '</text>';
+    s += dimH(X0, X1, topY - 14, T.WM + ' mm (matična)', null, '#0e7490');
+    s += dimH(X0, X0 + colW, topY - 32, T.W + ' mm', null, '#0891b2');
+    s += dimV(X0 - 14, topY, topY + rowH, T.L + '');
+    return '<svg viewBox="0 0 720 ' + (botY + 40) + '" width="100%" style="max-width:640px;background:#fff">' + s + '</svg>';
+}
+
+function pRezTabaka(D, T) {
+    const c = "#0891b2";
+    const badges = [];
+    if (T.perforacija) badges.push('Perforacija');
+    if (T.rupe) badges.push('Rupe / zumbe');
+    if (T.presavijanje) badges.push('Presavijanje');
+    if (T.pakovanjeHrana) badges.push('Pakovanje za hranu');
+    const doradaHtml = badges.length
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">' + badges.map(function (b) { return '<span style="background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:800">' + esc(b) + '</span>'; }).join('') + '</div>'
+        : '<div style="font-size:11.5px;color:#94a3b8">bez dodatne dorade</div>';
+    const statT = '<div class="stats">'
+        + stat('Broj tabaka', fmtN(T.kom), 'kom', c)
+        + stat('Dimenzija', T.W + '×' + T.L, 'mm', '#6366f1')
+        + stat('Matična', fmtN(Math.round(T.mMat)), 'm', '#059669')
+        + stat('Ban', T.ban, 'popreko', '#0d9488')
+        + stat('Debljina', D.TOTu, 'µm', '#0ea5e9')
+        + stat('Slojeva', D.LAY.length, D.LAY.length === 1 ? 'sloj' : (D.LAY.length === 2 ? 'dupleks' : (D.LAY.length === 3 ? 'tripleks' : 'sloja')), '#14b8a6')
+        + '</div>';
+    return pageWrap(D, hd(D, '📄', 'NALOG ZA REZANJE NA TABAKE', c, 'rezanje') + '<div class="body">' +
+        identBlock(D.kupac, D.tipLabel, D.proizvod, spojMaterijala(D.LAY)) +
+        statT +
+        '<div class="ulaz"><b>Ulaz:</b> matična rolna širine ' + T.WM + ' mm → reže se na tabake ' + T.W + '×' + T.L + ' mm (ban ' + T.ban + ', bočni otpad ' + T.otpad + ' mm).</div>' +
+        '<div class="sec">' + secH(1, c, 'Raspored tabaka iz matične rolne', 'iz templejta') + '<div class="fig"><div class="cap">Tabaci po širini (ban) + rez po dužini (korak)</div>' + tabakCrtez(T) + '</div></div>' +
+        '<div class="sec">' + secH(2, c, 'Plan', '') + '<div class="info">' + infoC('Dimenzija tabaka', T.W + '×' + T.L + ' mm') + infoC('Širina matične', T.WM + ' mm') + infoC('Ban (popreko)', T.ban) + infoC('Bočni otpad', T.otpad + ' mm') + infoC('Redova (po dužini)', fmtN(T.redova)) + infoC('Metri matične', fmtN(Math.round(T.mMat)) + ' m') + (T.perRolniM ? infoC('Tabaka po 1 m', fmtN(T.perRolniM)) : '') + (T.nacinPakovanja ? infoC('Pakovanje', esc(T.nacinPakovanja)) : '') + '</div></div>' +
+        '<div class="sec">' + secH(3, c, 'Dorada', '') + doradaHtml + (T.dorada ? '<div style="font-size:12px;color:#334155;margin-top:4px">' + esc(T.dorada) + '</div>' : '') + '</div>' +
+        napHtml(D, 'rezanje') +
+        foot('Operater rezanja', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · rezanje tabaka');
 }
 
 function pPerfBig(D) {
@@ -1911,6 +2038,10 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
         if (vrsta === "materijal") return pKesaMat(D, K);
         // Ostale operacije (štampa/perforacija/lakiranje) NE bacamo u materijal —
         // padaju na odgovarajuće stranice ispod (folija-stil), da naslov bude tačan.
+    }
+    if (D.jeTabak) {
+        // Rezanje na tabake ima svoju stranu; materijal/štampa/kaширanje idu na folija-stil strane ispod.
+        if (vrsta === "rezanje_tabaka" || vrsta === "rezanje") return pRezTabaka(D, tabakD(nalog));
     }
     var _vdOn = !!(D.viseDizajna && D.viseDizajna.enabled && Array.isArray(D.viseDizajna.trake) && D.viseDizajna.trake.length);
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni", null, true) + (_vdOn ? pMontaza(D) : pDizajnFull(D, D.dizajn, "DIZAJN ZA ŠTAMPU — ORIGINAL"));

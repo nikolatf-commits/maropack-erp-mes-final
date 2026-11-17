@@ -531,6 +531,42 @@ const defaultForm = {
             materijalABC: "",
             napomena: ""
         }
+    },
+    // ── TABAK (ravan list) — UVEK se reže iz matične rolne (kao folija formati).
+    //    Operacije: Materijal → (Štampa) → (Kaширanje ako 2+ sloja) → Rezanje na tabake + dorada.
+    //    ban = širina_materijala ÷ širina_tabaka (koliko tabaka ide popreko), korak = dužina tabaka.
+    tabak: {
+        naziv: "",
+        kolicina: "",
+        jedinicaUnosa: "kom",       // tabaci se broje u komadima (info i m² / kg)
+        skart: "5",
+        // Dimenzije tabaka (ravan list) + širina ulazne matične rolne
+        sirina: "",                 // širina tabaka (mm)
+        duzina: "",                 // dužina tabaka (mm)
+        sirinaMaterijala: "",       // širina matične rolne (mm)
+        // Slojevi/materijali — kao folija (više slojeva → kaширanje)
+        layers: [{ material: "OPP", debljina: "30", tezina: "27.3", sirina: "", cena: "" }],
+        // Štampa — pun blok kao kod folije
+        stampa: {
+            masina: "", strana: "", obimValjka: "", brojBoja: "", klise: "",
+            precnikHilzne: "", smerOdmotavanja: "", stamparija: "", napomena: "", boje: [], dizajn: {}
+        },
+        // Kaширanje (lamiranje slojeva) — iste opcije kao folija
+        kasiranje: { tipLepka: "", odnosLepka: "", nanosLepka: "", brojKasiranja: "", materijalABC: "", napomena: "" },
+        // Rezanje na tabake (matična → tabaci š×d)
+        rezanje: {
+            sirinaMaterijala: "", precnikRolne: "", duzinaRolne: "",
+            dorada: "", nacinPakovanja: "", rasporedOtpada: "obe"
+        },
+        // Dorada/opcije (sve na nalogu za rezanje tabaka)
+        perforacija: null,          // isti oblik kao folija (PerforacijaEditor)
+        rupe: null,                 // rupe/zumbe (pozicije + prečnik)
+        presavijanje: false,        // presavijanje tabaka
+        pakovanjeHrana: false,      // pakovanje za hranu
+        // Napomene po operacijama (inline, kao kod folije)
+        materijalNapomena: "",
+        izradaNapomena: "",
+        pakovanje: ""
     }
 };
 
@@ -714,6 +750,24 @@ function orderMetraze(f) {
             slojevi: ob.slojevi, kgUkupno: ob.kg,
         };
     }
+    if (f.type === "tabak") {
+        // Tabak se reže iz matične rolne: ban = širina_materijala ÷ širina_tabaka (tabaka popreko),
+        // korak uz traku = dužina tabaka. Metri matične = (redova) × dužina, redova = ceil(kom ÷ ban).
+        const t = f.tabak || {};
+        const W = n(t.sirina), L = n(t.duzina);
+        const WM = n(t.sirinaMaterijala) || n(f.idealnaSirinaMaterijala);
+        const kom = n(t.kolicina), skart = n(t.skart);
+        const ban = (WM > 0 && W > 0) ? Math.max(1, Math.floor(WM / W)) : 1;
+        const duzM = L / 1000;                         // korak uz traku, m
+        const redova = ban > 0 ? Math.ceil(kom / ban) : kom;
+        const mMat = redova * duzM;                    // metri matične rolne
+        return {
+            kol: Math.round(mMat),
+            kolPlus: Math.ceil(mMat * (1 + skart / 100)),
+            kom, duzM, ban,
+            mTrake: Math.round(kom * duzM),            // informativno (ukupna dužina tabaka)
+        };
+    }
     const kol = n(f.porucenaKolicina);
     return { kol, kolPlus: Math.ceil(kol * 1.05), kom: 0, duzM: 0 };
 }
@@ -722,7 +776,7 @@ function orderMetraze(f) {
 // Jedinice cene po tipu: folija = m | kg | 1000m ; kesa = 1000kom ; špulna = m2 | spulna | 1000m.
 // Koristi iste obračune (folijaObracun/spulnaObracun/orderMetraze) koji pretvaraju
 // poručenu količinu (u njenoj jedinici) u metre/kg/kom/m²/špulni.
-function prodajnaJedinicaZaTip(tip) { return tip === "kesa" ? "1000kom" : tip === "spulna" ? "m2" : "m"; }
+function prodajnaJedinicaZaTip(tip) { return (tip === "kesa" || tip === "tabak") ? "1000kom" : tip === "spulna" ? "m2" : "m"; }
 // ISO nedelja (KW) iz datuma "YYYY-MM-DD" → broj nedelje (1..53), ili "" ako nema datuma.
 function isoKWBroj(dateStr) {
     var m = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -765,6 +819,9 @@ function izracunajVrednostNaloga(form) {
                 const ob = spulnaObracun({ ...form, spulna: { ...(form.spulna || {}), skart: 0 } });
                 qty = jed === "spulna" ? ob.spulni : (jed === "1000m" ? ob.ukupnoM / 1000 : ob.m2);
             }
+        } else if (tip === "tabak") {
+            const kom = N_(form.tabak && form.tabak.kolicina) || (orderMetraze(form).kom || 0);
+            qty = jed === "1000kom" ? kom / 1000 : kom;
         }
     } catch (e) { qty = 0; }
     return { vrednost: +(cena * (qty || 0)).toFixed(2), jedinica: jed, cena, kolicina: +((qty || 0)).toFixed(2) };
@@ -1857,6 +1914,13 @@ function inferTemplateOperations(tpl = {}) {
         const imaKas = sl.length > 1 || Number(tpl.spulna?.kasiranje?.brojKasiranja) > 0;
         return ['materijal', ...(imaKas ? ['kasiranje'] : []), 'formatiranje', 'spulna'];
     }
+    if (tip === 'tabak') {
+        const tl = tpl.tabak?.layers || [];
+        const stT = tpl.tabak?.stampa || {};
+        const imaStT = !!stT.stampaSe || Number(stT.brojBoja) > 0;
+        const imaKasT = tl.length > 1 || Number(tpl.tabak?.kasiranje?.brojKasiranja) > 0;
+        return ['materijal', ...(imaStT ? ['stampa'] : []), ...(imaKasT ? ['kasiranje'] : []), 'rezanje_tabaka'];
+    }
     const layers = tpl.folija?.layers || [];
     const ops = ['materijal'];
     if (layers.some(l => l?.stampa || l?.stamp || l?.Š) || tpl.folija?.stampa?.brojBoja) ops.push('stampa');
@@ -2139,6 +2203,15 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 ...(preRezac ? ["perforacija_rezanje"] : []),
                 "kesa"];
         }
+        if (form.type === "tabak") {
+            // Tok tabaka: materijal → (štampa) → (kaширanje ako 2+ sloja) → rezanje na tabake + dorada.
+            const t = form.tabak || {};
+            const Lt = t.layers || [];
+            const stT = t.stampa || {};
+            const imaStampuT = !!stT.stampaSe || Number(stT.brojBoja) > 0 || (Array.isArray(stT.boje) && stT.boje.length > 0);
+            const imaKasT = Lt.length > 1 || Number((t.kasiranje || {}).brojKasiranja) > 0;
+            return ["materijal", ...(imaStampuT ? ["stampa"] : []), ...(imaKasT ? ["kasiranje"] : []), "rezanje_tabaka"];
+        }
         return ["materijal",
             ...(imaStampu ? ["stampa"] : []),
             ...lakPre,
@@ -2204,7 +2277,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             if (error) throw error;
             const p = (rn && rn.parametri) || {};
             const tpl = p.template || {};
-            setForm(tpl);
+            setForm({ ...clone(defaultForm), ...tpl });
             setNalogBroj(rn.broj_naloga || nalog.broj || "");
             setMasterId(rn.id);
             // ── FORMATI nalog (rezanje+perforacija iz matične): dopuna ide preko formati-modala ──
@@ -2270,7 +2343,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     async function potvrdiDopunaMaterijal() {
         if (!dopunaInfo) return;
         const { nalogId, broj, targetIdx } = dopunaInfo;
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
         const { kolPlus } = orderMetraze(form);
         const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
         const multZa = (r) => formatMultiplier(r.sirina, idealnaSir0);
@@ -2638,10 +2711,14 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     async function generisiNalogeMaterijal() {
         // FOLIJA FORMATI — zaseban tok (reže matičnu na formate, bira najbolju rolnu).
         if (form.type === "folija" && form.folija?.formatiRezim) { return generisiNalogFormati(); }
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
         if (!layers.length) { msg && msg("Unesi bar jedan sloj materijala!", "err"); return; }
-        if (!form.idealnaSirinaMaterijala) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
-        if (form.type === "kesa") {
+        if (!form.idealnaSirinaMaterijala && !(form.type === "tabak" && form.tabak?.sirinaMaterijala)) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
+        if (form.type === "tabak") {
+            const t = form.tabak || {};
+            if (!(Number(t.sirina) > 0 && Number(t.duzina) > 0)) { msg && msg("Unesi dimenzije tabaka (širina i dužina)!", "err"); return; }
+            if (!(orderMetraze(form).kolPlus > 0)) { msg && msg("Unesi poručenu količinu tabaka (kom)!", "err"); return; }
+        } else if (form.type === "kesa") {
             if (!(orderMetraze(form).kolPlus > 0)) { msg && msg("Unesi poručenu količinu (kom) i dimenzije kese!", "err"); return; }
         } else if (form.type === "folija") {
             const ob = folijaObracun(form);
@@ -2713,7 +2790,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     // su „nedodeljeni" → operacije koje ih traže (kaширanje/rezanje) idu u
     // status „ceka_materijal" dok administracija ne dopuni materijal.
     function pokriceInfo() {
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
         const { kolPlus } = orderMetraze(form);
         const sir0 = Number(form.idealnaSirinaMaterijala) || 0;
         const eff = (izb) => (izb || []).reduce((s, r) => s + slobodnoM(r) * formatMultiplier(r.sirina, sir0), 0);
@@ -2742,7 +2819,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     }
 
     async function potvrdiNalogMaterijal() {
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
         const { kol, kolPlus } = orderMetraze(form);
 
         const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
@@ -2869,7 +2946,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             // Redosled operacija; formatiranje ide posle materijala (folija/kesa) odnosno
             // posle KAŠIRANJA (špulna: kaширa se širok materijal pa se tek onda formatira).
             let opTipovi = operacijeZa(form);
-            if (formatInfo.length && !opTipovi.includes("formatiranje")) {
+            if (formatInfo.length && !opTipovi.includes("formatiranje") && form.type !== "tabak") {
                 // Umetni posle kaширanja ako ga ima (špulna/folija sa kaширanjem), inače posle materijala.
                 const mi = opTipovi.lastIndexOf("kasiranje");
                 const bi = mi >= 0 ? mi : opTipovi.indexOf("materijal");
@@ -3551,6 +3628,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             <ToggleButton active={form.type === "folija"} onClick={() => setType("folija")}>🎞️ {t("tmpl.folija")}</ToggleButton>
             <ToggleButton active={form.type === "kesa"} onClick={() => setType("kesa")}>🛍️ {t("tmpl.kesa")}</ToggleButton>
             <ToggleButton active={form.type === "spulna"} onClick={() => setType("spulna")}>🧵 {t("tmpl.spulna")}</ToggleButton>
+            <ToggleButton active={form.type === "tabak"} onClick={() => setType("tabak")}>📄 Tabak</ToggleButton>
         </div>
 
         {/* TOK PROIZVODNJE (FAZE) — SAMO INFORMATIVNO, na vrhu, uvek vidljivo, snima se uz templejt */}
@@ -4631,12 +4709,133 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             <SpoolDrawing spulna={form.spulna} update={update} />
         </>}
 
+        {form.type === "tabak" && <>
+            <Section title="📄 Tabak — osnovni podaci" color="#0891b2">
+                <Grid cols={4}>
+                    <Input label="Naziv" value={form.tabak.naziv} onChange={v => update("tabak.naziv", v)} placeholder="npr. Tabak OPP 30µ 300×400" />
+                    <div>
+                        <label style={labelStyle()}>Poručena količina</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.tabak.kolicina || ""} placeholder="npr. 50000"
+                                onChange={e => update("tabak.kolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.tabak.jedinicaUnosa || "kom"} onChange={e => update("tabak.jedinicaUnosa", e.target.value)}
+                                style={{ ...fieldStyle(), width: 92, fontWeight: 900, color: "#0891b2", background: "#ecfeff", cursor: "pointer" }}>
+                                <option value="kom">kom</option>
+                                <option value="1000kom">1000 kom</option>
+                                <option value="kg">kg</option>
+                                <option value="m2">m²</option>
+                            </select>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>broj tabaka (listova)</div>
+                    </div>
+                    <Input label="Škart (%)" value={form.tabak.skart} onChange={v => update("tabak.skart", v)} placeholder="5" />
+                    <Input label="Pakovanje" value={form.tabak.pakovanje} onChange={v => update("tabak.pakovanje", v)} placeholder="npr. 500 kom u pakovanju" />
+                </Grid>
+            </Section>
+
+            <Section title="📐 Dimenzije tabaka (uvek se reže iz matične rolne)" color="#0891b2">
+                <Grid cols={3}>
+                    <Input label="Širina tabaka (mm)" value={form.tabak.sirina} onChange={v => update("tabak.sirina", v)} placeholder="npr. 300" />
+                    <Input label="Dužina tabaka (mm)" value={form.tabak.duzina} onChange={v => update("tabak.duzina", v)} placeholder="npr. 400" />
+                    <div>
+                        <Input label="Idealna širina materijala — matična rolna (mm)" value={form.tabak.sirinaMaterijala}
+                            onChange={v => setForm(p => { const n = clone(p); n.tabak.sirinaMaterijala = v; n.idealnaSirinaMaterijala = v; return n; })} placeholder="npr. 1250" />
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 700 }}>po ovoj širini se bira rolna iz magacina (FIFO)</div>
+                    </div>
+                </Grid>
+                {(() => {
+                    const W = Number(form.tabak.sirina) || 0, L = Number(form.tabak.duzina) || 0, WM = Number(form.tabak.sirinaMaterijala) || 0;
+                    if (!(W > 0 && WM > 0)) return <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 8 }}>Unesi širinu tabaka i širinu rolne da vidiš raspored.</div>;
+                    const ban = Math.floor(WM / W), otpad = Math.round(WM - ban * W);
+                    const poMetru = (L > 0) ? ban * Math.floor(1000 / L) : 0;
+                    return <div style={{ marginTop: 10, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: "#0e7490", fontWeight: 800 }}>
+                        📐 Ban (popreko): <b style={{ color: "#0891b2" }}>{ban} {ban === 1 ? "tabak" : "tabaka"}</b> po širini rolne &nbsp;·&nbsp; bočni otpad: <b>{otpad} mm</b>{L > 0 && <> &nbsp;·&nbsp; po 1 m rolne ≈ <b>{poMetru}</b> tabaka (korak {L} mm)</>}
+                    </div>;
+                })()}
+            </Section>
+
+            <Section title="🧱 Materijali (slojevi)" color="#0891b2">
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 8 }}>Više slojeva → nastaje operacija kaширanja (lamiranje).</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr 0.9fr 0.8fr 34px", gap: 6, alignItems: "center", fontSize: 9.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
+                    <div>Materijal</div><div>Debljina (µ)</div><div>Težina (g/m²)</div><div>Širina (mm)</div><div>Cena (€/kg)</div><div></div>
+                </div>
+                {(form.tabak.layers || []).map((l, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr 0.9fr 0.8fr 34px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                        <input style={fieldStyle()} value={l.material || l.vrsta || ""} placeholder="OPP" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], material: e.target.value }; return n; })} />
+                        <input style={fieldStyle()} type="number" value={l.debljina || ""} placeholder="30" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], debljina: e.target.value }; return n; })} />
+                        <input style={fieldStyle()} type="number" value={l.tezina ?? l.gm2 ?? ""} placeholder="27.3" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], tezina: e.target.value }; return n; })} />
+                        <input style={fieldStyle()} type="number" value={l.sirina || ""} placeholder="matična" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], sirina: e.target.value }; return n; })} />
+                        <input style={fieldStyle()} type="number" value={l.cena ?? l.cena_kg ?? ""} placeholder="2.9" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], cena: e.target.value }; return n; })} />
+                        <button type="button" title="Obriši sloj" style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 8, padding: "7px 0", cursor: "pointer", fontWeight: 900 }} onClick={() => setForm(p => { const n = clone(p); if ((n.tabak.layers || []).length > 1) n.tabak.layers = n.tabak.layers.filter((_, idx) => idx !== i); return n; })}>✕</button>
+                    </div>
+                ))}
+                <button type="button" onClick={() => setForm(p => { const n = clone(p); n.tabak.layers = [...(n.tabak.layers || []), { material: "OPP", debljina: "30", tezina: "27.3", sirina: "", cena: "" }]; return n; })}
+                    style={{ border: "1px solid #67e8f9", background: "#ecfeff", color: "#0891b2", borderRadius: 9, padding: "7px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", marginTop: 4 }}>+ Dodaj sloj</button>
+            </Section>
+
+            <Section title="🖨️ Štampa" color="#0891b2">
+                <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.tabak.stampa.stampaSe} onChange={e => update("tabak.stampa.stampaSe", e.target.checked)} />
+                        Tabak se štampa
+                    </label>
+                </div>
+                {form.tabak.stampa.stampaSe && <>
+                    <Grid cols={4}>
+                        <Input label="Mašina" value={form.tabak.stampa.masina} onChange={v => update("tabak.stampa.masina", v)} placeholder="npr. Flexo 8" />
+                        <Input label="Broj boja" value={form.tabak.stampa.brojBoja} onChange={v => update("tabak.stampa.brojBoja", v)} placeholder="npr. 4" />
+                        <Input label="Štamparija" value={form.tabak.stampa.stamparija} onChange={v => update("tabak.stampa.stamparija", v)} placeholder="interno / ime" />
+                        <Input label="Kliše" value={form.tabak.stampa.klise} onChange={v => update("tabak.stampa.klise", v)} placeholder="broj klišea" />
+                    </Grid>
+                    <TextArea label="📝 Napomena (štampa)" value={form.tabak.stampa.napomena || ""} onChange={v => update("tabak.stampa.napomena", v)} placeholder="napomena za štampu…" />
+                </>}
+            </Section>
+
+            {(form.tabak.layers || []).length > 1 && <Section title="🧪 Kaширanje (lamiranje slojeva)" color="#0891b2">
+                <Grid cols={4}>
+                    <Input label="Tip lepka" value={form.tabak.kasiranje.tipLepka} onChange={v => update("tabak.kasiranje.tipLepka", v)} placeholder="npr. SOLVENT" />
+                    <Input label="Odnos lepka" value={form.tabak.kasiranje.odnosLepka} onChange={v => update("tabak.kasiranje.odnosLepka", v)} placeholder="npr. 100:5" />
+                    <Input label="Nanos lepka (g/m²)" value={form.tabak.kasiranje.nanosLepka} onChange={v => update("tabak.kasiranje.nanosLepka", v)} placeholder="npr. 3" />
+                    <Input label="Broj kaширanja" value={form.tabak.kasiranje.brojKasiranja} onChange={v => update("tabak.kasiranje.brojKasiranja", v)} placeholder="npr. 1" />
+                </Grid>
+                <TextArea label="📝 Napomena (kaширanje)" value={form.tabak.kasiranje.napomena || ""} onChange={v => update("tabak.kasiranje.napomena", v)} placeholder="napomena za kaширanje…" />
+            </Section>}
+
+            <Section title="✂️ Rezanje na tabake + dorada" color="#0891b2">
+                <Grid cols={4}>
+                    <Input label="Prečnik matične rolne (mm)" value={form.tabak.rezanje.precnikRolne} onChange={v => update("tabak.rezanje.precnikRolne", v)} placeholder="npr. 600" />
+                    <Input label="Dužina matične rolne (m)" value={form.tabak.rezanje.duzinaRolne} onChange={v => update("tabak.rezanje.duzinaRolne", v)} placeholder="npr. 6000" />
+                    <Input label="Način pakovanja" value={form.tabak.rezanje.nacinPakovanja} onChange={v => update("tabak.rezanje.nacinPakovanja", v)} placeholder="npr. u kutije po 500" />
+                    <Input label="Dorada (opis)" value={form.tabak.rezanje.dorada} onChange={v => update("tabak.rezanje.dorada", v)} placeholder="npr. ćoškovi" />
+                </Grid>
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", margin: "12px 0 6px" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.tabak.presavijanje} onChange={e => update("tabak.presavijanje", e.target.checked)} /> Presavijanje
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.tabak.pakovanjeHrana} onChange={e => update("tabak.pakovanjeHrana", e.target.checked)} /> Pakovanje za hranu
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.tabak.perforacija} onChange={e => update("tabak.perforacija", e.target.checked ? { tip: "linija", odVrha: 50, odDna: 50, sirina: Number(form.tabak.sirina) || 270, visina: 600, razmakRupa: 5, linije: [{ poz: "", strana: "leva", razmak: "" }] } : null)} /> Perforacija
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.tabak.rupe} onChange={e => update("tabak.rupe", e.target.checked ? { rupe: [{ precnik: "", odLeve: "", odVrha: "" }] } : null)} /> Rupe / zumbe
+                    </label>
+                </div>
+                {form.tabak.perforacija && <div style={{ marginTop: 8 }}>
+                    <PerforacijaEditor value={form.tabak.perforacija} dizajn={form.tabak.stampa.dizajn} onChange={v => update("tabak.perforacija", v)} />
+                </div>}
+                <TextArea label="📝 Napomena (rezanje / dorada)" value={form.tabak.izradaNapomena || ""} onChange={v => update("tabak.izradaNapomena", v)} placeholder="napomena za rezač (rezanje, dorada, pakovanje)…" />
+            </Section>
+        </>}
+
         <Section title={"📚 " + t("tmpl.biblioteka")} color="#0f172a">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Ukupno</div><div style={{ fontSize: 24, fontWeight: 950 }}>{saved.length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Folije</div><div style={{ fontSize: 24, fontWeight: 950, color: BLUE }}>{saved.filter(t => t.tip === "folija").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Kese</div><div style={{ fontSize: 24, fontWeight: 950, color: ORANGE }}>{saved.filter(t => t.tip === "kesa").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Špulne</div><div style={{ fontSize: 24, fontWeight: 950, color: "#7c3aed" }}>{saved.filter(t => t.tip === "spulna").length}</div></div>
+                <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Tabaci</div><div style={{ fontSize: 24, fontWeight: 950, color: "#0891b2" }}>{saved.filter(t => t.tip === "tabak").length}</div></div>
             </div>
             {saved.length === 0 ? <div style={{ color: "#64748b" }}>Još nema sačuvanih template-a u Product Master bazi. Popuni foliju/kesu/špulnu i klikni „Sačuvaj template”.</div> : <div style={{ display: "grid", gap: 10 }}>
                 {saved.map(t => <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, background: "#fff" }}>
@@ -4649,7 +4848,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>ID: {t.product_master_id || t.id} · verzija: {t.template_version || "V26"} · sačuvano: {t.created_at ? new Date(t.created_at).toLocaleDateString("sr-RS") : "—"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <button onClick={() => { setForm(clone(t.data)); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
+                        <button onClick={() => { setForm({ ...clone(defaultForm), ...clone(t.data) }); setActiveTab(t.tip); msg && msg("Template učitan"); }} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer" }}>📝 Otvori</button>
                         <button onClick={() => createCalculationFromTemplate(t)} style={{ border: "none", background: GREEN, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>🧮 Kreiraj kalkulaciju</button>
                         <button onClick={() => createOfferDraft(t)} style={{ border: "none", background: BLUE, color: "#fff", borderRadius: 8, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>📄 Kreiraj ponudu</button>
                         <button onClick={async () => {
@@ -4672,7 +4871,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
 
         {/* ════ MODAL ZA NALOG MATERIJALA ════ */}
         {nalogModal && (() => {
-            const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.spulna?.layers) || [];
+            const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
             const { kol, kolPlus } = orderMetraze(form);
             const sir = Number(form.idealnaSirinaMaterijala) || 0;
             const sirinaM = sir / 1000;

@@ -14,7 +14,7 @@ export function num2(v) { return Number(String(v ?? 0).replace(/\s/g, "").replac
 export function safeJson(v, f) { if (v == null) return f; if (typeof v === "object") return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
 
 // Operativni nalozi nose sufiks operacije; glavni broj je bez njega.
-export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|FORMATIRANJE|KESA|SPULNA)$/i;
+export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|REZANJE_TABAKA|FORMATIRANJE|KESA|SPULNA)$/i;
 export const canonRef = (r) => String(r || "").trim().replace(OP_SUFIKS, "");
 export const jeMP = (r) => /^MP-\d{4}-\d+/i.test(canonRef(r));
 
@@ -30,6 +30,7 @@ export function opKljuc(n) {
     if (t.includes("\u0161tamp") || t.includes("stamp")) return "stampa";
     if (t.includes("lak")) return "lakiranje";
     if (t.includes("ka\u0161") || t.includes("kas")) return "kasiranje";
+    if (t.includes("tabak") || t.includes("tabac")) return "rezanje_tabaka";
     if (t.includes("perf") || t.includes("rez")) return "perforacija_rezanje";
     if (t.includes("format")) return "formatiranje";
     if (t.includes("kes")) return "kesa";
@@ -174,7 +175,7 @@ export function stvarnoMin(n) {
 // FORMATIRANJE ide ODMAH posle materijala (slitovanje matične rolne na trake idealne širine),
 // PRE svih mašinskih operacija — tako blokada „čeka prethodnu" pravilno veže: formatiranje čeka
 // samo materijal, a štampa/rezanje/kesa/špulna čekaju formatiranje kad ga nalog ima.
-export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "kesa", "spulna"];
+export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "rezanje_tabaka", "kesa", "spulna"];
 
 // LAKIRANJE SPOJA: kad su u templejtu za lak čekirana 2 ili više materijala, ne lakira se
 // pojedinačan materijal nego SPOJ — pa lakiranje ide POSLE kaširanja:
@@ -289,4 +290,5 @@ export function nadjiBlokadu(masterBroj, mojKljuc, mapa) {
 export const OP_LABELE = {
     materijal: "MATERIJAL", stampa: "\u0160TAMPA", lakiranje: "LAKIRANJE", kasiranje: "KA\u0160IRANJE",
     perforacija_rezanje: "REZANJE", formatiranje: "FORMATIRANJE", kesa: "KESA", spulna: "\u0160PULNA",
+    rezanje_tabaka: "REZANJE TABAKA",
 };

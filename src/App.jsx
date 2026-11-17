@@ -1490,6 +1490,7 @@ function MainAppContent() {
         if (t === "špulna") return "spulna";
         if (t.includes("spul")) return "spulna";
         if (t.includes("kes")) return "kesa";
+        if (t.includes("tabak") || t.includes("tabac") || t.includes("arak") || t.includes("list")) return "tabak";
         return "folija";
     }
 
@@ -1698,6 +1699,10 @@ function MainAppContent() {
         } else if (tipProizvoda === "spulna") {
             tipovi.push({ tip: "formatiranje", naziv: "Nalog za formatiranje", ik: "roll", boj: "#7c3aed" });
             tipovi.push({ tip: "spulna", naziv: "Nalog za špulnu", ik: "roll", boj: "#059669" });
+        } else if (tipProizvoda === "tabak") {
+            tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaширanje", ik: "link", boj: "#1d4ed8" });
+            tipovi.push({ tip: "rezanje_tabaka", naziv: "Nalog za rezanje na tabake", ik: "cut", boj: "#0891b2" });
         } else {
             tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
             tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
@@ -2545,7 +2550,7 @@ function MainAppContent() {
                                                                     <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
                                                                         <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
                                                                         <span style={{ fontWeight: 800, fontSize: 15, color: statusStil(n.status).traka }}>{(function () {
-                                                                            var OP = { stampa: "Štampa", lakiranje: "Lakiranje", kasiranje: "Kaširanje", perforacija_rezanje: "Perforacija i rezanje", rezanje: "Rezanje", perforacija: "Perforacija", materijal: "Potreba materijala", kesa: "Kesa", formatiranje: "Formatiranje", spulna: "Špulna", master: "Glavni nalog" };
+                                                                            var OP = { stampa: "Štampa", lakiranje: "Lakiranje", kasiranje: "Kaširanje", perforacija_rezanje: "Perforacija i rezanje", rezanje_tabaka: "Rezanje na tabake", rezanje: "Rezanje", perforacija: "Perforacija", materijal: "Potreba materijala", kesa: "Kesa", formatiranje: "Formatiranje", spulna: "Špulna", master: "Glavni nalog" };
                                                                             var t = String(n.tip_naloga || n.vrsta || n.operacija || "").toLowerCase();
                                                                             return OP[t] || n.operacija || n.naziv || "Operacija";
                                                                         })()}</span>
