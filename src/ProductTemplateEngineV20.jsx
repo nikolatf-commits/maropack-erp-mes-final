@@ -3647,7 +3647,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         const section = tpl[tip] || {};
         const naziv = record?.naziv || tpl.naziv || section.naziv || "Novi proizvod";
         const layers = section.layers || tpl.folija?.layers || [];
-        const kolicina = tip === "kesa" ? Number(section.kolicina || 0) : tip === "spulna" ? Number(section.maxMetara || 0) : Number(section?.rezanje?.duzinaRolne || 0);
+        const kolicina = tip === "kesa" ? Number(section.kolicina || 0) : tip === "spulna" ? Number(section.maxMetara || 0) : (tip === "tabak" || tip === "polucrevo") ? Number(section.kolicina || 0) : Number(section?.rezanje?.duzinaRolne || 0);
         return {
             id: "KAL-TPL-" + Date.now(),
             created_at: new Date().toISOString(),
@@ -3715,7 +3715,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
         } catch (e) {
             msg && msg("Kalkulacija nije sačuvana u bazu: " + (e?.message || e), "err");
         }
-        const targetPage = kal.tip === "folija" ? "kalk_folija" : kal.tip === "kesa" ? "kalk_kesa" : "kalk_spulna";
+        const targetPage = kal.tip === "folija" ? "kalk_folija" : kal.tip === "kesa" ? "kalk_kesa" : kal.tip === "tabak" ? "kalk_tabak" : kal.tip === "polucrevo" ? "kalk_polucrevo" : "kalk_spulna";
         setPage && setPage(targetPage);
     }
 

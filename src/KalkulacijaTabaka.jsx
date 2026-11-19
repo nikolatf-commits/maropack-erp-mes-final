@@ -162,6 +162,46 @@ export default function KalkulacijaTabaka({ setPage }) {
         } catch (e) { /* ignore */ }
     }, []);
 
+    // ── PREFILL IZ TEMPLEJTA (templejt → kalkulacija) — „maropack_pending_template_calculation" ──
+    // Čita se SAMO ako se ne otvara sačuvana kalkulacija (edit ima prednost).
+    useEffect(() => {
+        try {
+            if (localStorage.getItem('maropack_edit_kalk_tabak') || localStorage.getItem('editKalkulacija')) return;
+            const raw = localStorage.getItem('maropack_pending_template_calculation');
+            if (!raw) return;
+            const kal = JSON.parse(raw);
+            if ((kal.tip || kal.template?.type) !== 'tabak') return;
+            const tpl = kal.template || kal.data || kal.kalkulator_prefill || {};
+            const tb = tpl.tabak || {};
+            setNaziv(tpl.naziv || tb.naziv || '');
+            setKupac(tpl.kupac || '');
+            setKolicina(n(tb.kolicina));
+            if (n(tb.skart)) setSkart(n(tb.skart));
+            setSirina(n(tb.sirina));
+            setDuzina(n(tb.duzina));
+            setSirinaMaterijala(n(tb.sirinaMaterijala) || n(tpl.idealnaSirinaMaterijala));
+            const layers = (Array.isArray(tb.layers) && tb.layers.length) ? tb.layers : (Array.isArray(kal.materijali) && kal.materijali.length ? kal.materijali : []);
+            if (layers.length) setMaterijali(layers.map((l) => ({
+                tip: l.vrsta || l.material || l.tip || 'OPP',
+                vrsta: l.vrsta || l.material || l.tip || 'OPP',
+                pod_vrsta: l.pod_vrsta || l.podVrsta || '',
+                oznaka: l.oznaka_materijala || l.oznaka || '',
+                proizvodjac: l.proizvodjac || l.proizvođač || '',
+                debljina: String(l.debljina ?? l.deb ?? ''),
+                tezina: n(l.gm2 ?? l.tezina ?? l.tezinaGm2 ?? l.gsm),
+                gm2: n(l.gm2 ?? l.tezina ?? l.tezinaGm2 ?? l.gsm),
+                cena: n(l.cena ?? l.cena_kg),
+                stampa: !!(l.stampa || l.st || l['Š']),
+                lak: !!(l.lak || l.lakira),
+            })));
+            setOpts((prev) => ({
+                perforacija: !!tb.perforacija, zumbe: !!tb.rupe,
+                pakHrana: !!tb.pakovanjeHrana, presavijanje: !!tb.presavijanje,
+            }));
+            if (tb.pakovanje != null) setNapomena(tb.pakovanje || '');
+        } catch (e) { /* ignore */ }
+    }, []);
+
     // ── OBRAČUN ──
     useEffect(() => {
         const W = n(sirina), L = n(duzina), WM = n(sirinaMaterijala), kol = n(kolicina);
@@ -225,6 +265,7 @@ export default function KalkulacijaTabaka({ setPage }) {
                 vrsta: m.vrsta || m.tip || '', pod_vrsta: m.pod_vrsta || m.podVrsta || '', oznaka: m.oznaka || m.oznaka_materijala || '',
                 proizvodjac: m.proizvodjac || m.proizvođač || '',
                 debljina: n(m.debljina), gm2: tezM(m), cena: n(m.cena ?? m.cena_kg),
+                stampa: !!(m.stampa || m.st), lak: !!(m.lak || m.lakira),
             }));
             const avgTez = materijali.length ? materijali.reduce((a, m) => a + tezM(m), 0) / materijali.length : 0;
             const avgCena = materijali.length ? materijali.reduce((a, m) => a + n(m.cena ?? m.cena_kg), 0) / materijali.length : 0;
@@ -363,7 +404,7 @@ export default function KalkulacijaTabaka({ setPage }) {
                             maxLayers={4}
                             showPrice={true}
                             showWidth={false}
-                            showFlags={false}
+                            showFlags={true}
                             onChange={(next) => setMaterijali(next)}
                             onAdd={(row) => setMaterijali([...materijali, row])}
                             onRemove={(idx) => delMat(idx)}
