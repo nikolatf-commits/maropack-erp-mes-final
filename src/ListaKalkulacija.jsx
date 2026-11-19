@@ -233,6 +233,18 @@ export default function ListaKalkulacija({ setPage, onOtvoriKalkulaciju, onKreir
                     >
                         ➕ Nova Špulna
                     </button>
+                    <button
+                        onClick={() => setPage('kalk_tabak')}
+                        style={btnPrimary}
+                    >
+                        ➕ Nov Tabak
+                    </button>
+                    <button
+                        onClick={() => setPage('kalk_polucrevo')}
+                        style={btnPrimary}
+                    >
+                        ➕ Novo Polucrevo
+                    </button>
                 </div>
             </div>
 

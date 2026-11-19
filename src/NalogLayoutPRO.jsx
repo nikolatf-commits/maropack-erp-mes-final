@@ -10,6 +10,7 @@ import CrtezKese, { kesaToConfig, TIPOVI } from "./CrtezKese.jsx";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
 import { kutijaPoKljucu, KUTIJA_LBL } from "./kutije.js";
 import { toCrtezKesa, KESA_OPCIJE, KESA_GRUPE, KESA_TIP_PRESET, FOOD_TEXT, opcijaNaloga } from "./kesaOpcije.js";
+import { tabakSkicaSVG, polucrevoSkicaSVG } from "./components/RolnaPerfViews.jsx";
 import { supabase } from "./supabase";
 
 /* ---------- helpers ---------- */
@@ -78,17 +79,19 @@ function _getData(nalog) {
     const kesa = linked.kesa || od.kesa || t.kesa || (t.data && t.data.kesa) || {};
     const spulna = linked.spulna || od.spulna || t.spulna || (t.data && t.data.spulna) || {};
     const tabak = linked.tabak || od.tabak || t.tabak || (t.data && t.data.tabak) || {};
+    const polucrevo = linked.polucrevo || od.polucrevo || t.polucrevo || (t.data && t.data.polucrevo) || {};
     const pdf = linked.pdf || od.pdf || t.pdf || {};
-    return { linked, od, t, folija, kesa, spulna, tabak, pdf };
+    return { linked, od, t, folija, kesa, spulna, tabak, polucrevo, pdf };
 }
 
 function buildLayers(nalog) {
-    const { od, folija, kesa, spulna, tabak } = getData(nalog);
+    const { od, folija, kesa, spulna, tabak, polucrevo } = getData(nalog);
     const tip_ = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase();
     const jeKesa = tip_.includes("kes");
     const jeSpulna = tip_.includes("spul") || tip_.includes("špul");
     const jeTabak = tip_.includes("tabak") || tip_.includes("tabac");
-    const src = jeTabak ? tabak : (jeSpulna ? spulna : (jeKesa ? kesa : folija));
+    const jePolucrevo = tip_.includes("polucrev") || tip_.includes("crevo") || tip_.includes("creva");
+    const src = jePolucrevo ? polucrevo : jeTabak ? tabak : (jeSpulna ? spulna : (jeKesa ? kesa : folija));
     const normalized = normalizeLayers(nalog, nalog.tip_proizvoda || nalog.tip) || [];
     const arr = (Array.isArray(od.materijali) && od.materijali.length ? od.materijali : (Array.isArray(src.layers) && src.layers.length ? src.layers : normalized)) || [];
     return arr.slice(0, 6).map((m, i) => ({
@@ -109,17 +112,42 @@ function buildLayers(nalog) {
 
 /* ---------- D (podaci za v6) ---------- */
 function buildD(nalog) {
-    const { od, t, folija, kesa, spulna, tabak } = getData(nalog);
+    const { od, t, folija, kesa, spulna, tabak, polucrevo } = getData(nalog);
     const jeKesa = String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase().includes("kes");
     const jeSpulna = /spul|špul/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const jeTabak = /tabak|tabac/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
+    const jePolucrevo = /polucrev|crevo|creva/.test(String(nalog.tip_proizvoda || nalog.tip || "").toLowerCase());
     const LAY = buildLayers(nalog);
     const TOTu = LAY.reduce((s, l) => s + l.u, 0);
+    // TABAK — prave metrike (matična rolna → tabaci), da materijal/štampa strane ne pokazuju folija-nule.
+    const tabakM = jeTabak ? (function () {
+        const tb = tabak || {};
+        const W = num(tb.sirina), L = num(tb.duzina);
+        const WM = num(tb.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || 0;
+        const kom = num(tb.kolicina);
+        const ban = (WM > 0 && W > 0) ? Math.max(1, Math.floor(WM / W)) : 1;
+        const redova = ban > 0 ? Math.ceil(kom / ban) : kom;
+        const mMat = Math.round(redova * (L / 1000));
+        return { W, L, WM, kom, ban, mMat, korak: L };
+    })() : null;
+    // POLUCREVO — folija presavijena po dužini. Ravna (flat) traka = 2×širina (+falta).
+    // N traka iz matične; presavijanje ne menja dužinu → metri polucreva = metri flat-trake.
+    const pcM = jePolucrevo ? (function () {
+        const pc = polucrevo || {};
+        const prz = pc.rezanje || {};
+        const sir = num(pc.sirina);
+        const falta = pc.imaFalta ? num(pc.falta) : 0;
+        const flat = sir > 0 ? (2 * sir + falta) : 0;
+        const WM = num(prz.sirinaMaterijala) || num(pc.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || 0;
+        const rucnoN = Math.floor(num(prz.brojTrakaOverride));
+        const N = rucnoN > 0 ? rucnoN : (WM > 0 && flat > 0 ? Math.max(1, Math.floor(WM / flat)) : 1);
+        return { sir, falta, flat, WM, N, jed: String(pc.jedinicaUnosa || "m").toLowerCase(), kol: num(pc.kolicina), skart: num(pc.skart) || 5 };
+    })() : null;
     // Poručena količina + JEDINICA (m / kom / kg). Konverzija u metre GOTOVE trake ide niže,
     // kad su poznati broj traka (N), korak i g/m². Ranije se sirovih 1000 (npr. kg) uzimalo
     // kao metri → pogrešno "1.000 m" i "15 kg". Sada: 1000 kg → prava dužina + prava kilaža.
-    const jedinica = String(t.jedinicaUnosa || nalog.jedinica_unosa || nalog.jedinicaUnosa || od.jedinica_unosa || od.jedinicaUnosa || "m").toLowerCase();
-    const zadatoV = num(t.porucenaKolicina) || num(nalog.porucena_kolicina) || num(od.porucena_kolicina) || num(od.kolicina) || 0;
+    const jedinica = jePolucrevo ? (pcM ? pcM.jed : "m") : jeTabak ? "kom" : String(t.jedinicaUnosa || nalog.jedinica_unosa || nalog.jedinicaUnosa || od.jedinica_unosa || od.jedinicaUnosa || "m").toLowerCase();
+    const zadatoV = jePolucrevo ? (pcM ? pcM.kol : 0) : jeTabak ? (tabakM ? tabakM.kom : 0) : (num(t.porucenaKolicina) || num(nalog.porucena_kolicina) || num(od.porucena_kolicina) || num(od.kolicina) || 0);
     const skartPct = num(t.folijaSkart) || num((folija.rezanje || {}).skart) || 5;
     const metrazaDirekt = num(nalog.metraza || nalog.kol || nalog.kolicina) || 0; // ako je već u metrima trake
     let kolicina = 0; // metri GOTOVE trake — postavlja se niže, posle broja traka
@@ -127,14 +155,16 @@ function buildD(nalog) {
     const fr = folija.finalRoll || {};
     // Štampa: za kesu uzmi kesa.stampa (pun blok kao kod folije), inače folija.stampa.
     // Tako nalog za štampu KESE prikazuje mašinu, boje i dizajn na rolni — isto kao folija.
-    const st = (jeKesa ? (kesa && kesa.stampa) : (folija && folija.stampa)) || {};
-    let sirinaMat = num(rz.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(LAY[0] && LAY[0].sirina) || num(nalog.sirina) || 840;
+    const st = (jeKesa ? (kesa && kesa.stampa) : jeTabak ? (tabak && tabak.stampa) : jePolucrevo ? (polucrevo && polucrevo.stampa) : (folija && folija.stampa)) || {};
+    let sirinaMat = (jePolucrevo && pcM && pcM.WM) ? pcM.WM : (jeTabak && tabakM && tabakM.WM) ? tabakM.WM : (num(rz.sirinaMaterijala) || num(t.idealnaSirinaMaterijala) || num(LAY[0] && LAY[0].sirina) || num(nalog.sirina) || 840);
 
     // rezanje - MORA pre kgF, jer broj traka ulazi u obracun kilaze
     let lanes = Array.isArray(rz.sirineTraka) && rz.sirineTraka.length ? rz.sirineTraka.map(num).filter(Boolean) : [];
     if (typeof rz.sirineTraka === "string" && !lanes.length) lanes = String(rz.sirineTraka).split(",").map(num).filter(Boolean);
     if (!lanes.length && Array.isArray(rz.trake) && rz.trake.length) lanes = rz.trake.map((x) => num(x.sirina || x.width)).filter(Boolean);
     if (!lanes.length && num(rz.brojTraka) && num(rz.sirinaTrake)) lanes = Array.from({ length: num(rz.brojTraka) }, () => num(rz.sirinaTrake));
+    // POLUCREVO — trake su ravne folije širine flat (2×širina+falta), N komada popreko.
+    if (jePolucrevo && pcM && pcM.flat > 0) lanes = Array.from({ length: pcM.N }, () => pcM.flat);
     let usedW = lanes.reduce((s, x) => s + x, 0);
     let otpad = num(rz.otpad) || Math.max(0, sirinaMat - usedW);
 
@@ -158,8 +188,8 @@ function buildD(nalog) {
     // ---- OBRACUN (ispravljeno) ----
     // `kolicina` = metri GOTOVE TRAKE. Rezanje NE skracuje duzinu - multiplicira je po traci.
     // Zato je maticna rolna N puta KRACA, i po njoj se racuna kilaza.
-    const N = lanes.length || num(rz.brojTraka) || 1;
-    const korak = num(t.dimenzijaDuzina) || 0;
+    const N = (jePolucrevo && pcM) ? pcM.N : (jeTabak && tabakM) ? tabakM.ban : (lanes.length || num(rz.brojTraka) || 1);
+    const korak = (jePolucrevo) ? 0 : (jeTabak && tabakM) ? tabakM.korak : (num(t.dimenzijaDuzina) || 0);
     // --- Konverzija poručene količine u METRE GOTOVE TRAKE (isti model kao folijaObracun) ---
     const totalGm2D = LAY.reduce((s, l) => s + (num(l.gm2) || 0), 0);
     const sirMatM = sirinaMat / 1000, korakM = korak / 1000;
@@ -173,9 +203,9 @@ function buildD(nalog) {
     } else {
         kolicina = metrazaDirekt;
     }
-    const metriMat = N > 0 ? kolicina / N : kolicina;
+    const metriMat = (jeTabak && tabakM) ? tabakM.mMat : (N > 0 ? kolicina / N : kolicina);
     const komPoTraci = korak > 0 ? Math.round(metriMat * 1000 / korak) : 0;
-    const komUkupno = komPoTraci * N;
+    const komUkupno = (jeTabak && tabakM) ? tabakM.kom : komPoTraci * N;
     const kgF = (metriMat / 1000) * (sirinaMat / 1000);   // bilo: kolicina umesto metriMat
 
     // boje (stanica \u00b7 boja \u00b7 tip \u00b7 anilox \u00b7 kli\u0161e)
@@ -210,8 +240,9 @@ function buildD(nalog) {
     })();
     const pf = _folijaPerf
         ? _folijaPerf
-        : (kesa.perforacija && typeof kesa.perforacija === "object" && (kesa.perforacijaPreKese || kesa.formiranjePreKese)) ? kesa.perforacija
-            : {};
+        : (jePolucrevo && polucrevo.perforacija && typeof polucrevo.perforacija === "object") ? polucrevo.perforacija
+            : (kesa.perforacija && typeof kesa.perforacija === "object" && (kesa.perforacijaPreKese || kesa.formiranjePreKese)) ? kesa.perforacija
+                : {};
     // kg (svi slojevi na matičnoj rolni) + jedinica koju je korisnik zadao + da li ima perforacije
     const kgUkupno = LAY.reduce((s, l) => s + (num(l.gm2) || 0) * kgF, 0);
     // + dodatak (škart): matična rolna i kilaža koje se stvarno skidaju iz magacina
@@ -278,12 +309,16 @@ function buildD(nalog) {
             try { if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = null; }
             return (p && (p.broj_porudzbine || p.brojPorudzbine)) || t.brojPorudzbine || t.broj_porudzbine || od.brojPorudzbine || od.broj_porudzbine || nalog.broj_porudzbine || "";
         })(),
-        tipLabel: (jeTabak ? "Tabak" : jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
-        // Dimenzije: širina × dužina KOMADA (mm). Ako dužina komada nije upisana na početku
-        // templejta, prikaži METRAŽU FINALNE ROLNE (izračunatu iz prečnika ili unetu u rezanju).
-        dimenzije: num(t.dimenzijaDuzina)
-            ? ((num(t.dimenzijaSirina) || "?") + " × " + num(t.dimenzijaDuzina) + " mm")
-            : ((num(t.dimenzijaSirina) || "?") + " mm × " + (eDuzinaRolne ? (fmtN(eDuzinaRolne) + " m rolna") : "?")),
+        tipLabel: (jePolucrevo ? "Polucrevo" : jeTabak ? "Tabak" : jeSpulna ? "Špulna" : jeKesa ? "Kesa" : "Folija") + (LAY.length ? " · " + LAY.length + " sloja" : ""),
+        // Dimenzije: širina × dužina KOMADA (mm). Tabak: dimenzija tabaka (š×d). Ako dužina komada
+        // nije upisana, prikaži METRAŽU FINALNE ROLNE (izračunatu iz prečnika ili unetu u rezanju).
+        dimenzije: (jePolucrevo && pcM && pcM.sir)
+            ? (pcM.sir + " mm (polucrevo) · ravno " + pcM.flat + " mm")
+            : (jeTabak && tabakM && tabakM.W && tabakM.L)
+            ? (tabakM.W + " × " + tabakM.L + " mm")
+            : (num(t.dimenzijaDuzina)
+                ? ((num(t.dimenzijaSirina) || "?") + " × " + num(t.dimenzijaDuzina) + " mm")
+                : ((num(t.dimenzijaSirina) || "?") + " mm × " + (eDuzinaRolne ? (fmtN(eDuzinaRolne) + " m rolna") : "?"))),
         kom: (jedinica === "kom" && zadatoV) ? zadatoV : (od.kom || t.porucenaKolicinaKom || nalog.kom || (komUkupno || "—")),
         kolicina, sirinaMat, kgF, LAY, TOTu, boje,
         // ID operacije (za pamćenje izbora na nalogu, npr. raspored ivičnog otpada)
@@ -293,7 +328,14 @@ function buildD(nalog) {
         // Korona tretman (folija) — provlači se na sve naloge
         koronaTretman: t.koronaTretman || t.korona || od.koronaTretman || nalog.korona_tretman || "",
         koronaNapomena: t.koronaNapomena || od.koronaNapomena || nalog.korona_napomena || "",
-        metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna, jeTabak,
+        metriMat, N, korak, komPoTraci, komUkupno, jeKesa, jeSpulna, jeTabak, jePolucrevo,
+        // POLUCREVO — podaci za rezanje (var/otvor) i pravljenje creva
+        polucrevo: jePolucrevo ? {
+            sir: pcM ? pcM.sir : 0, flat: pcM ? pcM.flat : 0, falta: pcM ? pcM.falta : 0,
+            imaVar: !!polucrevo.imaVar, imaFalta: !!polucrevo.imaFalta,
+            suprotnaIvica: (polucrevo.rezanje && polucrevo.rezanje.suprotnaIvica) || (polucrevo.imaVar ? "var" : "otvor"),
+            pravljenjeCreva: polucrevo.pravljenjeCreva || {},
+        } : null,
         dizajn: (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {},
         // Više dizajna na rolni (montaža) — folija: dizajni[] + trake[]; fotomarker/QR su u slici.
         viseDizajna: (st.viseDizajna && typeof st.viseDizajna === "object") ? st.viseDizajna : { enabled: false },
@@ -310,23 +352,26 @@ function buildD(nalog) {
             klise: st.klise, obimValjka: st.obimValjka, hilzna: st.precnikHilzne, stamparija: st.stamparija,
         },
         kas: {
-            // Kaширanje čita folija / kesa / ŠPULNA — koji god tip da je nalog.
-            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]) || pick(kesa.kasiranje || {}, ["tipLepka", "lepak"]) || pick(spulna.kasiranje || {}, ["tipLepka", "lepak"]),
-            odnos: (folija.kasiranje || {}).odnosLepka || (kesa.kasiranje || {}).odnosLepka || (spulna.kasiranje || {}).odnosLepka,
-            nanos: (folija.kasiranje || {}).nanosLepka || (kesa.kasiranje || {}).nanosLepka || (spulna.kasiranje || {}).nanosLepka,
-            broj: (folija.kasiranje || {}).brojKasiranja || (kesa.kasiranje || {}).brojKasiranja || (spulna.kasiranje || {}).brojKasiranja || Math.max(0, LAY.length - 1),
+            // Kaширanje čita folija / kesa / ŠPULNA / TABAK — koji god tip da je nalog.
+            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]) || pick(kesa.kasiranje || {}, ["tipLepka", "lepak"]) || pick(spulna.kasiranje || {}, ["tipLepka", "lepak"]) || pick((tabak && tabak.kasiranje) || {}, ["tipLepka", "lepak"]),
+            odnos: (folija.kasiranje || {}).odnosLepka || (kesa.kasiranje || {}).odnosLepka || (spulna.kasiranje || {}).odnosLepka || ((tabak && tabak.kasiranje) || {}).odnosLepka,
+            nanos: (folija.kasiranje || {}).nanosLepka || (kesa.kasiranje || {}).nanosLepka || (spulna.kasiranje || {}).nanosLepka || ((tabak && tabak.kasiranje) || {}).nanosLepka,
+            broj: (folija.kasiranje || {}).brojKasiranja || (kesa.kasiranje || {}).brojKasiranja || (spulna.kasiranje || {}).brojKasiranja || ((tabak && tabak.kasiranje) || {}).brojKasiranja || Math.max(0, LAY.length - 1),
             // Širina valjka za kaširanje — iz templejta (predlog valjka); rezerva: razni nazivi
             valjak: num(rz.predlogValjkaKasiranja) || num(rz.valjakKasiranja) || num((folija.kasiranje || {}).valjak) || num((folija.kasiranje || {}).sirinaValjka)
                 || num((kesa.rezanje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).valjak)
                 || num((spulna.rezanje || {}).predlogValjkaKasiranja) || num((spulna.kasiranje || {}).predlogValjkaKasiranja) || num((spulna.kasiranje || {}).valjak) || num(spulna.predlogValjkaKasiranja)
                 || num(t.predlogValjkaKasiranja) || 0,
         },
-        lak: {
-            tip: pick(folija.lakiranje || {}, ["tip", "tipLaka", "vrsta"]),
-            masina: (folija.lakiranje || {}).masina, strana: (folija.lakiranje || {}).strana,
-            nanos: (folija.lakiranje || {}).nanos, pokrivenost: (folija.lakiranje || {}).pokrivenost,
-            susenje: (folija.lakiranje || {}).susenje, napomena: (folija.lakiranje || {}).napomena,
-        },
+        lak: (function () {
+            var lk = (jePolucrevo ? polucrevo.lakiranje : jeTabak ? tabak.lakiranje : folija.lakiranje) || {};
+            return {
+                tip: pick(lk, ["tip", "tipLaka", "vrsta"]),
+                masina: lk.masina, strana: lk.strana,
+                nanos: lk.nanos, pokrivenost: lk.pokrivenost,
+                susenje: lk.susenje, napomena: lk.napomena,
+            };
+        })(),
         rez: {
             sirinaMat, lanes, otpad, brojTraka: lanes.length || num(rz.brojTraka),
             sirinaTrake: num(rz.sirinaTrake) || lanes[0] || 0,
@@ -760,7 +805,9 @@ function statRow(D, extra) {
         + stat('Matična +' + (D.skartPct || 5) + '%', fmtN(D.metriMatPlus), 'm', '#059669')
         + stat('Debljina', D.TOTu, 'µm', '#0ea5e9')
         + stat('Slojeva', D.LAY.length, D.LAY.length === 4 ? 'kvadripleks' : (D.LAY.length === 3 ? 'tripleks' : (D.LAY.length === 2 ? 'dupleks' : 'sloj')), '#14b8a6')
-        + stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp)
+        + (D.jeTabak
+            ? stat('Ban', D.N || '—', 'popreko', COLp)
+            : stat('Traka', D.rez.brojTraka || '—', '×' + (D.rez.sirinaTrake || '—') + 'mm', COLp))
         + '</div>';
     return out;
 }
@@ -1165,38 +1212,25 @@ function tabakD(nalog) {
     const mMat = redova * (L / 1000);
     const perRolniM = (L > 0) ? ban * Math.floor(1000 / L) : 0;
     const rz = tb.rezanje || {};
+    const st = tb.stampa || {};
+    const dz = (st.dizajn && typeof st.dizajn === "object") ? st.dizajn : {};
+    const imaStampu = !!st.stampaSe && !!(dz.url || dz.slika);
     return {
         W, L, WM, kom, ban, otpad, redova, mMat, perRolniM,
         presavijanje: !!tb.presavijanje, pakovanjeHrana: !!tb.pakovanjeHrana,
-        perforacija: tb.perforacija, rupe: tb.rupe,
+        perforacija: (tb.perforacija && typeof tb.perforacija === "object") ? tb.perforacija : null, rupe: tb.rupe,
+        dizajn: dz, imaStampu,
         dorada: rz.dorada || "", nacinPakovanja: rz.nacinPakovanja || "", pakovanje: tb.pakovanje || "",
     };
 }
 
-// Šematski crtež: matična rolna (širina) → ban tabaka popreko (+ bočni otpad), rez po dužini (korak).
+// Šematski crtež: matična rolna → ban tabaka popreko (+ bočni otpad), rez po dužini (korak),
+// dizajn (skica štampe) ubačen u tabake + perforacija. Deli istu funkciju sa templejtom (tabakSkicaSVG).
 function tabakCrtez(T) {
-    const X0 = 60, X1 = 660, topY = 54;
-    const WM = T.WM || 1, W = T.W || 1, ban = T.ban || 1, otpad = Math.max(0, T.otpad || 0);
-    const sx = (X1 - X0) / WM;
-    const colW = W * sx, otW = otpad * sx;
-    const rowH = 92, nRows = 3, botY = topY + nRows * rowH;
-    let s = '<rect x="' + X0 + '" y="' + topY + '" width="' + (X1 - X0) + '" height="' + (nRows * rowH) + '" fill="#ecfeff" stroke="#0e7490" stroke-width="1.4"/>';
-    let x = X0;
-    for (let c2 = 0; c2 < ban; c2++) {
-        s += '<rect x="' + x + '" y="' + topY + '" width="' + colW + '" height="' + (nRows * rowH) + '" fill="#cffafe" fill-opacity=".5" stroke="#0891b2" stroke-width="1"/>';
-        if (colW > 22) s += '<text x="' + (x + colW / 2) + '" y="' + (topY + rowH / 2 + 4) + '" text-anchor="middle" font-size="12" font-weight="900" fill="#0e7490">T' + (c2 + 1) + '</text>';
-        x += colW;
-    }
-    if (otW > 1) {
-        s += '<rect x="' + x + '" y="' + topY + '" width="' + otW + '" height="' + (nRows * rowH) + '" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>';
-        if (otW > 14) s += '<text x="' + (x + otW / 2) + '" y="' + (topY + nRows * rowH / 2) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#b91c1c" transform="rotate(-90 ' + (x + otW / 2) + ' ' + (topY + nRows * rowH / 2) + ')">OTPAD ' + otpad + '</text>';
-    }
-    for (let r = 1; r < nRows; r++) { const y = topY + r * rowH; s += '<line x1="' + X0 + '" y1="' + y + '" x2="' + X1 + '" y2="' + y + '" stroke="#dc2626" stroke-width="1.1" stroke-dasharray="7 4"/>'; }
-    s += '<text x="' + ((X0 + X1) / 2) + '" y="' + (botY + 24) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#64748b">… rez na svakih ' + T.L + ' mm (korak) · redova ukupno: ' + fmtN(T.redova) + '</text>';
-    s += dimH(X0, X1, topY - 14, T.WM + ' mm (matična)', null, '#0e7490');
-    s += dimH(X0, X0 + colW, topY - 32, T.W + ' mm', null, '#0891b2');
-    s += dimV(X0 - 14, topY, topY + rowH, T.L + '');
-    return '<svg viewBox="0 0 720 ' + (botY + 40) + '" width="100%" style="max-width:640px;background:#fff">' + s + '</svg>';
+    return tabakSkicaSVG({
+        W: T.W, L: T.L, WM: T.WM, ban: T.ban, otpad: T.otpad, redova: fmtN(T.redova),
+        dizajn: T.dizajn, imaStampu: T.imaStampu, perforacija: T.perforacija, maxWidth: 640,
+    });
 }
 
 function pRezTabaka(D, T) {
@@ -1242,6 +1276,70 @@ function pPerfBig(D) {
         ? ('<div class="m"><b>Tip</b>Mikro zona</div><div class="m"><b>Gustina</b>' + gustLbl + '</div>' + rupaCell + '<div class="m"><b>Broj zona</b>' + _zoneMeta.length + '</div>' + _zoneMeta.map(function (z, i) { return '<div class="m"><b>Z' + (i + 1) + '</b>od leve ' + Math.round(z.odLeve) + ' · šir. ' + Math.round(z.sirina) + ' mm' + ((z.odVrha || z.odDna) ? ' (↑' + Math.round(z.odVrha) + '/↓' + Math.round(z.odDna) + ')' : '') + '</div>'; }).join(''))
         : ('<div class="m"><b>Tip</b>' + esc(P.tip) + '</div><div class="m"><b>Kolona</b>' + P.N + '</div><div class="m"><b>Od vrha</b>' + P.oV + ' mm</div><div class="m"><b>Od dna</b>' + P.oD + ' mm</div>' + (jeRupe ? '<div class="m"><b>Raspored</b>' + esc(rspLbl) + '</div>' + rupaCell : '<div class="m"><b>Od ivica</b>' + P.oL + ' mm</div>'));
     return pageWrap(D, '<div class="body" style="padding:24px 28px"><div class="cap2">Prilog · uz nalog ' + esc(D.broj) + '</div><div class="bigttl">PERFORACIJA — KOTIRANO</div><div class="bigsub">' + sub + '</div><div class="framed">' + perf(D, 720, 1000) + '</div><div class="meta-strip">' + meta + '</div></div>', 'Strana · perforacija (prilog)');
+}
+
+
+/* ============================ POLUCREVO ============================ */
+// Presek polucreva (gledano s kraja): ravna folija presavijena po dužini → dva sloja.
+// Leva ivica = PRESAVIJANJE (zatvoreno), desna = OTVOR ili VAR. Falta = uvučeno dno.
+function crevoPresekSvg(P) {
+    const sir = P.sir || 1, flat = P.flat || (2 * sir);
+    const X0 = 90, X1 = 620, yTop = 150, yBot = 230, r = (yBot - yTop) / 2, midY = (yTop + yBot) / 2;
+    const jeVar = String(P.suprotnaIvica) === "var";
+    let s = "";
+    // telo (dva sloja presavijene folije)
+    s += '<path d="M ' + X0 + ' ' + yTop + ' L ' + X1 + ' ' + yTop + ' L ' + X1 + ' ' + yBot + ' L ' + X0 + ' ' + yBot + ' A ' + r + ' ' + r + ' 0 0 1 ' + X0 + ' ' + yTop + ' Z" fill="#dbeafe" stroke="#2446b8" stroke-width="2"/>';
+    // srednja linija (dva sloja)
+    s += '<line x1="' + (X0 + 2) + '" y1="' + midY + '" x2="' + (X1 - 2) + '" y2="' + midY + '" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 4"/>';
+    // leva ivica — presavijanje (zaobljeno, zatvoreno)
+    s += '<text x="' + (X0 - 8) + '" y="' + (midY + 4) + '" text-anchor="end" font-size="11" font-weight="900" fill="#0e7490" transform="rotate(-90 ' + (X0 - 8) + ' ' + (midY) + ')">PRESAVIJANJE</text>';
+    // desna ivica — var ili otvor
+    if (jeVar) {
+        s += '<rect x="' + (X1 - 4) + '" y="' + yTop + '" width="8" height="' + (yBot - yTop) + '" fill="#dc2626"/>';
+        for (let y = yTop + 6; y < yBot; y += 10) s += '<line x1="' + (X1 - 4) + '" y1="' + y + '" x2="' + (X1 + 4) + '" y2="' + (y - 6) + '" stroke="#fff" stroke-width="1.2"/>';
+        s += '<text x="' + (X1 + 12) + '" y="' + (midY + 4) + '" font-size="12" font-weight="900" fill="#dc2626" transform="rotate(-90 ' + (X1 + 12) + ' ' + midY + ')">VAR</text>';
+    } else {
+        s += '<line x1="' + X1 + '" y1="' + yTop + '" x2="' + (X1 + 16) + '" y2="' + yTop + '" stroke="#059669" stroke-width="2"/>';
+        s += '<line x1="' + X1 + '" y1="' + yBot + '" x2="' + (X1 + 16) + '" y2="' + yBot + '" stroke="#059669" stroke-width="2"/>';
+        s += '<text x="' + (X1 + 12) + '" y="' + (midY + 4) + '" font-size="12" font-weight="900" fill="#059669" transform="rotate(-90 ' + (X1 + 12) + ' ' + midY + ')">OTVOR</text>';
+    }
+    // falta/dno (uvučeni gusset na preseku) — šematski V na sredini donjeg sloja
+    if (P.imaFalta && P.falta > 0) {
+        const fx = (X0 + X1) / 2;
+        s += '<path d="M ' + (fx - 26) + ' ' + yBot + ' L ' + fx + ' ' + (yBot - 20) + ' L ' + (fx + 26) + ' ' + yBot + '" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3"/>';
+        s += '<text x="' + fx + '" y="' + (yBot + 18) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="#b45309">FALTA ' + P.falta + ' mm</text>';
+    }
+    // kota širine polucreva
+    s += dimH(X0, X1, yTop - 20, sir + ' mm (polucrevo)', null, '#2446b8');
+    s += '<text x="' + ((X0 + X1) / 2) + '" y="' + (yBot + 42) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="#64748b">ravna folija pre presavijanja: ' + flat + ' mm (2× širina' + (P.imaFalta ? ' + falta' : '') + ')</text>';
+    return '<svg viewBox="0 0 720 ' + (yBot + 60) + '" width="100%" style="max-width:600px;background:#fff">' + s + '</svg>';
+}
+
+function pPravljenjeCreva(D) {
+    const c = "#2446b8", P = D.polucrevo || {};
+    const pc = P.pravljenjeCreva || {};
+    const jeVar = String(P.suprotnaIvica) === "var";
+    const badges = [];
+    badges.push('Presavijanje');
+    if (jeVar || P.imaVar) badges.push('Uzdužni var');
+    if (P.imaFalta) badges.push('Falta / dno');
+    const doradaHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">' + badges.map(function (b) { return '<span style="background:#eef2ff;border:1px solid #c7d2fe;color:#2446b8;border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:800">' + esc(b) + '</span>'; }).join('') + '</div>';
+    const statT = '<div class="stats">'
+        + stat('Širina polucreva', P.sir || '—', 'mm', c)
+        + stat('Ravna folija', P.flat || '—', 'mm', '#6366f1')
+        + stat('Broj traka', D.N || '—', 'popreko', '#0d9488')
+        + stat('Metri', fmtN(Math.round(D.kolicina)), 'm', '#059669')
+        + stat('Debljina', D.TOTu, 'µm', '#0ea5e9')
+        + stat('Zatvaranje', jeVar ? 'Var' : 'Otvor', '', jeVar ? '#dc2626' : '#059669')
+        + '</div>';
+    return pageWrap(D, hd(D, '➰', 'NALOG ZA PRAVLJENJE CREVA', c, 'crevo') + '<div class="body">' +
+        identBlock(D.kupac, D.tipLabel, D.proizvod, spojMaterijala(D.LAY)) +
+        statT +
+        '<div class="ulaz"><b>Ulaz:</b> ravna folija širine ' + (P.flat || '—') + ' mm (2× širina polucreva' + (P.imaFalta ? ' + falta' : '') + ') → presavija se po dužini u polucrevo ' + (P.sir || '—') + ' mm.</div>' +
+        '<div class="sec">' + secH(1, c, 'Raspored traka iz matične + presek creva', 'iz templejta') + '<div class="fig"><div class="cap">Ravna traka 2× širina · presavijanje (centar) · ivica ' + (jeVar ? 'var' : 'otvor') + (P.imaFalta ? ' · falta' : '') + '</div>' + polucrevoSkicaSVG({ sirina: P.sir, flat: P.flat, WM: D.sirinaMat, N: D.N, otpad: Math.max(0, (D.sirinaMat || 0) - (D.N || 1) * (P.flat || 0)), dizajn: D.dizajn, imaStampu: !!(D.dizajn && (D.dizajn.url || D.dizajn.slika)), perforacija: D.imaPerforaciju ? D.perf : null, imaVar: !!P.imaVar, imaFalta: !!P.imaFalta, falta: P.falta, suprotnaIvica: P.suprotnaIvica, maxWidth: 680 }) + '</div></div>' +
+        '<div class="sec">' + secH(2, c, 'Plan', '') + '<div class="info">' + infoC('Širina polucreva', (P.sir || '—') + ' mm') + infoC('Ravna folija', (P.flat || '—') + ' mm') + infoC('Zatvaranje', jeVar ? 'Uzdužni var' : 'Otvor (presavijanje)') + (P.imaFalta ? infoC('Falta / dno', P.falta + ' mm') : '') + (pc.masina ? infoC('Mašina', esc(pc.masina)) : '') + (pc.varPozicija ? infoC('Var (pozicija/param.)', esc(pc.varPozicija)) : '') + '</div></div>' +
+        '<div class="sec">' + secH(3, c, 'Zatvaranje', '') + doradaHtml + (pc.napomena ? '<div style="font-size:12px;color:#334155;margin-top:4px">' + esc(pc.napomena) + '</div>' : '') + '</div>' +
+        foot('Operater creva', 'Kontrola kvaliteta', 'U magacin gotovih') + '</div>', 'Strana · pravljenje creva');
 }
 
 
@@ -2042,6 +2140,10 @@ function buildPagesHTML(nalog, vrsta, qr, lang = 'sr') {
     if (D.jeTabak) {
         // Rezanje na tabake ima svoju stranu; materijal/štampa/kaширanje idu na folija-stil strane ispod.
         if (vrsta === "rezanje_tabaka" || vrsta === "rezanje") return pRezTabaka(D, tabakD(nalog));
+    }
+    if (D.jePolucrevo) {
+        // Pravljenje creva ima svoju stranu; materijal/štampa/kaширanje/rezanje idu na folija-stil strane ispod.
+        if (vrsta === "pravljenje_creva" || vrsta === "crevo") return pPravljenjeCreva(D);
     }
     var _vdOn = !!(D.viseDizajna && D.viseDizajna.enabled && Array.isArray(D.viseDizajna.trake) && D.viseDizajna.trake.length);
     if (vrsta === "stampa") return pStampa(D) + pRollBig(D, "IZGLED NA ROLNI (ŠTAMPA)", D.proizvod + " · finalna rolna " + (D.rez.sirinaTrake || "—") + " mm", "Prilog · izgled na rolni", null, true) + (_vdOn ? pMontaza(D) : pDizajnFull(D, D.dizajn, "DIZAJN ZA ŠTAMPU — ORIGINAL"));

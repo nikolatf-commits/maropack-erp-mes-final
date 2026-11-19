@@ -74,7 +74,7 @@ function brojSmenaDoRoka(machine, rokDate) {
 }
 
 // Redosled faza jednog naloga (štampa → lakiranje → kaширanje → formatiranje → rezanje …).
-const REDOSLED_FAZA = { stampa: 1, lakiranje: 2, kasiranje: 3, formatiranje: 4, rezanje: 5, rezanje_tabaka: 5, kese: 6, spulne: 7, ostalo: 9 };
+const REDOSLED_FAZA = { stampa: 1, lakiranje: 2, kasiranje: 3, formatiranje: 4, rezanje: 5, rezanje_tabaka: 5, pravljenje_creva: 6, kese: 6, spulne: 7, ostalo: 9 };
 // Kad se faza završi: krećući od datuma „od", troši dnevni kapacitet mašine (smene × 420),
 // preskačući dane kad mašina ne radi (npr. kaширka radnim danom). Vraća datum završetka ili null.
 function zavrsiFazu(machine, minuti, odDatuma) {
@@ -218,6 +218,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             if (t.includes("lak")) return { k: "lakiranje", l: "LAKIRANJE", ikona: "✨" };
             if (t.includes("kaš") || t.includes("kas")) return { k: "kasiranje", l: "KAŠIRANJE", ikona: "📚" };
             if (t.includes("tabak") || t.includes("tabac")) return { k: "rezanje_tabaka", l: "REZANJE TABAKA", ikona: "📄" };
+            if (t.includes("crev") || t.includes("polucrev")) return { k: "pravljenje_creva", l: "PRAVLJENJE CREVA", ikona: "➰" };
             if (t.includes("perf") || t.includes("rez")) return { k: "rezanje", l: "REZANJE", ikona: "✂️" };
             if (t.includes("format")) return { k: "formatiranje", l: "FORMATIRANJE", ikona: "📐" };
             if (t.includes("kes")) return { k: "kese", l: "KESE", ikona: "🛍️" };

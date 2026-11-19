@@ -599,7 +599,8 @@ function buildSvgPro(c, u, lang = "sr") {
     }
     // ANLEGER — traka stvarne širine (iz izbora, npr. „…/30mm/…") na zadatoj meri „od vrha".
     const anV = P.anleger || {};
-    const anH = Math.max(5, mm(anV.traka));
+    const anTrakaMm = num(anV.traka);                      // širina trake iz izbora (mm), 0 ako nije izabrana
+    const anH = anTrakaMm > 0 ? mm(anTrakaMm) : Math.max(mm(20), 14);  // bez izbora → vidljiv podrazumevani prikaz (~20 mm)
     const anY = has(anV, "odVrha") ? Math.max(topY + 1, Math.min(y1 - anH - 2, topY + mm(anV.odVrha))) : y0 + 5;
     if (c.anleger) {
         let anT = anY, anB = anY + anH;
@@ -612,7 +613,15 @@ function buildSvgPro(c, u, lang = "sr") {
                 else anT = vB;                           // Anleger je ispod → kreće od donje ivice vara
             }
         }
-        if (anB - anT > 1) g += traka(anT, anB, 6, 8, "#dbeafe", BLUE, ".9", 'fill-opacity=".6"');
+        if (anB - anT > 1) {
+            g += traka(anT, anB, 6, 8, "#dbeafe", BLUE, ".9", 'fill-opacity=".6"');
+            // Labela na traci: „ANLEGER" (+ širina trake ako je izabrana) — da operater identifikuje traku na crtežu.
+            if (anB - anT >= 9) {
+                const anMid = (anT + anB) / 2;
+                const anLbl = "ANLEGER" + (anTrakaMm > 0 ? " · " + anTrakaMm + " mm" : "");
+                g += `<text x="${q(cx)}" y="${q(anMid + 3)}" text-anchor="middle" font-size="8" font-weight="800" fill="${BLUE}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif" stroke="#fff" stroke-width="2.4" paint-order="stroke" style="paint-order:stroke">${anLbl}</text>`;
+            }
+        }
     }
     // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno/otvor) + prečnikom.
     let ozOtvorKote = [];

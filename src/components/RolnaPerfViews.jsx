@@ -47,7 +47,7 @@ const num = (v, d) => { const n = Number(String(v ?? '').toString().replace(',',
 let _PID = 0; // jedinstven id za SVG pattern (mikro perforacija)
 
 // Prikaz finalne rolne sa dizajnom (slika/URL). PDF zahteva pdf.js (kasnije).
-export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", perfOdLeveIvice = 0, perfOdDesneIvice = 0, perfGustina = "standardna", perfVelicinaRupe = 0, maxWidth = 430 }) {
+export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaPct = 100, visinaPct = 100, perfXmm = [], perfLinije = null, perfSirinaMm = 0, perfTip = "linija", perfOdVrha = 0, perfOdDna = 0, perfRazmak = 5, perfVisina = 0, perfRaspored = "poravnato", perfOdLeveIvice = 0, perfOdDesneIvice = 0, perfGustina = "standardna", perfVelicinaRupe = 0, perfZone = [], maxWidth = 430 }) {
     const webW = WEBX1 - WEBX0, webH = WEBY1 - WEBY0, cx = (WEBX0 + WEBX1) / 2;
     const uid = "wc" + Math.random().toString(36).slice(2, 8);
     let o = ``;
@@ -108,29 +108,275 @@ export function RolnaDizajn({ dizajnUrl, rotacija = 0, zrcalo = 1, w, h, sirinaP
             }
         });
     }
-    // MIKRO PERFORACIJA (ZONA) preko dizajna — ista rešetka tačkica kao na levoj skici.
+    // MIKRO PERFORACIJA (ZONA) preko dizajna — ista rešetka tačkica kao na levoj skici; podržava VIŠE zona.
     if (String(perfTip) === 'mikro_zona' && num(perfSirinaMm) > 0) {
-        const sxz = (WEBX1 - WEBX0) / num(perfSirinaMm);
-        const oL = num(perfOdLeveIvice), oR = num(perfOdDesneIvice);
-        const xL = WEBX0 + oL * sxz, xR = WEBX1 - oR * sxz;
-        const yT = WEBY0, yB = WEBY1, c = "#8b5cf6";
+        const Wz = num(perfSirinaMm);
+        const sxz = (WEBX1 - WEBX0) / Wz, syz = (WEBY1 - WEBY0) / (num(perfVisina, 600) || 600);
+        const c = "#8b5cf6";
         const gp = perfGustinaParams(perfGustina);
         const step = gp.step;
         const vr = num(perfVelicinaRupe, 0), baseR = step * 0.2;
         const rr = Math.max(0.8, Math.min(vr > 0 ? baseR * (vr / 0.3) : baseR, step * 0.42));
-        const pid = 'mpzd' + (_PID++);
-        if (xR > xL + 2) {
-            o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
-            o += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse">`
-                + `<circle cx="${step / 2}" cy="${step / 2}" r="${rr}" fill="${c}"/>`
-                + `<circle cx="0" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
-                + `<circle cx="${step}" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
-                + `</pattern></defs>`;
-            o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="url(#${pid})"/>`;
-        }
+        const zoneD = normZone({ zone: perfZone, odLeveIvice: perfOdLeveIvice, odDesneIvice: perfOdDesneIvice, odVrha: perfOdVrha, odDna: perfOdDna }, Wz);
+        zoneD.forEach((z) => {
+            const xL = WEBX0 + z.odLeve * sxz, xR = WEBX0 + (z.odLeve + z.sirina) * sxz;
+            const yT = WEBY0 + z.odVrha * syz, yB = WEBY1 - z.odDna * syz;
+            if (xR > xL + 2 && yB > yT + 2) {
+                const pid = 'mpzd' + (_PID++);
+                o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
+                o += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse">`
+                    + `<circle cx="${step / 2}" cy="${step / 2}" r="${rr}" fill="${c}"/>`
+                    + `<circle cx="0" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
+                    + `<circle cx="${step}" cy="${step * 1.5}" r="${rr}" fill="${c}"/>`
+                    + `</pattern></defs>`;
+                o += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="url(#${pid})"/>`;
+            }
+        });
     }
     // Puna visina (viewBox 0 0 600 760) — isti prikaz kao perforacijska rolna, da sva tri budu identična.
     return <div dangerouslySetInnerHTML={{ __html: svgWrap(rollParts() + o, maxWidth) }} />;
+}
+
+/* ============================ TABAK — raspored tabaka iz matične rolne ============================
+   Zajednička SVG-string funkcija koju koriste I templejt (TabakSkica) I nalog
+   (NalogLayoutPRO.tabakCrtez) — da crtež bude IDENTIČAN na oba mesta:
+   matična rolna → ban tabaka popreko (+ bočni otpad), rez po dužini (korak),
+   dizajn (skica štampe) ubačen u svaki tabak (okretanje + zrcalo) i perforacija preko tabaka. */
+
+// Perforacija unutar JEDNOG tabaka (ćelije). Koordinate: (cx0,cy0) gornji-levi ugao, cW×cH px,
+// mere u mm: Wmm (širina tabaka) × Lmm (dužina tabaka). Vraća SVG string (sa inline <defs> za zonu).
+function perfInCell(P, cx0, cy0, cW, cH, Wmm, Lmm) {
+    if (!P || typeof P !== "object") return "";
+    const c = "#8b5cf6";
+    const sx = cW / Math.max(Wmm, 1), sy = cH / Math.max(Lmm, 1);
+    const clampV = (mm) => Math.max(0, Math.min(cH * 0.45, num(mm) * sy));
+    const yT = cy0 + clampV(P.odVrha), yB = cy0 + cH - clampV(P.odDna);
+    if (yB <= yT + 1) return "";
+    if (String(P.tip) === "mikro_zona") {
+        const gp = perfGustinaParams(P.gustina), step = gp.step;
+        const vr = num(P.velicinaRupe, 0), baseR = step * 0.2;
+        const rr = Math.max(0.7, Math.min(vr > 0 ? baseR * (vr / 0.3) : baseR, step * 0.42));
+        const zones = normZone(P, Wmm);
+        let o = "";
+        zones.forEach((z) => {
+            const xL = cx0 + z.odLeve * sx, xR = cx0 + (z.odLeve + z.sirina) * sx;
+            const zt = cy0 + Math.min(cH * 0.45, z.odVrha * sy), zb = cy0 + cH - Math.min(cH * 0.45, z.odDna * sy);
+            if (xR > xL + 1.5 && zb > zt + 1.5) {
+                const pid = "tmz" + (_PID++);
+                o += `<rect x="${xL}" y="${zt}" width="${xR - xL}" height="${zb - zt}" fill="${c}18" stroke="${c}" stroke-width="1.1" stroke-dasharray="5 3"/>`;
+                o += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse"><circle cx="${step / 2}" cy="${step / 2}" r="${rr}" fill="${c}"/><circle cx="0" cy="${step * 1.5}" r="${rr}" fill="${c}"/><circle cx="${step}" cy="${step * 1.5}" r="${rr}" fill="${c}"/></pattern></defs>`;
+                o += `<rect x="${xL}" y="${zt}" width="${xR - xL}" height="${zb - zt}" fill="url(#${pid})"/>`;
+            }
+        });
+        return o;
+    }
+    const rupe = String(P.tip) === "rupe";
+    const rupaR = num(P.velicinaRupe) > 0 ? Math.max(1, Math.min((num(P.velicinaRupe) / 2) * sx, 4)) : 1.5;
+    const lin = Array.isArray(P.linije) ? P.linije : [];
+    let o = "";
+    lin.forEach((Lm) => {
+        if (Lm == null || String(Lm.poz) === "" || isNaN(parseFloat(Lm.poz))) return;
+        const poz = parseFloat(Lm.poz);
+        const xmm = Lm.strana === "desna" ? (Wmm - poz) : poz;
+        const xx = cx0 + xmm * sx;
+        if (xx < cx0 - 0.5 || xx > cx0 + cW + 0.5) return;
+        if (rupe) {
+            const gap = Math.max(3, (num(Lm.razmak) || num(P.razmakRupa) || 5) * sy);
+            for (let y = yT; y <= yB + 0.5; y += gap) o += `<circle cx="${xx}" cy="${y}" r="${rupaR}" fill="${c}"/>`;
+        } else {
+            o += `<line x1="${xx}" y1="${yT}" x2="${xx}" y2="${yB}" stroke="${c}" stroke-width="1.8" stroke-dasharray="6 4" opacity=".95"/>`;
+        }
+    });
+    if (!lin.length && num(P.kolone || P.brojKolona) > 1) {
+        const N = Math.max(2, num(P.kolone || P.brojKolona));
+        const oL = num(P.odLeve) || num(P.odLeveIvice) || 10, oR = num(P.odDesne) || num(P.odDesneIvice) || 10;
+        const xF = cx0 + oL * sx, xLst = cx0 + cW - oR * sx, st = N > 1 ? (xLst - xF) / (N - 1) : 0;
+        for (let i = 0; i < N; i++) { const xx = xF + st * i; o += `<line x1="${xx}" y1="${yT}" x2="${xx}" y2="${yB}" stroke="${c}" stroke-width="1.6" stroke-dasharray="6 4"/>`; }
+    }
+    return o;
+}
+
+// Čista SVG-string funkcija: raspored tabaka + dizajn + perforacija. Vraća ceo <svg>.
+export function tabakSkicaSVG(opts) {
+    opts = opts || {};
+    const W = num(opts.W) || 1, L = num(opts.L) || 1, WM = num(opts.WM) || W;
+    const ban = Math.max(1, Math.floor(opts.ban != null ? num(opts.ban) : (WM > 0 && W > 0 ? Math.floor(WM / W) : 1)));
+    const otpad = Math.max(0, opts.otpad != null ? num(opts.otpad) : Math.round(WM - ban * W));
+    const redova = (opts.redova != null && opts.redova !== "") ? opts.redova : null;
+    const dz = opts.dizajn && typeof opts.dizajn === "object" ? opts.dizajn : {};
+    const dzUrl = dz.url || dz.slika || "";
+    const imaStampu = !!opts.imaStampu && !!dzUrl;
+    const perf = opts.perforacija && typeof opts.perforacija === "object" ? opts.perforacija : null;
+    const maxWidth = num(opts.maxWidth) || 640;
+
+    const X0 = 60, X1 = 660, topY = 64;
+    const sx = (X1 - X0) / WM;
+    const colW = W * sx, otW = otpad * sx;
+    const rowH = 104, nRows = 3, botY = topY + nRows * rowH;
+
+    const rot = ((Math.round(num(dz.rotacija)) % 360) + 360) % 360;
+    const mir = num(dz.zrcalo, 1) === -1 ? -1 : 1;
+    const sWp = (num(dz.sirinaPct, 100) || 100) / 100, sHp = (num(dz.visinaPct, 100) || 100) / 100;
+
+    let s = `<rect x="${X0}" y="${topY}" width="${X1 - X0}" height="${nRows * rowH}" fill="#ecfeff" stroke="#0e7490" stroke-width="1.4"/>`;
+    let x = X0;
+    for (let c2 = 0; c2 < ban; c2++) {
+        for (let r = 0; r < nRows; r++) {
+            const cy0 = topY + r * rowH;
+            s += `<rect x="${x}" y="${cy0}" width="${colW}" height="${rowH}" fill="#cffafe" fill-opacity=".4" stroke="#0891b2" stroke-width="1"/>`;
+            if (imaStampu && colW > 10) {
+                const cid = "tc" + (_PID++);
+                const pad = 3;
+                const availW = Math.max(2, (colW - pad * 2) * sWp), availH = Math.max(2, (rowH - pad * 2) * sHp);
+                const IW = (rot === 90 || rot === 270) ? availH : availW;
+                const IH = (rot === 90 || rot === 270) ? availW : availH;
+                const ccx = x + colW / 2, ccy = cy0 + rowH / 2;
+                s += `<clipPath id="${cid}"><rect x="${x}" y="${cy0}" width="${colW}" height="${rowH}"/></clipPath>`;
+                s += `<g clip-path="url(#${cid})"><g transform="translate(${ccx},${ccy}) rotate(${rot}) scale(${mir},1)"><image href="${dzUrl}" x="${-IW / 2}" y="${-IH / 2}" width="${IW}" height="${IH}" preserveAspectRatio="xMidYMid meet"/></g></g>`;
+            }
+            if (perf) s += perfInCell(perf, x, cy0, colW, rowH, W, L);
+            // oznaka tabaka: centar ako nema dizajna, u ugao sa belim okvirom ako ima
+            if (colW > 18) {
+                if (imaStampu) s += `<rect x="${x + 2}" y="${cy0 + 2}" width="22" height="15" rx="3" fill="#fff" opacity=".82"/><text x="${x + 13}" y="${cy0 + 13}" text-anchor="middle" font-size="10" font-weight="900" fill="#0e7490">T${c2 + 1}</text>`;
+                else if (r === 1) s += `<text x="${x + colW / 2}" y="${cy0 + rowH / 2 + 4}" text-anchor="middle" font-size="12" font-weight="900" fill="#0e7490">T${c2 + 1}</text>`;
+            }
+        }
+        x += colW;
+    }
+    if (otW > 1) {
+        s += `<rect x="${x}" y="${topY}" width="${otW}" height="${nRows * rowH}" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>`;
+        if (otW > 14) s += `<text x="${x + otW / 2}" y="${topY + nRows * rowH / 2}" text-anchor="middle" font-size="9" font-weight="800" fill="#b91c1c" transform="rotate(-90 ${x + otW / 2} ${topY + nRows * rowH / 2})">OTPAD ${otpad}</text>`;
+    }
+    for (let r = 1; r < nRows; r++) { const y = topY + r * rowH; s += `<line x1="${X0}" y1="${y}" x2="${X1}" y2="${y}" stroke="#dc2626" stroke-width="1.1" stroke-dasharray="7 4"/>`; }
+    const cap = `… rez na svakih ${L} mm (korak)` + (redova != null ? ` · redova ukupno: ${redova}` : "") + (imaStampu ? " · dizajn na tabaku" : "") + (perf ? " · perforacija" : "");
+    s += `<text x="${(X0 + X1) / 2}" y="${botY + 24}" text-anchor="middle" font-size="10.5" font-weight="800" fill="#64748b">${cap}</text>`;
+    s += dimH(X0, X1, topY - 16, WM + " mm (matična)", "#0e7490");
+    if (colW > 24) s += dimH(X0, X0 + colW, topY - 36, W + " mm", "#0891b2");
+    s += dimV(X0 - 2, topY, topY + rowH, L + "");
+    return `<svg viewBox="0 0 720 ${botY + 40}" width="100%" style="max-width:${maxWidth}px;display:block;margin:0 auto;background:#fff">${s}</svg>`;
+}
+
+// React wrapper za templejt — isti crtež kao na nalogu.
+export function TabakSkica(props) {
+    return <div dangerouslySetInnerHTML={{ __html: tabakSkicaSVG(props || {}) }} />;
+}
+
+/* ============================ POLUCREVO — raspored traka + presek creva ============================
+   Zajednička SVG-string funkcija: matična → N ravnih traka (2×širina + falta), svaka traka ima
+   centralnu liniju PRESAVIJANJA, spoljne ivice = VAR ili OTVOR, perforacija ogledalo oko presavijanja,
+   + presek polucreva ispod. Koristi je i templejt (PolucrevoSkica) i nalog (NalogLayoutPRO). */
+export function polucrevoSkicaSVG(opts) {
+    opts = opts || {};
+    const sir = num(opts.sirina) || 1;
+    const falta = opts.imaFalta ? num(opts.falta) : 0;
+    const flat = num(opts.flat) || (2 * sir + falta);
+    const WM = num(opts.WM) || flat;
+    const N = Math.max(1, Math.floor(opts.N != null ? num(opts.N) : (WM > 0 && flat > 0 ? Math.floor(WM / flat) : 1)));
+    const otpad = Math.max(0, opts.otpad != null ? num(opts.otpad) : Math.round(WM - N * flat));
+    const dz = opts.dizajn && typeof opts.dizajn === "object" ? opts.dizajn : {};
+    const dzUrl = dz.url || dz.slika || "";
+    const imaStampu = !!opts.imaStampu && !!dzUrl;
+    const perf = opts.perforacija && typeof opts.perforacija === "object" ? opts.perforacija : null;
+    const jeVar = String(opts.suprotnaIvica) === "var" || !!opts.imaVar;
+    const maxWidth = num(opts.maxWidth) || 680;
+
+    const X0 = 70, X1 = 690, topY = 58, colsH = 236;
+    const sx = (X1 - X0) / WM, colW = flat * sx, otW = otpad * sx;
+    const rot = ((Math.round(num(dz.rotacija)) % 360) + 360) % 360;
+    const mir = num(dz.zrcalo, 1) === -1 ? -1 : 1;
+    const sWp = (num(dz.sirinaPct, 100) || 100) / 100, sHp = (num(dz.visinaPct, 100) || 100) / 100;
+    const edgeC = jeVar ? "#dc2626" : "#059669", edgeLbl = jeVar ? "VAR" : "OTVOR";
+
+    let s = `<rect x="${X0}" y="${topY}" width="${X1 - X0}" height="${colsH}" fill="#eff6ff" stroke="#2446b8" stroke-width="1.4"/>`;
+    let x = X0;
+    for (let c = 0; c < N; c++) {
+        s += `<rect x="${x}" y="${topY}" width="${colW}" height="${colsH}" fill="#dbeafe" fill-opacity=".45" stroke="#2446b8" stroke-width="1"/>`;
+        // dizajn — ponovljen niz kolone (traku), isečen na kolonu
+        if (imaStampu && colW > 10) {
+            const cid = "pcd" + (_PID++);
+            const baseAR = (num(dz.w) > 0 && num(dz.h) > 0) ? num(dz.w) / num(dz.h) : (colW / 70);
+            const IW0 = colW * 0.88 * sWp, IH0 = (IW0 / baseAR) * sHp;
+            const IW = (rot === 90 || rot === 270) ? IH0 : IW0, IH = (rot === 90 || rot === 270) ? IW0 : IH0;
+            const slot = Math.max(22, (rot === 90 || rot === 270) ? IW0 : IH0);
+            const n = Math.max(1, Math.round(colsH / slot));
+            s += `<clipPath id="${cid}"><rect x="${x}" y="${topY}" width="${colW}" height="${colsH}"/></clipPath><g clip-path="url(#${cid})">`;
+            for (let i = 0; i < n; i++) { const cyT = topY + slot * (i + 0.5); s += `<g transform="translate(${x + colW / 2},${cyT}) rotate(${rot}) scale(${mir},1)"><image href="${dzUrl}" x="${-IW / 2}" y="${-IH / 2}" width="${IW}" height="${IH}" preserveAspectRatio="xMidYMid meet"/></g>`; }
+            s += `</g>`;
+        }
+        // perforacija — ogledalo oko presavijanja (centar trake)
+        const foldX = x + colW / 2;
+        if (perf) s += _pcPerfCol(perf, x, colW, topY, colsH, flat, foldX);
+        // linija presavijanja (centar)
+        s += `<line x1="${foldX}" y1="${topY}" x2="${foldX}" y2="${topY + colsH}" stroke="#0e7490" stroke-width="1.8" stroke-dasharray="2 3"/>`;
+        // spoljne ivice = var/otvor
+        s += `<line x1="${x}" y1="${topY}" x2="${x}" y2="${topY + colsH}" stroke="${edgeC}" stroke-width="2.6"/>`;
+        s += `<line x1="${x + colW}" y1="${topY}" x2="${x + colW}" y2="${topY + colsH}" stroke="${edgeC}" stroke-width="2.6"/>`;
+        s += `<rect x="${x + 2}" y="${topY + 2}" width="20" height="14" rx="3" fill="#fff" opacity=".82"/><text x="${x + 12}" y="${topY + 12}" text-anchor="middle" font-size="9.5" font-weight="900" fill="#2446b8">T${c + 1}</text>`;
+        x += colW;
+    }
+    if (otW > 1) {
+        s += `<rect x="${x}" y="${topY}" width="${otW}" height="${colsH}" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>`;
+        if (otW > 14) s += `<text x="${x + otW / 2}" y="${topY + colsH / 2}" text-anchor="middle" font-size="9" font-weight="800" fill="#b91c1c" transform="rotate(-90 ${x + otW / 2} ${topY + colsH / 2})">OTPAD ${otpad}</text>`;
+    }
+    s += dimH(X0, X1, topY - 16, WM + " mm (matična)", "#2446b8");
+    if (colW > 26) s += dimH(X0, X0 + colW, topY - 34, flat + " mm (ravna traka)", "#0891b2");
+    // legenda
+    const ly = topY + colsH + 18;
+    s += `<line x1="${X0}" y1="${ly}" x2="${X0 + 22}" y2="${ly}" stroke="#0e7490" stroke-width="1.8" stroke-dasharray="2 3"/><text x="${X0 + 28}" y="${ly + 4}" font-size="11" font-weight="700" fill="#334155">presavijanje (centar)</text>`;
+    s += `<line x1="${X0 + 190}" y1="${ly}" x2="${X0 + 212}" y2="${ly}" stroke="${edgeC}" stroke-width="2.6"/><text x="${X0 + 218}" y="${ly + 4}" font-size="11" font-weight="700" fill="#334155">ivica: ${edgeLbl.toLowerCase()}</text>` + (perf ? `<line x1="${X0 + 330}" y1="${ly}" x2="${X0 + 352}" y2="${ly}" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="6 4"/><text x="${X0 + 358}" y="${ly + 4}" font-size="11" font-weight="700" fill="#334155">perforacija</text>` : "");
+
+    // --- Presek creva (kompaktno, ispod) ---
+    const pY = ly + 60, pX0 = 150, pX1 = 610, yT = pY, yB = pY + 56, r = (yB - yT) / 2, midY = (yT + yB) / 2;
+    s += `<text x="${(X0 + X1) / 2}" y="${pY - 32}" text-anchor="middle" font-size="11" font-weight="800" fill="#64748b">Presek polucreva (s kraja) — presavijeno u ${sir} mm</text>`;
+    s += `<path d="M ${pX0} ${yT} L ${pX1} ${yT} L ${pX1} ${yB} L ${pX0} ${yB} A ${r} ${r} 0 0 1 ${pX0} ${yT} Z" fill="#dbeafe" stroke="#2446b8" stroke-width="2"/>`;
+    s += `<line x1="${pX0 + 2}" y1="${midY}" x2="${pX1 - 2}" y2="${midY}" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 4"/>`;
+    s += `<text x="${pX0 - 6}" y="${midY + 3}" text-anchor="middle" font-size="9.5" font-weight="900" fill="#0e7490" transform="rotate(-90 ${pX0 - 6} ${midY})">PRESAVIJANJE</text>`;
+    if (jeVar) {
+        s += `<rect x="${pX1 - 4}" y="${yT}" width="8" height="${yB - yT}" fill="#dc2626"/>`;
+        for (let yy = yT + 6; yy < yB; yy += 10) s += `<line x1="${pX1 - 4}" y1="${yy}" x2="${pX1 + 4}" y2="${yy - 6}" stroke="#fff" stroke-width="1.1"/>`;
+        s += `<text x="${pX1 + 12}" y="${midY + 3}" font-size="10.5" font-weight="900" fill="#dc2626" transform="rotate(-90 ${pX1 + 12} ${midY})">VAR</text>`;
+    } else {
+        s += `<line x1="${pX1}" y1="${yT}" x2="${pX1 + 14}" y2="${yT}" stroke="#059669" stroke-width="2"/><line x1="${pX1}" y1="${yB}" x2="${pX1 + 14}" y2="${yB}" stroke="#059669" stroke-width="2"/>`;
+        s += `<text x="${pX1 + 12}" y="${midY + 3}" font-size="10.5" font-weight="900" fill="#059669" transform="rotate(-90 ${pX1 + 12} ${midY})">OTVOR</text>`;
+    }
+    if (opts.imaFalta && falta > 0) {
+        const fx = (pX0 + pX1) / 2;
+        s += `<path d="M ${fx - 24} ${yB} L ${fx} ${yB - 18} L ${fx + 24} ${yB}" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3"/><text x="${fx}" y="${yB + 16}" text-anchor="middle" font-size="10" font-weight="800" fill="#b45309">FALTA ${falta} mm</text>`;
+    }
+    s += dimH(pX0, pX1, yT - 12, sir + " mm (polucrevo)", "#2446b8");
+    const vbH = pY + 56 + (opts.imaFalta && falta > 0 ? 40 : 24);
+    return `<svg viewBox="0 0 760 ${vbH}" width="100%" style="max-width:${maxWidth}px;display:block;margin:0 auto;background:#fff">${s}</svg>`;
+}
+
+// Perforacija na jednoj ravnoj traci — ogledalo oko presavijanja (centar). Pozicije "od leve"
+// se tumače kao RASTOJANJE OD PRESAVIJANJA (obe polovine se perforiraju zajedno).
+function _pcPerfCol(P, cx0, cW, cy0, cH, flatMm, foldX) {
+    if (!P || typeof P !== "object") return "";
+    const c = "#8b5cf6";
+    const sx = cW / Math.max(flatMm, 1);
+    const yT = cy0 + Math.min(cH * 0.4, num(P.odVrha) * (cH / Math.max(num(P.visina) || flatMm, 1)));
+    const yB = cy0 + cH - Math.min(cH * 0.4, num(P.odDna) * (cH / Math.max(num(P.visina) || flatMm, 1)));
+    const yTop = isFinite(yT) ? yT : cy0 + 8, yBot = isFinite(yB) ? yB : cy0 + cH - 8;
+    const rupe = String(P.tip) === "rupe";
+    const rupaR = num(P.velicinaRupe) > 0 ? Math.max(1, Math.min((num(P.velicinaRupe) / 2) * sx, 4)) : 1.5;
+    const lin = Array.isArray(P.linije) ? P.linije : [];
+    let o = "";
+    const drawAt = (xx) => {
+        if (xx < cx0 - 0.5 || xx > cx0 + cW + 0.5) return;
+        if (rupe) { const gap = Math.max(4, (num(P.razmakRupa) || 5) * (cH / 200)); for (let y = yTop; y <= yBot + 0.5; y += gap) o += `<circle cx="${xx}" cy="${y}" r="${rupaR}" fill="${c}"/>`; }
+        else o += `<line x1="${xx}" y1="${yTop}" x2="${xx}" y2="${yBot}" stroke="${c}" stroke-width="1.6" stroke-dasharray="6 4"/>`;
+    };
+    lin.forEach((L) => {
+        if (L == null || String(L.poz) === "" || isNaN(parseFloat(L.poz))) return;
+        const poz = parseFloat(L.poz);
+        drawAt(foldX - poz * sx);   // leva polovina
+        drawAt(foldX + poz * sx);   // desna polovina (ogledalo)
+    });
+    return o;
+}
+
+export function PolucrevoSkica(props) {
+    return <div dangerouslySetInnerHTML={{ __html: polucrevoSkicaSVG(props || {}) }} />;
 }
 
 // Kotirani prikaz perforacije — iz LISTE LINIJA (svaka: pozicija + strana + opcioni razmak).
@@ -142,7 +388,25 @@ function perfGustinaParams(gustina) {
     if (g === "najredja" || g === "redja") return { step: 13, label: "NAJREĐA" };
     return { step: 8, label: "STANDARDNA" };
 }
-export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "standardna", velicinaRupe = 0, raspored = "poravnato", maxWidth = 430 }) {
+// Normalizuje mikro-zone u niz {odLeve, sirina, odVrha, odDna}.
+// Novi format: cfg.zone = [{odLeve, sirina, odVrha, odDna}] (od vrha/dna po zoni; prazno → globalno).
+// Stari (jedna zona): izvedeno iz odLeveIvice/odDesneIvice + globalni odVrha/odDna.
+export function normZone(cfg, Wmm) {
+    cfg = cfg || {};
+    const nz = (v) => { const n = Number(String(v == null ? "" : v).replace(",", ".")); return Number.isFinite(n) ? n : 0; };
+    const gv = nz(cfg.odVrha), gd = nz(cfg.odDna);
+    if (Array.isArray(cfg.zone) && cfg.zone.length) {
+        return cfg.zone.map((z) => {
+            z = z || {};
+            const ov = (z.odVrha === "" || z.odVrha == null) ? gv : nz(z.odVrha);
+            const od = (z.odDna === "" || z.odDna == null) ? gd : nz(z.odDna);
+            return { odLeve: nz(z.odLeve), sirina: nz(z.sirina), odVrha: ov, odDna: od };
+        });
+    }
+    const oL = nz(cfg.odLeveIvice), oR = nz(cfg.odDesneIvice);
+    return [{ odLeve: oL, sirina: Math.max(0, (Number(Wmm) || 0) - oL - oR), odVrha: gv, odDna: gd }];
+}
+export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, sirina = 270, visina = 600, razmakRupa = 5, linije = [], odLeveIvice = 0, odDesneIvice = 0, gustina = "standardna", velicinaRupe = 0, raspored = "poravnato", zone = [], maxWidth = 430 }) {
     const odV = num(odVrha), odD = num(odDna);
     const Wmm = num(sirina, 270) || 270, Hmm = num(visina, 600) || 600, gGlob = num(razmakRupa, 5) || 5;
     const sx = (WEBX1 - WEBX0) / Wmm, sy = (WEBY1 - WEBY0) / Hmm;
@@ -152,40 +416,41 @@ export function PerforacijaCrtez({ tip = "linija", odVrha = 50, odDna = 50, siri
     //    tačkicama u SMAKNUTIM redovima (drugi red pomeren za pola koraka).
     //    Gustina „gušća" = sitnije/gušće, „ređa" = krupnije/ređe.
     if (tip === 'mikro_zona') {
-        const oL = num(odLeveIvice), oR = num(odDesneIvice);
-        const xL = WEBX0 + oL * sx, xR = WEBX1 - oR * sx;
-        const yT = WEBY0, yB = WEBY1;
         const c = "#8b5cf6";
         const gp = perfGustinaParams(gustina);
         const step = gp.step;             // korak rešetke (px) — gušće/ređe po izboru gustine
-        // Veličina tačkice prati „Veličinu rupe" (mm): veća rupa → krupnija tačkica,
-        // ograničeno da se tačke ne spoje. Bez unosa → srazmerno koraku.
+        // Veličina tačkice prati „Veličinu rupe" (mm): veća rupa → krupnija tačkica.
         const vr = num(velicinaRupe, 0);
         const baseR = step * 0.2;
         const r = Math.max(0.8, Math.min(vr > 0 ? baseR * (vr / 0.3) : baseR, step * 0.42));
-        const pid = 'mpz' + (_PID++);
+        // VIŠE ZONA: zone = [{odLeve, sirina, odVrha, odDna}]. Fallback: jedna zona iz odLeveIvice/odDesneIvice.
+        const zone_ = normZone({ zone, odLeveIvice, odDesneIvice, odVrha: odV, odDna: odD }, Wmm);
         let s = rollParts();
-        if (xR > xL + 2) {
-            // 1) podloga zone + isprekidana ivica
-            s += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
-            // 2) rešetka tačkica — smaknut drugi red (pattern visine 2×korak)
-            s += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse">`
-                + `<circle cx="${step / 2}" cy="${step / 2}" r="${r}" fill="${c}"/>`
-                + `<circle cx="0" cy="${step * 1.5}" r="${r}" fill="${c}"/>`
-                + `<circle cx="${step}" cy="${step * 1.5}" r="${r}" fill="${c}"/>`
-                + `</pattern></defs>`;
-            s += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="url(#${pid})"/>`;
-        } else {
-            s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${(yT + yB) / 2}" text-anchor="middle" font-size="12.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Ivice se preklapaju — smanji odstojanja</text>`;
-        }
-        // naslov: tip gustine (+ veličina rupe ako je uneta)
         const rupaTxt = vr > 0 ? ` · Ø ${vr} mm` : '';
-        s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${yT - 24}" text-anchor="middle" font-size="12" font-weight="900" fill="${c}" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ${gp.label}${rupaTxt}</text>`;
-        // kote: od leve / od desne ivice
-        if (oL > 0) s += dimH(WEBX0, xL, WEBY0 - 8, oL + ' mm', c);
-        if (oR > 0) s += dimH(xR, WEBX1, WEBY0 - 8, oR + ' mm', c);
-        // širina zone (mm)
-        if (xR > xL + 2) { const zonaMm = Math.max(0, Math.round(Wmm - oL - oR)); s += dimH(xL, xR, WEBY1 + 20, 'zona ' + zonaMm + ' mm', c); }
+        s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${WEBY0 - (zone_.length > 1 ? 54 : 24)}" text-anchor="middle" font-size="12" font-weight="900" fill="${c}" stroke="#fff" stroke-width="3" paint-order="stroke">MIKRO PERFORACIJA · ${gp.label}${rupaTxt}${zone_.length > 1 ? ' · ' + zone_.length + ' zone' : ''}</text>`;
+        zone_.forEach((z, i) => {
+            const xL = WEBX0 + z.odLeve * sx, xR = WEBX0 + (z.odLeve + z.sirina) * sx;
+            const yT = WEBY0 + z.odVrha * sy, yB = WEBY1 - z.odDna * sy;
+            if (xR > xL + 2 && yB > yT + 2) {
+                const pid = 'mpz' + (_PID++);
+                s += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="${c}10" stroke="${c}" stroke-width="1.6" stroke-dasharray="7 4"/>`;
+                s += `<defs><pattern id="${pid}" width="${step}" height="${step * 2}" patternUnits="userSpaceOnUse">`
+                    + `<circle cx="${step / 2}" cy="${step / 2}" r="${r}" fill="${c}"/>`
+                    + `<circle cx="0" cy="${step * 1.5}" r="${r}" fill="${c}"/>`
+                    + `<circle cx="${step}" cy="${step * 1.5}" r="${r}" fill="${c}"/>`
+                    + `</pattern></defs>`;
+                s += `<rect x="${xL}" y="${yT}" width="${xR - xL}" height="${yB - yT}" fill="url(#${pid})"/>`;
+                if (zone_.length > 1) s += `<text x="${(xL + xR) / 2}" y="${yT + 14}" text-anchor="middle" font-size="11" font-weight="900" fill="${c}" stroke="#fff" stroke-width="3" paint-order="stroke">Z${i + 1}</text>`;
+                // kote: od leve (do početka zone, staggered), širina zone (ispod), od vrha/od dna (bočno)
+                const lane = WEBY0 - 8 - (i % 3) * 14;
+                if (z.odLeve > 0) s += dimH(WEBX0, xL, lane, z.odLeve + ' mm', c);
+                s += dimH(xL, xR, WEBY1 + 20 + (i % 3) * 16, 'zona ' + Math.round(z.sirina) + ' mm', c);
+                if (z.odVrha > 0) s += dimV(xL - 10, WEBY0, yT, z.odVrha + '');
+                if (z.odDna > 0) s += dimV(xL - 10, yB, WEBY1, z.odDna + '');
+            } else {
+                s += `<text x="${(WEBX0 + WEBX1) / 2}" y="${WEBY0 + 20 + i * 18}" text-anchor="middle" font-size="11.5" font-weight="800" fill="#b91c1c" stroke="#fff" stroke-width="3" paint-order="stroke">Z${i + 1}: zona van rolne — proveri mere</text>`;
+            }
+        });
         return <div dangerouslySetInnerHTML={{ __html: svgWrap(s, maxWidth, '0 0 600 760') }} />;
     }
     const BOJE = ["#8b5cf6", "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
@@ -386,6 +651,16 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
     const addLinija = () => commit([...linije, { poz: "", strana: "leva", razmak: "" }]);
     const delLinija = (i) => commit(linije.length > 1 ? linije.filter((_, idx) => idx !== i) : [{ poz: "", strana: "leva", razmak: "" }]);
 
+    // ── MIKRO ZONE (više zona) — svaka: od leve ivice + širina zone + (od vrha/od dna po zoni).
+    // Gustina i veličina rupe su zajedničke (globalne). Fallback na staru jednu zonu (odLeveIvice/odDesneIvice).
+    const zonaDefault = () => ({ odLeve: "", sirina: "", odVrha: v.odVrha ?? 50, odDna: v.odDna ?? 50 });
+    const zoneArr = (Array.isArray(v.zone) && v.zone.length)
+        ? v.zone
+        : [{ odLeve: (v.odLeveIvice ?? 20), sirina: (Math.max(0, (num(sirinaN) || 0) - num(v.odLeveIvice) - num(v.odDesneIvice)) || ""), odVrha: (v.odVrha ?? 50), odDna: (v.odDna ?? 50) }];
+    const setZona = (i, patch) => set("zone", zoneArr.map((z, idx) => (idx === i ? { ...z, ...patch } : z)));
+    const addZona = () => set("zone", [...zoneArr, zonaDefault()]);
+    const delZona = (i) => set("zone", zoneArr.length > 1 ? zoneArr.filter((_, idx) => idx !== i) : zoneArr);
+
     // perfLinije za crtanje: {mm (od leve ivice), poz, strana, razmak(efektivni)}
     const perfLinije = linije
         .filter((l) => String(l.poz) !== "" && !isNaN(parseFloat(l.poz)))
@@ -421,6 +696,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                 perfTip={v.tip} perfOdVrha={v.odVrha} perfOdDna={v.odDna} perfRazmak={v.razmakRupa} perfVisina={v.visina}
                 perfRaspored={v.raspored}
                 perfOdLeveIvice={v.odLeveIvice} perfOdDesneIvice={v.odDesneIvice} perfGustina={v.gustina} perfVelicinaRupe={v.velicinaRupe}
+                perfZone={jeZona ? zoneArr : []}
                 maxWidth={520} />
             {!(dizajn && dizajn.url) && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Dizajn se učitava u sekciji Štampa.</div>}
         </div>
@@ -442,8 +718,6 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginBottom: 12 }}>
                 {F("Tip", "tip", "select")}
                 {jeZona ? <>
-                    {F("Od leve ivice (mm)", "odLeveIvice")}
-                    {F("Od desne ivice (mm)", "odDesneIvice")}
                     <div><label style={_lab}>Gustina</label>
                         <select style={_inp} value={["najgusca", "standardna", "najredja"].includes(v.gustina) ? v.gustina : (v.gustina === "gusca" ? "najgusca" : (v.gustina === "redja" ? "najredja" : "standardna"))} onChange={(e) => set("gustina", e.target.value)}>
                             <option value="standardna">Standardna</option>
@@ -470,6 +744,29 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
                     </div>}
                 </>}
             </div>
+
+            {/* ZONE MIKRO PERFORACIJE — svaka zona: od leve ivice + širina + (od vrha/od dna po zoni).
+                Gustina i veličina rupe su zajedničke za sve zone (gore u gridu). */}
+            {jeZona && <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 10, marginBottom: 12, background: "#faf5ff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", letterSpacing: ".3px" }}>ZONE PERFORACIJE ({zoneArr.length})</span>
+                    <button type="button" style={{ ..._ebtn, background: "#8b5cf6", color: "#fff", borderColor: "#8b5cf6" }} onClick={addZona}>+ Dodaj zonu</button>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>Od vrha/od dna ostavi prazno = cela visina rolne</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr 1fr 34px", gap: 6, alignItems: "center", fontSize: 9.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
+                    <div>#</div><div>Od leve (mm)</div><div>Širina zone (mm)</div><div>Od vrha (mm)</div><div>Od dna (mm)</div><div></div>
+                </div>
+                {zoneArr.map((z, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr 1fr 34px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 900, color: "#8b5cf6", textAlign: "center" }}>Z{i + 1}</div>
+                        <input style={_inp} type="number" value={z.odLeve} placeholder="npr. 20" onChange={(e) => setZona(i, { odLeve: e.target.value })} />
+                        <input style={_inp} type="number" value={z.sirina} placeholder="npr. 100" onChange={(e) => setZona(i, { sirina: e.target.value })} />
+                        <input style={_inp} type="number" value={z.odVrha} placeholder="npr. 50" onChange={(e) => setZona(i, { odVrha: e.target.value })} />
+                        <input style={_inp} type="number" value={z.odDna} placeholder="npr. 50" onChange={(e) => setZona(i, { odDna: e.target.value })} />
+                        <button type="button" title="Obriši zonu" style={{ ..._ebtn, color: "#b91c1c", borderColor: "#fecaca", padding: "7px 0" }} onClick={() => delZona(i)}>✕</button>
+                    </div>
+                ))}
+            </div>}
 
             {/* LINIJE PERFORACIJE — svaka linija: pozicija + strana + (opcioni) razmak.
                 Ne prikazuje se za zonsku mikro perforaciju (ona popunjava celu zonu). */}
@@ -499,7 +796,7 @@ export function PerforacijaEditor({ value = {}, onChange, dizajn, nema = false }
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div style={{ flex: "1 1 280px", minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: "#8b5cf6", marginBottom: 4 }}>{jeZona ? "MIKRO PERFORACIJA (zona)" : "PERFORACIJA (kotirano)" + (imaPoz ? " — " + perfLinije.length + " linija" : " — unesi bar jednu liniju")}</div>
-                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} velicinaRupe={v.velicinaRupe} raspored={v.raspored} maxWidth={520} />
+                    <PerforacijaCrtez tip={v.tip} odVrha={v.odVrha} odDna={v.odDna} sirina={v.sirina} visina={v.visina} razmakRupa={v.razmakRupa} linije={perfLinije} odLeveIvice={v.odLeveIvice} odDesneIvice={v.odDesneIvice} gustina={v.gustina} velicinaRupe={v.velicinaRupe} raspored={v.raspored} zone={jeZona ? zoneArr : []} maxWidth={520} />
                 </div>
                 {dizajnBlok}
             </div>

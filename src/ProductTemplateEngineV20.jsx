@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getVrsteMaterijala, getOznakeZaVrstu, getDebljineZaMaterijal, getKoeficijent, calculateGm2, buildMaterialName, upsertMaterialToDb, masterHasCombo } from "./data/materialMaster.js";
-import { RolnaDizajnEditor, PerforacijaEditor, ViseDizajnaEditor } from "./components/RolnaPerfViews.jsx";
+import { RolnaDizajnEditor, PerforacijaEditor, ViseDizajnaEditor, TabakSkica, PolucrevoSkica } from "./components/RolnaPerfViews.jsx";
 import { pantoneHex, pantoneSwatch, PANTONE_KEYS } from "./data/pantone.js";
 import { supabase } from "./supabase.js";
 import spulnaTechnicalDrawing from "./assets/spulna_technical_drawing.png";
@@ -544,15 +544,18 @@ const defaultForm = {
         sirina: "",                 // širina tabaka (mm)
         duzina: "",                 // dužina tabaka (mm)
         sirinaMaterijala: "",       // širina matične rolne (mm)
-        // Slojevi/materijali — kao folija (više slojeva → kaширanje)
-        layers: [{ material: "OPP", debljina: "30", tezina: "27.3", sirina: "", cena: "" }],
-        // Štampa — pun blok kao kod folije
+        // Slojevi/materijali — kao folija (Vrsta·PodVrsta·Oznaka·Proizvođač·Debljina→težina + Š/L)
+        layers: [{ vrsta: "OPP", material: "OPP", debljina: "30", gm2: "27.3", tezina: "27.3", cena: "2.9" }],
+        // Štampa — pun blok kao kod folije (stampaSe uključuje operaciju; boje + dizajn + više dizajna)
         stampa: {
+            stampaSe: false,
             masina: "", strana: "", obimValjka: "", brojBoja: "", klise: "",
-            precnikHilzne: "", smerOdmotavanja: "", stamparija: "", napomena: "", boje: [], dizajn: {}
+            precnikHilzne: "", smerOdmotavanja: "", stamparija: "", napomena: "", boje: [], dizajn: {}, viseDizajna: { enabled: false }
         },
         // Kaширanje (lamiranje slojeva) — iste opcije kao folija
         kasiranje: { tipLepka: "", odnosLepka: "", nanosLepka: "", brojKasiranja: "", materijalABC: "", napomena: "" },
+        // Lakiranje — kao folija (zasebna operacija kad je sloj označen „lak")
+        lakiranje: { tip: "", masina: "", strana: "", nanos: "", pokrivenost: "", susenje: "", napomena: "" },
         // Rezanje na tabake (matična → tabaci š×d)
         rezanje: {
             sirinaMaterijala: "", precnikRolne: "", duzinaRolne: "",
@@ -563,6 +566,53 @@ const defaultForm = {
         rupe: null,                 // rupe/zumbe (pozicije + prečnik)
         presavijanje: false,        // presavijanje tabaka
         pakovanjeHrana: false,      // pakovanje za hranu
+        // Napomene po operacijama (inline, kao kod folije)
+        materijalNapomena: "",
+        izradaNapomena: "",
+        pakovanje: ""
+    },
+    // ── POLUCREVO — folija koja se PRESAVIJA po dužini u polucrevo.
+    //    Širina materijala (ravna folija) = 2 × širina polucreva (+ falta kad je ima).
+    //    Operacije: Materijal → (Štampa) → (Kaширanje) → (Perforacija) → Rezanje → Pravljenje creva.
+    //    Varijante zatvaranja: samo presavijanje | + uzdužni var (poluzatvoreno) | + falta/dno.
+    polucrevo: {
+        naziv: "",
+        kolicina: "",
+        jedinicaUnosa: "m",         // m = metri gotovog polucreva | kg
+        skart: "5",
+        // Dimenzija: širina polucreva (gotova, presavijena). Ravna folija = 2×širina (+ falta).
+        sirina: "",                 // širina polucreva (mm)
+        // Varijante zatvaranja
+        imaVar: false,              // uzdužni var na suprotnoj ivici od presavijanja (poluzatvoreno)
+        imaFalta: false,            // falta/dno
+        falta: "",                  // dubina falte (mm) — dodaje se na širinu ravne folije
+        // Širina ulazne matične rolne (kao folija) — iz nje se seku trake ravne folije
+        sirinaMaterijala: "",
+        // Slojevi/materijali — kao folija (Vrsta·PodVrsta·Oznaka·Proizvođač·Debljina→težina + Š/L)
+        layers: [{ vrsta: "OPP", material: "OPP", debljina: "40", gm2: "36.4", tezina: "36.4", cena: "2.9" }],
+        // Štampa — pun blok kao kod folije (stampaSe uključuje operaciju; boje + dizajn + više dizajna)
+        stampa: {
+            stampaSe: false,
+            masina: "", strana: "", obimValjka: "", brojBoja: "", klise: "",
+            precnikHilzne: "", smerOdmotavanja: "", stamparija: "", napomena: "", boje: [], dizajn: {}, viseDizajna: { enabled: false }
+        },
+        // Kaширanje (lamiranje slojeva) — kao folija
+        kasiranje: { tipLepka: "", odnosLepka: "", nanosLepka: "", brojKasiranja: "", materijalABC: "", napomena: "" },
+        // Lakiranje — kao folija
+        lakiranje: { tip: "", masina: "", strana: "", nanos: "", pokrivenost: "", susenje: "", napomena: "" },
+        // Perforacija — kao folija (PerforacijaEditor)
+        perforacija: null,
+        rupe: null,
+        // Rezanje (matična → trake ravne folije) + oznaka var/otvor po traci
+        rezanje: {
+            sirinaMaterijala: "", brojTrakaOverride: "", precnikRolne: "", duzinaRolne: "",
+            nacinPakovanja: "", rasporedOtpada: "obe",
+            // Oznaka ivica na preseku polucreva: presavljanje je jedna ivica; var/otvor je suprotna.
+            // "otvor" = otvorena ivica (samo presavijanje) | "var" = uzdužni var (poluzatvoreno)
+            suprotnaIvica: "otvor",
+        },
+        // Pravljenje creva — operacija (mašina, var, falta, napomena) [parametri u Fazi 2]
+        pravljenjeCreva: { masina: "", varPozicija: "", napomena: "" },
         // Napomene po operacijama (inline, kao kod folije)
         materijalNapomena: "",
         izradaNapomena: "",
@@ -750,6 +800,15 @@ function orderMetraze(f) {
             slojevi: ob.slojevi, kgUkupno: ob.kg,
         };
     }
+    if (f.type === "polucrevo") {
+        const ob = polucrevoObracun(f);
+        // kol / kolPlus = METRI MATIČNE ROLNE — to se skida iz magacina (kao folija).
+        return {
+            kol: ob.metriMat, kolPlus: ob.metriMatPlus,
+            kom: 0, duzM: 0, ban: ob.N, mTrake: ob.metriCrevo,
+            slojevi: ob.slojevi, kgUkupno: ob.kgUkupno,
+        };
+    }
     if (f.type === "tabak") {
         // Tabak se reže iz matične rolne: ban = širina_materijala ÷ širina_tabaka (tabaka popreko),
         // korak uz traku = dužina tabaka. Metri matične = (redova) × dužina, redova = ceil(kom ÷ ban).
@@ -822,6 +881,15 @@ function izracunajVrednostNaloga(form) {
         } else if (tip === "tabak") {
             const kom = N_(form.tabak && form.tabak.kolicina) || (orderMetraze(form).kom || 0);
             qty = jed === "1000kom" ? kom / 1000 : kom;
+        } else if (tip === "polucrevo") {
+            const unos = (form.polucrevo && form.polucrevo.jedinicaUnosa) || "m";
+            const Q = N_(form.polucrevo && form.polucrevo.kolicina);
+            if (jed === unos) qty = Q;                          // ista jedinica → direktno (m=m, kg=kg)
+            else if (jed === "1000m" && unos === "m") qty = Q / 1000;
+            else {
+                const ob = polucrevoObracun({ ...form, polucrevo: { ...(form.polucrevo || {}), skart: 0 } });
+                qty = jed === "kg" ? ob.kgUkupno : (jed === "1000m" ? ob.metriCrevo / 1000 : ob.metriCrevo);
+            }
         }
     } catch (e) { qty = 0; }
     return { vrednost: +(cena * (qty || 0)).toFixed(2), jedinica: jed, cena, kolicina: +((qty || 0)).toFixed(2) };
@@ -913,6 +981,67 @@ function folijaObracun(form, skartPct) {
         greske,
     };
 }
+// POLUCREVO — folija presavijena po dužini. Ravna (flat) traka = 2×širina (+ falta).
+// Iz matične (sirinaMaterijala) se seče N flat-traka; presavijanje NE menja dužinu, pa su
+// metri gotovog polucreva = metri flat-trake. kg/m² se računaju kao kod folije.
+function polucrevoObracun(form) {
+    const N_ = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const p = form.polucrevo || {};
+    const rez = p.rezanje || {};
+    const sirina = N_(p.sirina);                               // širina polucreva (gotova)
+    const falta = p.imaFalta ? N_(p.falta) : 0;
+    const flatTraka = sirina > 0 ? (2 * sirina + falta) : 0;   // širina ravne folije (jedna traka)
+    const sirMatMm = N_(rez.sirinaMaterijala) || N_(p.sirinaMaterijala) || N_(form.idealnaSirinaMaterijala);
+    const sirMatM = sirMatMm / 1000;
+    const rucno = Math.floor(N_(rez.brojTrakaOverride));
+    const N = rucno > 0 ? rucno : (sirMatMm && flatTraka ? Math.max(1, Math.floor(sirMatMm / flatTraka)) : 1);
+    const totalGm2 = (p.layers || []).reduce((a, l) => {
+        const g = N_(l.gm2 ?? l.tezina ?? l.tezinaGm2);
+        return a + (g || N_(l.debljina) * N_(l.koeficijent));
+    }, 0);
+    const jed = p.jedinicaUnosa || "m";
+    const v = N_(p.kolicina);
+    const skart = N_(p.skart);
+    const greske = [];
+
+    let metriCrevo = 0, metriMat = 0;
+    if (jed === "kg") {
+        const m2 = totalGm2 > 0 ? (v * 1000) / totalGm2 : 0;
+        metriMat = sirMatM > 0 ? m2 / sirMatM : 0;
+        metriCrevo = metriMat * N;
+        if (!totalGm2) greske.push("Za unos u KG slojevi moraju imati g/m².");
+        if (!sirMatM) greske.push("Za unos u KG treba širina materijala.");
+    } else { // "m" — metri gotovog polucreva (= metri flat-trake)
+        metriCrevo = v;
+        metriMat = N ? metriCrevo / N : 0;
+    }
+    const f = 1 + skart / 100;
+    const metriMatPlus = metriMat * f;
+    const m2Plus = metriMatPlus * sirMatM;
+
+    if (flatTraka && sirMatMm && N * flatTraka > sirMatMm) greske.push(`${N} × ${flatTraka} mm = ${N * flatTraka} mm ne staje u ${sirMatMm} mm.`);
+    if (!sirina) greske.push("Nema širine polucreva.");
+    if (!sirMatMm) greske.push("Nema širine materijala (matične).");
+    if (!totalGm2) greske.push("Slojevi nemaju g/m².");
+
+    const slojevi = (p.layers || []).filter(l => N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) > 0 || (N_(l.debljina) && N_(l.koeficijent))).map((l, i) => {
+        const g = N_(l.gm2 ?? l.tezina ?? l.tezinaGm2) || (N_(l.debljina) * N_(l.koeficijent));
+        return { naziv: l.oznaka || l.material || l.vrsta || `Sloj ${i + 1}`, gm2: g, metara: Math.ceil(metriMatPlus), kg: +(g * sirMatM * metriMatPlus / 1000).toFixed(1) };
+    });
+
+    return {
+        sirina, falta, flatTraka, sirMatMm, N, totalGm2, skart,
+        otpadMm: Math.max(0, sirMatMm - N * flatTraka),
+        metriCrevo: Math.ceil(metriCrevo),
+        metriMat: Math.ceil(metriMat),
+        metriMatPlus: Math.ceil(metriMatPlus),
+        m2: +m2Plus.toFixed(1),
+        slojevi,
+        kgUkupno: +slojevi.reduce((a, s) => a + s.kg, 0).toFixed(1),
+        greske,
+    };
+}
+
 function fieldStyle() { return { width: "100%", padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" }; }
 function labelStyle() { return { display: "block", fontSize: 10, color: "#475569", fontWeight: 800, textTransform: "uppercase", marginBottom: 5, letterSpacing: 0.4 }; }
 function cardStyle() { return { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, boxShadow: "0 1px 2px rgba(15,23,42,.04)" }; }
@@ -1917,9 +2046,23 @@ function inferTemplateOperations(tpl = {}) {
     if (tip === 'tabak') {
         const tl = tpl.tabak?.layers || [];
         const stT = tpl.tabak?.stampa || {};
-        const imaStT = !!stT.stampaSe || Number(stT.brojBoja) > 0;
+        const imaStT = !!stT.stampaSe || Number(stT.brojBoja) > 0 || (Array.isArray(stT.boje) && stT.boje.length > 0) || tl.some(l => l && (l.stampa || l.st || l['Š']));
         const imaKasT = tl.length > 1 || Number(tpl.tabak?.kasiranje?.brojKasiranja) > 0;
-        return ['materijal', ...(imaStT ? ['stampa'] : []), ...(imaKasT ? ['kasiranje'] : []), 'rezanje_tabaka'];
+        const brLakT = tl.filter(l => l && l.lak).length;
+        const lakPreT = (brLakT > 0 && !(brLakT >= 2 && imaKasT)) ? ['lakiranje'] : [];
+        const lakPosleT = (brLakT >= 2 && imaKasT) ? ['lakiranje'] : [];
+        return ['materijal', ...(imaStT ? ['stampa'] : []), ...lakPreT, ...(imaKasT ? ['kasiranje'] : []), ...lakPosleT, 'rezanje_tabaka'];
+    }
+    if (tip === 'polucrevo') {
+        const pl = tpl.polucrevo?.layers || [];
+        const stP = tpl.polucrevo?.stampa || {};
+        const imaStP = !!stP.stampaSe || Number(stP.brojBoja) > 0 || (Array.isArray(stP.boje) && stP.boje.length > 0) || pl.some(l => l && (l.stampa || l.st || l['Š']));
+        const imaKasP = pl.length > 1 || Number(tpl.polucrevo?.kasiranje?.brojKasiranja) > 0;
+        const brLakP = pl.filter(l => l && l.lak).length;
+        const lakPreP = (brLakP > 0 && !(brLakP >= 2 && imaKasP)) ? ['lakiranje'] : [];
+        const lakPosleP = (brLakP >= 2 && imaKasP) ? ['lakiranje'] : [];
+        // Materijal → (Štampa) → (Lakiranje) → (Kaширanje) → Rezanje (perforacija_rezanje) → Pravljenje creva
+        return ['materijal', ...(imaStP ? ['stampa'] : []), ...lakPreP, ...(imaKasP ? ['kasiranje'] : []), ...lakPosleP, 'perforacija_rezanje', 'pravljenje_creva'];
     }
     const layers = tpl.folija?.layers || [];
     const ops = ['materijal'];
@@ -2208,9 +2351,25 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const t = form.tabak || {};
             const Lt = t.layers || [];
             const stT = t.stampa || {};
-            const imaStampuT = !!stT.stampaSe || Number(stT.brojBoja) > 0 || (Array.isArray(stT.boje) && stT.boje.length > 0);
+            const imaStampuT = !!stT.stampaSe || Number(stT.brojBoja) > 0 || (Array.isArray(stT.boje) && stT.boje.length > 0) || Lt.some(l => l && (l.stampa || l.st || l["Š"]));
             const imaKasT = Lt.length > 1 || Number((t.kasiranje || {}).brojKasiranja) > 0;
-            return ["materijal", ...(imaStampuT ? ["stampa"] : []), ...(imaKasT ? ["kasiranje"] : []), "rezanje_tabaka"];
+            const brLakT = Lt.filter(l => l && l.lak).length;
+            const lakPreT = (brLakT > 0 && !(brLakT >= 2 && imaKasT)) ? ["lakiranje"] : [];
+            const lakPosleT = (brLakT >= 2 && imaKasT) ? ["lakiranje"] : [];
+            return ["materijal", ...(imaStampuT ? ["stampa"] : []), ...lakPreT, ...(imaKasT ? ["kasiranje"] : []), ...lakPosleT, "rezanje_tabaka"];
+        }
+        if (form.type === "polucrevo") {
+            // Tok: materijal → (štampa) → (kaширanje) → REZANJE (perforacija_rezanje = rezač + perforacija
+            // + oznaka var/otvor) → PRAVLJENJE CREVA (presavijanje + var + falta).
+            const p = form.polucrevo || {};
+            const Lp = p.layers || [];
+            const stP = p.stampa || {};
+            const imaStampuP = !!stP.stampaSe || Number(stP.brojBoja) > 0 || (Array.isArray(stP.boje) && stP.boje.length > 0) || Lp.some(l => l && (l.stampa || l.st || l["Š"]));
+            const imaKasP = Lp.length > 1 || Number((p.kasiranje || {}).brojKasiranja) > 0;
+            const brLakP = Lp.filter(l => l && l.lak).length;
+            const lakPreP = (brLakP > 0 && !(brLakP >= 2 && imaKasP)) ? ["lakiranje"] : [];
+            const lakPosleP = (brLakP >= 2 && imaKasP) ? ["lakiranje"] : [];
+            return ["materijal", ...(imaStampuP ? ["stampa"] : []), ...lakPreP, ...(imaKasP ? ["kasiranje"] : []), ...lakPosleP, "perforacija_rezanje", "pravljenje_creva"];
         }
         return ["materijal",
             ...(imaStampu ? ["stampa"] : []),
@@ -2343,7 +2502,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     async function potvrdiDopunaMaterijal() {
         if (!dopunaInfo) return;
         const { nalogId, broj, targetIdx } = dopunaInfo;
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.type === "polucrevo" ? form.polucrevo?.layers : form.spulna?.layers) || [];
         const { kolPlus } = orderMetraze(form);
         const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
         const multZa = (r) => formatMultiplier(r.sirina, idealnaSir0);
@@ -2711,9 +2870,9 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     async function generisiNalogeMaterijal() {
         // FOLIJA FORMATI — zaseban tok (reže matičnu na formate, bira najbolju rolnu).
         if (form.type === "folija" && form.folija?.formatiRezim) { return generisiNalogFormati(); }
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.type === "polucrevo" ? form.polucrevo?.layers : form.spulna?.layers) || [];
         if (!layers.length) { msg && msg("Unesi bar jedan sloj materijala!", "err"); return; }
-        if (!form.idealnaSirinaMaterijala && !(form.type === "tabak" && form.tabak?.sirinaMaterijala)) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
+        if (!form.idealnaSirinaMaterijala && !(form.type === "tabak" && form.tabak?.sirinaMaterijala) && !(form.type === "polucrevo" && form.polucrevo?.sirinaMaterijala)) { msg && msg("Unesi idealnu širinu materijala!", "err"); return; }
         if (form.type === "tabak") {
             const t = form.tabak || {};
             if (!(Number(t.sirina) > 0 && Number(t.duzina) > 0)) { msg && msg("Unesi dimenzije tabaka (širina i dužina)!", "err"); return; }
@@ -2790,7 +2949,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     // su „nedodeljeni" → operacije koje ih traže (kaширanje/rezanje) idu u
     // status „ceka_materijal" dok administracija ne dopuni materijal.
     function pokriceInfo() {
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.type === "polucrevo" ? form.polucrevo?.layers : form.spulna?.layers) || [];
         const { kolPlus } = orderMetraze(form);
         const sir0 = Number(form.idealnaSirinaMaterijala) || 0;
         const eff = (izb) => (izb || []).reduce((s, r) => s + slobodnoM(r) * formatMultiplier(r.sirina, sir0), 0);
@@ -2819,7 +2978,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
     }
 
     async function potvrdiNalogMaterijal() {
-        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
+        const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.type === "polucrevo" ? form.polucrevo?.layers : form.spulna?.layers) || [];
         const { kol, kolPlus } = orderMetraze(form);
 
         const idealnaSir0 = Number(form.idealnaSirinaMaterijala) || 0;
@@ -2860,7 +3019,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             const broj = await sledeciBrojNaloga();
             const proizvod = form.naziv || form.sifra || "";
             const obr = form.type === "spulna" ? spulnaObracun(form)
-                : form.type === "folija" ? folijaObracun(form) : null;
+                : form.type === "folija" ? folijaObracun(form)
+                    : form.type === "polucrevo" ? polucrevoObracun(form) : null;
 
             const zajednicko = {
                 broj_naloga: broj,
@@ -2892,7 +3052,8 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                     prodajna_jedinica: _vrednost.jedinica,
                     prodata_kolicina: _vrednost.kolicina,
                     jedinica_unosa: form.type === "folija" ? (form.jedinicaUnosa || "m")
-                        : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2") : "kom",
+                        : form.type === "spulna" ? (form.spulna?.jedinicaUnosa || "m2")
+                            : form.type === "polucrevo" ? (form.polucrevo?.jedinicaUnosa || "m") : "kom",
                     datum: new Date().toLocaleDateString("sr-RS"),
                     // DELIMIČAN nalog („čeka materijal") — koji slojevi još nemaju dodeljen materijal.
                     delimican_materijal: delimican,
@@ -3629,6 +3790,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             <ToggleButton active={form.type === "kesa"} onClick={() => setType("kesa")}>🛍️ {t("tmpl.kesa")}</ToggleButton>
             <ToggleButton active={form.type === "spulna"} onClick={() => setType("spulna")}>🧵 {t("tmpl.spulna")}</ToggleButton>
             <ToggleButton active={form.type === "tabak"} onClick={() => setType("tabak")}>📄 Tabak</ToggleButton>
+            <ToggleButton active={form.type === "polucrevo"} onClick={() => setType("polucrevo")}>➰ Polucrevo</ToggleButton>
         </div>
 
         {/* TOK PROIZVODNJE (FAZE) — SAMO INFORMATIVNO, na vrhu, uvek vidljivo, snima se uz templejt */}
@@ -4755,22 +4917,19 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
             </Section>
 
             <Section title="🧱 Materijali (slojevi)" color="#0891b2">
-                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 8 }}>Više slojeva → nastaje operacija kaширanja (lamiranje).</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr 0.9fr 0.8fr 34px", gap: 6, alignItems: "center", fontSize: 9.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
-                    <div>Materijal</div><div>Debljina (µ)</div><div>Težina (g/m²)</div><div>Širina (mm)</div><div>Cena (€/kg)</div><div></div>
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 8 }}>Isti izbor kao folija: Vrsta · Pod vrsta · Oznaka · Proizvođač · Debljina → težina. <b>Š</b> = sloj se štampa, <b>L</b> = sloj se lakira. Više slojeva → nastaje kaширanje.</div>
+                <MaterialLayersOneRowTable
+                    title=""
+                    layers={form.tabak.layers || []}
+                    showCena
+                    idealnaSirina={form.tabak.sirinaMaterijala || form.idealnaSirinaMaterijala || ""}
+                    onAdd={() => addLayer("tabak")}
+                    onRemove={(i) => removeLayer("tabak", i)}
+                    onPatch={(i, patch) => { Object.entries(patch).forEach(([key, value]) => updateLayer("tabak", i, key, value)); }}
+                />
+                <div style={{ marginTop: 10 }}>
+                    <TextArea label="📝 Napomena (materijal)" value={form.tabak.materijalNapomena || ""} onChange={v => update("tabak.materijalNapomena", v)} placeholder="napomena za pripremu materijala…" />
                 </div>
-                {(form.tabak.layers || []).map((l, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr 0.9fr 0.8fr 34px", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                        <input style={fieldStyle()} value={l.material || l.vrsta || ""} placeholder="OPP" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], material: e.target.value }; return n; })} />
-                        <input style={fieldStyle()} type="number" value={l.debljina || ""} placeholder="30" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], debljina: e.target.value }; return n; })} />
-                        <input style={fieldStyle()} type="number" value={l.tezina ?? l.gm2 ?? ""} placeholder="27.3" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], tezina: e.target.value }; return n; })} />
-                        <input style={fieldStyle()} type="number" value={l.sirina || ""} placeholder="matična" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], sirina: e.target.value }; return n; })} />
-                        <input style={fieldStyle()} type="number" value={l.cena ?? l.cena_kg ?? ""} placeholder="2.9" onChange={e => setForm(p => { const n = clone(p); n.tabak.layers[i] = { ...n.tabak.layers[i], cena: e.target.value }; return n; })} />
-                        <button type="button" title="Obriši sloj" style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 8, padding: "7px 0", cursor: "pointer", fontWeight: 900 }} onClick={() => setForm(p => { const n = clone(p); if ((n.tabak.layers || []).length > 1) n.tabak.layers = n.tabak.layers.filter((_, idx) => idx !== i); return n; })}>✕</button>
-                    </div>
-                ))}
-                <button type="button" onClick={() => setForm(p => { const n = clone(p); n.tabak.layers = [...(n.tabak.layers || []), { material: "OPP", debljina: "30", tezina: "27.3", sirina: "", cena: "" }]; return n; })}
-                    style={{ border: "1px solid #67e8f9", background: "#ecfeff", color: "#0891b2", borderRadius: 9, padding: "7px 14px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", marginTop: 4 }}>+ Dodaj sloj</button>
             </Section>
 
             <Section title="🖨️ Štampa" color="#0891b2">
@@ -4788,7 +4947,27 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                         <Input label="Kliše" value={form.tabak.stampa.klise} onChange={v => update("tabak.stampa.klise", v)} placeholder="broj klišea" />
                     </Grid>
                     <TextArea label="📝 Napomena (štampa)" value={form.tabak.stampa.napomena || ""} onChange={v => update("tabak.stampa.napomena", v)} placeholder="napomena za štampu…" />
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                        <BojeStampeEditor value={form.tabak.stampa.boje} onChange={v => update("tabak.stampa.boje", v)} />
+                    </div>
+                    <div style={{ marginTop: 12, borderTop: "1px dashed #cbd5e1", paddingTop: 10 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 900, color: "#0e7490", marginBottom: 6 }}>🎨 Skica štampe (dizajn na tabaku) — učitaj sliku, pa okreni ↺ ↻ i zrcalo ⇆</div>
+                        <RolnaDizajnEditor value={form.tabak.stampa.dizajn || {}} onChange={v => update("tabak.stampa.dizajn", v)} hidePreview />
+                    </div>
                 </>}
+            </Section>
+
+            <Section title="✨ Lakiranje" color="#0891b2">
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 10 }}>Lak je zasebna operacija kad je sloj označen „L". Jedan sloj → pre kaширanja; dva ili više → spoj, posle kaширanja.</div>
+                <Grid cols={3}>
+                    <Input label="Tip laka" value={form.tabak.lakiranje?.tip || ""} onChange={v => update("tabak.lakiranje.tip", v)} />
+                    <Input label="Mašina" value={form.tabak.lakiranje?.masina || ""} onChange={v => update("tabak.lakiranje.masina", v)} />
+                    <Input label="Strana (lice/naličje)" value={form.tabak.lakiranje?.strana || ""} onChange={v => update("tabak.lakiranje.strana", v)} />
+                    <Input label="Nanos (g/m²)" value={form.tabak.lakiranje?.nanos || ""} onChange={v => update("tabak.lakiranje.nanos", v)} />
+                    <Input label="Pokrivenost (puna/UV/mat…)" value={form.tabak.lakiranje?.pokrivenost || ""} onChange={v => update("tabak.lakiranje.pokrivenost", v)} />
+                    <Input label="Sušenje" value={form.tabak.lakiranje?.susenje || ""} onChange={v => update("tabak.lakiranje.susenje", v)} />
+                </Grid>
+                <div style={{ marginTop: 8 }}><TextArea label="Napomena (lakiranje)" value={form.tabak.lakiranje?.napomena || ""} onChange={v => update("tabak.lakiranje.napomena", v)} /></div>
             </Section>
 
             {(form.tabak.layers || []).length > 1 && <Section title="🧪 Kaширanje (lamiranje slojeva)" color="#0891b2">
@@ -4827,15 +5006,237 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 </div>}
                 <TextArea label="📝 Napomena (rezanje / dorada)" value={form.tabak.izradaNapomena || ""} onChange={v => update("tabak.izradaNapomena", v)} placeholder="napomena za rezač (rezanje, dorada, pakovanje)…" />
             </Section>
+
+            <Section title="📐 Prikaz — raspored tabaka iz matične rolne" color="#0891b2">
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                    Isti crtež ide na radni nalog za rezanje. {form.tabak.stampa.stampaSe && (form.tabak.stampa.dizajn || {}).url ? "Dizajn (skica štampe)" : "Tabaci"} {form.tabak.perforacija ? "i perforacija " : ""}se vide na svakom tabaku.
+                </div>
+                <TabakSkica
+                    W={Number(form.tabak.sirina) || 0}
+                    L={Number(form.tabak.duzina) || 0}
+                    WM={Number(form.tabak.sirinaMaterijala) || 0}
+                    dizajn={form.tabak.stampa.dizajn || {}}
+                    imaStampu={!!form.tabak.stampa.stampaSe && !!((form.tabak.stampa.dizajn || {}).url)}
+                    perforacija={form.tabak.perforacija || null}
+                    maxWidth={660}
+                />
+            </Section>
+        </>}
+
+        {form.type === "polucrevo" && <>
+            <Section title="➰ Polucrevo — dimenzije i zatvaranje" color="#2446b8">
+                <Grid cols={4}>
+                    <Input label="Naziv" value={form.polucrevo.naziv} onChange={v => update("polucrevo.naziv", v)} placeholder="npr. Polucrevo OPP 40µ 300 mm" />
+                    <div>
+                        <label style={labelStyle()}>Poručena količina</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input type="number" value={form.polucrevo.kolicina || ""} placeholder="npr. 20000"
+                                onChange={e => update("polucrevo.kolicina", e.target.value)} style={{ ...fieldStyle(), flex: 1 }} />
+                            <select value={form.polucrevo.jedinicaUnosa || "m"} onChange={e => update("polucrevo.jedinicaUnosa", e.target.value)}
+                                style={{ ...fieldStyle(), width: 70 }}>
+                                <option value="m">m</option>
+                                <option value="kg">kg</option>
+                            </select>
+                        </div>
+                    </div>
+                    <Input label="Škart (%)" value={form.polucrevo.skart} onChange={v => update("polucrevo.skart", v)} placeholder="5" />
+                    <Input label="Pakovanje" value={form.polucrevo.pakovanje} onChange={v => update("polucrevo.pakovanje", v)} placeholder="npr. rolne na paleti" />
+                </Grid>
+
+                <Grid cols={4}>
+                    <Input label="Širina polucreva (mm)" value={form.polucrevo.sirina} onChange={v => update("polucrevo.sirina", v)} placeholder="npr. 300" />
+                    <Input label="Širina materijala — matična (mm)" value={form.polucrevo.sirinaMaterijala}
+                        onChange={v => setForm(p => { const n = clone(p); n.polucrevo.sirinaMaterijala = v; n.idealnaSirinaMaterijala = v; return n; })} placeholder="npr. 1040" />
+                    <div style={{ alignSelf: "end" }}>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                            <input type="checkbox" checked={!!form.polucrevo.imaVar} onChange={e => update("polucrevo.imaVar", e.target.checked)} /> Uzdužni var (poluzatvoreno)
+                        </label>
+                    </div>
+                    <div style={{ alignSelf: "end" }}>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                            <input type="checkbox" checked={!!form.polucrevo.imaFalta} onChange={e => update("polucrevo.imaFalta", e.target.checked)} /> Falta / dno
+                        </label>
+                    </div>
+                </Grid>
+                {form.polucrevo.imaFalta && <Grid cols={4}>
+                    <Input label="Falta / dno (mm)" value={form.polucrevo.falta} onChange={v => update("polucrevo.falta", v)} placeholder="npr. 40" />
+                </Grid>}
+
+                {(() => {
+                    const pc = polucrevoObracun(form);
+                    const chip = (lab, val, col) => (
+                        <div style={{ ...cardStyle(), padding: 12 }}>
+                            <div style={{ fontSize: 10.5, color: "#64748b", fontWeight: 800, textTransform: "uppercase" }}>{lab}</div>
+                            <div style={{ fontSize: 20, fontWeight: 950, color: col || "#0f172a" }}>{val}</div>
+                        </div>
+                    );
+                    const fmt = (n) => n ? Number(n).toLocaleString("sr-RS") : "—";
+                    return <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                            Ravna folija (matična traka) = 2 × širina{form.polucrevo.imaFalta ? " + falta" : ""} = <b>{pc.flatTraka || "—"} mm</b>. Presavijanje ne menja dužinu.
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 8 }}>
+                            {chip("Ravna traka", (pc.flatTraka || "—") + " mm", "#2446b8")}
+                            {chip("Broj traka", pc.N || "—", "#0891b2")}
+                            {chip("Metri matične", fmt(pc.metriMatPlus) + " m", "#059669")}
+                            {chip("Potrebno kg", fmt(pc.kgUkupno) + " kg", "#dc2626")}
+                            {chip("m² (sa škartom)", fmt(pc.m2) + " m²", "#7c3aed")}
+                        </div>
+                        {pc.otpadMm > 0 && <div style={{ fontSize: 11.5, color: "#b45309", marginTop: 6 }}>Bočni otpad na matičnoj: {pc.otpadMm} mm.</div>}
+                        {pc.greske.length > 0 && <div style={{ fontSize: 11.5, color: "#dc2626", marginTop: 6 }}>⚠ {pc.greske.join(" · ")}</div>}
+                    </div>;
+                })()}
+            </Section>
+
+            <Section title="🧱 Materijali (slojevi)" color="#2446b8">
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 8 }}>Isti izbor kao folija: Vrsta · Pod vrsta · Oznaka · Proizvođač · Debljina → težina. <b>Š</b> = sloj se štampa, <b>L</b> = sloj se lakira. Više slojeva → nastaje kaширanje.</div>
+                <MaterialLayersOneRowTable
+                    title=""
+                    layers={form.polucrevo.layers || []}
+                    showCena
+                    idealnaSirina={form.polucrevo.sirinaMaterijala || form.idealnaSirinaMaterijala || ""}
+                    onAdd={() => addLayer("polucrevo")}
+                    onRemove={(i) => removeLayer("polucrevo", i)}
+                    onPatch={(i, patch) => { Object.entries(patch).forEach(([key, value]) => updateLayer("polucrevo", i, key, value)); }}
+                />
+                <div style={{ marginTop: 10 }}>
+                    <TextArea label="📝 Napomena (materijal)" value={form.polucrevo.materijalNapomena || ""} onChange={v => update("polucrevo.materijalNapomena", v)} placeholder="napomena za pripremu materijala…" />
+                </div>
+            </Section>
+
+            <Section title="🖨️ Štampa" color="#2446b8">
+                <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.polucrevo.stampa.stampaSe} onChange={e => update("polucrevo.stampa.stampaSe", e.target.checked)} />
+                        Polucrevo se štampa
+                    </label>
+                </div>
+                {form.polucrevo.stampa.stampaSe && <>
+                    <Grid cols={4}>
+                        <Input label="Mašina" value={form.polucrevo.stampa.masina} onChange={v => update("polucrevo.stampa.masina", v)} placeholder="npr. Flexo 8" />
+                        <Input label="Broj boja" value={form.polucrevo.stampa.brojBoja} onChange={v => update("polucrevo.stampa.brojBoja", v)} placeholder="npr. 4" />
+                        <Input label="Štamparija" value={form.polucrevo.stampa.stamparija} onChange={v => update("polucrevo.stampa.stamparija", v)} placeholder="interno / ime" />
+                        <Input label="Kliše" value={form.polucrevo.stampa.klise} onChange={v => update("polucrevo.stampa.klise", v)} placeholder="broj klišea" />
+                    </Grid>
+                    <TextArea label="📝 Napomena (štampa)" value={form.polucrevo.stampa.napomena || ""} onChange={v => update("polucrevo.stampa.napomena", v)} placeholder="napomena za štampu…" />
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+                        <BojeStampeEditor value={form.polucrevo.stampa.boje} onChange={v => update("polucrevo.stampa.boje", v)} />
+                    </div>
+                    <div style={{ marginTop: 12, borderTop: "1px dashed #cbd5e1", paddingTop: 10 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 900, color: "#2446b8", marginBottom: 6 }}>🎨 Dizajn na rolni — učitaj sliku, pa okreni ↺ ↻ i zrcalo ⇆</div>
+                        <RolnaDizajnEditor value={form.polucrevo.stampa.dizajn || {}} onChange={v => update("polucrevo.stampa.dizajn", v)} />
+                    </div>
+                </>}
+            </Section>
+
+            <Section title="✨ Lakiranje" color="#2446b8">
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 10 }}>Lak je zasebna operacija kad je sloj označen „L". Jedan sloj → pre kaширanja; dva ili više → spoj, posle kaширanja.</div>
+                <Grid cols={3}>
+                    <Input label="Tip laka" value={form.polucrevo.lakiranje?.tip || ""} onChange={v => update("polucrevo.lakiranje.tip", v)} />
+                    <Input label="Mašina" value={form.polucrevo.lakiranje?.masina || ""} onChange={v => update("polucrevo.lakiranje.masina", v)} />
+                    <Input label="Strana (lice/naličje)" value={form.polucrevo.lakiranje?.strana || ""} onChange={v => update("polucrevo.lakiranje.strana", v)} />
+                    <Input label="Nanos (g/m²)" value={form.polucrevo.lakiranje?.nanos || ""} onChange={v => update("polucrevo.lakiranje.nanos", v)} />
+                    <Input label="Pokrivenost (puna/UV/mat…)" value={form.polucrevo.lakiranje?.pokrivenost || ""} onChange={v => update("polucrevo.lakiranje.pokrivenost", v)} />
+                    <Input label="Sušenje" value={form.polucrevo.lakiranje?.susenje || ""} onChange={v => update("polucrevo.lakiranje.susenje", v)} />
+                </Grid>
+                <div style={{ marginTop: 8 }}><TextArea label="Napomena (lakiranje)" value={form.polucrevo.lakiranje?.napomena || ""} onChange={v => update("polucrevo.lakiranje.napomena", v)} /></div>
+            </Section>
+
+            {(form.polucrevo.layers || []).length > 1 && <Section title="🧪 Kaширanje (lamiranje slojeva)" color="#2446b8">
+                <Grid cols={4}>
+                    <Input label="Tip lepka" value={form.polucrevo.kasiranje.tipLepka} onChange={v => update("polucrevo.kasiranje.tipLepka", v)} placeholder="npr. SOLVENT" />
+                    <Input label="Odnos lepka" value={form.polucrevo.kasiranje.odnosLepka} onChange={v => update("polucrevo.kasiranje.odnosLepka", v)} placeholder="npr. 100:5" />
+                    <Input label="Nanos lepka (g/m²)" value={form.polucrevo.kasiranje.nanosLepka} onChange={v => update("polucrevo.kasiranje.nanosLepka", v)} placeholder="npr. 3" />
+                    <Input label="Broj kaширanja" value={form.polucrevo.kasiranje.brojKasiranja} onChange={v => update("polucrevo.kasiranje.brojKasiranja", v)} placeholder="npr. 1" />
+                </Grid>
+                <TextArea label="📝 Napomena (kaширanje)" value={form.polucrevo.kasiranje.napomena || ""} onChange={v => update("polucrevo.kasiranje.napomena", v)} placeholder="napomena za kaширanje…" />
+            </Section>}
+
+            <Section title="⠿ Perforacija" color="#2446b8">
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, cursor: "pointer", marginBottom: 8 }}>
+                    <input type="checkbox" checked={!!form.polucrevo.perforacija} onChange={e => update("polucrevo.perforacija", e.target.checked ? { tip: "linija", odVrha: 50, odDna: 50, sirina: Number(form.polucrevo.sirina) || 300, visina: 600, razmakRupa: 5, linije: [{ poz: "", strana: "leva", razmak: "" }] } : null)} /> Ima perforaciju
+                </label>
+                {form.polucrevo.perforacija && <PerforacijaEditor value={form.polucrevo.perforacija} dizajn={form.polucrevo.stampa.dizajn} onChange={v => update("polucrevo.perforacija", v)} />}
+            </Section>
+
+            <Section title="✂️ Rezanje (matična → trake ravne folije)" color="#2446b8">
+                <Grid cols={4}>
+                    <Input label="Širina materijala — matična (mm)" value={form.polucrevo.rezanje.sirinaMaterijala || form.polucrevo.sirinaMaterijala || ""}
+                        onChange={v => update("polucrevo.rezanje.sirinaMaterijala", v)} placeholder="npr. 1040" />
+                    <div>
+                        <label style={labelStyle()}>Širina ravne trake (2×širina + falta)</label>
+                        <input disabled style={{ ...fieldStyle(), background: "#eff6ff", color: "#2446b8", fontWeight: 800 }}
+                            value={(polucrevoObracun(form).flatTraka || "—") + " mm"} />
+                    </div>
+                    <div>
+                        <label style={labelStyle()}>Broj traka (auto / override)</label>
+                        <input type="number" style={fieldStyle()} value={form.polucrevo.rezanje.brojTrakaOverride || ""} placeholder={String(polucrevoObracun(form).N || "—")}
+                            onChange={e => update("polucrevo.rezanje.brojTrakaOverride", e.target.value)} />
+                    </div>
+                    <Input label="Način pakovanja" value={form.polucrevo.rezanje.nacinPakovanja} onChange={v => update("polucrevo.rezanje.nacinPakovanja", v)} placeholder="npr. rolne na paleti" />
+                </Grid>
+                <Grid cols={4}>
+                    <Input label="Prečnik matične rolne (mm)" value={form.polucrevo.rezanje.precnikRolne} onChange={v => update("polucrevo.rezanje.precnikRolne", v)} placeholder="npr. 600" />
+                    <Input label="Dužina matične rolne (m)" value={form.polucrevo.rezanje.duzinaRolne} onChange={v => update("polucrevo.rezanje.duzinaRolne", v)} placeholder="npr. 6000" />
+                    <div>
+                        <label style={labelStyle()}>Suprotna ivica od presavijanja</label>
+                        <select style={fieldStyle()} value={form.polucrevo.rezanje.suprotnaIvica || "otvor"} onChange={e => update("polucrevo.rezanje.suprotnaIvica", e.target.value)}>
+                            <option value="otvor">Otvor (samo presavijanje)</option>
+                            <option value="var">Var (poluzatvoreno)</option>
+                        </select>
+                    </div>
+                    <div style={{ alignSelf: "end", fontSize: 11.5, color: "#64748b", fontWeight: 700 }}>
+                        Jedna ivica = <b>presavijanje</b>, suprotna = <b>{form.polucrevo.rezanje.suprotnaIvica === "var" ? "var" : "otvor"}</b>{form.polucrevo.imaFalta ? " · + falta/dno" : ""}.
+                    </div>
+                </Grid>
+                <TextArea label="📝 Napomena (rezanje / formatiranje)" value={form.polucrevo.izradaNapomena || ""} onChange={v => update("polucrevo.izradaNapomena", v)} placeholder="napomena za rezač…" />
+            </Section>
+
+            <Section title="➰ Pravljenje creva" color="#2446b8">
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                    Zatvaranje: <b>presavijanje</b>{form.polucrevo.imaVar ? " + uzdužni var" : ""}{form.polucrevo.imaFalta ? " + falta/dno" : ""}.
+                </div>
+                <Grid cols={3}>
+                    <Input label="Mašina" value={form.polucrevo.pravljenjeCreva.masina} onChange={v => update("polucrevo.pravljenjeCreva.masina", v)} placeholder="npr. mašina za crevo" />
+                    {form.polucrevo.imaVar && <Input label="Pozicija / parametri vara" value={form.polucrevo.pravljenjeCreva.varPozicija} onChange={v => update("polucrevo.pravljenjeCreva.varPozicija", v)} placeholder="npr. ivica, temp. 180°C" />}
+                    <Input label="Pakovanje gotovog creva" value={form.polucrevo.pakovanje} onChange={v => update("polucrevo.pakovanje", v)} placeholder="npr. rolne / na paleti" />
+                </Grid>
+                <TextArea label="📝 Napomena (pravljenje creva)" value={form.polucrevo.pravljenjeCreva.napomena || ""} onChange={v => update("polucrevo.pravljenjeCreva.napomena", v)} placeholder="napomena za izradu creva…" />
+            </Section>
+
+            <Section title="📐 Prikaz — raspored traka iz matične + presek creva" color="#2446b8">
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                    Isti crtež ide na radni nalog. Svaka ravna traka ima centralnu liniju presavijanja; spoljne ivice su {form.polucrevo.rezanje.suprotnaIvica === "var" ? "var" : "otvor"}{form.polucrevo.imaFalta ? "; dno ima faltu" : ""}.
+                </div>
+                {(() => {
+                    const pc = polucrevoObracun(form);
+                    return <PolucrevoSkica
+                        sirina={Number(form.polucrevo.sirina) || 0}
+                        flat={pc.flatTraka || 0}
+                        WM={pc.sirMatMm || 0}
+                        N={pc.N || 0}
+                        otpad={pc.otpadMm || 0}
+                        dizajn={form.polucrevo.stampa.dizajn || {}}
+                        imaStampu={!!form.polucrevo.stampa.stampaSe && !!((form.polucrevo.stampa.dizajn || {}).url)}
+                        perforacija={form.polucrevo.perforacija || null}
+                        imaVar={!!form.polucrevo.imaVar}
+                        imaFalta={!!form.polucrevo.imaFalta}
+                        falta={Number(form.polucrevo.falta) || 0}
+                        suprotnaIvica={form.polucrevo.rezanje.suprotnaIvica || (form.polucrevo.imaVar ? "var" : "otvor")}
+                        maxWidth={700}
+                    />;
+                })()}
+            </Section>
         </>}
 
         <Section title={"📚 " + t("tmpl.biblioteka")} color="#0f172a">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Ukupno</div><div style={{ fontSize: 24, fontWeight: 950 }}>{saved.length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Folije</div><div style={{ fontSize: 24, fontWeight: 950, color: BLUE }}>{saved.filter(t => t.tip === "folija").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Kese</div><div style={{ fontSize: 24, fontWeight: 950, color: ORANGE }}>{saved.filter(t => t.tip === "kesa").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Špulne</div><div style={{ fontSize: 24, fontWeight: 950, color: "#7c3aed" }}>{saved.filter(t => t.tip === "spulna").length}</div></div>
                 <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Tabaci</div><div style={{ fontSize: 24, fontWeight: 950, color: "#0891b2" }}>{saved.filter(t => t.tip === "tabak").length}</div></div>
+                <div style={{ ...cardStyle(), padding: 12 }}><div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>Polucreva</div><div style={{ fontSize: 24, fontWeight: 950, color: "#2446b8" }}>{saved.filter(t => t.tip === "polucrevo").length}</div></div>
             </div>
             {saved.length === 0 ? <div style={{ color: "#64748b" }}>Još nema sačuvanih template-a u Product Master bazi. Popuni foliju/kesu/špulnu i klikni „Sačuvaj template”.</div> : <div style={{ display: "grid", gap: 10 }}>
                 {saved.map(t => <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, background: "#fff" }}>
@@ -4871,7 +5272,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
 
         {/* ════ MODAL ZA NALOG MATERIJALA ════ */}
         {nalogModal && (() => {
-            const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.spulna?.layers) || [];
+            const layers = (form.type === "folija" ? form.folija?.layers : form.type === "kesa" ? form.kesa?.layers : form.type === "tabak" ? form.tabak?.layers : form.type === "polucrevo" ? form.polucrevo?.layers : form.spulna?.layers) || [];
             const { kol, kolPlus } = orderMetraze(form);
             const sir = Number(form.idealnaSirinaMaterijala) || 0;
             const sirinaM = sir / 1000;

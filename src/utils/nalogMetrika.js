@@ -14,7 +14,7 @@ export function num2(v) { return Number(String(v ?? 0).replace(/\s/g, "").replac
 export function safeJson(v, f) { if (v == null) return f; if (typeof v === "object") return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
 
 // Operativni nalozi nose sufiks operacije; glavni broj je bez njega.
-export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|REZANJE_TABAKA|FORMATIRANJE|KESA|SPULNA)$/i;
+export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|REZANJE_TABAKA|PRAVLJENJE_CREVA|FORMATIRANJE|KESA|SPULNA)$/i;
 export const canonRef = (r) => String(r || "").trim().replace(OP_SUFIKS, "");
 export const jeMP = (r) => /^MP-\d{4}-\d+/i.test(canonRef(r));
 
@@ -31,6 +31,7 @@ export function opKljuc(n) {
     if (t.includes("lak")) return "lakiranje";
     if (t.includes("ka\u0161") || t.includes("kas")) return "kasiranje";
     if (t.includes("tabak") || t.includes("tabac")) return "rezanje_tabaka";
+    if (t.includes("crev") || t.includes("polucrev")) return "pravljenje_creva";
     if (t.includes("perf") || t.includes("rez")) return "perforacija_rezanje";
     if (t.includes("format")) return "formatiranje";
     if (t.includes("kes")) return "kesa";
@@ -175,13 +176,13 @@ export function stvarnoMin(n) {
 // FORMATIRANJE ide ODMAH posle materijala (slitovanje matične rolne na trake idealne širine),
 // PRE svih mašinskih operacija — tako blokada „čeka prethodnu" pravilno veže: formatiranje čeka
 // samo materijal, a štampa/rezanje/kesa/špulna čekaju formatiranje kad ga nalog ima.
-export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "rezanje_tabaka", "kesa", "spulna"];
+export const REDOSLED_OPERACIJA = ["materijal", "formatiranje", "stampa", "lakiranje", "kasiranje", "perforacija_rezanje", "rezanje_tabaka", "pravljenje_creva", "kesa", "spulna"];
 
 // LAKIRANJE SPOJA: kad su u templejtu za lak čekirana 2 ili više materijala, ne lakira se
 // pojedinačan materijal nego SPOJ — pa lakiranje ide POSLE kaširanja:
 //   materijal → (formatiranje) → štampa → kaširanje → lakiranje → rezanje / kesa
 // Jedan čekiran materijal = lakiranje PRE kaširanja (standardni redosled iznad).
-export const REDOSLED_LAK_POSLE = ["materijal", "formatiranje", "stampa", "kasiranje", "lakiranje", "perforacija_rezanje", "kesa", "spulna"];
+export const REDOSLED_LAK_POSLE = ["materijal", "formatiranje", "stampa", "kasiranje", "lakiranje", "perforacija_rezanje", "pravljenje_creva", "kesa", "spulna"];
 
 // Koliko slojeva templejta ima čekiran „lak". -1 = nepoznato (red ne nosi templejt).
 export function brojLakSlojeva(tpl) {
@@ -290,5 +291,5 @@ export function nadjiBlokadu(masterBroj, mojKljuc, mapa) {
 export const OP_LABELE = {
     materijal: "MATERIJAL", stampa: "\u0160TAMPA", lakiranje: "LAKIRANJE", kasiranje: "KA\u0160IRANJE",
     perforacija_rezanje: "REZANJE", formatiranje: "FORMATIRANJE", kesa: "KESA", spulna: "\u0160PULNA",
-    rezanje_tabaka: "REZANJE TABAKA",
+    rezanje_tabaka: "REZANJE TABAKA", pravljenje_creva: "PRAVLJENJE CREVA",
 };

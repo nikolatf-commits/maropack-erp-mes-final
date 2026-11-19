@@ -22,6 +22,7 @@ import PonudePRO from "./PonudePRO.jsx";
 import KalkulacijaFolije from "./KalkulacijaFolije.jsx";
 import KalkulacijaKese from "./KalkulacijaKese.jsx";
 import KalkulacijaTabaka from "./KalkulacijaTabaka.jsx";
+import KalkulacijaPolucreva from "./KalkulacijaPolucreva.jsx";
 import KalkulacijaSpulne from "./KalkulacijaSpulne.jsx";
 import KalkulatorMaticnihRolni from "./KalkulatorMaticnihRolni.jsx";
 import PlanerRezanjaIzMagacina from "./PlanerRezanjaIzMagacina.jsx";
@@ -1491,6 +1492,7 @@ function MainAppContent() {
         if (t.includes("spul")) return "spulna";
         if (t.includes("kes")) return "kesa";
         if (t.includes("tabak") || t.includes("tabac") || t.includes("arak") || t.includes("list")) return "tabak";
+        if (t.includes("polucrev") || t.includes("crevo") || t.includes("creva")) return "polucrevo";
         return "folija";
     }
 
@@ -1703,6 +1705,11 @@ function MainAppContent() {
             tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
             tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaширanje", ik: "link", boj: "#1d4ed8" });
             tipovi.push({ tip: "rezanje_tabaka", naziv: "Nalog za rezanje na tabake", ik: "cut", boj: "#0891b2" });
+        } else if (tipProizvoda === "polucrevo") {
+            tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
+            tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaширanje", ik: "link", boj: "#1d4ed8" });
+            tipovi.push({ tip: "perforacija_rezanje", naziv: "Nalog za rezanje", ik: "cut", boj: "#6366f1" });
+            tipovi.push({ tip: "pravljenje_creva", naziv: "Nalog za pravljenje creva", ik: "roll", boj: "#2446b8" });
         } else {
             tipovi.push({ tip: "stampa", naziv: "Nalog za štampu", ik: "print", boj: "#3b82f6" });
             tipovi.push({ tip: "kasiranje", naziv: "Nalog za kaširanje", ik: "link", boj: "#1d4ed8" });
@@ -2222,8 +2229,10 @@ function MainAppContent() {
                                 // navigiraj — da forma pri montiranju sigurno pročita baš ovu kalkulaciju
                                 // i da se ništa ne pomeša.
                                 const tip = (kal.tip || 'folija');
-                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : 'kalk_folija';
+                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : tip === 'tabak' ? 'kalk_tabak' : tip === 'polucrevo' ? 'kalk_polucrevo' : 'kalk_folija';
                                 localStorage.setItem('editKalkulacija', JSON.stringify({ ...kal, tip }));
+                                if (tip === 'tabak') localStorage.setItem('maropack_edit_kalk_tabak', JSON.stringify(kal));
+                                if (tip === 'polucrevo') localStorage.setItem('maropack_edit_kalk_polucrevo', JSON.stringify(kal));
                                 setPage(strana);
                             }}
                             onKreirajPonudu={async (kal) => {
@@ -2273,6 +2282,12 @@ function MainAppContent() {
                             <KalkulacijaTabaka setPage={setPage} />
                         </div>
                     )}
+                    {page === "kalk_polucrevo" && (
+                        <div>
+                            <NazadDugme setPage={setPage} to="kalkulacije_lista" label="listu kalkulacija" />
+                            <KalkulacijaPolucreva setPage={setPage} />
+                        </div>
+                    )}
                     {/* KALKULACIJA ŠPULNE */}
                     {page === "kalk_spulna" && (
                         <div>
@@ -2293,8 +2308,10 @@ function MainAppContent() {
                             onOtvoriKalkulaciju={(kal) => {
                                 // Prvo upiši (ceo zapis + tačan tip), pa navigiraj — bez mešanja.
                                 const tip = (kal.tip || 'folija');
-                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : 'kalk_folija';
+                                const strana = tip === 'kesa' ? 'kalk_kesa' : tip === 'spulna' ? 'kalk_spulna' : tip === 'tabak' ? 'kalk_tabak' : tip === 'polucrevo' ? 'kalk_polucrevo' : 'kalk_folija';
                                 localStorage.setItem('editKalkulacija', JSON.stringify({ ...kal, tip }));
+                                if (tip === 'tabak') localStorage.setItem('maropack_edit_kalk_tabak', JSON.stringify(kal));
+                                if (tip === 'polucrevo') localStorage.setItem('maropack_edit_kalk_polucrevo', JSON.stringify(kal));
                                 setPage(strana);
                             }}
                         />
@@ -2550,7 +2567,7 @@ function MainAppContent() {
                                                                     <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
                                                                         <span style={{ fontSize: 19 }}>{ICONS[n.ik]}</span>
                                                                         <span style={{ fontWeight: 800, fontSize: 15, color: statusStil(n.status).traka }}>{(function () {
-                                                                            var OP = { stampa: "Štampa", lakiranje: "Lakiranje", kasiranje: "Kaširanje", perforacija_rezanje: "Perforacija i rezanje", rezanje_tabaka: "Rezanje na tabake", rezanje: "Rezanje", perforacija: "Perforacija", materijal: "Potreba materijala", kesa: "Kesa", formatiranje: "Formatiranje", spulna: "Špulna", master: "Glavni nalog" };
+                                                                            var OP = { stampa: "Štampa", lakiranje: "Lakiranje", kasiranje: "Kaširanje", perforacija_rezanje: "Perforacija i rezanje", rezanje_tabaka: "Rezanje na tabake", pravljenje_creva: "Pravljenje creva", rezanje: "Rezanje", perforacija: "Perforacija", materijal: "Potreba materijala", kesa: "Kesa", formatiranje: "Formatiranje", spulna: "Špulna", master: "Glavni nalog" };
                                                                             var t = String(n.tip_naloga || n.vrsta || n.operacija || "").toLowerCase();
                                                                             return OP[t] || n.operacija || n.naziv || "Operacija";
                                                                         })()}</span>
