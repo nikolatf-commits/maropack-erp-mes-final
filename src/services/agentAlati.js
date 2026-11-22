@@ -12,7 +12,7 @@ import { supabase } from "../supabase.js";
 import { nadjiSpojRolne } from "../modules/spojRolneMatch.js";
 import { predloziFormatiranje } from "../modules/formatiranjeEngine.js";
 import { dodeliBrojeveNaloga } from "../modules/dodeliBrojeve.js";
-import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne, kalkulacijaTabaka } from "./kalkulacijeCore.js";
+import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne, kalkulacijaTabaka, kalkulacijaPolucreva } from "./kalkulacijeCore.js";
 import { imeKorisnika } from "../dashboardShared.js";
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
@@ -1009,6 +1009,28 @@ export const ALATI = {
         async izvrsi(a) { return kalkulacijaTabaka(a); },
     },
 
+    kalkulacija_polucreva: {
+        cita: true,
+        opis: "Računa kalkulaciju POLUCREVA (folija presavijena po dužini) po formulama Maropack-a. RAVNA folija (matična traka) = 2×širina polucreva (+falta). Računa se kao folija po ravnoj širini; vraća cenu po m i na 1000 m. Prosledi `sirina` = širina polucreva (gotova), opciono `falta`, i `kolicina` u metrima.",
+        ulaz: {
+            sirina: { type: "number", description: "Širina polucreva (gotova, presavijena) u mm" },
+            falta: { type: "number", description: "Opciono: falta/dno u mm (dodaje se na ravnu širinu)" },
+            kolicina: { type: "number", description: "Količina u metrima gotovog polucreva" },
+            materijali: { type: "array", description: "Slojevi [{tezina g/m², cena €/kg, stampa, lakira}]", items: { type: "object" } },
+            skart: { type: "number" }, marza: { type: "number" },
+            stampaCena: { type: "number", description: "€/kg štampe ako ima" },
+            kasiranjeCena: { type: "number", description: "€/m² — za višeslojni (prolaza = slojevi − 1)" },
+            transport: { type: "number", description: "€/kg" },
+            crevoCena: { type: "number", description: "Pravljenje creva (presavijanje) — €/1000 m" },
+            perfCena: { type: "number", description: "Perforacija — €/1000 m (opciono)" },
+            varCena: { type: "number", description: "Uzdužni var — €/1000 m (opciono)" },
+        },
+        async izvrsi(a) {
+            const nalogX = N(a.kolicina) ? (N(a.kolicina) / 1000) : 1;
+            return kalkulacijaPolucreva({ sirina: N(a.sirina), falta: N(a.falta), metraza: 1000, nalog: nalogX, materijali: a.materijali || [], skart: N(a.skart), marza: N(a.marza), stampaCena: N(a.stampaCena), kasiranjeCena: N(a.kasiranjeCena), transport: N(a.transport), crevoCena: N(a.crevoCena), perfCena: N(a.perfCena), varCena: N(a.varCena) });
+        },
+    },
+
     kalkulacija_spulne: {
         cita: true,
         opis: "Računa kalkulaciju ŠPULNE po formulama Maropack-a. Vraća cenu po špulni i na 1000 m.",
@@ -1028,19 +1050,19 @@ export const ALATI = {
 
     kalkulacija_iz_mejla: {
         cita: true,
-        opis: "IZ TEKSTA MEJLA/UPITA popunjava i računa kalkulaciju. TI (AI) prvo pročitaj mejl i izvuci polja (tip, dimenzije, slojevi materijala + debljine, količina, kupac, rok, dorade, oznaka upita), pa prosledi ovamo. Alat SAM prepozna tip (folija/kesa/tabak/špulna) ako nije zadat, popuni default škart/maржu i izračuna. Tabak = ravan list (sheet/Zuschnitt) — širina × dužina, bez klapne/falte. Ako u mejlu NEMA cene materijala, PRE ovoga pozovi cene_materijala pa upiši cene u slojeve. Vraća 'prepoznato' + 'kalkulacija' + gotov 'ulaz_za_cuvanje' koji prosleđuješ alatu sacuvaj_kalkulaciju kad korisnik potvrdi.",
+        opis: "IZ TEKSTA MEJLA/UPITA popunjava i računa kalkulaciju. TI (AI) prvo pročitaj mejl i izvuci polja (tip, dimenzije, slojevi materijala + debljine, količina, kupac, rok, dorade, oznaka upita), pa prosledi ovamo. Alat SAM prepozna tip (folija/kesa/tabak/polucrevo/špulna) ako nije zadat, popuni default škart/maржu i izračuna. Tabak = ravan list (sheet/Zuschnitt) — širina × dužina, bez klapne/falte. Polucrevo = folija presavijena po dužini — prosledi `sirina` (širina polucreva) i opciono `falta`, alat sam računa ravnu širinu 2×. Ako u mejlu NEMA cene materijala, PRE ovoga pozovi cene_materijala pa upiši cene u slojeve. Vraća 'prepoznato' + 'kalkulacija' + gotov 'ulaz_za_cuvanje' koji prosleđuješ alatu sacuvaj_kalkulaciju kad korisnik potvrdi.",
         ulaz: {
             tekst: { type: "string", description: "Ceo tekst mejla/upita — koristi se za auto-prepoznavanje tipa i kontrolu" },
-            tip: { type: "string", description: "folija | kesa | tabak | spulna | auto (podrazumevano auto)" },
+            tip: { type: "string", description: "folija | kesa | tabak | polucrevo | spulna | auto (podrazumevano auto)" },
             sirinaMaterijala: { type: "number", description: "Tabak: širina ulazne rolne u mm (za ban i ivični otpad) — opciono" },
             naziv: { type: "string", description: "Naziv proizvoda ako se vidi iz mejla" },
             kupac: { type: "string" },
             oznaka: { type: "string", description: "Broj/oznaka upita ako postoji (npr. UP-2026-014)" },
             rok: { type: "string", description: "Rok isporuke ako je naveden" },
-            sirina: { type: "number", description: "mm (kesa/folija/špulna traka)" },
-            duzina: { type: "number", description: "Kesa: dužina mm · Špulna: dužina m" },
+            sirina: { type: "number", description: "mm (kesa/folija/špulna traka · POLUCREVO: širina polucreva · TABAK: širina lista)" },
+            duzina: { type: "number", description: "Kesa: dužina mm · Špulna: dužina m · Tabak: dužina lista mm" },
             klapna: { type: "number", description: "Kesa: klapna mm" },
-            falta: { type: "number", description: "Kesa: falta mm" },
+            falta: { type: "number", description: "Kesa: falta mm · Polucrevo: falta/dno mm (dodaje se na ravnu širinu)" },
             metraza: { type: "number", description: "Folija: metraža za obračun (default 1000)" },
             tezinaGM2: { type: "number", description: "Špulna: gramaža g/m²" },
             cenaM2: { type: "number", description: "Špulna: cena materijala €/m²" },
@@ -1049,8 +1071,12 @@ export const ALATI = {
             skart: { type: "number", description: "Ako nije u mejlu, uzima se default po tipu" },
             marza: { type: "number", description: "Ako nije u mejlu, uzima se default po tipu" },
             stampaCena: { type: "number", description: "€/kg štampe ako se pominje" },
-            transport: { type: "number", description: "Transport (€/kg folija/kesa, € po špulni)" },
-            ostaleOpcijeEur: { type: "number", description: "Kesa: zbir dorada u € na 1000 kom" },
+            kasiranjeCena: { type: "number", description: "Folija/polucrevo: kaширanje €/m² (za višeslojni)" },
+            transport: { type: "number", description: "Transport (€/kg folija/kesa/polucrevo, € po špulni)" },
+            ostaleOpcijeEur: { type: "number", description: "Kesa/tabak: zbir dorada u € na 1000 kom" },
+            crevoCena: { type: "number", description: "Polucrevo: pravljenje creva (presavijanje) €/1000 m" },
+            perfCena: { type: "number", description: "Polucrevo: perforacija €/1000 m (opciono)" },
+            varCena: { type: "number", description: "Polucrevo: uzdužni var €/1000 m (opciono)" },
             opcije: { type: "array", description: "Kesa: dorade po imenu (npr. eurozumba, var na dnu, štampa)", items: { type: "string" } },
         },
         async izvrsi(a) {
@@ -1060,15 +1086,17 @@ export const ALATI = {
             if (!tip || tip === "auto") {
                 const s = UP(tekst);
                 // Srpski + engleski + NEMAČKI ključne reči
-                if (/(TABAK|TABACI|RAVAN ?LIST|RAVNI ?LIST|SHEET|ZUSCHNITT|FLACHBOGEN|BOGEN|PRECUT|PRE-?CUT|SECI NA LIST|KROJENO)/.test(s)) tip = "tabak";
+                if (/(POLUCREV|POLU ?CREV|PRESAVIJEN.? ?(FOLIJ|CREV)|HALF ?TUBE|SEMI ?TUBE|HALBSCHLAUCH)/.test(s)) tip = "polucrevo";
+                else if (/(\bCREVO\b|\bCREVA\b|SCHLAUCH)/.test(s)) tip = "polucrevo";   // „crevo" širine X → vodi kao polucrevo
+                else if (/(TABAK|TABACI|RAVAN ?LIST|RAVNI ?LIST|SHEET|ZUSCHNITT|FLACHBOGEN|BOGEN|PRECUT|PRE-?CUT|SECI NA LIST|KROJENO)/.test(s)) tip = "tabak";
                 else if (/(KESA|KESE|KESIC|DOYPACK|DOJPAK|VREC|VREĆ|STOJE|STAND ?UP|ZIP|FLOW ?PACK|BEUTEL|TÜTE|TUTE|STANDBODEN|STANDBEUTEL|FLACHBEUTEL|SEITENFALT|DRUCKVERSCHLUSS)/.test(s)) tip = "kesa";
                 else if (/(SPULN|ŠPULN|TRAKA|TRAKE|SPOOL|SILIKON|ETIKET|ROLNIC|KLEBEBAND|SILIKONPAPIER|TRENNPAPIER|ETIKETT|SPULE|SCHMALROLLE|SCHNEIDEBAND)/.test(s)) tip = "spulna";
                 else tip = "folija";  // Folie / Deckelfolie / Verbundfolie / Kaschierung → default
             }
             if (tip === "špulna") tip = "spulna";
             // 2) Default škart/marža po tipu ako nisu u mejlu
-            const skart = a.skart != null ? N(a.skart) : (tip === "kesa" ? 10 : tip === "spulna" ? 2 : tip === "tabak" ? 10 : 10);
-            const marza = a.marza != null ? N(a.marza) : (tip === "kesa" ? 30 : tip === "spulna" ? 40 : tip === "tabak" ? 30 : 27);
+            const skart = a.skart != null ? N(a.skart) : (tip === "kesa" ? 10 : tip === "spulna" ? 2 : tip === "tabak" ? 10 : tip === "polucrevo" ? 5 : 10);
+            const marza = a.marza != null ? N(a.marza) : (tip === "kesa" ? 30 : tip === "spulna" ? 40 : tip === "tabak" ? 30 : tip === "polucrevo" ? 30 : 27);
             const materijali = Array.isArray(a.materijali) ? a.materijali : [];
             const napomene = [];
             if (a.skart == null) napomene.push(`Škart nije naveden u mejlu → default ${skart}%.`);
@@ -1087,6 +1115,15 @@ export const ALATI = {
                 if (!N(a.duzina)) napomene.push("Tabak (ravan list) bez dužine — proveri mejl.");
                 ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), sirinaMaterijala: N(a.sirinaMaterijala), kolicina: N(a.kolicina) || 1000, materijali, skart, marza, ostaleOpcijeEur: N(a.ostaleOpcijeEur), transportCena: N(a.transport) };
                 rez = kalkulacijaTabaka(ulaz);
+            } else if (tip === "polucrevo") {
+                // Polucrevo: PRAVA kalkulacija polucreva (ravna folija = 2×širina + falta; cena po m).
+                const sirPC = N(a.sirina), faltaPC = N(a.falta) || 0;
+                if (!sirPC) napomene.push("Polucrevo bez širine — proveri mejl.");
+                else napomene.push(`Polucrevo: ravna folija = 2×${sirPC}${faltaPC ? "+" + faltaPC + " (falta)" : ""} = ${2 * sirPC + faltaPC} mm; presavijanje ne menja dužinu, cena po m.`);
+                if (!(N(a.crevoCena) > 0)) napomene.push("Cena pravljenja creva (presavijanje) nije zadata — nije uračunata; dodaj crevoCena (€/1000 m) ako treba.");
+                const nalogX = N(a.kolicina) ? (N(a.kolicina) / 1000) : 1;   // količina u metrima → x1000m
+                ulaz = { sirina: sirPC, falta: faltaPC, metraza: 1000, nalog: nalogX, materijali, skart, marza, stampaCena: N(a.stampaCena), lakiranjeCena: N(a.lakiranjeCena), kasiranjeCena: N(a.kasiranjeCena), transport: N(a.transport), crevoCena: N(a.crevoCena), perfCena: N(a.perfCena), varCena: N(a.varCena) };
+                rez = kalkulacijaPolucreva(ulaz);
             } else if (tip === "spulna") {
                 ulaz = { sirina: N(a.sirina), duzina: N(a.duzina), tezinaGM2: N(a.tezinaGM2), cenaM2: N(a.cenaM2), skart, marza, kolicina: N(a.kolicina) || 1, transport: N(a.transport) };
                 rez = kalkulacijaSpulne(ulaz);
@@ -1106,9 +1143,11 @@ export const ALATI = {
                         ? { sirina: N(a.sirina), duzina: N(a.duzina), klapna: N(a.klapna), falta: N(a.falta) }
                         : tip === "tabak"
                             ? { sirina_lista: N(a.sirina), duzina_lista: N(a.duzina), sirina_materijala: N(a.sirinaMaterijala) || null }
-                            : tip === "spulna"
-                                ? { sirina_trake: N(a.sirina), duzina_m: N(a.duzina), gm2: N(a.tezinaGM2) }
-                                : { sirina: N(a.sirina), metraza: N(a.metraza) || 1000 },
+                            : tip === "polucrevo"
+                                ? { sirina_polucreva: N(a.sirina), ravna_folija_mm: N(a.sirina) > 0 ? (2 * N(a.sirina) + (N(a.falta) || 0)) : null, falta: N(a.falta) || null, kolicina_m: N(a.kolicina) || null }
+                                : tip === "spulna"
+                                    ? { sirina_trake: N(a.sirina), duzina_m: N(a.duzina), gm2: N(a.tezinaGM2) }
+                                    : { sirina: N(a.sirina), metraza: N(a.metraza) || 1000 },
                     kolicina: N(a.kolicina) || null,
                     materijali: materijali.map((m) => ({ naziv: T(m.naziv || m.vrsta), debljina: N(m.debljina) || null, gm2: N(m.tezina) || null, cena_kg: N(m.cena) || null })),
                     dorade: Array.isArray(a.opcije) ? a.opcije : [],
@@ -1564,9 +1603,9 @@ export const ALATI = {
 
     sacuvaj_kalkulaciju: {
         cita: false,
-        opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). Tabak se čuva u kalkulacije_kese sa tip='tabak'. MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje.",
+        opis: "Čuva kalkulaciju u bazu (kalkulacije_folije / kalkulacije_kese / kalkulacije_spulne). Tabak i POLUCREVO se čuvaju u kalkulacije_kese sa tip='tabak' / tip='polucrevo'. MENJA BAZU — traži potvrdu. Prosledi ISTE ulazne podatke koje si koristio za računanje (za polucrevo: isti `ulaz` koji je vratio kalkulacija_iz_mejla, gde je sirina već ravna širina 2×).",
         ulaz: {
-            tip: { type: "string", description: "folija | kesa | tabak | spulna" },
+            tip: { type: "string", description: "folija | kesa | tabak | polucrevo | spulna" },
             naziv: { type: "string", description: "Naziv proizvoda" },
             kupac: { type: "string", description: "Kupac" },
             oznaka: { type: "string", description: "Opciono: broj/oznaka upita (npr. UP-2026-014) — da se kalkulacija kasnije nađe po toj oznaci" },
@@ -1596,6 +1635,19 @@ export const ALATI = {
                     sirina: N(u.sirina), duzina: N(u.duzina), sirina_materijala: N(u.sirinaMaterijala),
                     materijali: u.materijali || [], rezultati: rez,
                 };
+            } else if (tip === "polucrevo") {
+                // Polucrevo se čuva u kalkulacije_kese sa tip='polucrevo'; PRAVA kalkulacija polucreva (u.sirina = širina polucreva).
+                rez = kalkulacijaPolucreva(u); tabela = "kalkulacije_kese";
+                red = {
+                    tip: "polucrevo",
+                    naziv, kupac,
+                    kolicina: N(u.nalog) ? Math.round(N(u.nalog) * 1000) : (N(u.metraza) || 1000),
+                    skart: N(u.skart), marza: N(u.marza),
+                    sirina: N(u.sirina),                                      // širina polucreva (gotova)
+                    sirina_materijala: N(u.sirina) > 0 ? (2 * N(u.sirina) + (N(u.falta) || 0)) : null,  // ravna folija (2×širina+falta)
+                    materijali: u.materijali || [], materijali_struktura: u.materijali || [],
+                    rezultati: rez,
+                };
             } else if (tip === "spulna" || tip === "špulna") {
                 rez = kalkulacijaSpulne(u); tabela = "kalkulacije_spulne";
                 red = {
@@ -1622,7 +1674,7 @@ export const ALATI = {
             // konacnaCena / ukupnoNalog / cenaPoKgSaMarza. Bez ovoga bi AI kalkulacija pokazala 0.
             {
                 const _zc = rez.za_ceo_nalog || {};
-                const _kol = tip === "folija" ? (N(u.nalog) || 1) : (N(u.kolicina) || (tip === "kesa" ? 1000 : 1));
+                const _kol = (tip === "folija" || tip === "polucrevo") ? (N(u.nalog) || 1) : (N(u.kolicina) || (tip === "kesa" ? 1000 : 1));
                 const _ukupnoNalog = N(_zc.vrednost) || N(_zc.konacna) || 0;
                 const _ukupnoOsnovno = N(_zc.osnovna) || (N(rez.konacna_cena) > 0 ? N(rez.osnovna_cena) * (_ukupnoNalog / N(rez.konacna_cena)) : 0);
                 const _kgPer = N(rez.kg_na_1000_kom);
@@ -1684,12 +1736,14 @@ export const ALATI = {
 
     sacuvaj_templejt: {
         cita: false,
-        opis: "Čuva nov templejt proizvoda u bazu proizvoda (isto kao dugme „Sačuvaj template” u Template Engine-u). MENJA BAZU — traži potvrdu.",
+        opis: "Čuva nov templejt proizvoda u bazu proizvoda (isto kao dugme „Sačuvaj template” u Template Engine-u). Tipovi: folija, kesa, spulna, TABAK (dimenzije_tabaka), POLUCREVO (dimenzije_polucreva). MENJA BAZU — traži potvrdu.",
         ulaz: {
             naziv: { type: "string", description: "Naziv proizvoda" },
-            tip: { type: "string", description: "folija | kesa | spulna" },
+            tip: { type: "string", description: "folija | kesa | tabak | polucrevo | spulna" },
             kupac: { type: "string" },
-            idealna_sirina: { type: "number", description: "Idealna širina materijala u mm" },
+            idealna_sirina: { type: "number", description: "Idealna širina materijala u mm (za tabak/polucrevo = širina matične rolne)" },
+            dimenzije_tabaka: { type: "object", description: "Za TABAK: sirina (širina lista mm), duzina (dužina lista mm), sirinaMaterijala (širina matične rolne mm), kolicina (kom), skart, pakovanje" },
+            dimenzije_polucreva: { type: "object", description: "Za POLUCREVO: sirina (širina polucreva mm), sirinaMaterijala (matična mm), imaVar (bool — uzdužni var), imaFalta (bool), falta (mm), kolicina (m), jedinicaUnosa ('m'|'kg'), skart, rezanje {suprotnaIvica:'otvor'|'var'}" },
             slojevi: {
                 type: "array", description: "Slojevi materijala",
                 items: { type: "object", properties: { vrsta: { type: "string" }, pod_vrsta: { type: "string" }, oznaka: { type: "string" }, debljina: { type: "number" } }, required: ["vrsta"] },
@@ -1765,6 +1819,12 @@ export const ALATI = {
             }
             if (tip === "kesa" && a.dimenzije_kese && typeof a.dimenzije_kese === "object") Object.assign(grana, a.dimenzije_kese);
             if (tip === "spulna" && a.dimenzije_spulne && typeof a.dimenzije_spulne === "object") Object.assign(grana, a.dimenzije_spulne);
+            if (tip === "tabak" && a.dimenzije_tabaka && typeof a.dimenzije_tabaka === "object") Object.assign(grana, a.dimenzije_tabaka);
+            if (tip === "polucrevo" && a.dimenzije_polucreva && typeof a.dimenzije_polucreva === "object") {
+                Object.assign(grana, a.dimenzije_polucreva);
+                if (a.rezanje && typeof a.rezanje === "object") grana.rezanje = { ...(grana.rezanje || {}), ...a.rezanje };
+                if (a.perforacija && typeof a.perforacija === "object") grana.perforacija = a.perforacija;
+            }
 
             // Napomene PO OPERACIJI — upisuju se u ista polja grane koja čita nalog (inline, kao folija).
             const nop = (a.napomene && typeof a.napomene === "object") ? a.napomene : {};
@@ -1787,10 +1847,12 @@ export const ALATI = {
                 if (nap("spulna")) grana.napomena = nap("spulna");
             }
 
+            // Tabak/polucrevo: idealna širina = širina matične rolne (iz dimenzija) kad nije eksplicitno data.
+            const idealnaSir = N(a.idealna_sirina) || ((tip === "tabak" || tip === "polucrevo") ? N(grana.sirinaMaterijala) : 0) || null;
             const data = {
                 sifra: null, naziv, kupac: T(a.kupac) || "", type: tip, tip,
                 product_master_id: "PROD-AI-" + Date.now(),
-                idealnaSirinaMaterijala: N(a.idealna_sirina) || null,
+                idealnaSirinaMaterijala: idealnaSir,
                 pisBroj: T(a.pis_broj) || "",
                 [tip]: grana,
                 napomena: T(a.napomena) || "Kreirano preko AI agenta",
@@ -1801,7 +1863,7 @@ export const ALATI = {
             const tplId = "TPL-" + Date.now();
             const { data: upisan, error, izbacene } = await insertOtporno("proizvodi", {
                 tip, naziv, kupac: T(a.kupac) || null, status: "Aktivan",
-                sir: N(a.idealna_sirina) || null,
+                sir: idealnaSir,
                 mats: slojevi, materijali_struktura: slojevi,
                 res: { template: data, operacije: [] },
                 template_id: tplId, template_version: "V1",

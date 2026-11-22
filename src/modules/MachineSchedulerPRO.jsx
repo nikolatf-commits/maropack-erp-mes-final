@@ -14,7 +14,12 @@ import GanttPlanPRO from './GanttPlanPRO.jsx';
 import { supabase } from '../supabase.js';
 
 // v52: boje operacija na jednom mestu (koristi ih i OrderCard i red čekanja na mašini)
-const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' };
+const OP_BOJA = { stampa: '#2563eb', lakiranje: '#7c3aed', kasiranje: '#0891b2', rezanje: '#dc2626', rezanje_tabaka: '#0d9488', pravljenje_creva: '#4338ca', formatiranje: '#ea580c', kese: '#16a34a', spulne: '#9333ea' };
+
+// v55: ljudske etikete tipova mašina (za grupisanje i filter dugmad u novom rasporedu)
+const TIP_LABELE = { stampa: '🖨️ Štamparije', rezanje: '✂️ Rezači', rezanje_tabaka: '📄 Mašine za tabak', pravljenje_creva: '➰ Mašine za polucrevo', kese: '🛍️ Mašine za kese', spulne: '🧵 Špulne', kasiranje: '📚 Kaширка', formatiranje: '📐 Formatiranje', ostalo: '⚙️ Ostalo' };
+// Redosled sekcija mašina u desnoj koloni (prati tok proizvodnje).
+const TIP_REDOSLED = ['stampa', 'lakiranje', 'kasiranje', 'formatiranje', 'rezanje', 'rezanje_tabaka', 'pravljenje_creva', 'kese', 'spulne', 'ostalo'];
 
 // v52: dve štamparije — dodaju se ako ih nema u sačuvanom parku (i posle "Reset mašina").
 // Karakteristike (širina, brzina, setup...) menjaš klikom na karticu → "Uredi".
@@ -23,10 +28,35 @@ const STAMPA_MASINE = [
     { id: 'stampa-topolastika', code: 'ST-02', name: 'Topolastika', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 120, setupMin: 45, capabilities: ['flekso štampa'], note: '' },
     { id: 'stampa-maropack-karint', code: 'ST-03', name: 'Maropack Karint', group: 'Štamparija', type: 'stampa', status: 'aktivna', minWidth: 200, maxWidth: 1300, maxDiameter: 800, core: 76, speed: 150, setupMin: 45, capabilities: ['flekso štampa', 'do 8 boja'], note: '' },
 ];
+// v55: mašine za TABAK (sečenje na tabake) i POLUCREVO (pravljenje creva).
+// Dodaju se u park ako ih nema (isto kao štamparije), i posle „Reset mašina".
+// Tip 'rezanje_tabaka' / 'pravljenje_creva' spaja ih sa nalozima te operacije.
+const TABAK_MASINE = [
+    { id: 'tabak-rezac-1', code: 'TB-01', name: 'Tabak sekač 1', group: 'Tabaci', type: 'rezanje_tabaka', status: 'aktivna', minWidth: 150, maxWidth: 1400, maxDiameter: 800, core: 76, speed: 120, setupMin: 30, capabilities: ['sečenje na tabake', 'format na meru'], note: '' },
+    { id: 'tabak-rezac-2', code: 'TB-02', name: 'Tabak sekač 2', group: 'Tabaci', type: 'rezanje_tabaka', status: 'aktivna', minWidth: 150, maxWidth: 1200, maxDiameter: 800, core: 76, speed: 100, setupMin: 30, capabilities: ['sečenje na tabake'], note: '' },
+];
+const POLUCREVO_MASINE = [
+    { id: 'crevo-1', code: 'PC-01', name: 'Mašina za crevo 1', group: 'Polucrevo', type: 'pravljenje_creva', status: 'aktivna', minWidth: 100, maxWidth: 1600, maxDiameter: 800, core: 76, speed: 140, setupMin: 40, capabilities: ['presavijanje', 'uzdužni var', 'falta'], note: '' },
+    { id: 'crevo-2', code: 'PC-02', name: 'Mašina za crevo 2', group: 'Polucrevo', type: 'pravljenje_creva', status: 'aktivna', minWidth: 100, maxWidth: 1400, maxDiameter: 800, core: 76, speed: 120, setupMin: 40, capabilities: ['presavijanje', 'falta'], note: '' },
+];
+// Sve dopunske mašine koje garantujemo u parku (štamparije + tabak + polucrevo).
+const DOP_MASINE = [...STAMPA_MASINE, ...TABAK_MASINE, ...POLUCREVO_MASINE];
 function ensureStampa(list) {
     const arr = Array.isArray(list) ? list : [];
-    const fali = STAMPA_MASINE.filter(sm => !arr.some(m => m.id === sm.id || String(m.name || '').trim().toLowerCase() === sm.name.toLowerCase()));
+    const fali = DOP_MASINE.filter(sm => !arr.some(m => m.id === sm.id || String(m.name || '').trim().toLowerCase() === sm.name.toLowerCase()));
     return fali.length ? [...fali, ...arr] : list;
+}
+
+// v55: provera da li nalog sme na mašinu. Za tabak/polucrevo (koje erpMesCore ne poznaje)
+// sudimo lokalno po tipu; za ostale operacije i dalje važi canMachineRun iz erpMesCore.
+function jeKompatibilna(machine, order) {
+    if (!machine || !order) return { ok: false, reason: '—' };
+    if (order.opTip === 'rezanje_tabaka' || order.opTip === 'pravljenje_creva') {
+        if (machine.type !== order.opTip) return { ok: false, reason: 'Mašina nije za ' + String(order.opLabel || '').toLowerCase() };
+        if (machine.status && machine.status !== 'aktivna') return { ok: false, reason: 'Mašina je zaustavljena' };
+        return { ok: true };
+    }
+    try { return canMachineRun(machine, order) || { ok: true }; } catch (e) { return { ok: true }; }
 }
 
 // v54: RADNE SMENE PO MAŠINI.
@@ -270,6 +300,11 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [editing, setEditing] = useState(null);
     const [trace, setTrace] = useState([]);
     const [dragOrder, setDragOrder] = useState(null);
+    // v55: „izaberi nalog → dodeli na mašinu" (umesto samo drag/drop) + pretraga/filter naloga + mobilni panel
+    const [selId, setSelId] = useState(null);       // izabrani nalog za dodelu
+    const [pretraga, setPretraga] = useState('');    // pretraga naloga levo
+    const [opFilter, setOpFilter] = useState('sve'); // filter naloga po operaciji
+    const [panelOpen, setPanelOpen] = useState(false); // mobilni panel „Nalozi za raspored"
 
     useEffect(() => {
         (async () => {
@@ -342,7 +377,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const orderId = e.dataTransfer.getData('text/plain') || dragOrder;
         const order = orderMap[orderId];
         const machine = machines.find(m => m.id === machineId);
-        const check = canMachineRun(machine, order);
+        const check = jeKompatibilna(machine, order);
         if (!check.ok) { msg?.(`⚠️ ${check.reason}`, 'err'); return; }
         const next = { ...plan };
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== orderId);
@@ -352,6 +387,22 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         await logTrace('order_moved_to_machine', { orderId, machineId, machine: machine.name });
         setTrace(getTraceLog());
         msg?.(`✅ ${orderId} prebačen na ${machine.name}`);
+    };
+    // v55: dodela izabranog naloga klikom na mašinu (mobilni tok „izaberi → dodeli ovde").
+    const assignToMachine = async (machineId) => {
+        if (!selId) return;
+        const order = orderMap[selId];
+        const machine = machines.find(m => m.id === machineId);
+        const check = jeKompatibilna(machine, order);
+        if (!check.ok) { msg?.(`⚠️ ${check.reason}`, 'err'); return; }
+        const next = { ...plan };
+        for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== selId);
+        next[machineId] = [...(next[machineId] || []), selId];
+        setPlan(next); setSelId(null); setPanelOpen(false);
+        await snimiPlan(next);
+        await logTrace('order_moved_to_machine', { orderId: selId, machineId, machine: machine.name });
+        setTrace(getTraceLog());
+        msg?.(`✅ ${selId} dodeljen na ${machine.name}`);
     };
     // v52: pomeri nalog gore/dole u redu čekanja iste mašine
     const moveInQueue = async (machineId, index, dir) => {
@@ -378,13 +429,13 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
-                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>3 štamparije (Milinković, Topolastika, Maropack Karint) · 10 rezača · 15 mašina za kese · 2 špulne · 1 kaширka · drag/drop plan.</p></div>
+                <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>3 štamparije · 10 rezača · 2 tabak sekača · 2 mašine za polucrevo · 15 mašina za kese · 2 špulne · 1 kaширка · izaberi nalog → dodeli na mašinu (ili drag/drop).</p></div>
                 <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
             </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginTop: 16 }}>
-            <KPI label="Mašina ukupno" value={totals.machines} sub="3 štamparije + 10 rezača + 15 kese + 2 špulne + 1 kaширка" />
+            <KPI label="Mašina ukupno" value={totals.machines} sub="štamparije + rezači + tabak + polucrevo + kese + špulne + kaширка" />
             <KPI label="Aktivno" value={totals.active} sub="spremno za planiranje" />
             <KPI label="Planirano naloga" value={totals.planned} sub="drag/drop raspored" />
             <KPI label="Planirano vreme" value={`${Math.round(totals.minutes / 60)} h`} sub={`${totals.minutes} minuta ukupno`} />
@@ -401,13 +452,65 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
 
         {prikaz === 'masine' && <>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '330px 1fr', gap: 16, marginTop: 16 }}>
-                <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+            <style>{`
+              .mspWrap{display:grid;grid-template-columns:340px 1fr;gap:16px;margin-top:16px;align-items:start}
+              .mspLeft{position:sticky;top:12px;align-self:start;max-height:calc(100vh - 24px);overflow:auto;display:grid;gap:14px;align-content:start}
+              .mspFab{display:none}
+              .mspBackdrop{display:none}
+              @media(max-width:860px){
+                .mspWrap{grid-template-columns:1fr}
+                .mspLeft{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:60;max-height:82vh;border-radius:20px 20px 0 0;box-shadow:0 -14px 50px rgba(2,6,23,.3);background:#f8fafc;padding:14px;transform:translateY(102%);transition:transform .25s ease}
+                .mspLeft.open{transform:translateY(0)}
+                .mspFab{display:inline-flex}
+                .mspBackdrop.open{display:block;position:fixed;inset:0;background:rgba(2,6,23,.4);z-index:55}
+              }
+              .mspMcard{transition:box-shadow .15s, opacity .15s}
+              .mspSel .mspMcard.kompat{box-shadow:0 0 0 3px #16a34a,0 10px 26px rgba(22,163,74,.22)}
+              .mspSel .mspMcard.nekompat{opacity:.4}
+            `}</style>
+
+            {/* mobilno: plutajuće dugme koje otvara panel sa nalozima */}
+            <button className="mspFab" onClick={() => setPanelOpen(true)} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50, ...styles.btn, background: '#0f172a', color: '#fff', boxShadow: '0 10px 30px rgba(2,6,23,.35)', alignItems: 'center', gap: 8 }}>📋 Nalozi ({unplanned.length}){selId ? ' · izabran' : ''}</button>
+            <div className={'mspBackdrop' + (panelOpen ? ' open' : '')} onClick={() => setPanelOpen(false)} />
+
+            <div className="mspWrap">
+                <div className={'mspLeft' + (panelOpen ? ' open' : '')}>
                     <div style={{ ...styles.card, padding: 16 }}>
-                        <h3 style={{ margin: 0 }}>Nalozi za raspored</h3>
-                        <p style={{ margin: '6px 0 12px', color: '#64748b', fontSize: 13 }}>Prevuci nalog na kompatibilnu mašinu.</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <h3 style={{ margin: 0 }}>Nalozi za raspored <span style={{ color: '#64748b', fontWeight: 800 }}>({unplanned.length})</span></h3>
+                            <button className="mspFab" onClick={() => setPanelOpen(false)} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '4px 10px', fontWeight: 800, cursor: 'pointer' }}>Zatvori</button>
+                        </div>
+                        <p style={{ margin: '6px 0 10px', color: '#64748b', fontSize: 13 }}>Klikni nalog pa klikni zelenu mašinu desno (<b>⬇ dodeli ovde</b>) — ili prevuci nalog na mašinu.</p>
+                        {selId && orderMap[selId] && <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, padding: '8px 10px', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#047857' }}>✓ Izabran: {orderMap[selId].opIkona} {orderMap[selId].id}</span>
+                            <button onClick={() => setSelId(null)} style={{ marginLeft: 'auto', border: 0, background: '#d1fae5', color: '#047857', borderRadius: 8, padding: '3px 9px', fontWeight: 900, cursor: 'pointer' }}>poništi</button>
+                        </div>}
+                        <input value={pretraga} onChange={e => setPretraga(e.target.value)} placeholder="🔎 traži nalog, kupca, proizvod…" style={{ ...styles.input, marginBottom: 10 }} />
+                        {(() => {
+                            const opovi = Array.from(new Set(unplanned.map(o => o.opTip)));
+                            return <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                                {[['sve', 'Sve', '📋'], ...opovi.map(k => [k, (TIP_LABELE[k] || k).replace(/^[^ ]+ /, ''), (unplanned.find(o => o.opTip === k) || {}).opIkona || '⚙️'])].map(([k, l, ik]) => <button key={k} onClick={() => setOpFilter(k)} style={{ border: '1px solid ' + (opFilter === k ? '#0f172a' : '#e2e8f0'), background: opFilter === k ? '#0f172a' : '#fff', color: opFilter === k ? '#fff' : '#334155', borderRadius: 999, padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>{ik} {l}</button>)}
+                            </div>;
+                        })()}
                         {unplanned.length === 0 && <div style={{ padding: 14, borderRadius: 12, background: '#ecfdf5', color: '#047857', fontWeight: 900 }}>Svi nalozi su raspoređeni.</div>}
-                        {unplanned.map(o => <OrderCard key={o.id} order={o} onDragStart={dragStart} />)}
+                        {(() => {
+                            const q = pretraga.trim().toLowerCase();
+                            const vidljivi = unplanned.filter(o => (opFilter === 'sve' || o.opTip === opFilter) && (!q || (o.id + ' ' + o.title + ' ' + (o.customer || '')).toLowerCase().includes(q)));
+                            if (unplanned.length && !vidljivi.length) return <div style={{ color: '#94a3b8', fontWeight: 800, padding: 10 }}>Nema naloga za ovaj filter/pretragu.</div>;
+                            const grupe = {};
+                            vidljivi.forEach(o => (grupe[o.opTip] = grupe[o.opTip] || []).push(o));
+                            return Object.entries(grupe).map(([tip, lst]) => <div key={tip} style={{ marginBottom: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 7px', fontSize: 11.5, fontWeight: 950, color: OP_BOJA[tip] || '#334155', textTransform: 'uppercase', letterSpacing: .4 }}>{lst[0].opIkona} {lst[0].opLabel} <span style={{ color: '#94a3b8' }}>· {lst.length}</span></div>
+                                {lst.map(o => { const sel = selId === o.id; const b = OP_BOJA[o.opTip] || '#64748b'; return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} onClick={() => setSelId(sel ? null : o.id)} style={{ cursor: 'pointer', background: sel ? '#ecfdf5' : '#fff', border: '1px solid ' + (sel ? '#16a34a' : '#e2e8f0'), borderLeft: '4px solid ' + b, borderRadius: 10, padding: '8px 9px', marginBottom: 7 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 950, color: '#0f172a' }}>{o.opIkona} {o.id}</span>
+                                        <span style={{ fontSize: 11, fontWeight: 900, color: o.priority === 'hitno' ? '#dc2626' : o.priority === 'visok' ? '#ea580c' : '#16a34a' }}>{o.priority === 'hitno' ? '🔴' : o.priority === 'visok' ? '🟠' : '🟢'}</span>
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '—' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}</div>
+                                    {o.rok && <div style={{ fontSize: 11, color: '#b45309', fontWeight: 800 }}>rok {new Date(o.rok).toLocaleDateString('sr-RS')}</div>}
+                                </div>; })}
+                            </div>);
+                        })()}
                     </div>
                     <div style={{ ...styles.card, padding: 16 }}>
                         <h3 style={{ margin: 0 }}>Workflow statusi naloga</h3>
@@ -419,14 +522,23 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                     </div>
                 </div>
 
-                <div>
-                    <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaширanje']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
-                        <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>Klikni karticu mašine za unos karakteristika.</div>
+                <div className={selId ? 'mspSel' : ''}>
+                    <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['rezanje_tabaka', 'Tabaci'], ['pravljenje_creva', 'Polucrevo'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaширка']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
+                        <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>{selId ? '👉 Klikni zelenu mašinu (⬇ dodeli ovde)' : 'Klikni karticu mašine za unos karakteristika.'}</div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
-                        {shownMachines.map(machine => {
+                    <div style={{ display: 'grid', gap: 18 }}>
+                        {[...TIP_REDOSLED, ...Array.from(new Set(shownMachines.map(m => m.type)))].filter((t, i, a) => a.indexOf(t) === i).map(tip => {
+                            const grupa = shownMachines.filter(m => m.type === tip);
+                            if (!grupa.length) return null;
+                            return <div key={tip}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '2px solid #e2e8f0' }}>
+                                    <span style={{ fontSize: 15, fontWeight: 950, color: '#0f172a' }}>{TIP_LABELE[tip] || tip}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#64748b', background: '#f1f5f9', borderRadius: 999, padding: '2px 9px' }}>{grupa.length}</span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
+                                    {grupa.map(machine => {
                             // ZAVRŠENE operacije se SKLANJAJU sa trake mašine (klik „Završeno" ili QR) —
                             // ne prikazuju se i ne ulaze u opterećenje smene.
                             const assigned = (plan[machine.id] || []).map(id => orderMap[id]).filter(o => o && o.status !== 'zavrseno');
@@ -435,7 +547,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                             // Za vikend-mašine (rade samo sub+ned) uzima se vikend broj smena.
                             const smeneDan = Math.max(Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM), Number(machine.smeneVikend ?? DEF_SMENE_VIKEND));
                             const kapDan = Math.max(1, smeneDan) * SMENA_MIN;
-                            return <div key={machine.id} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
+                            const kompat = selId ? jeKompatibilna(machine, orderMap[selId]).ok : null;
+                            return <div key={machine.id} className={'mspMcard' + (kompat === true ? ' kompat' : kompat === false ? ' nekompat' : '')} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
+                                {kompat === true && orderMap[selId] && <button onClick={() => assignToMachine(machine.id)} style={{ width: '100%', marginBottom: 10, border: 0, borderRadius: 12, background: '#16a34a', color: '#fff', fontWeight: 950, fontSize: 14, padding: '10px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(22,163,74,.3)' }}>⬇ Dodeli „{orderMap[selId].id}" ovde</button>}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
                                     <div onClick={() => setEditing(machine)} style={{ cursor: 'pointer', flex: 1 }}><div style={{ fontSize: 12, color: '#64748b', fontWeight: 950 }}>{machine.code} · {machine.group}</div><h3 style={{ margin: '2px 0 0', color: '#0f172a' }}>{machine.name}</h3></div>
                                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -499,6 +613,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                 </div>
                                 <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: `${Math.min(100, load / kapDan * 100)}%`, height: '100%', background: load > kapDan ? '#dc2626' : '#2563eb' }} /></div>
                                 <div style={{ marginTop: 5, fontSize: 12, color: '#64748b', fontWeight: 800 }}>{load} min planirano / dan {kapDan} min ({Math.max(1, smeneDan)} smene × 7h{smeneDan && Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM) === 0 ? ' · samo vikend' : ''}) · {machine.speed || '—'} m/min + setup {machine.setupMin || 0} min</div>
+                            </div>;
+                                    })}
+                                </div>
                             </div>;
                         })}
                     </div>

@@ -269,7 +269,7 @@ function buildD(nalog) {
         global: nalog.napomena || od.napomena || t.napomena || folija.napomena || "",
         materijal: napOp.materijal || folija.materijalNapomena || kesa.materijalNapomena || sp.materijalNapomena || (folija.materijal && folija.materijal.napomena) || "",
         stampa: napOp.stampa || (st && st.napomena) || "",
-        kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || (spulna.kasiranje && spulna.kasiranje.napomena) || "",
+        kasiranje: napOp.kasiranje || (folija.kasiranje && folija.kasiranje.napomena) || (kesa.kasiranje && kesa.kasiranje.napomena) || (spulna.kasiranje && spulna.kasiranje.napomena) || (tabak && tabak.kasiranje && tabak.kasiranje.napomena) || (polucrevo && polucrevo.kasiranje && polucrevo.kasiranje.napomena) || "",
         lakiranje: napOp.lakiranje || (folija.lakiranje && folija.lakiranje.napomena) || "",
         rezanje: napOp.rezanje || (rz && rz.napomena) || (folija.kpdf && folija.kpdf.napomena) || (folija.perforacija && folija.perforacija.napomena) || (kesa && kesa.formiranjeNapomena) || "",
         kesa: napOp.kesa || (kesa && kesa.izradaNapomena) || (kesa && kesa.napomena) || "",
@@ -352,11 +352,11 @@ function buildD(nalog) {
             klise: st.klise, obimValjka: st.obimValjka, hilzna: st.precnikHilzne, stamparija: st.stamparija,
         },
         kas: {
-            // Kaширanje čita folija / kesa / ŠPULNA / TABAK — koji god tip da je nalog.
-            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]) || pick(kesa.kasiranje || {}, ["tipLepka", "lepak"]) || pick(spulna.kasiranje || {}, ["tipLepka", "lepak"]) || pick((tabak && tabak.kasiranje) || {}, ["tipLepka", "lepak"]),
-            odnos: (folija.kasiranje || {}).odnosLepka || (kesa.kasiranje || {}).odnosLepka || (spulna.kasiranje || {}).odnosLepka || ((tabak && tabak.kasiranje) || {}).odnosLepka,
-            nanos: (folija.kasiranje || {}).nanosLepka || (kesa.kasiranje || {}).nanosLepka || (spulna.kasiranje || {}).nanosLepka || ((tabak && tabak.kasiranje) || {}).nanosLepka,
-            broj: (folija.kasiranje || {}).brojKasiranja || (kesa.kasiranje || {}).brojKasiranja || (spulna.kasiranje || {}).brojKasiranja || ((tabak && tabak.kasiranje) || {}).brojKasiranja || Math.max(0, LAY.length - 1),
+            // Kaширanje čita folija / kesa / ŠPULNA / TABAK / POLUCREVO — koji god tip da je nalog.
+            tipLepka: pick(folija.kasiranje || {}, ["tipLepka", "lepak"]) || pick(kesa.kasiranje || {}, ["tipLepka", "lepak"]) || pick(spulna.kasiranje || {}, ["tipLepka", "lepak"]) || pick((tabak && tabak.kasiranje) || {}, ["tipLepka", "lepak"]) || pick((polucrevo && polucrevo.kasiranje) || {}, ["tipLepka", "lepak"]),
+            odnos: (folija.kasiranje || {}).odnosLepka || (kesa.kasiranje || {}).odnosLepka || (spulna.kasiranje || {}).odnosLepka || ((tabak && tabak.kasiranje) || {}).odnosLepka || ((polucrevo && polucrevo.kasiranje) || {}).odnosLepka,
+            nanos: (folija.kasiranje || {}).nanosLepka || (kesa.kasiranje || {}).nanosLepka || (spulna.kasiranje || {}).nanosLepka || ((tabak && tabak.kasiranje) || {}).nanosLepka || ((polucrevo && polucrevo.kasiranje) || {}).nanosLepka,
+            broj: (folija.kasiranje || {}).brojKasiranja || (kesa.kasiranje || {}).brojKasiranja || (spulna.kasiranje || {}).brojKasiranja || ((tabak && tabak.kasiranje) || {}).brojKasiranja || ((polucrevo && polucrevo.kasiranje) || {}).brojKasiranja || Math.max(0, LAY.length - 1),
             // Širina valjka za kaširanje — iz templejta (predlog valjka); rezerva: razni nazivi
             valjak: num(rz.predlogValjkaKasiranja) || num(rz.valjakKasiranja) || num((folija.kasiranje || {}).valjak) || num((folija.kasiranje || {}).sirinaValjka)
                 || num((kesa.rezanje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).predlogValjkaKasiranja) || num((kesa.kasiranje || {}).valjak)

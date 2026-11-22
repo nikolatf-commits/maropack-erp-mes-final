@@ -28,12 +28,12 @@ export const KESA_OPCIJE = [
     // ADH lepljiva traka (ponovo-zatvorljiva) — čekira se sama za tipove sa klapnom,
     // ali korisnik može da je isključi, i tada NESTAJE sa skice.
     // posList → padajuća „Pozicija" (vrh/sredina/dno klapne, telo); opciono „Od vrha (mm)".
-    { k: "adh_traka", l: "ADH lepljiva traka (ponovo-zatvorljiva)", tip: "danet", posList: POZICIJE_KESE, pos: ["odVrha"], crtez: "adh_traka" },
+    { k: "adh_traka", l: "ADH lepljiva traka (ponovo-zatvorljiva)", tip: "danet", posList: POZICIJE_KESE, pos: ["odVrha", "odOtvora"], crtez: "adh_traka" },
 
     {
         k: "duplofan", l: "Duplofan traka", tip: "lista",
         vals: ["Obična", "Permanentna", "Permanentna bezbedna za hranu", "Široka"],
-        posList: POZICIJE_KESE, pos: ["odVrha"], crtez: "duplofan"
+        posList: POZICIJE_KESE, pos: ["odVrha", "odOtvora"], crtez: "duplofan"
     },
 
     {
@@ -67,6 +67,7 @@ export const KESA_OPCIJE = [
                     ["odIvice", "Od ivice (mm)"],
                     ["odDna", "Od dna (mm)"],
                     ["odOtvora", "Od otvora (mm)"],
+                    ["odVrha", "Od vrha (mm) — do šiljka"],
                     ["okrenut", "Okreni znak", ["Ne", "180°"]],
                 ],
             },
@@ -234,6 +235,7 @@ export function toCrtezKesa(kesa = {}) {
                 reklOdIvice: tS.reciklaza_odIvice || "",
                 reklOdDna: tS.reciklaza_odDna || "",
                 reklOdOtvora: tS.reciklaza_odOtvora || "",
+                reklOdVrha: tS.reciklaza_odVrha || "",
                 reklOkrenut: tS.reciklaza_okrenut || "",
             };
             stampaText = tS.motiv || "";   // reciklažni znak se CRTA kao simbol (vidi CrtezKese)

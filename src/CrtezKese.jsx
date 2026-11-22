@@ -332,6 +332,10 @@ function buildSvgPro(c, u, lang = "sr") {
     // Zajedničko za perforaciju za otkinuti, ADH i duplofan. null = nije zadata pozicija.
     const posToY = (p) => {
         if (!p) return null;
+        if (has(p, "odOtvora")) {
+            // „Od otvora X mm" se meri od linije otvora kese (gde klapna prelazi u telo), naniže.
+            return Math.max(y0 + 2, Math.min(y1 - 3, y0 + mm(p.odOtvora)));
+        }
         if (has(p, "odVrha")) {
             // „Od vrha X mm" se meri od samog vrha klapne; mali minimalni razmak da bude vidljiv.
             const minY = hasFlap ? ky + 4 : y0 + 5;
@@ -718,10 +722,12 @@ function buildSvgPro(c, u, lang = "sr") {
             return o;
         };
         let ok = "";
-        // ADH lepljiva traka — mera „od vrha"
-        if (c.adh && has(P.adh_traka, "odVrha")) ok += vKota(topY, adhY, num(P.adh_traka.odVrha), KC.adh);
-        // Duplofan traka — mera „od vrha"
-        if (c.duplofan && has(P.duplofan, "odVrha")) ok += vKota(topY, posToY(P.duplofan), num(P.duplofan.odVrha), KC.duplofan);
+        // ADH lepljiva traka — mera „od otvora" (prioritet) ili „od vrha"
+        if (c.adh && has(P.adh_traka, "odOtvora")) ok += vKota(y0, adhY, num(P.adh_traka.odOtvora), KC.adh);
+        else if (c.adh && has(P.adh_traka, "odVrha")) ok += vKota(topY, adhY, num(P.adh_traka.odVrha), KC.adh);
+        // Duplofan traka — mera „od otvora" (prioritet) ili „od vrha"
+        if (c.duplofan && has(P.duplofan, "odOtvora")) ok += vKota(y0, posToY(P.duplofan), num(P.duplofan.odOtvora), KC.duplofan);
+        else if (c.duplofan && has(P.duplofan, "odVrha")) ok += vKota(topY, posToY(P.duplofan), num(P.duplofan.odVrha), KC.duplofan);
         // Perforacija za otkinuti na telu — mera „od vrha"
         if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
         // Unakrsna perforacija — „od vrha" ILI „od dna"

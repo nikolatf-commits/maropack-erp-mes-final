@@ -398,3 +398,104 @@ export function kalkulacijaTabaka(u = {}) {
         koraci,
     };
 }
+
+// ═════════════════════════════ POLUCREVO ═════════════════════════════════════
+/**
+ * POLUCREVO — folija presavijena po dužini. RAVNA folija (matična traka) = 2×širina (+ falta).
+ * Presavijanje NE menja dužinu → materijal/kg se računa po RAVNOJ širini (kao folija).
+ * Ulaz:
+ *  sirina (mm, ŠIRINA POLUCREVA — gotova, presavijena), falta (mm, opciono),
+ *  metraza (m, podrazumevano 1000), nalog (ponavljanja = ukupni metri / 1000),
+ *  materijali [{tezina g/m², cena €/kg, stampa, lakira}], skart %, marza %,
+ *  stampaCena (€/kg), lakiranjeCena (€/kg), kasiranjeCena (€/m²), transport (€/kg),
+ *  crevoCena (€/1000 m — pravljenje creva/presavijanje), perfCena (€/1000 m), varCena (€/1000 m).
+ */
+export function kalkulacijaPolucreva(u = {}) {
+    const sirPC = N(u.sirina);                          // širina polucreva
+    const falta = N(u.falta);
+    const flat = sirPC > 0 ? (2 * sirPC + falta) : 0;   // ravna folija (matična traka)
+    const metraza = N(u.metraza) || 1000;
+    const nalog = N(u.nalog) || 1;
+    const skart = N(u.skart), marza = N(u.marza);
+    const stampaCena = N(u.stampaCena), lakiranjeCena = N(u.lakiranjeCena);
+    const transport = N(u.transport);
+    const materijali = Array.isArray(u.materijali) ? u.materijali : [];
+    const crevoCena = N(u.crevoCena), perfCena = N(u.perfCena), varCena = N(u.varCena);
+
+    const koraci = [];
+    if (!sirPC) koraci.push("UPOZORENJE: širina polucreva nije zadata — kg materijala će biti 0.");
+    koraci.push(`Ravna folija (matična traka) = 2 × ${sirPC}${falta ? " + " + falta + " (falta)" : ""} = ${flat} mm. Presavijanje ne menja dužinu.`);
+
+    // 1) kg po sloju po RAVNOJ širini: (flat × metraza × g/m²) / 1.000.000
+    let ukupnoKg = 0, ukupnoMatTrosak = 0;
+    const slojevi = materijali.map((m) => {
+        const tez = N(m.tezina ?? m.gm2 ?? m.gsm);
+        const cena = N(m.cena ?? m.cena_kg);
+        const kg = tez ? (flat * metraza * tez) / 1000000 : 0;
+        const trosak = kg * cena;
+        ukupnoKg += kg; ukupnoMatTrosak += trosak;
+        if (tez) koraci.push(`Sloj ${m.naziv || m.tip || m.vrsta || "?"}: ${flat} mm × ${metraza} m × ${tez} g/m² ÷ 1.000.000 = ${R4(kg)} kg → × ${cena} €/kg = ${eur(trosak)}`);
+        return { naziv: m.naziv || m.tip || m.vrsta || "", tezina: tez, cena, kg: R4(kg), trosak: R2(trosak), stampa: !!m.stampa, lakira: !!(m.lakira || m.lak) };
+    });
+
+    // 2) štampa / lakiranje — po kg čekiranih slojeva
+    const stampaKg = slojevi.reduce((s, x) => s + (x.stampa ? x.kg : 0), 0);
+    const lakiranjeKg = slojevi.reduce((s, x) => s + (x.lakira ? x.kg : 0), 0);
+    const stampaTrosak = stampaKg * stampaCena;
+    const lakiranjeTrosak = lakiranjeKg * lakiranjeCena;
+    if (stampaTrosak) koraci.push(`Štampa: ${R4(stampaKg)} kg × ${stampaCena} €/kg = ${eur(stampaTrosak)}`);
+    if (lakiranjeTrosak) koraci.push(`Lakiranje: ${R4(lakiranjeKg)} kg × ${lakiranjeCena} €/kg = ${eur(lakiranjeTrosak)}`);
+
+    // 3) kaширanje: prolazi = aktivnih slojeva − 1 (po ravnoj širini)
+    const aktivnih = slojevi.filter((x) => x.tezina > 0).length;
+    const kasProlazi = Math.max(0, aktivnih - 1);
+    const kasTrosak = (N(u.kasiranjeCena) * flat * metraza * kasProlazi) / 1000;
+    if (kasTrosak) koraci.push(`Kaширanje: ${N(u.kasiranjeCena)} €/m² × ${flat} mm × ${metraza} m × ${kasProlazi} prolaz(a) ÷ 1000 = ${eur(kasTrosak)}`);
+
+    // 4) transport (€/kg)
+    const transportTrosak = transport * ukupnoKg;
+    if (transportTrosak) koraci.push(`Transport: ${transport} €/kg × ${R4(ukupnoKg)} kg = ${eur(transportTrosak)}`);
+
+    // 5) dorada po metraži: pravljenje creva + perforacija + uzdužni var (sve €/1000 m)
+    const doradaTrosak = (crevoCena + perfCena + varCena) * (metraza / 1000);
+    if (crevoCena) koraci.push(`Pravljenje creva (presavijanje): ${crevoCena} €/1000 m`);
+    if (perfCena) koraci.push(`Perforacija: ${perfCena} €/1000 m`);
+    if (varCena) koraci.push(`Uzdužni var: ${varCena} €/1000 m`);
+
+    // 6) sabiranje — škart se dodaje SAMO na materijal (kao u ekranu „Kalkulacija polucreva"),
+    //    dorada/kaширanje/transport/štampa ulaze bez škarta, pa onda marža na sve.
+    const matSaSkart = ukupnoMatTrosak * (1 + skart / 100);
+    const osnovnaCena = matSaSkart + stampaTrosak + lakiranjeTrosak + kasTrosak + transportTrosak + doradaTrosak;
+    const konacnaCena = osnovnaCena * (1 + marza / 100);
+    koraci.push(`Materijal + škart ${skart}%: ${eur(ukupnoMatTrosak)} → ${eur(matSaSkart)}`);
+    koraci.push(`OSNOVNA (na ${metraza} m, materijal sa škartom + dorada/kaширanje/transport) = ${eur(osnovnaCena)}`);
+    koraci.push(`+ marža ${marza}% → KONAČNA ${eur(konacnaCena)} na ${metraza} m (= ${R4(konacnaCena / metraza)} € po m)`);
+
+    const kgSaSkartom = ukupnoKg * (1 + skart / 100);
+    return {
+        tip: "polucrevo", jedinica: `€ / ${metraza} m`,
+        sirina_polucreva: sirPC, ravna_folija_mm: flat,
+        ukupno_kg: R4(ukupnoKg),
+        kg_na_1000_kom: R4(ukupnoKg * (1000 / metraza)),   // kg na 1000 m (za listu)
+        slojevi,
+        troskovi: {
+            materijal: R2(ukupnoMatTrosak), stampa: R2(stampaTrosak), lakiranje: R2(lakiranjeTrosak),
+            kasiranje: R2(kasTrosak), transport: R2(transportTrosak), pravljenje_creva_dorada: R2(doradaTrosak),
+        },
+        osnovna_cena: R2(osnovnaCena),
+        materijal_sa_skartom: R2(matSaSkart),
+        konacna_cena: R2(konacnaCena),
+        cena_po_m: R4(konacnaCena / metraza),
+        cena_po_kg: R4(ukupnoKg > 0 ? osnovnaCena / ukupnoKg : 0),
+        cena_po_kg_sa_marzom: R4(ukupnoKg > 0 ? konacnaCena / ukupnoKg : 0),
+        za_ceo_nalog: {
+            ponavljanja: nalog,
+            ukupna_duzina_m: metraza * nalog,
+            ukupno_kg: R4(kgSaSkartom * nalog),
+            osnovna: R2(osnovnaCena * nalog),
+            konacna: R2(konacnaCena * nalog),
+            vrednost: R2(konacnaCena * nalog),
+        },
+        koraci,
+    };
+}
