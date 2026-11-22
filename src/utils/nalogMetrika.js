@@ -293,3 +293,58 @@ export const OP_LABELE = {
     perforacija_rezanje: "REZANJE", formatiranje: "FORMATIRANJE", kesa: "KESA", spulna: "\u0160PULNA",
     rezanje_tabaka: "REZANJE TABAKA", pravljenje_creva: "PRAVLJENJE CREVA",
 };
+
+// \u2500\u2500 AUTO-RASPORED (AI PLAN) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// v55: klju\u010d operacije (opKljuc) \u2192 TIP MA\u0160INE. Red \u010dekanja na ma\u0161ini vezuje se za tip:
+//   perforacija_rezanje \u2192 rezanje,  kesa \u2192 kese,  spulna \u2192 spulne. Ostali su isti.
+export const OPKLJUC_U_TIPMASINE = { perforacija_rezanje: "rezanje", kesa: "kese", spulna: "spulne" };
+// Tip ma\u0161ine za dati nalog (koristi opKljuc, pa mapira na tip ma\u0161ine).
+export function tipMasineZaNalog(n) {
+    const k = opKljuc(n);
+    return OPKLJUC_U_TIPMASINE[k] || k;
+}
+
+// \u010cIST RASPORE\u0110IVA\u010c \u2014 deli ga Plan ekran (dugme \u201eAI plan") i AI agent (alat \u201enapravi_plan_proizvodnje").
+// Jedan izvor istine da se logika ne razilazi.
+//   machines       \u2014 ma\u0161inski park [{id,type,status,minWidth,maxWidth,speed,setupMin,...}]
+//   orders         \u2014 SAMO neraspore\u0111eni nalozi koje treba staviti [{id,opTip,priority,rok,metri,width,status}]
+//   orderMap       \u2014 SVI nalozi po id (da pro\u010ditamo rok onih \u0161to su ve\u0107 u redu)
+//   planPostojeci   \u2014 {machineId:[id,...]} (postoje\u0107i plan, ne dira se)
+//   kompatibilna(m,o)->{ok}   \u2014 provera (tip + \u0161irina + status)
+//   trajanje(m,o)->min        \u2014 procena minuta (setup + metri \u00f7 brzina)
+// Logika: hitno \u2192 raniji rok \u2192 ve\u0107i metri; svaki na kompatibilnu AKTIVNU ma\u0161inu sa
+//   NAJMANJE planiranih minuta; u red ma\u0161ine uba\u010den sortirano po roku (ranije gotov \u2192 prvo).
+// Vra\u0107a { plan, postavljeno, preskoceni:[id,...] }.
+export function autoRasporedPlan({ machines, orders, orderMap, planPostojeci, kompatibilna, trajanje }) {
+    const next = { ...(planPostojeci || {}) };
+    const om = orderMap || {};
+    const optMin = {};
+    (machines || []).forEach((m) => {
+        const lst = ((next[m.id] || []).map((id) => om[id]).filter((o) => o && o.status !== "zavrseno"));
+        optMin[m.id] = lst.reduce((s, o) => s + (Number(trajanje(m, o)) || 0), 0);
+    });
+    const rang = (p) => p === "hitno" ? 0 : p === "visok" ? 1 : 2;
+    const rokMs = (o) => (o && o.rok) ? new Date(o.rok).getTime() : Infinity;
+    const red = [...(orders || [])].sort((a, b) =>
+        (rang(a.priority) - rang(b.priority)) || (rokMs(a) - rokMs(b)) || ((b.metri || 0) - (a.metri || 0)));
+    let postavljeno = 0; const preskoceni = [];
+    for (const o of red) {
+        const kand = (machines || []).filter((m) => m.status === "aktivna" && kompatibilna(m, o).ok);
+        if (!kand.length) { preskoceni.push(o.id); continue; }
+        let best = null, bl = Infinity;
+        for (const m of kand) {
+            const l = optMin[m.id] || 0;
+            if (l < bl || (l === bl && (Number(m.setupMin) || 0) < (best ? (Number(best.setupMin) || 0) : 1e9))) { bl = l; best = m; }
+        }
+        const dur = Number(trajanje(best, o)) || 0;
+        const q = [...(next[best.id] || [])];
+        const orok = rokMs(o);
+        let idx = q.length;
+        for (let i = 0; i < q.length; i++) { const eo = om[q[i]]; const er = eo ? rokMs(eo) : Infinity; if (er > orok) { idx = i; break; } }
+        q.splice(idx, 0, o.id);
+        next[best.id] = q;
+        optMin[best.id] = (optMin[best.id] || 0) + dur;
+        postavljeno++;
+    }
+    return { plan: next, postavljeno, preskoceni };
+}
