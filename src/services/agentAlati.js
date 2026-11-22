@@ -16,8 +16,8 @@ import { kalkulacijaFolije, kalkulacijaKese, kalkulacijaSpulne, kalkulacijaTabak
 import { imeKorisnika } from "../dashboardShared.js";
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
-import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace } from "../services/erpMesCore.js";
-import { metriMasineNaloga, metriZaMasinu, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog } from "../utils/nalogMetrika.js";
+import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace, canMachineRun } from "../services/erpMesCore.js";
+import { metriMasineNaloga, metriZaMasinu, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog, autoRasporedPlan, tipMasineZaNalog } from "../utils/nalogMetrika.js";
 import { izracunajRaspored, radnoSada } from "../utils/planRaspored.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
@@ -1971,6 +1971,81 @@ export const ALATI = {
             const vanPlana = ops.filter((o) => !zavrsen(o) && /radi|toku|zastoj|pauz/i.test(T(o.status)) && !uPlanu.has(T(o.broj_naloga || o.broj || o.id)))
                 .map((o) => ({ broj: T(o.broj_naloga || o.broj), status: T(o.status) }));
             return { masina_ukupno: (Array.isArray(masine) ? masine : []).length, masine: rezultat, aktivno_van_plana: vanPlana };
+        },
+    },
+
+    // v55: AI PLAN — automatski rasporedi neraspoređene naloge na mašine PREMA ROKU.
+    // ISTI raspoređivač kao dugme „AI plan" na ekranu Plan proizvodnje (autoRasporedPlan).
+    napravi_plan_proizvodnje: {
+        cita: false,
+        opis: "Napravi/dopuni PLAN PROIZVODNJE: automatski rasporedi sve NERASPOREĐENE naloge na kompatibilne mašine prema roku isporuke (nedelja/datum kad proizvod mora biti gotov). Hitno ide prvo, pa raniji rok. Svaki nalog ide na mašinu svog tipa (štampa→štamparija, rezanje→rezač, tabak→tabak sekač, polucrevo→mašina za crevo, kese→mašina za kese, špulne→špulna) sa najmanje posla, i ubacuje se u red sortirano po roku. Već raspoređene naloge NE dira — dodaje samo ono što nije na mašinama. Posle korisnik može da koriguje red ▲▼ ili prevlačenjem. Koristi kad korisnik kaže „napravi plan“, „rasporedi naloge po mašinama“, „AI plan“, „isplaniraj proizvodnju“.",
+        ulaz: {
+            samo_tip: { type: "string", description: "Opciono: rasporedi samo jednu operaciju — stampa | rezanje | rezanje_tabaka | pravljenje_creva | kese | spulne | kasiranje | lakiranje" },
+        },
+        async izvrsi(a) {
+            const [masine, planPostojeci] = await Promise.all([loadMachines(), loadProductionPlan()]);
+            const park = Array.isArray(masine) ? masine : [];
+            if (!park.length) return { ok: false, poruka: "Nema mašina u parku. Otvori ekran „Plan proizvodnje“ jednom da se park inicijalizuje." };
+            const ops = await sve("operativni_nalozi");
+            const uPlanu = new Set(Object.values(planPostojeci || {}).flat());
+            // mapiraj SVE naloge (za čitanje roka onih u redu) i izdvoji neraspoređene za raspoređivanje
+            const orderMap = {};
+            const svi = (ops || []).map((o) => {
+                const id = T(o.broj_naloga || o.broj || o.id);
+                const opTip = tipMasineZaNalog(o);
+                const ex = extraktNalog(o);
+                const st = T(o.status).toLowerCase();
+                const status = (st.indexOf("zavr") === 0 || st.indexOf("stiglo") >= 0) ? "zavrseno"
+                    : (/radi|toku|poslato/.test(st) ? "u_radu" : "ceka");
+                const width = N(o.sir || o.sirina || o.idealnaSirinaMaterijala) || ex.sirina || 0;
+                const prolazi = opTip === "kasiranje" ? Math.max(1, ex.brojKasiranja) : 1;
+                const metri = (metriZaMasinu(o, opKljuc(o)) || ex.metriMasine || ex.kolicina || 0);
+                const red = { id, opTip, type: opTip, metri, width, status,
+                    rok: o.rok || o.rok_isporuke || o.datum_isporuke || ex.rok || "",
+                    priority: o.prioritet || o.priority || "normalno" };
+                if (id) orderMap[id] = red;
+                return red;
+            });
+            let zaRaspored = svi.filter((r) => r.id && r.opTip !== "materijal" && r.status !== "zavrseno" && !uPlanu.has(r.id));
+            if (a && a.samo_tip) { const tt = T(a.samo_tip).toLowerCase(); zaRaspored = zaRaspored.filter((r) => r.opTip === tt); }
+            if (!zaRaspored.length) return { ok: true, poruka: "Nema neraspoređenih naloga — sve je već na mašinama.", postavljeno: 0, preskoceni: [] };
+
+            // provera kompatibilnosti (tabak/polucrevo: tip+širina+status; ostali: canMachineRun iz erpMesCore)
+            const jeKompatibilna = (m, o) => {
+                if (!m || !o) return { ok: false };
+                if (o.opTip === "rezanje_tabaka" || o.opTip === "pravljenje_creva") {
+                    if (m.type !== o.opTip) return { ok: false };
+                    if (m.status && m.status !== "aktivna") return { ok: false };
+                    const w = Number(o.width);
+                    if (Number.isFinite(w) && w > 0) { const mn = Number(m.minWidth), mx = Number(m.maxWidth); if (Number.isFinite(mx) && mx > 0 && w > mx) return { ok: false }; if (Number.isFinite(mn) && mn > 0 && w < mn) return { ok: false }; }
+                    return { ok: true };
+                }
+                try { return canMachineRun(m, o) || { ok: true }; } catch (e) { return { ok: true }; }
+            };
+            const trajanje = (m, o) => procenaMinNaMasini(m, o.metri);
+
+            const { plan: next, postavljeno, preskoceni } = autoRasporedPlan({
+                machines: park, orders: zaRaspored, orderMap, planPostojeci, kompatibilna: jeKompatibilna, trajanje,
+            });
+
+            const r = await saveProductionPlan(next);
+            if (r && r.conflict) return { ok: false, poruka: "Plan je neko upravo izmenio — osveži pa probaj ponovo." };
+            try { await logTrace("ai_plan_generated", { postavljeno, preskoceni: preskoceni.length, izvor: "agent" }); } catch (e) { }
+
+            // pregled: po mašini koji su nalozi dodati, sa procenom minuta
+            const poMasini = park.map((m) => {
+                const red = (next[m.id] || []).map((id) => orderMap[id]).filter((o) => o && o.status !== "zavrseno");
+                if (!red.length) return null;
+                let uk = 0; const stavke = red.map((o, i) => { const min = procenaMinNaMasini(m, o.metri); uk += min; return { pozicija: i + 1, broj: o.id, operacija: OP_LABELE[opKljuc({ broj_naloga: o.id })] || o.opTip, metri: o.metri, procena_min: min, rok: o.rok || "—" }; });
+                return { masina: m.name, tip: m.type, naloga_u_redu: stavke.length, ukupno_min: uk, red: stavke };
+            }).filter(Boolean);
+
+            const preskoceniInfo = preskoceni.length ? { broj: preskoceni.length, nalozi: preskoceni.slice(0, 20), napomena: "Nema kompatibilne/aktivne mašine (proveri tip, radnu širinu ili da je mašina zaustavljena)." } : null;
+            return {
+                ok: true,
+                poruka: `AI plan: raspoređeno ${postavljeno} naloga po roku${preskoceni.length ? `, ${preskoceni.length} bez kompatibilne mašine` : ""}. Plan je snimljen — koriguj red ▲▼ ili prevlačenjem na ekranu „Plan proizvodnje“.`,
+                postavljeno, preskoceni: preskoceniInfo, raspored_po_masini: poMasini,
+            };
         },
     },
 

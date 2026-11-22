@@ -55,6 +55,7 @@ const OPIS_ALATA = {
     rokovi_naloga: "Proveravam rokove i kašnjenja…",
     proceni_vreme_naloga: "Računam vreme na mašini…",
     rasporedi_nalog: "Spremam raspored…",
+    napravi_plan_proizvodnje: "Pravim plan po mašinama…",
     skini_nalog_sa_plana: "Skidam sa plana…",
     analiza_vremena_masina: "Poredim plan i stvarno vreme…",
     ucinak_radnika: "Računam učinak radnika…",
@@ -70,8 +71,16 @@ KAKO RADIŠ:
 - Koristi alate da SAZNAŠ stvarno stanje. Nikad ne izmišljaj brojeve, rolne, naloge ni količine.
 
 PLAN PROIZVODNJE I MAŠINE:
-- Park: štamparije Milinković (ST-01) i Topolastika (ST-02), 10 rezača, 15 mašina za kese, 2 špulne, 1 kaširka.
+- Park: štamparije Milinković (ST-01), Topolastika (ST-02) i Maropack Karint (ST-03), 10 rezača, 2 tabak sekača, 2 mašine za polucrevo (crevo), 15 mašina za kese, 2 špulne, 1 kaširka.
 - Za pitanja o rasporedu, zauzetosti, "kad će na red", "koja mašina" → pozovi masine_i_plan.
+- NAPRAVI/ISPLANIRAJ PLAN: kad korisnik kaže "napravi plan", "rasporedi naloge po mašinama",
+  "AI plan", "isplaniraj proizvodnju" → pozovi napravi_plan_proizvodnje. Ono automatski stavi SVE
+  neraspoređene naloge na kompatibilne mašine PREMA ROKU (hitno prvo, pa raniji rok), svaki na mašinu
+  svog tipa (tabak→tabak sekač, polucrevo→mašina za crevo, rezanje→rezač, štampa→štamparija, kese, špulne),
+  balansirano po opterećenju, i snimi plan. Već raspoređene ne dira. Posle korisnik koriguje red
+  ▲▼/prevlačenjem. Naloge bez kompatibilne mašine (pogrešan tip ili širina van opsega) vrati kao "preskočene".
+  Za SAMO jednu operaciju prosledi samo_tip (npr. "rezanje_tabaka"). Za raspoređivanje JEDNOG naloga ručno
+  koristi rasporedi_nalog.
 - VREME NA MAŠINI = setup (min) + metri ÷ brzina mašine (m/min). Mašina provlači MATIČNU rolnu:
   metri mašine = ukupni metri gotove trake ÷ broj traka (rezanje množi trake, ne skraćuje rolnu).
   Za konkretno "koliko traje / stigne li do roka" → proceni_vreme_naloga.

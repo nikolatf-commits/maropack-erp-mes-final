@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
-import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef } from '../utils/nalogMetrika.js';
+import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan } from '../utils/nalogMetrika.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
 import GanttPlanPRO from './GanttPlanPRO.jsx';
 // v54.1: živo osvežavanje naloga — kad radnik preko QR-a startuje/završi operaciju
@@ -54,6 +54,14 @@ function jeKompatibilna(machine, order) {
     if (order.opTip === 'rezanje_tabaka' || order.opTip === 'pravljenje_creva') {
         if (machine.type !== order.opTip) return { ok: false, reason: 'Mašina nije za ' + String(order.opLabel || '').toLowerCase() };
         if (machine.status && machine.status !== 'aktivna') return { ok: false, reason: 'Mašina je zaustavljena' };
+        // radna širina mašine (min/max) poštuje se isto kao kod ostalih mašina —
+        // izmeniš li „Min/Max širina mm" na kartici, AI i ručna dodela to odmah uzimaju u obzir.
+        const w = Number(order.width);
+        if (Number.isFinite(w) && w > 0) {
+            const minW = Number(machine.minWidth), maxW = Number(machine.maxWidth);
+            if (Number.isFinite(maxW) && maxW > 0 && w > maxW) return { ok: false, reason: `Širina ${w} mm > max ${maxW} mm` };
+            if (Number.isFinite(minW) && minW > 0 && w < minW) return { ok: false, reason: `Širina ${w} mm < min ${minW} mm` };
+        }
         return { ok: true };
     }
     try { return canMachineRun(machine, order) || { ok: true }; } catch (e) { return { ok: true }; }
@@ -426,11 +434,44 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     };
     const resetMachines = async () => { const next = primeniSmene(ensureStampa(DEFAULT_MACHINES)); setMachines(next); await saveMachines(next); msg?.('✅ Vraćen standardni park + 3 štamparije + smene'); };
 
+    // v55: očisti ceo plan (skloni sve naloge sa mašina) — da AI može da rasporedi ispočetka.
+    const ocistiPlan = async () => {
+        setPlan({}); setSelId(null); await snimiPlan({}); await logTrace('plan_cleared', {}); setTrace(getTraceLog());
+        msg?.('🧹 Plan je očišćen — mašine su prazne.');
+    };
+
+    // v55: AI PLAN — automatski rasporedi sve neraspoređene naloge na mašine PREMA ROKU.
+    // Logika (deterministički „pametni" raspored, pa ga posle ručno koriguješ ▲▼ / drag-drop):
+    //  1) sortiraj naloge: hitno pre svih → raniji rok → veći metri (veći poslovi prvi u istom danu),
+    //  2) svaki nalog ide na KOMPATIBILNU aktivnu mašinu sa NAJMANJE opterećenja (balans mašina istog tipa),
+    //  3) unutar reda čekanja mašine ubaci ga tako da red ostane sortiran po roku (ranije gotovo → prvo radi).
+    // Već raspoređene naloge NE dira — dodaje samo one iz „Nalozi za raspored".
+    const aiRaspored = async () => {
+        const zaRaspored = [...unplanned];
+        if (!zaRaspored.length) { msg?.('ℹ️ Nema neraspoređenih naloga — sve je već na mašinama.', 'err'); return; }
+        // ISTI deljeni raspoređivač kao AI agent (utils/nalogMetrika.autoRasporedPlan) — jedan izvor istine.
+        const { plan: next, postavljeno, preskoceni } = autoRasporedPlan({
+            machines, orders: zaRaspored, orderMap, planPostojeci: plan,
+            kompatibilna: jeKompatibilna, trajanje: calcDurationMin,
+        });
+        setPlan(next); setSelId(null);
+        await snimiPlan(next);
+        await logTrace('ai_plan_generated', { postavljeno, preskoceni: preskoceni.length });
+        setTrace(getTraceLog());
+        const dodatak = preskoceni.length ? ` · ⚠️ ${preskoceni.length} bez kompatibilne mašine: ${preskoceni.slice(0, 6).join(', ')}${preskoceni.length > 6 ? '…' : ''}` : '';
+        msg?.(`🤖 AI plan: raspoređeno ${postavljeno} naloga po roku${dodatak}. Proveri „⚠️ probija rok" i koriguj ▲▼.`);
+    };
+
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
                 <div><div style={{ opacity: .8, fontWeight: 900, letterSpacing: 1 }}>FAZA 1 · CORE ERP/MES</div><h1 style={{ margin: '6px 0 0', fontSize: 32 }}>Mašine + Plan proizvodnje PRO</h1><p style={{ margin: '8px 0 0', color: '#dbeafe' }}>3 štamparije · 10 rezača · 2 tabak sekača · 2 mašine za polucrevo · 15 mašina za kese · 2 špulne · 1 kaширка · izaberi nalog → dodeli na mašinu (ili drag/drop).</p></div>
-                <div style={{ display: 'flex', gap: 10 }}><button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button><button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button></div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button style={{ ...styles.btn, background: '#16a34a', color: 'white', fontWeight: 950, boxShadow: '0 6px 18px rgba(22,163,74,.4)' }} onClick={aiRaspored} title="Automatski rasporedi sve neraspoređene naloge na mašine prema roku">🤖 AI plan ({unplanned.length})</button>
+                    <button style={{ ...styles.btn, background: 'rgba(255,255,255,.15)', color: 'white', border: '1px solid rgba(255,255,255,.4)' }} onClick={ocistiPlan} title="Skloni sve naloge sa mašina">🧹 Očisti plan</button>
+                    <button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button>
+                    <button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button>
+                </div>
             </div>
         </div>
 
