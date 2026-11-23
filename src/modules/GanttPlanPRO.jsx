@@ -17,7 +17,18 @@ import { procenaMinNaMasini, REDOSLED_OPERACIJA, jeGotov, jeGotovZaSledecu, jeSt
 import { radnoSada, izracunajRaspored, jeRadni, kapacitetDana, kapacitetDanaMasine, DAN_MIN, DAN_OD } from "../utils/planRaspored.js";
 
 // Boje operacija (UI).
-const OP_BOJA = { stampa: "#2563eb", lakiranje: "#7c3aed", kasiranje: "#0891b2", rezanje: "#dc2626", formatiranje: "#ea580c", kese: "#16a34a", spulne: "#9333ea", ostalo: "#64748b" };
+const OP_BOJA = { stampa: "#2563eb", lakiranje: "#7c3aed", kasiranje: "#0891b2", rezanje: "#dc2626", rezanje_tabaka: "#0d9488", pravljenje_creva: "#4338ca", formatiranje: "#ea580c", kese: "#16a34a", spulne: "#9333ea", ostalo: "#64748b" };
+
+// v56: nedelja isporuke (KW) iz datuma — kad nalog nema upisanu nedelju u templejtu.
+function isoNedeljaG(d) {
+    if (!d || Number.isNaN(d.getTime())) return "";
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = (t.getUTCDay() + 6) % 7;
+    t.setUTCDate(t.getUTCDate() - day + 3);
+    const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+    const week = 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7);
+    return "KW " + week;
+}
 
 // ── PRIKAZ ───────────────────────────────────────────────────────────────────
 // Prikazuje se cela nedelja (pon–NED); klizač na dnu vodi u sledeće nedelje.
@@ -238,18 +249,22 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                                         </div>)}
                                                     {(() => {
                                                         const w = Math.max(46, x2 - x1 - 4);
-                                                        const sirokoDosta = w >= 130;   // dovoljno za pun sadržaj
-                                                        const srednje = w >= 74;          // bar broj naloga
+                                                        const sirokoDosta = w >= 130;   // pun sadržaj (naziv + metri)
+                                                        const srednje = w >= 74;          // šifra + kupac
                                                         const metri = s.o.metri ? Number(s.o.metri).toLocaleString("sr-RS") + " m" : "";
-                                                        const detalj = [s.o.title, s.o.customer].filter(Boolean).join(" · ");
+                                                        // v56: blok UVEK nosi šifru (broj naloga) i kupca — nikad prazna ikonica.
+                                                        const kratak = (String(s.o.id).match(/\d{4}-(\d{3,})/) || [])[1] || (String(s.o.id).match(/(\d{3,})/) || [String(s.o.id)])[0];
+                                                        const kupacKratak = s.o.customer || "";
+                                                        const kw = s.o.nedelja || (s.o.rok ? isoNedeljaG(new Date(s.o.rok)) : "");
+                                                        const rokTxt = [kw, s.o.rok ? new Date(s.o.rok).toLocaleDateString("sr-RS") : ""].filter(Boolean).join(" · ");
                                                         return (
                                                             <div draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
-                                                                title={s.o.id + " · " + (s.o.title || "") + (s.o.customer ? " · " + s.o.customer : "") + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (s.o.rok ? "\nrok: " + new Date(s.o.rok).toLocaleDateString("sr-RS") : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
-                                                                style={{ position: "absolute", left: x1, width: w, top: 12, bottom: 12, borderRadius: 12, background: boja, color: "#fff", padding: srednje ? "9px 13px" : "6px", overflow: "hidden", boxSizing: "border-box", cursor: "grab", boxShadow: "0 4px 12px rgba(15,23,42,.2)", opacity: s.o.status === "u_radu" ? 1 : .94, outline: s.probija ? "2px solid #fecaca" : "none", zIndex: 1, display: "flex", flexDirection: "column", gap: 4, justifyContent: "center", alignItems: srednje ? "stretch" : "center" }}>
-                                                                <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.15, display: "flex", alignItems: "center", gap: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                                    {s.eksterno ? "📦 " : (s.o.opIkona ? s.o.opIkona + " " : "")}{srednje ? s.o.id : ""}
+                                                                title={s.o.id + " · " + (s.o.title || "") + (s.o.customer ? " · " + s.o.customer : "") + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (rokTxt ? "\nrok: " + rokTxt : "") + (s.pretpostavka ? "\n(pretpostavljen povratak iz štamparije)" : "")}
+                                                                style={{ position: "absolute", left: x1, width: w, top: 12, bottom: 12, borderRadius: 12, background: boja, color: "#fff", padding: srednje ? "9px 13px" : "5px 7px", overflow: "hidden", boxSizing: "border-box", cursor: "grab", boxShadow: "0 4px 12px rgba(15,23,42,.2)", opacity: s.o.status === "u_radu" ? 1 : .94, outline: s.probija ? "2px solid #fecaca" : "none", zIndex: 1, display: "flex", flexDirection: "column", gap: 4, justifyContent: "center" }}>
+                                                                <div style={{ fontSize: srednje ? 13 : 11, fontWeight: 900, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                    {s.eksterno ? "📦 " : (s.o.opIkona ? s.o.opIkona + " " : "")}{kratak}{srednje && kupacKratak ? " · " + kupacKratak : ""}
                                                                 </div>
-                                                                {sirokoDosta && detalj && <div style={{ fontSize: 12, fontWeight: 700, opacity: .98, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalj}</div>}
+                                                                {sirokoDosta && s.o.title && <div style={{ fontSize: 12, fontWeight: 700, opacity: .98, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.o.title}</div>}
                                                                 {sirokoDosta && (metri || s.o.brojBoja) && <div style={{ fontSize: 11.5, fontWeight: 700, opacity: .92, whiteSpace: "nowrap" }}>{[metri, s.o.brojBoja ? s.o.brojBoja + " boja" : "", s.o.brojTraka > 1 ? s.o.brojTraka + " trake" : ""].filter(Boolean).join(" · ")}</div>}
                                                                 {srednje && <div style={{ marginTop: 2, fontSize: 11.5, fontWeight: 900, background: "rgba(255,255,255,.24)", borderRadius: 7, padding: "3px 9px", width: "fit-content", whiteSpace: "nowrap" }}>{s.eksterno ? "povratak " + fmtD(s.end) : "gotov " + fmtT(s.end)}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.uskok ? " ↷" : ""}</div>}
                                                             </div>);

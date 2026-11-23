@@ -17,7 +17,7 @@ import { imeKorisnika } from "../dashboardShared.js";
 // v52: mašinski park + plan proizvodnje — ISTI izvor kao MachineSchedulerPRO / Live MES.
 // (ako je agentAlati u drugom folderu, prilagodi putanju na ../services/erpMesCore.js)
 import { loadMachines, loadProductionPlan, saveProductionPlan, logTrace, canMachineRun } from "../services/erpMesCore.js";
-import { metriMasineNaloga, metriZaMasinu, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog, autoRasporedPlan, tipMasineZaNalog } from "../utils/nalogMetrika.js";
+import { metriMasineNaloga, metriZaMasinu, procenaMinNaMasini, stvarnoMin, mapaOperacija, nadjiBlokadu, opKljuc, OP_LABELE, canonRef, jeMP, extraktNalog, autoRasporedPlan, tipMasineZaNalog, imaPerforaciju } from "../utils/nalogMetrika.js";
 import { izracunajRaspored, radnoSada } from "../utils/planRaspored.js";
 
 const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
@@ -2002,6 +2002,7 @@ export const ALATI = {
                 const metri = metriZaMasinu(o, opKljuc(o));
                 const red = { id, opTip, type: opTip, metri, width, status,
                     rok: o.rok || o.rok_isporuke || o.datum_isporuke || ex.rok || "",
+                    perforacija: imaPerforaciju(o),   // v56: perf-nalog → samo na rezač koji ume perforaciju
                     priority: o.prioritet || o.priority || "normalno" };
                 if (id) orderMap[id] = red;
                 return red;
@@ -2011,6 +2012,10 @@ export const ALATI = {
             if (!zaRaspored.length) return { ok: true, poruka: "Nema neraspoređenih naloga — sve je već na mašinama.", postavljeno: 0, preskoceni: [] };
 
             // provera kompatibilnosti (tabak/polucrevo: tip+širina+status; ostali: canMachineRun iz erpMesCore)
+            // v56: perf-rezač je označen rečju „perforacija"/„perf" u Mogućnostima; perf-nalog ide samo na njega
+            // (tek kad je bar jedan rezač tako označen — dok nije, ne filtriramo).
+            const umePerf = (m) => { if (!m || m.type !== "rezanje") return false; const c = (Array.isArray(m.capabilities) ? m.capabilities : []).join(" ").toLowerCase(); return /perfor|\bperf\b/.test(c); };
+            const anyPerfRezac = (park || []).some(umePerf);
             const jeKompatibilna = (m, o) => {
                 if (!m || !o) return { ok: false };
                 if (o.opTip === "rezanje_tabaka" || o.opTip === "pravljenje_creva") {
@@ -2020,6 +2025,7 @@ export const ALATI = {
                     if (Number.isFinite(w) && w > 0) { const mn = Number(m.minWidth), mx = Number(m.maxWidth); if (Number.isFinite(mx) && mx > 0 && w > mx) return { ok: false }; if (Number.isFinite(mn) && mn > 0 && w < mn) return { ok: false }; }
                     return { ok: true };
                 }
+                if (o.opTip === "rezanje" && o.perforacija && anyPerfRezac && !umePerf(m)) return { ok: false };
                 try { return canMachineRun(m, o) || { ok: true }; } catch (e) { return { ok: true }; }
             };
             const trajanje = (m, o) => procenaMinNaMasini(m, o.metri);

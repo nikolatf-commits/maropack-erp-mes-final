@@ -3,10 +3,12 @@
 //      + trajanje naloga se računa PO MAŠINI: setup + metri/brzina (promeni brzinu → sve se preračuna)
 //      + numerisan red čekanja po mašini (1., 2., 3...) sa ▲▼ za redosled
 // v53: zajednički modul utils/nalogMetrika.js + bedževi "⚠️ probija rok" i "⏳ čeka prethodnu operaciju"
+// v56: preglednost — jedna „pločica naloga" (kupac·proizvod → operacija·pun kod → metri) u listi i na mašini;
+//      rok UVEK nosi nedelju (KW) + datum kad je unet; rezime mašine A/B/C/D (prekidač, A podrazumevan, pamti se)
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
-import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan, metriZaMasinu } from '../utils/nalogMetrika.js';
+import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan, metriZaMasinu, imaPerforaciju } from '../utils/nalogMetrika.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
 import GanttPlanPRO from './GanttPlanPRO.jsx';
 // v54.1: živo osvežavanje naloga — kad radnik preko QR-a startuje/završi operaciju
@@ -49,7 +51,14 @@ function ensureStampa(list) {
 
 // v55: provera da li nalog sme na mašinu. Za tabak/polucrevo (koje erpMesCore ne poznaje)
 // sudimo lokalno po tipu; za ostale operacije i dalje važi canMachineRun iz erpMesCore.
-function jeKompatibilna(machine, order) {
+// v56: rezač koji ume PERFORACIJU — označava se rečju „perforacija"/„perf" u polju Mogućnosti
+// na kartici mašine. Perforirani nalozi idu samo na takav rezač.
+function masinaUmePerforaciju(m) {
+    if (!m || m.type !== 'rezanje') return false;
+    const caps = (Array.isArray(m.capabilities) ? m.capabilities : []).join(' ').toLowerCase();
+    return /perfor|\bperf\b/.test(caps);
+}
+function jeKompatibilna(machine, order, opts = {}) {
     if (!machine || !order) return { ok: false, reason: '—' };
     if (order.opTip === 'rezanje_tabaka' || order.opTip === 'pravljenje_creva') {
         if (machine.type !== order.opTip) return { ok: false, reason: 'Mašina nije za ' + String(order.opLabel || '').toLowerCase() };
@@ -63,6 +72,11 @@ function jeKompatibilna(machine, order) {
             if (Number.isFinite(minW) && minW > 0 && w < minW) return { ok: false, reason: `Širina ${w} mm < min ${minW} mm` };
         }
         return { ok: true };
+    }
+    // v56: perforirani nalog ide SAMO na rezač koji ume perforaciju — tek kad je bar jedan rezač
+    // tako označen (dok nije, ne filtriramo, da se postojeći plan ne polomi).
+    if (order.opTip === 'rezanje' && order.perforacija && opts.anyPerfRezac && !masinaUmePerforaciju(machine)) {
+        return { ok: false, reason: 'Nalog ima perforaciju — ovaj rezač je ne radi' };
     }
     try { return canMachineRun(machine, order) || { ok: true }; } catch (e) { return { ok: true }; }
 }
@@ -195,6 +209,120 @@ function OrderCard({ order, onDragStart, compact = false }) {
     </div>;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// v56: PREGLEDNOST — jedna „pločica naloga" (kupac · proizvod → 🖨 operacija · pun kod
+//      → metri) + rok koji UVEK nosi nedelju (KW), a datum dodatno kad je unet u templejtu.
+//      Koristi se u listi „Nalozi za raspored" i u redu čekanja na mašini.
+// ─────────────────────────────────────────────────────────────────────────────
+function isoNedelja(d) {
+    if (!d || Number.isNaN(d.getTime())) return '';
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = (t.getUTCDay() + 6) % 7;            // pon=0 … ned=6
+    t.setUTCDate(t.getUTCDate() - day + 3);          // četvrtak te ISO-nedelje
+    const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+    const week = 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7);
+    return 'KW ' + week;
+}
+// Rok: nedelja (KW) je obavezna — iz templejta (order.nedelja) ili izračunata iz datuma.
+// Datum se prikazuje samo kad postoji. Boja po hitnosti (crveno <2 dana, žuto ≤7, zeleno dalje).
+function rokInfo(order) {
+    const d = order && order.rok ? new Date(order.rok) : null;
+    const imaDatum = d && !Number.isNaN(d.getTime());
+    const kw = (order && order.nedelja) || (imaDatum ? isoNedelja(d) : '');
+    const dStr = imaDatum ? d.toLocaleDateString('sr-RS', { day: 'numeric', month: 'numeric' }) : '';
+    let dana = null;
+    if (imaDatum) { const now = new Date(); now.setHours(0, 0, 0, 0); dana = Math.round((d.getTime() - now.getTime()) / 86400000); }
+    const boja = dana == null ? { bg: '#dcfce7', fg: '#16a34a' }
+        : dana < 2 ? { bg: '#fee2e2', fg: '#dc2626' }
+            : dana <= 7 ? { bg: '#fef3c7', fg: '#b45309' }
+                : { bg: '#dcfce7', fg: '#16a34a' };
+    let txt = 'rok';
+    if (kw) txt += ' ' + kw;
+    if (dStr) txt += (kw ? ' · ' : ' ') + dStr;
+    if (!kw && !dStr) txt = 'rok —';
+    return { txt, boja };
+}
+function RokChip({ order }) {
+    const { txt, boja } = rokInfo(order);
+    return <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', background: boja.bg, color: boja.fg }}>{txt}</span>;
+}
+// Pločica naloga — ista svuda. durMin = vreme baš na toj mašini (null → bez vremena, npr. u listi).
+function Plocica({ order, durMin = null, celoNalog = '', selected = false, onClick = null, onDragStart = null }) {
+    const op = OP_BOJA[order.opTip] || '#64748b';
+    return <div onClick={onClick || undefined} draggable={!!onDragStart} onDragStart={onDragStart || undefined}
+        style={{ display: 'flex', alignItems: 'stretch', background: selected ? '#ecfdf5' : '#fff', border: '1px solid ' + (selected ? '#16a34a' : '#e2e8f0'), borderRadius: 12, overflow: 'hidden', cursor: onClick ? 'pointer' : (onDragStart ? 'grab' : 'default'), boxShadow: '0 2px 6px rgba(15,23,42,.05)', minWidth: 0 }}>
+        <div style={{ width: 5, flex: '0 0 5px', background: op }} />
+        <div style={{ flex: 1, minWidth: 0, padding: '8px 11px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, fontWeight: 900, fontSize: 13, color: '#0f172a' }}>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto' }}>{order.customer || '—'}</span>
+                <span style={{ color: '#94a3b8' }}>·</span>
+                <span style={{ color: '#475569', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1 1 auto', minWidth: 0 }}>{order.title}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, minWidth: 0 }} title={order.id}>
+                <span style={{ fontWeight: 900, color: op, fontSize: 11, textTransform: 'uppercase', letterSpacing: .3, whiteSpace: 'nowrap' }}>{order.opIkona} {order.opLabel}</span>
+                <span style={{ color: '#94a3b8' }}>·</span>
+                <span style={{ fontFamily: 'ui-monospace,Menlo,Consolas,monospace', fontWeight: 700, fontSize: 11, color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{order.id}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {order.metri ? order.metri.toLocaleString('sr-RS') + ' m' : '—'}{order.brojBoja > 0 ? ' · ' + order.brojBoja + ' boja' : ''}{order.brojTraka > 1 ? ' · ' + order.brojTraka + ' trake' : ''}{order.perforacija ? ' · ✂️ perf' : ''}{celoNalog ? '  ·  ' + celoNalog : ''}
+            </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 5, padding: '8px 10px', borderLeft: '1px solid #f1f5f9' }}>
+            {durMin != null && <div style={{ fontSize: 15, fontWeight: 900, color: '#0f172a', whiteSpace: 'nowrap', textAlign: 'right' }}>≈{durMin} min<div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: .3 }}>na mašini</div></div>}
+            <RokChip order={order} />
+        </div>
+    </div>;
+}
+// Rezime mašine (zaglavlje kartice) u 4 stila — prekidač A/B/C/D iznad. A je podrazumevani.
+function MasinaRezime({ machine, naloga, loadMin, kapDan, stil }) {
+    const z = kapDan > 0 ? Math.min(100, Math.round(loadMin / kapDan * 100)) : 0;
+    const h = loadMin / 60;
+    const hStr = (h >= 10 ? h.toFixed(0) : h.toFixed(1)) + ' h';
+    const dana = kapDan > 0 ? Math.ceil(loadMin / kapDan) : 0;
+    const danLbl = dana === 1 ? 'dan' : 'dana';
+    const boja = z >= 90 ? '#dc2626' : z >= 60 ? '#2563eb' : '#16a34a';
+    if (stil === 'B') {
+        return <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+            <div style={{ position: 'relative', width: 54, height: 54, borderRadius: '50%', flex: '0 0 auto', background: 'conic-gradient(' + boja + ' ' + z + '%, #e2e8f0 0)' }}>
+                <div style={{ position: 'absolute', inset: 6, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 13 }}>{z}%</div>
+            </div>
+            <div style={{ fontSize: 12, color: '#475569' }}>
+                <div style={{ fontWeight: 900, color: '#0f172a', fontSize: 13 }}>{naloga} naloga · {hStr}</div>
+                <div>≈ {dana} {danLbl} posla</div>
+            </div>
+        </div>;
+    }
+    if (stil === 'C') {
+        return <div style={{ marginTop: 10, borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'linear-gradient(135deg,#0f172a,#1e3a8a)', color: '#fff' }}>
+                <div style={{ fontWeight: 900 }}>{naloga} naloga</div>
+                <div style={{ marginLeft: 'auto', textAlign: 'right' }}><div style={{ fontSize: 18, fontWeight: 900, lineHeight: 1 }}>{z}%</div><div style={{ fontSize: 9, opacity: .8 }}>zauzetost</div></div>
+            </div>
+            <div style={{ padding: '8px 12px', fontSize: 12, color: '#475569', display: 'flex', gap: 14 }}>
+                <span><b style={{ color: '#0f172a' }}>{hStr}</b> ukupno</span><span>≈ <b style={{ color: '#0f172a' }}>{dana}</b> {danLbl}</span>
+            </div>
+        </div>;
+    }
+    if (stil === 'D') {
+        return <div style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', background: 'repeating-linear-gradient(135deg,#f8fafc,#f8fafc 6px,transparent 6px,transparent 12px)' }}>
+                <div style={{ width: z + '%', background: boja }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#64748b', marginTop: 4, fontWeight: 700 }}>
+                <span>{naloga} naloga · {hStr}</span><span>{z}% dana · ≈{dana} {danLbl}</span>
+            </div>
+        </div>;
+    }
+    // A — kompakt traka (podrazumevano)
+    return <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 140 }}>
+            <div style={{ height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}><div style={{ width: z + '%', height: '100%', background: boja }} /></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginTop: 4, fontWeight: 700 }}><span>zauzetost {z}%</span><span>{naloga} naloga · {hStr}</span></div>
+        </div>
+        <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 999, padding: '3px 9px', background: '#f1f5f9', color: '#475569', whiteSpace: 'nowrap' }}>≈ {dana} {danLbl} posla</span>
+    </div>;
+}
+
 function MachineEditModal({ machine, onClose, onSave }) {
     const [m, setM] = useState(machine || {});
     React.useEffect(() => { setM(machine || {}); }, [machine]);
@@ -288,6 +416,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 metri,
                 kolicinaUkupno: ex.kolicina, brojTraka: ex.brojTraka, kom: ex.kom, brojBoja: ex.brojBoja, tipProizvoda: ex.tipProizvoda,
                 rok: n.rok || n.rok_isporuke || n.datum_isporuke || n.deadline || ex.rok || "",
+                // Nedelja isporuke (KW) — obavezna za prikaz roka; iz templejta, ili se izračuna iz datuma.
+                nedelja: (function () { try { const t = (n.parametri && n.parametri.template) || n.template || {}; return n.nedelja_isporuke || n.nedeljaIsporuke || t.nedeljaIsporuke || t.nedelja_isporuke || ""; } catch (e) { return ""; } })(),
+                perforacija: imaPerforaciju(n),   // v56: za rutiranje na rezač koji ume perforaciju
                 trajanjeRucno: Number(n.trajanje_min || n.durationMin || 0),   // ručno uneto ima prednost
                 durationMin: Math.max(30, Math.round(metri / 100)) || 60,        // fallback kad mašina nema brzinu
                 priority: n.prioritet || n.priority || "normalno",
@@ -312,6 +443,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     const [pretraga, setPretraga] = useState('');    // pretraga naloga levo
     const [opFilter, setOpFilter] = useState('sve'); // filter naloga po operaciji
     const [panelOpen, setPanelOpen] = useState(false); // mobilni panel „Nalozi za raspored"
+    // v56: stil kartice mašine (A/B/C/D) — prekidač iznad, izbor se pamti po korisniku.
+    const [stilKartice, setStilKartice] = useState(() => { try { return localStorage.getItem('mp_stil_masine') || 'A'; } catch (e) { return 'A'; } });
+    const promeniStil = (s) => { setStilKartice(s); try { localStorage.setItem('mp_stil_masine', s); } catch (e) { } };
 
     useEffect(() => {
         (async () => {
@@ -324,6 +458,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
     }, []);
 
     const orderMap = useMemo(() => Object.fromEntries(orders.map(o => [o.id, o])), [orders]);
+    // v56: da li je ijedan rezač označen kao perf-sposoban; ako nije, perf-filter se ne primenjuje.
+    const anyPerfRezac = useMemo(() => (machines || []).some(masinaUmePerforaciju), [machines]);
+    const kompatibilna = (m, o) => jeKompatibilna(m, o, { anyPerfRezac });
     const plannedIds = useMemo(() => new Set(Object.values(plan).flat()), [plan]);
     // Koja operacija je na kojoj mašini (za računanje vremena po nalogu)
     const orderMachine = useMemo(() => { const m = {}; Object.entries(plan).forEach(([mid, ids]) => (ids || []).forEach(id => { m[id] = mid; })); return m; }, [plan]);
@@ -384,7 +521,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         const orderId = e.dataTransfer.getData('text/plain') || dragOrder;
         const order = orderMap[orderId];
         const machine = machines.find(m => m.id === machineId);
-        const check = jeKompatibilna(machine, order);
+        const check = kompatibilna(machine, order);
         if (!check.ok) { msg?.(`⚠️ ${check.reason}`, 'err'); return; }
         const next = { ...plan };
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== orderId);
@@ -400,7 +537,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         if (!selId) return;
         const order = orderMap[selId];
         const machine = machines.find(m => m.id === machineId);
-        const check = jeKompatibilna(machine, order);
+        const check = kompatibilna(machine, order);
         if (!check.ok) { msg?.(`⚠️ ${check.reason}`, 'err'); return; }
         const next = { ...plan };
         for (const key of Object.keys(next)) next[key] = next[key].filter(id => id !== selId);
@@ -451,7 +588,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         // ISTI deljeni raspoređivač kao AI agent (utils/nalogMetrika.autoRasporedPlan) — jedan izvor istine.
         const { plan: next, postavljeno, preskoceni } = autoRasporedPlan({
             machines, orders: zaRaspored, orderMap, planPostojeci: plan,
-            kompatibilna: jeKompatibilna, trajanje: calcDurationMin,
+            kompatibilna: kompatibilna, trajanje: calcDurationMin,
         });
         setPlan(next); setSelId(null);
         await snimiPlan(next);
@@ -541,14 +678,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                             vidljivi.forEach(o => (grupe[o.opTip] = grupe[o.opTip] || []).push(o));
                             return Object.entries(grupe).map(([tip, lst]) => <div key={tip} style={{ marginBottom: 12 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 7px', fontSize: 11.5, fontWeight: 950, color: OP_BOJA[tip] || '#334155', textTransform: 'uppercase', letterSpacing: .4 }}>{lst[0].opIkona} {lst[0].opLabel} <span style={{ color: '#94a3b8' }}>· {lst.length}</span></div>
-                                {lst.map(o => { const sel = selId === o.id; const b = OP_BOJA[o.opTip] || '#64748b'; return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} onClick={() => setSelId(sel ? null : o.id)} style={{ cursor: 'pointer', background: sel ? '#ecfdf5' : '#fff', border: '1px solid ' + (sel ? '#16a34a' : '#e2e8f0'), borderLeft: '4px solid ' + b, borderRadius: 10, padding: '8px 9px', marginBottom: 7 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                                        <span style={{ fontSize: 12, fontWeight: 950, color: '#0f172a' }}>{o.opIkona} {o.id}</span>
-                                        <span style={{ fontSize: 11, fontWeight: 900, color: o.priority === 'hitno' ? '#dc2626' : o.priority === 'visok' ? '#ea580c' : '#16a34a' }}>{o.priority === 'hitno' ? '🔴' : o.priority === 'visok' ? '🟠' : '🟢'}</span>
-                                    </div>
-                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '—' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}</div>
-                                    {o.rok && <div style={{ fontSize: 11, color: '#b45309', fontWeight: 800 }}>rok {new Date(o.rok).toLocaleDateString('sr-RS')}</div>}
-                                </div>; })}
+                                {lst.map(o => { const sel = selId === o.id; return <div key={o.id} style={{ marginBottom: 7 }}><Plocica order={o} selected={sel} onClick={() => setSelId(sel ? null : o.id)} onDragStart={e => dragStart(e, o.id)} /></div>; })}
                             </div>);
                         })()}
                     </div>
@@ -565,7 +695,13 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 <div className={selId ? 'mspSel' : ''}>
                     <div style={{ ...styles.card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{[['sve', 'Sve'], ['stampa', 'Štamparije'], ['rezanje', 'Rezači'], ['rezanje_tabaka', 'Tabaci'], ['pravljenje_creva', 'Polucrevo'], ['kese', 'Kese'], ['spulne', 'Špulne'], ['kasiranje', 'Kaширка']].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={{ ...styles.btn, background: filter === k ? '#0f172a' : '#f1f5f9', color: filter === k ? 'white' : '#334155' }}>{l}</button>)}</div>
-                        <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>{selId ? '👉 Klikni zelenu mašinu (⬇ dodeli ovde)' : 'Klikni karticu mašine za unos karakteristika.'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: .3 }}>Kartica</span>
+                                {[['A', 'Kompakt'], ['B', 'Merač'], ['C', 'Panel'], ['D', 'Dnevna']].map(([s, l]) => <button key={s} title={l} onClick={() => promeniStil(s)} style={{ border: '1px solid ' + (stilKartice === s ? '#2563eb' : '#e2e8f0'), background: stilKartice === s ? '#2563eb' : '#fff', color: stilKartice === s ? '#fff' : '#475569', borderRadius: 8, padding: '4px 10px', fontWeight: 900, fontSize: 12, cursor: 'pointer' }}>{s}</button>)}
+                            </div>
+                            <div style={{ color: '#64748b', fontWeight: 800, fontSize: 13 }}>{selId ? '👉 Klikni zelenu mašinu (⬇ dodeli ovde)' : 'Klikni karticu mašine za unos karakteristika.'}</div>
+                        </div>
                     </div>
 
                     <div style={{ display: 'grid', gap: 18 }}>
@@ -587,7 +723,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                             // Za vikend-mašine (rade samo sub+ned) uzima se vikend broj smena.
                             const smeneDan = Math.max(Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM), Number(machine.smeneVikend ?? DEF_SMENE_VIKEND));
                             const kapDan = Math.max(1, smeneDan) * SMENA_MIN;
-                            const kompat = selId ? jeKompatibilna(machine, orderMap[selId]).ok : null;
+                            const kompat = selId ? kompatibilna(machine, orderMap[selId]).ok : null;
                             return <div key={machine.id} className={'mspMcard' + (kompat === true ? ' kompat' : kompat === false ? ' nekompat' : '')} onDragOver={e => e.preventDefault()} onDrop={e => dropToMachine(machine.id, e)} style={{ ...styles.card, padding: 14, minHeight: 260, borderTop: `5px solid ${machine.status === 'aktivna' ? '#16a34a' : '#f59e0b'}` }}>
                                 {kompat === true && orderMap[selId] && <button onClick={() => assignToMachine(machine.id)} style={{ width: '100%', marginBottom: 10, border: 0, borderRadius: 12, background: '#16a34a', color: '#fff', fontWeight: 950, fontSize: 14, padding: '10px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(22,163,74,.3)' }}>⬇ Dodeli „{orderMap[selId].id}" ovde</button>}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
@@ -606,6 +742,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>{(machine.capabilities || []).slice(0, 4).map(c => <Badge key={c} color="#2563eb">{c}</Badge>)}
                                     {(() => { const sr = Number(machine.smeneRadnim ?? DEF_SMENE_RADNIM); const sv = Number(machine.smeneVikend ?? DEF_SMENE_VIKEND); return <span style={{ fontSize: 10.5, fontWeight: 900, borderRadius: 6, padding: '2px 7px', background: sv > 0 ? '#ecfeff' : '#f1f5f9', color: sv > 0 ? '#0e7490' : '#475569', border: '1px solid ' + (sv > 0 ? '#a5f3fc' : '#e2e8f0') }}>🕑 smene (8h/1h pauza): radni {sr > 0 ? sr : '—'} · vikend {sv > 0 ? sv : '—'}</span>; })()}
                                 </div>
+                                <MasinaRezime machine={machine} naloga={assigned.length} loadMin={load} kapDan={kapDan} stil={stilKartice} />
                                 <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: '#f8fafc', border: '1px dashed #cbd5e1', minHeight: 90 }}>
                                     {assigned.length === 0 && <div style={{ color: '#94a3b8', fontWeight: 900, textAlign: 'center', padding: 22 }}>Prevuci nalog ovde</div>}
                                     {/* v52: numerisan RED ČEKANJA — vidi se ko je 1., 5., 10. na mašini; ▲▼ menja redosled */}
@@ -630,21 +767,18 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                             const blokada = nadjiBlokadu(canonRef(o.id), o.opTip === 'rezanje' ? 'perforacija_rezanje' : (o.opTip === 'kese' ? 'kesa' : (o.opTip === 'spulne' ? 'spulna' : o.opTip)), opStatusi);
                                             const b = OP_BOJA[o.opTip] || '#64748b';
                                             const qb = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, width: 20, height: 15, fontSize: 9, fontWeight: 900, cursor: 'pointer', lineHeight: '11px', padding: 0, color: '#334155' };
-                                            return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid ' + b, borderRadius: 10, padding: '7px 8px', marginBottom: 10, cursor: 'grab' }}>
-                                                <span style={{ minWidth: 22, height: 22, borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                                            return <div key={o.id} draggable onDragStart={e => dragStart(e, o.id)} style={{ position: 'relative', display: 'flex', alignItems: 'stretch', gap: 8, marginBottom: 12, cursor: 'grab' }}>
+                                                <span style={{ flex: '0 0 24px', borderRadius: 7, background: b, color: '#fff', fontSize: 11, fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: 12, fontWeight: 950, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.opIkona} {o.opLabel} · {o.id}</div>
-                                                    <div style={{ fontSize: 10.5, color: '#7c3aed', fontWeight: 800 }}>ceo nalog ≈ {uk.min.toLocaleString('sr-RS')} min · {uk.faza} faza · gotov ~ {fmtD(gotovD)}</div>
-                                                    <div style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}{o.metri ? ' · ' + o.metri.toLocaleString('sr-RS') + ' m' : ''}{o.width && o.width !== '—' ? ' · ' + o.width + ' mm' : ''}{o.customer ? ' · ' + o.customer : ''}{o.rok ? ' · rok ' + new Date(o.rok).toLocaleDateString('sr-RS') : ''}{o.priority === 'hitno' ? ' · 🔴 hitno' : ''}</div>
+                                                    <Plocica order={o} durMin={dur} celoNalog={'ceo nalog ≈ ' + uk.min.toLocaleString('sr-RS') + ' min · gotov ' + fmtD(gotovD)} />
                                                 </div>
-                                                <b style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: '#0f172a' }} title={'setup ' + (machine.setupMin || 0) + ' min + ' + (o.metri || 0) + ' m ÷ ' + (machine.speed || '—') + ' m/min'}>≈{dur} min</b>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'center' }}>
                                                     <button onClick={() => moveInQueue(machine.id, i, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
                                                     <button onClick={() => moveInQueue(machine.id, i, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
+                                                    <button onClick={() => removeFromMachine(o.id)} style={{ ...qb, color: '#b91c1c', borderColor: '#fecaca', background: '#fee2e2' }}>×</button>
                                                 </div>
-                                                <button onClick={() => removeFromMachine(o.id)} style={{ border: 0, borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', padding: '3px 7px' }}>×</button>
                                                 {(probijaRok || blokada) && <div style={{ position: 'absolute', right: 8, bottom: -7, display: 'flex', gap: 4 }}>
-                                                    {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok (gotov ~ {fmtD(gotovD)} / rok {rokD ? new Date(rokD).toLocaleDateString('sr-RS') : '—'} · ceo nalog)</span>}
+                                                    {probijaRok && <span style={{ fontSize: 9, fontWeight: 900, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '1px 6px' }}>⚠️ probija rok (gotov ~ {fmtD(gotovD)})</span>}
                                                     {blokada && <span style={{ fontSize: 9, fontWeight: 900, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>⏳ čeka {OP_LABELE[blokada] || blokada}</span>}
                                                 </div>}
                                             </div>;

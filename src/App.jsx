@@ -968,6 +968,8 @@ function BazaProizvoda({ db, setDb, card, inp, lbl, eu, msg, setPage, TIP_BOJA, 
                                                 <button style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "#1d4ed8", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={function () {
                                                     if (p.tip === "kesa") setPage("kalk_kesa");
                                                     else if (p.tip === "spulna") setPage("kalk_spulna");
+                                                    else if (p.tip === "tabak") setPage("kalk_tabak");
+                                                    else if (p.tip === "polucrevo") setPage("kalk_polucrevo");
                                                     else setPage("kalk_folija");
                                                 }}>📋 Otvori kalk.</button>
                                                 <button style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "#059669", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={function () { setPage("novi_nalog_izbor"); }}>⚡ Kreiraj nalog</button>
@@ -1836,8 +1838,8 @@ function MainAppContent() {
         return { grad: "linear-gradient(135deg,#f59e0b,#d97706)", traka: "#f59e0b", bg: "#fffdf7", tekst: "ČEKA" };
     }
     var ICONS = { "box": "📦", "print": "🖨️", "link": "🔗", "cut": "✂️", "circle": "🔵", "star": "✨", "bag": "🛍️", "image": "📐", "roll": "🎞️" };
-    var TIP_BOJA = { "folija": "#1d4ed8", "kesa": "#059669", "spulna": "#7c3aed" };
-    var TIP_LAB = { "folija": "Folija", "kesa": "Kesa", "spulna": "Špulna" };
+    var TIP_BOJA = { "folija": "#1d4ed8", "kesa": "#059669", "spulna": "#7c3aed", "tabak": "#0891b2", "polucrevo": "#4338ca" };
+    var TIP_LAB = { "folija": "Folija", "kesa": "Kesa", "spulna": "Špulna", "tabak": "Tabak", "polucrevo": "Polucrevo" };
 
 
     // Print je sada unutar PregledNalogaPRO / NalogLayoutPRO, da svi nalozi imaju isti profesionalni izgled.

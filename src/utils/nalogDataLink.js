@@ -62,6 +62,10 @@ export function normalizeTip(tip) {
   const t = String(tip || 'folija').toLowerCase();
   if (t.includes('kes')) return 'kesa';
   if (t.includes('spul') || t.includes('špul')) return 'spulna';
+  // v56: tabak i polucrevo su zasebni tipovi — ponuda i nalozi moraju da ZADRŽE tip
+  // (ranije su se svodili na „folija", pa su ponude i naloge pravile kao foliju).
+  if (t.includes('tabak') || t.includes('tabac') || t.includes('arak')) return 'tabak';
+  if (t.includes('polucrev') || t.includes('crevo') || t.includes('creva')) return 'polucrevo';
   return 'folija';
 }
 

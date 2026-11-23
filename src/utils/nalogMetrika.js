@@ -224,6 +224,32 @@ export function extraktNalog(n) {
 }
 export function metriMasineNaloga(n) { return extraktNalog(n).metriMasine; }
 
+// v56: da li proizvod IMA perforaciju — prepoznaje se po IZABRANOM TIPU perforacije
+// (mikro / makro / rupe), uključenoj laserskoj perforaciji (kpdf.enabled), ili „PERF" u nazivu.
+// Plan koristi ovo da perforirane naloge šalje samo na rezač koji ume perforaciju.
+export function imaPerforaciju(n) {
+    try {
+        if (!n) return false;
+        const od = safeJson(n.order_data, {});
+        const par = safeJson(n.parametri, {});
+        const res = safeJson(n.res, {});
+        const rez = safeJson(n.rezultati, {});
+        const parRes = safeJson(par.res, {});
+        const embTpl = res.template || rez.template || parRes.template || par.template || null;
+        const tpl = safeJson(n.product_template || n.template || od.template || embTpl, {});
+        const t = tpl.data ? tpl.data : tpl;
+        const f = n.folija || od.folija || t.folija || (t.data && t.data.folija) || {};
+        const perf = f.perforacija || {};
+        const kpdf = f.kpdf || {};
+        const tipP = String(perf.tip || "").toLowerCase();
+        if (/mikro|makro|rup|perfor/.test(tipP)) return true;   // izabran tip perforacije u templejtu
+        if (kpdf.enabled === true) return true;                  // laserska perforacija uključena
+        const naz = String(n.proizvod || n.naziv || n.prod || t.naziv || "").toLowerCase();
+        if (/\bperf/.test(naz)) return true;                     // „PERF" u nazivu proizvoda
+        return false;
+    } catch (e) { return false; }
+}
+
 // Efektivni metri KOJE MAŠINA PROVLAČI za datu operaciju. Za kaширanje materijal prolazi
 // kroz mašinu VIŠE puta (broj prolaza = slojevi − 1), pa je i vreme srazmerno veće:
 //   trajanje = setup + (metri × prolazi) / brzina   (jedan setup, N prolaza)
