@@ -13,6 +13,23 @@
 export function num2(v) { return Number(String(v ?? 0).replace(/\s/g, "").replace(",", ".")) || 0; }
 export function safeJson(v, f) { if (v == null) return f; if (typeof v === "object") return v; try { return JSON.parse(v) || f; } catch (e) { return f; } }
 
+// Gustina materijala (g/cm³) — za procenu gramature sloja = debljina(µm) × gustina,
+// kad g/m² nije upisan. Isti red veličine kao tabele u aplikaciji (MAT_DATA).
+export function gustinaMaterijala(naziv) {
+    const s = String(naziv || "").toUpperCase();
+    if (/ALU/.test(s)) return 2.71;
+    if (/\bPET\b|RPET|PETG|BOPET/.test(s)) return 1.4;
+    if (/CELULOZA|CELOFAN|CELL/.test(s)) return 1.45;
+    if (/\bPLA\b/.test(s)) return 1.24;
+    if (/\bOPA\b|\bPA\b|NYLON|POLIAMID/.test(s)) return 1.14;
+    if (/PAPIR|KRAFT|PAPER/.test(s)) return 0.8;
+    if (/SEDEF|PERLA|PEARL/.test(s)) return 0.65;
+    if (/HDPE/.test(s)) return 0.94;
+    if (/LDPE|LLDPE|\bPE\b|POLIETILEN|POLYETHYLEN/.test(s)) return 0.925;
+    if (/BOPP|\bOPP\b|\bCPP\b|\bPP\b|POLIPROPILEN/.test(s)) return 0.91;
+    return 0.95;   // podrazumevano (lak plastični film)
+}
+
 // Operativni nalozi nose sufiks operacije; glavni broj je bez njega.
 export const OP_SUFIKS = /-(MATERIJAL|STAMPA|LAKIRANJE|KASIRANJE|PERFORACIJA_REZANJE|REZANJE_TABAKA|PRAVLJENJE_CREVA|FORMATIRANJE|KESA|SPULNA)$/i;
 export const canonRef = (r) => String(r || "").trim().replace(OP_SUFIKS, "");
@@ -150,10 +167,25 @@ export function extraktNalog(n) {
             const korakM = num2(grana.dimenzijaDuzina || t.dimenzijaDuzina) / 1000;   // dužina komada duž trake
             metriMasine = korakM > 0 ? Math.round((kol * korakM) / trake) : 0;
         } else if (jed === "kg" && kol > 0) {
-            const slojevi = (Array.isArray(folija.layers) && folija.layers.length ? folija.layers : (grana.layers || []));
-            const gm2 = slojevi.reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
+            // Slojeve čitaj kao štampani nalog (NalogLayoutPRO.buildLayers): order_data.materijali ima
+            // prednost, pa folija/grana.layers. Gramatura (g/m²) retko je UPISANA — računa se iz
+            // DEBLJINE × GUSTINE materijala (isti model kao štampani nalog), pa je gm2 fallback presudan.
+            const slojevi = (Array.isArray(od.materijali) && od.materijali.length) ? od.materijali
+                : (Array.isArray(folija.layers) && folija.layers.length ? folija.layers : (grana.layers || []));
+            const gm2sloja = (l) => {
+                const g = num2(l.gm2 || l.gsm || l.tezina);
+                if (g > 0) return g;
+                const deb = num2(l.debljina ?? l.deb ?? l.u);
+                if (deb <= 0) return 0;
+                const koef = num2(l.koef ?? l.koeficijent);
+                if (koef > 0.3) return deb * koef;                    // koef = gustina (g/cm³) ako je razuman
+                return deb * gustinaMaterijala(l.vrsta || l.materijal || l.material || l.naziv || l.n);
+            };
+            const gm2 = slojevi.reduce((a, l) => a + gm2sloja(l), 0);
             const m2 = gm2 > 0 ? (kol * 1000) / gm2 : 0;
-            metriMasine = (m2 > 0 && sirina > 0) ? Math.round(m2 / (sirina / 1000) / trake) : 0;
+            // MATIČNA = ukupno m² ÷ širina matične rolne. NE deli se brojem traka — štampa i kaширanje
+            // idu PUNOM širinom rolne (rezanje na trake dolazi tek posle, ne skraćuje rolnu).
+            metriMasine = (m2 > 0 && sirina > 0) ? Math.round(m2 / (sirina / 1000)) : 0;
         } else {
             metriMasine = kol > 0 ? Math.round(kol / trake) : 0;       // "m" — kao i do sada
         }
