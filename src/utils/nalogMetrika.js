@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  MAROPACK — nalogMetrika.js  [v1]
+//  MAROPACK — nalogMetrika.js  [v2 — fix kg matrica + kaширanje prolazi]
 //
 //  JEDAN izvor istine za čitanje i računanje nad nalozima. Koriste ga:
 //   - MachineSchedulerPRO (plan proizvodnje)   → import '../utils/nalogMetrika.js'
