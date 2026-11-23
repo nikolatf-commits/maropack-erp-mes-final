@@ -24,6 +24,8 @@ function normalizeTip(tip) {
     const t = String(tip || "").toLowerCase();
     if (t.includes("kes")) return "kesa";
     if (t.includes("spul") || t.includes("špul")) return "spulna";
+    if (t.includes("tabak") || t.includes("tabac")) return "tabak";
+    if (t.includes("polucrev") || t.includes("crev")) return "polucrevo";
     return "folija";
 }
 
@@ -39,6 +41,8 @@ function tipColor(tip) {
     const t = normalizeTip(tip);
     if (t === "kesa") return ORANGE;
     if (t === "spulna") return PURPLE;
+    if (t === "tabak") return "#0d9488";       // teal
+    if (t === "polucrevo") return "#4338ca";   // indigo
     return BLUE;
 }
 
@@ -469,7 +473,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
     const filtered = useMemo(() => products.filter((p) => {
         const q = query.trim().toLowerCase();
         const okQ = !q || [p.naziv, p.kupac, p.sifra, p.tip].join(" ").toLowerCase().includes(q);
-        const okTip = tipFilter === "sve" || p.tip === tipFilter;
+        const okTip = tipFilter === "sve" || normalizeTip(p.tip) === tipFilter;
         const okStatus = statusFilter === "sve" || String(p.status).toLowerCase().includes(statusFilter);
         return okQ && okTip && okStatus;
     }), [products, query, tipFilter, statusFilter]);
@@ -633,9 +637,11 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
 
     const stats = {
         total: products.length,
-        folija: products.filter(p => p.tip === "folija").length,
-        kesa: products.filter(p => p.tip === "kesa").length,
-        spulna: products.filter(p => p.tip === "spulna").length
+        folija: products.filter(p => normalizeTip(p.tip) === "folija").length,
+        kesa: products.filter(p => normalizeTip(p.tip) === "kesa").length,
+        spulna: products.filter(p => normalizeTip(p.tip) === "spulna").length,
+        tabak: products.filter(p => normalizeTip(p.tip) === "tabak").length,
+        polucrevo: products.filter(p => normalizeTip(p.tip) === "polucrevo").length
     };
 
     function openTemplateFromProduct(product = selected) {
@@ -759,11 +765,13 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0,1fr))", gap: 12, marginBottom: 16 }}>
             <Kpi label="Ukupno proizvoda" value={stats.total} color={BLUE} />
             <Kpi label="Folije" value={stats.folija} color={BLUE} />
             <Kpi label="Kese" value={stats.kesa} color={ORANGE} />
             <Kpi label="Špulne" value={stats.spulna} color={PURPLE} />
+            <Kpi label="Tabaci" value={stats.tabak} color="#0d9488" />
+            <Kpi label="Polucreva" value={stats.polucrevo} color="#4338ca" />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "390px minmax(0,1fr)", gap: 16, alignItems: "start" }}>
@@ -772,7 +780,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                     <div style={{ fontSize: 15, fontWeight: 950, marginBottom: 10, color: "#0f172a" }}>Lista proizvoda</div>
                     <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Pretraga: kupac, naziv, šifra..." style={inputStyle()} />
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-                        <select value={tipFilter} onChange={e => setTipFilter(e.target.value)} style={inputStyle()}><option value="sve">Svi tipovi</option><option value="folija">Folije</option><option value="kesa">Kese</option><option value="spulna">Špulne</option></select>
+                        <select value={tipFilter} onChange={e => setTipFilter(e.target.value)} style={inputStyle()}><option value="sve">Svi tipovi</option><option value="folija">Folije</option><option value="kesa">Kese</option><option value="spulna">Špulne</option><option value="tabak">Tabaci</option><option value="polucrevo">Polucreva</option></select>
                         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={inputStyle()}><option value="sve">Svi statusi</option><option value="aktivan">Aktivan</option><option value="razvoj">Razvoj</option><option value="stop">Stop</option></select>
                     </div>
                 </div>
@@ -784,7 +792,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
                                 <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800, display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
                                     <span>🏢</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.kupac}</span>
                                 </div>
-                                <Badge color={tipColor(p.tip)}>{p.tip}</Badge>
+                                <Badge color={tipColor(p.tip)}>{normalizeTip(p.tip)}</Badge>
                             </div>
                             <div style={{ fontSize: 14, fontWeight: 950, color: "#0f172a", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.naziv}</div>
                             <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap", alignItems: "center" }}>
@@ -800,7 +808,7 @@ export default function ProductMasterPRO({ db, setDb, setPage, msg }) {
             <Card style={{ overflow: "hidden" }}>
                 {selected ? <>
                     <div style={{ position: "relative", padding: "22px 24px", overflow: "hidden", background: `linear-gradient(120deg, ${tipColor(selected.tip)}, ${tipColor(selected.tip)}cc 60%, #a21caf)`, color: "#fff" }}>
-                        <div style={{ position: "absolute", right: -10, top: -30, fontSize: 150, opacity: .10, transform: "rotate(-15deg)", pointerEvents: "none" }}>{selected.tip === "folija" ? "📦" : selected.tip === "kesa" ? "🛍️" : "🎞️"}</div>
+                        <div style={{ position: "absolute", right: -10, top: -30, fontSize: 150, opacity: .10, transform: "rotate(-15deg)", pointerEvents: "none" }}>{(() => { const _t = normalizeTip(selected.tip); return _t === "kesa" ? "🛍️" : _t === "spulna" ? "🧵" : _t === "tabak" ? "📄" : _t === "polucrevo" ? "➰" : "🎞️"; })()}</div>
                         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
                             <div>
                                 <h2 style={{ margin: 0, fontSize: 25, fontWeight: 950, letterSpacing: "-.3px", textShadow: "0 2px 8px rgba(0,0,0,.15)" }}>{selected.naziv}</h2>
