@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
-import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan } from '../utils/nalogMetrika.js';
+import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan, metriZaMasinu } from '../utils/nalogMetrika.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
 import GanttPlanPRO from './GanttPlanPRO.jsx';
 // v54.1: živo osvežavanje naloga — kad radnik preko QR-a startuje/završi operaciju
@@ -276,10 +276,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 || st.indexOf("poslato") >= 0) ? "u_radu"
                     : "ceka";
             const ex = extraktNalog(n);
-            // direktne kolone (ako ih ima) i dalje imaju prednost, JSON je dopuna.
-            // Za KAŠIRANJE materijal prolazi kroz mašinu više puta → množi metre brojem prolaza.
-            const prolazi = op.k === "kasiranje" ? Math.max(1, ex.brojKasiranja) : 1;
-            const metri = (Number(n.duzina_m || n.metri || 0) || ex.metriMasine || ex.kolicina || 0) * prolazi;
+            // JEDAN izvor istine za metražu na mašini (uključuje kaширanje-prolaze i „mono se ne kašira";
+            // NE pušta broj komada/kg da procuri kao metre). Isti proračun koristi i „gotov ~" u listi.
+            const metri = metriZaMasinu(n, op.k);
             out.push({
                 id: String(n.broj_naloga || n.broj || n.id || ""),
                 opTip: op.k, opLabel: op.l, opIkona: op.ikona, type: op.k,
@@ -458,7 +457,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         await snimiPlan(next);
         await logTrace('ai_plan_generated', { postavljeno, preskoceni: preskoceni.length });
         setTrace(getTraceLog());
-        const dodatak = preskoceni.length ? ` · ⚠️ ${preskoceni.length} bez kompatibilne mašine: ${preskoceni.slice(0, 6).join(', ')}${preskoceni.length > 6 ? '…' : ''}` : '';
+        const dodatak = preskoceni.length ? ` · ⚠️ ${preskoceni.length} bez mašine: ${preskoceni.slice(0, 4).map(p => `${p.id} (${p.razlog})`).join('; ')}${preskoceni.length > 4 ? '…' : ''}` : '';
         msg?.(`🤖 AI plan: raspoređeno ${postavljeno} naloga po roku${dodatak}. Proveri „⚠️ probija rok" i koriguj ▲▼.`);
     };
 

@@ -3846,7 +3846,7 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                 <Input label={t("tmpl.sifra")} value={form.sifra} onChange={v => update("sifra", v)} placeholder="interni kod" />
                 <Input label={t("tmpl.kupac")} value={form.kupac} onChange={v => update("kupac", v)} placeholder="npr. Medomix" />
                 <Input label={t("tmpl.naziv")} value={form.naziv} onChange={v => update("naziv", v)} placeholder="npr. MPML Crux Magnezijum 3g" />
-                <Select label={t("tmpl.tip_proizvoda")} value={form.type} onChange={setType} options={["folija", "kesa", "spulna"]} />
+                <Select label={t("tmpl.tip_proizvoda")} value={form.type} onChange={setType} options={["folija", "kesa", "spulna", "tabak", "polucrevo"]} />
             </div>
             {/* Broj naloga iz PIS-a — prolazi kroz svaku operaciju (prikazuje se ispod naslova naloga) */}
             <div style={{ marginBottom: 12 }}>

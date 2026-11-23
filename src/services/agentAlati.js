@@ -1998,8 +1998,8 @@ export const ALATI = {
                 const status = (st.indexOf("zavr") === 0 || st.indexOf("stiglo") >= 0) ? "zavrseno"
                     : (/radi|toku|poslato/.test(st) ? "u_radu" : "ceka");
                 const width = N(o.sir || o.sirina || o.idealnaSirinaMaterijala) || ex.sirina || 0;
-                const prolazi = opTip === "kasiranje" ? Math.max(1, ex.brojKasiranja) : 1;
-                const metri = (metriZaMasinu(o, opKljuc(o)) || ex.metriMasine || ex.kolicina || 0);
+                // JEDAN izvor istine (kaширanje-prolazi + „mono se ne kašira"); bez curenja kom/kg kao metre.
+                const metri = metriZaMasinu(o, opKljuc(o));
                 const red = { id, opTip, type: opTip, metri, width, status,
                     rok: o.rok || o.rok_isporuke || o.datum_isporuke || ex.rok || "",
                     priority: o.prioritet || o.priority || "normalno" };
@@ -2040,7 +2040,7 @@ export const ALATI = {
                 return { masina: m.name, tip: m.type, naloga_u_redu: stavke.length, ukupno_min: uk, red: stavke };
             }).filter(Boolean);
 
-            const preskoceniInfo = preskoceni.length ? { broj: preskoceni.length, nalozi: preskoceni.slice(0, 20), napomena: "Nema kompatibilne/aktivne mašine (proveri tip, radnu širinu ili da je mašina zaustavljena)." } : null;
+            const preskoceniInfo = preskoceni.length ? { broj: preskoceni.length, nalozi: preskoceni.slice(0, 20), napomena: "Svaki nalog ima razlog (npr. „širina naloga prelazi max širinu mašine“, „mašina nije aktivna“, „nema mašine za tu operaciju“)." } : null;
             return {
                 ok: true,
                 poruka: `AI plan: raspoređeno ${postavljeno} naloga po roku${preskoceni.length ? `, ${preskoceni.length} bez kompatibilne mašine` : ""}. Plan je snimljen — koriguj red ▲▼ ili prevlačenjem na ekranu „Plan proizvodnje“.`,

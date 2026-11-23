@@ -114,6 +114,33 @@ export function extraktNalog(n) {
             const ukupnoM = W > 0 ? m2Rad / (W / 1000) : 0;
             const Nsp = W > 0 ? Math.max(1, Math.floor(sirMat / W)) : 1;
             metriMasine = Math.round(Nsp > 0 ? ukupnoM / Nsp : ukupnoM);
+        } else if (jeKesa) {
+            // ISTO kao NalogLayoutPRO.kesaD: korak = DRUGA dimenzija (po orijentaciji), ban iz idealne
+            // širine. Bez ovoga je plan koristio generičku „dimenzijaDuzina" i znao da procuri broj
+            // komada kao metre (npr. 3.000.000 kom → milioni metara umesto ~200.000 m matične).
+            const tk = (t && t.kesa) || {};
+            const kW = num2(kesa.sirina), kH = num2(kesa.duzina);
+            const KL = num2(kesa.klapna) || num2(kesa.klapnaMm) || num2(kesa.klapna_mm) || num2(kesa.flap) || num2(tk.klapna) || num2(tk.klapnaMm);
+            const FA = num2(kesa.falta) || num2(kesa.faltaMm) || num2(kesa.falta_mm) || num2(kesa.gusset) || num2(kesa.dno) || num2(tk.falta) || num2(tk.faltaMm);
+            const orient = kesa.orijentacija || tk.orijentacija || "sirina";
+            const poprecnoMm = orient === "duzina" ? (2 * kH + KL + FA) : (2 * kW + KL + FA);  // idealna širina (ban)
+            // korak (duž trake) = druga dimenzija; ako kesa nema sirina/duzina (stariji zapis) → dimenzijaDuzina
+            const korakMm = (orient === "duzina" ? kW : kH) || num2(kesa.dimenzijaDuzina || t.dimenzijaDuzina);
+            const sm0 = num2(kesa.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || 0;
+            const banAuto = (sm0 > 0 && poprecnoMm > 0) ? Math.max(1, Math.floor(sm0 / poprecnoMm)) : 0;
+            const banK = Math.max(1, num2(kesa.ban) || banAuto || 1);
+            const jedK = String(kesa.jedinicaUnosa || t.jedinicaUnosa || "kom").toLowerCase();
+            const komK = num2(kesa.kolicina) || num2(n.kom) || num2(od.kom) || kolicina || 0;
+            if (jedK === "kg") {
+                const gm2 = (Array.isArray(kesa.layers) ? kesa.layers : []).reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
+                const m2 = gm2 > 0 ? (komK * 1000) / gm2 : 0;
+                metriMasine = (m2 > 0 && sm0 > 0) ? Math.round(m2 / (sm0 / 1000) / banK) : 0;
+            } else if (jedK === "m") {
+                metriMasine = banK > 0 ? Math.round(komK / banK) : Math.round(komK);  // metri gotove trake → matična
+            } else {
+                // 'kom': metri matične = kom × korak ÷ ban  (kesaD: mTrake ÷ ban)
+                metriMasine = (korakMm > 0) ? Math.round((komK * (korakMm / 1000)) / banK) : 0;
+            }
         } else if (jed === "kom" && kol > 0) {
             const korakM = num2(grana.dimenzijaDuzina || t.dimenzijaDuzina) / 1000;   // dužina komada duž trake
             metriMasine = korakM > 0 ? Math.round((kol * korakM) / trake) : 0;
@@ -130,6 +157,8 @@ export function extraktNalog(n) {
         kolicina, brojTraka,
         // Mašina provlači MATIČNU rolnu: rezanje množi trake, ne skraćuje rolnu.
         metriMasine,
+        // Broj slojeva materijala (za odluku „mono se ne kašira"). 0 = nepoznato.
+        brojSlojeva: ((Array.isArray(folija.layers) && folija.layers.length) || (Array.isArray(kesa.layers) && kesa.layers.length) || (Array.isArray(spulnaC.layers) && spulnaC.layers.length) || 0),
         // Broj prolaza kaширanja (troslojna = 2, četvoroslojna = 3). "Auto" = slojevi − 1.
         // Važi i za FOLIJU i za KESE (uzima kaширanje/slojeve iz odgovarajućeg kontejnera).
         brojKasiranja: (function () {
@@ -156,8 +185,12 @@ export function metriMasineNaloga(n) { return extraktNalog(n).metriMasine; }
 export function metriZaMasinu(n, opTip) {
     const ex = extraktNalog(n);
     const kljuc = String(opTip || "").toLowerCase();
-    const prolazi = (kljuc === "kasiranje") ? Math.max(1, ex.brojKasiranja) : 1;
-    return ex.metriMasine * prolazi;
+    if (kljuc === "kasiranje") {
+        // MONO (1 sloj) materijal se NE kašira — nema metraže ni vremena na kaширки.
+        if (ex.brojSlojeva > 0 && ex.brojSlojeva <= 1) return 0;
+        return ex.metriMasine * Math.max(1, ex.brojKasiranja);
+    }
+    return ex.metriMasine;
 }
 
 // ── VREME ────────────────────────────────────────────────────────────────────
