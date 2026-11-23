@@ -63,10 +63,15 @@ export function extraktNalog(n) {
     // → trake[].sirina/width → brojTraka(Override) → matična ÷ širina trake.
     // VAŽNO za rezanje: ako broj traka ispadne 0, metraža se NE deli pa je vreme naduvano ×(broj traka).
     const brojTraka = (() => {
-        let lanes = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.map(num2).filter(Boolean) : [];
-        if (!lanes.length && typeof rzn.sirineTraka === "string") lanes = String(rzn.sirineTraka).split(",").map(num2).filter(Boolean);
-        if (!lanes.length && Array.isArray(rzn.trake) && rzn.trake.length) lanes = rzn.trake.map((x) => num2(x && (x.sirina || x.width))).filter(Boolean);
-        if (lanes.length) return lanes.length;
+        const st = rzn.sirineTraka;
+        // niz traka (brojevi ILI objekti {sirina/width}) → BROJ ELEMENATA. Ključno: nikad ne svoditi
+        // nenumerički niz na 0 (inače se metraža ne deli pa je rezanje/kaширanje naduvano ×broj traka).
+        if (Array.isArray(st) && st.length) {
+            const num = st.map((x) => num2(x && typeof x === "object" ? (x.sirina || x.width) : x)).filter(Boolean);
+            return num.length || st.length;
+        }
+        if (typeof st === "string" && st.trim()) { const n = String(st).split(",").map(num2).filter(Boolean).length; if (n) return n; }
+        if (Array.isArray(rzn.trake) && rzn.trake.length) { const n = rzn.trake.map((x) => num2(x && (x.sirina || x.width))).filter(Boolean).length; return n || rzn.trake.length; }
         if (num2(rzn.brojTraka)) return num2(rzn.brojTraka);
         if (num2(rzn.brojTrakaOverride)) return num2(rzn.brojTrakaOverride);
         if (num2(rzn.sirinaTrake) > 0 && sirina > 0) return Math.max(1, Math.floor(sirina / num2(rzn.sirinaTrake)));
