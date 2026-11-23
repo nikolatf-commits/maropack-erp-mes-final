@@ -233,10 +233,10 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                         <b style={{ fontSize: 17, lineHeight: 1.2, display: "block", margin: "1px 0 2px" }}>{m.name}</b>
                                         <div style={{ fontSize: 12.5, color: "#475569", fontWeight: 800 }}>{m.speed || "—"} m/min · setup {m.setupMin || 0}{m.status !== "aktivna" ? " · 🔧 " + m.status : ""}</div>
                                     </div>
-                                    <div style={{ position: "relative", flex: 1, height: RED_PX, minHeight: RED_PX }}>
-                                        {dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined }} />)}
+                                    <div style={{ position: "relative", flex: 1, minHeight: RED_PX, height: jeDan ? RED_PX : "auto" }}>
+                                        {jeDan && dani.lista.map((c, i) => <div key={i} style={{ position: "absolute", left: c.x - IME_PX, width: c.w, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined }} />)}
                                         {jeDan && satiRuler.map((h, i) => <div key={"h" + i} style={{ position: "absolute", left: h.x - IME_PX, top: 0, bottom: 0, borderLeft: "1px solid #f1f5f9" }} />)}
-                                        {mojiV.map((s, i) => {
+                                        {jeDan && mojiV.map((s, i) => {
                                             const x1 = xOd(s.start) - IME_PX, x2 = xOd(s.end) - IME_PX;
                                             const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
                                             const cx1 = s.cekaOd ? xOd(s.cekaOd) - IME_PX : null;
@@ -273,7 +273,32 @@ export default function GanttPlanPRO({ machines, plan, orderMap, opStatusi, drag
                                                 </React.Fragment>
                                             );
                                         })}
-                                        {mojiV.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0", fontWeight: 800, fontSize: 11 }}>{jeDan ? "nema naloga za ovaj dan" : "prevuci nalog ovde"}</div>}
+                                        {jeDan && mojiV.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0", fontWeight: 800, fontSize: 11 }}>nema naloga za ovaj dan</div>}
+                                        {/* v57: NEDELJNI prikaz = lista naloga po danu (bez preklapanja, pun kupac i naziv) */}
+                                        {!jeDan && (
+                                            <div style={{ display: "flex", minHeight: RED_PX }}>
+                                                {dani.lista.map((c, i) => {
+                                                    const ds = new Date(c.datum); ds.setHours(0, 0, 0, 0);
+                                                    const de = new Date(c.datum); de.setHours(23, 59, 59, 999);
+                                                    const naDan = mojiV.filter((s) => s.start >= ds && s.start <= de).sort((a, b) => a.start - b.start);
+                                                    return <div key={i} onDragOver={(e) => e.preventDefault()} onDrop={(e) => dropToMachine && dropToMachine(m.id, e)} style={{ width: c.w, flex: "0 0 " + c.w + "px", borderLeft: "1px solid #f1f5f9", background: c.subota ? "#fffdf5" : undefined, padding: 5, display: "flex", flexDirection: "column", gap: 5 }}>
+                                                        {naDan.map((s, j) => {
+                                                            const boja = s.eksterno ? "#7c3aed" : (OP_BOJA[s.o.opTip] || "#64748b");
+                                                            const kratak = (String(s.o.id).match(/\d{4}-(\d{3,})/) || [])[1] || (String(s.o.id).match(/(\d{3,})/) || [String(s.o.id)])[0];
+                                                            const kw = s.o.nedelja || (s.o.rok ? isoNedeljaG(new Date(s.o.rok)) : "");
+                                                            const rokTxt = [kw, s.o.rok ? new Date(s.o.rok).toLocaleDateString("sr-RS") : ""].filter(Boolean).join(" · ");
+                                                            return <div key={s.o.id + j} draggable={!!dragStart} onDragStart={(e) => dragStart && dragStart(e, s.o.id)}
+                                                                title={s.o.id + " · " + (s.o.title || "") + (s.o.customer ? " · " + s.o.customer : "") + "\nstart: " + fmtT(s.start) + "\ngotov: " + fmtT(s.end) + (rokTxt ? "\nrok: " + rokTxt : "")}
+                                                                style={{ background: boja, color: "#fff", borderRadius: 9, padding: "6px 8px", cursor: "grab", boxShadow: "0 3px 8px rgba(15,23,42,.16)", opacity: s.o.status === "u_radu" ? 1 : .95, outline: s.probija ? "2px solid #fecaca" : "none", display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                                                                <div style={{ fontSize: 12, fontWeight: 900, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.eksterno ? "📦 " : (s.o.opIkona ? s.o.opIkona + " " : "")}{kratak}{s.o.customer ? " · " + s.o.customer : ""}</div>
+                                                                {s.o.title && <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .95, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.o.title}</div>}
+                                                                <div style={{ fontSize: 10, fontWeight: 800, opacity: .92, whiteSpace: "nowrap" }}>{s.eksterno ? "povratak " + fmtD(s.end) : "gotov " + s.end.toLocaleTimeString("sr-RS", { hour: "2-digit", minute: "2-digit" })}{s.probija ? " ⚠+" + s.kasniDana + "d" : ""}{s.o.perforacija ? " · ✂️" : ""}</div>
+                                                            </div>;
+                                                        })}
+                                                    </div>;
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 {/* zauzetost po danu */}
