@@ -190,12 +190,19 @@ export function metriMasineNaloga(n) { return extraktNalog(n).metriMasine; }
 export function metriZaMasinu(n, opTip) {
     const ex = extraktNalog(n);
     const kljuc = String(opTip || "").toLowerCase();
+    // MERODAVNA matična = direktna kolona „DUŽINA TRAKE" (duzina_m/metri) ako postoji i > 0;
+    // to je vrednost koju je templejt-engine već izračunao i snimio uz nalog. Interni proračun
+    // (ex.metriMasine) je REZERVA kad kolone nema (npr. kese). Ovim se izbegava slučaj gde za
+    // kg-folije interni obračun promaši gramaturu pa metri odu u milione.
+    const direkt = Number((n && (n.duzina_m || n.metri)) || 0);
+    const bazni = direkt > 0 ? direkt : ex.metriMasine;
     if (kljuc === "kasiranje") {
         // MONO (1 sloj) materijal se NE kašira — nema metraže ni vremena na kaширки.
         if (ex.brojSlojeva > 0 && ex.brojSlojeva <= 1) return 0;
-        return ex.metriMasine * Math.max(1, ex.brojKasiranja);
+        // Broj prolaza = slojevi − 1 (2 sloja → 1 prolaz, 3 → 2, 4 → 3).
+        return bazni * Math.max(1, ex.brojKasiranja);
     }
-    return ex.metriMasine;
+    return bazni;
 }
 
 // ── VREME ────────────────────────────────────────────────────────────────────
