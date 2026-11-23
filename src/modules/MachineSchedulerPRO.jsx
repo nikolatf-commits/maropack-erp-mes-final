@@ -642,6 +642,9 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                 .mspBackdrop.open{display:block;position:fixed;inset:0;background:rgba(2,6,23,.4);z-index:55}
               }
               .mspMcard{transition:box-shadow .15s, opacity .15s}
+              /* v56: UVEK tačno 2 kartice mašine po redu — da natpisi stanu celi (osim vrlo uskog telefona) */
+              .mspMgrid{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}
+              @media(max-width:520px){.mspMgrid{grid-template-columns:1fr}}
               .mspSel .mspMcard.kompat{box-shadow:0 0 0 3px #16a34a,0 10px 26px rgba(22,163,74,.22)}
               .mspSel .mspMcard.nekompat{opacity:.4}
             `}</style>
@@ -713,7 +716,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                     <span style={{ fontSize: 15, fontWeight: 950, color: '#0f172a' }}>{TIP_LABELE[tip] || tip}</span>
                                     <span style={{ fontSize: 12, fontWeight: 900, color: '#64748b', background: '#f1f5f9', borderRadius: 999, padding: '2px 9px' }}>{grupa.length}</span>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
+                                <div className="mspMgrid">
                                     {grupa.map(machine => {
                             // ZAVRŠENE operacije se SKLANJAJU sa trake mašine (klik „Završeno" ili QR) —
                             // ne prikazuju se i ne ulaze u opterećenje smene.
