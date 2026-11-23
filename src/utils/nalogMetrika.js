@@ -59,10 +59,19 @@ export function extraktNalog(n) {
     const rzn = folija.rezanje || {};
     const st = folija.stampa || {};
     const sirina = num2(rzn.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || num2(n.sirina) || num2(n.sir) || 0;
-    // Broj traka: lista širina → override iz templejta → izračun iz širine trake i matične
-    const brojTraka = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.length
-        : (num2(rzn.brojTraka) || num2(rzn.brojTrakaOverride)
-            || (num2(rzn.sirinaTrake) > 0 && sirina > 0 ? Math.max(1, Math.floor(sirina / num2(rzn.sirinaTrake))) : 0));
+    // Broj traka — ISTO kao NalogLayoutPRO (merodavni nalog): niz širina → CSV string "255,255"
+    // → trake[].sirina/width → brojTraka(Override) → matična ÷ širina trake.
+    // VAŽNO za rezanje: ako broj traka ispadne 0, metraža se NE deli pa je vreme naduvano ×(broj traka).
+    const brojTraka = (() => {
+        let lanes = (Array.isArray(rzn.sirineTraka) && rzn.sirineTraka.length) ? rzn.sirineTraka.map(num2).filter(Boolean) : [];
+        if (!lanes.length && typeof rzn.sirineTraka === "string") lanes = String(rzn.sirineTraka).split(",").map(num2).filter(Boolean);
+        if (!lanes.length && Array.isArray(rzn.trake) && rzn.trake.length) lanes = rzn.trake.map((x) => num2(x && (x.sirina || x.width))).filter(Boolean);
+        if (lanes.length) return lanes.length;
+        if (num2(rzn.brojTraka)) return num2(rzn.brojTraka);
+        if (num2(rzn.brojTrakaOverride)) return num2(rzn.brojTrakaOverride);
+        if (num2(rzn.sirinaTrake) > 0 && sirina > 0) return Math.max(1, Math.floor(sirina / num2(rzn.sirinaTrake)));
+        return 0;
+    })();
     const kolicina = num2(n.metraza || n.kol || n.kolicina || t.porucenaKolicina || od.kolicina);
     // 1) NAJTAČNIJE: templejt-engine od v53 upisuje gotove metre matične rolne u parametre
     //    naloga (metraza_maticne) — jedinica unosa (kom/kg/m) tu više ne igra ulogu.
@@ -86,16 +95,21 @@ export function extraktNalog(n) {
         if (jeSpulna) {
             // ISTA formula kao štampani nalog (NalogLayoutPRO.spulnaD): m² → ukupno m → matična ÷ traka.
             const W = num2(spulnaC.W) || 20;
-            const sirMat = num2(spulnaC.sirinaMaterijala) || sirina || 480;
+            const sirMat = num2(spulnaC.sirinaMaterijala) || num2(t.idealnaSirinaMaterijala) || sirina || 480;
             const maxM = num2(spulnaC.maxMetara) || 20000;
             const skartSp = num2(spulnaC.skart) || 0;
             const layersSp = Array.isArray(spulnaC.layers) ? spulnaC.layers : [];
             const gm2Sp = layersSp.reduce((a, l) => a + (num2(l.gm2) || num2(l.debljina) * num2(l.koeficijent)), 0);
+            // KRITIČNO: jedinicu i količinu čitaj iz ŠPULNA kontejnera (isto kao spulnaD), NE sa vrha naloga.
+            // Top-level kolicina/jedinica za špulnu ume da bude u m²/m/„po špulni" (20.000) → inače matična
+            // ispadne ~20× premala pa je vreme na mašini drastično kraće.
+            const jedSp = String(spulnaC.jedinicaUnosa || t.jedinicaUnosa || "m2").toLowerCase();
+            const kolSp = num2(spulnaC.kolicina) || num2(n.kom) || num2(od.kom) || kolicina || 0;
             let m2;
-            if (jed === "kom") m2 = kol * maxM * (W / 1000);
-            else if (jed === "kg") m2 = gm2Sp > 0 ? (kol * 1000) / gm2Sp : 0;
-            else if (jed === "m") m2 = kol * (W / 1000);
-            else m2 = kol;                                              // m²
+            if (jedSp === "kom") m2 = kolSp * maxM * (W / 1000);
+            else if (jedSp === "kg") m2 = gm2Sp > 0 ? (kolSp * 1000) / gm2Sp : 0;
+            else if (jedSp === "m") m2 = kolSp * (W / 1000);
+            else m2 = kolSp;                                           // m²
             const m2Rad = m2 * (1 + skartSp / 100);
             const ukupnoM = W > 0 ? m2Rad / (W / 1000) : 0;
             const Nsp = W > 0 ? Math.max(1, Math.floor(sirMat / W)) : 1;
@@ -330,7 +344,19 @@ export function autoRasporedPlan({ machines, orders, orderMap, planPostojeci, ko
     let postavljeno = 0; const preskoceni = [];
     for (const o of red) {
         const kand = (machines || []).filter((m) => m.status === "aktivna" && kompatibilna(m, o).ok);
-        if (!kand.length) { preskoceni.push(o.id); continue; }
+        if (!kand.length) {
+            // objasni ZAŠTO nije stao (nema mašine tog tipa / nijedna aktivna / širina van opsega)
+            const istiTip = (machines || []).filter((m) => m.type === o.opTip);
+            let razlog;
+            if (!istiTip.length) razlog = "nema mašine za tu operaciju";
+            else {
+                const aktivne = istiTip.filter((m) => m.status === "aktivna");
+                if (!aktivne.length) razlog = "nijedna mašina te operacije nije aktivna";
+                else { const r = kompatibilna(aktivne[0], o) || {}; razlog = r.reason || "širina naloga je van opsega mašina"; }
+            }
+            preskoceni.push({ id: o.id, razlog });
+            continue;
+        }
         let best = null, bl = Infinity;
         for (const m of kand) {
             const l = optMin[m.id] || 0;
@@ -346,5 +372,6 @@ export function autoRasporedPlan({ machines, orders, orderMap, planPostojeci, ko
         optMin[best.id] = (optMin[best.id] || 0) + dur;
         postavljeno++;
     }
-    return { plan: next, postavljeno, preskoceni };
+    // preskoceni = [{id,razlog}]; preskoceniId = samo šifre (za stare pozive)
+    return { plan: next, postavljeno, preskoceni, preskoceniId: preskoceni.map((p) => p.id) };
 }
