@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  MAROPACK — nalogMetrika.js  [v2 — fix kg matrica + kaширanje prolazi]
+//  MAROPACK — nalogMetrika.js  [v3 — tip proizvoda je merodavan (kitchen-sink fix); kg matrica; kaширanje prolazi]
 //
 //  JEDAN izvor istine za čitanje i računanje nad nalozima. Koriste ga:
 //   - MachineSchedulerPRO (plan proizvodnje)   → import '../utils/nalogMetrika.js'
@@ -106,8 +106,17 @@ export function extraktNalog(n) {
         //    VAŽNO: količina i jedinica često NISU na vrhu templejta nego UNUTAR kontejnera
         //    (folija/kesa/spulna). Zato čitamo i ugnežđeno — inače špulna/kesa vrate 0.
         const tipStr = String(n.tip_proizvoda || n.tip || "").toLowerCase();
-        const jeSpulna = /spul|špul/.test(tipStr) || (!folija.layers && !kesa.layers && (num2(spulnaC.W) || (Array.isArray(spulnaC.layers) && spulnaC.layers.length)));
-        const jeKesa = !jeSpulna && (/kes/.test(tipStr) || (Array.isArray(kesa.layers) && kesa.layers.length) || num2(kesa.kolicina) > 0);
+        // TIP PROIZVODA JE MERODAVAN. "Kitchen-sink" templejt (ProductTemplateEngine) uvek nosi i
+        // zaostale kesa/spulna podatke (layers, kolicina) čak i kod FOLIJA naloga. Ranije je detekcija
+        // "ima kesa.layers ili kesa.kolicina>0" lažno prebacivala folija-nalog u kesa-granu → milioni
+        // metara (npr. 0079: kesa.kolicina 10000 + gm2 15 → 1.017.812 m umesto 20.971 m). Zato: ako je
+        // tip poznat (folija/kesa/špulna), poštuj GA; heuristiku po sadržaju koristi SAMO kad je tip prazan.
+        const tipFolija = /folij/.test(tipStr);
+        const tipKesa = /kes/.test(tipStr);
+        const tipSpulna = /spul|špul/.test(tipStr);
+        const tipPoznat = tipFolija || tipKesa || tipSpulna;
+        const jeSpulna = tipSpulna || (!tipPoznat && !folija.layers && !kesa.layers && (num2(spulnaC.W) || (Array.isArray(spulnaC.layers) && spulnaC.layers.length)));
+        const jeKesa = !jeSpulna && (tipKesa || (!tipPoznat && ((Array.isArray(kesa.layers) && kesa.layers.length) || num2(kesa.kolicina) > 0)));
         const grana = jeSpulna ? spulnaC : jeKesa ? kesa : folija;
         const jed = String(t.jedinicaUnosa || grana.jedinicaUnosa || (jeSpulna ? "m2" : jeKesa ? "kom" : "m")).toLowerCase();
         const trake = Math.max(1, brojTraka);
