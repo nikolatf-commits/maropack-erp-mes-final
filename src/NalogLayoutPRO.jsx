@@ -507,8 +507,15 @@ function roll(D, mw, mh, withPerf) {
     const rot = ((Math.round(Number(dz.rotacija) || 0) % 360) + 360) % 360;
     const mir = Number(dz.zrcalo) === -1 ? -1 : 1;
     const sW2 = (Number(dz.sirinaPct) || 100) / 100, sH2 = (Number(dz.visinaPct) || 100) / 100;
-    const baseAR = (dz.w && dz.h) ? (dz.w / dz.h) : (85 / 110);
-    const IW = wW * sW2, IH = (wW / baseAR) * sH2, slot = Math.max(20, IH), n = Math.max(1, Math.round(wH / slot));
+    // ISTO kao RolnaDizajn u templejtu (components/RolnaPerfViews): za rotaciju 90/270° se
+    // SWAP-uje širina/visina pločice i korak (slot) — da nalog izgleda identično templejtu
+    // (ranije nije radio swap pa je rotiran dizajn izgledao okrenuto/zrcaljeno).
+    const aspect = (Number(dz.w) > 0 && Number(dz.h) > 0) ? (Number(dz.w) / Number(dz.h)) : 1.4;
+    let IW, IH;
+    if (rot === 90 || rot === 270) { IH = wW * sW2; IW = (wW / aspect) * sH2; }
+    else { IW = wW * sW2; IH = (wW / aspect) * sH2; }
+    const onH = (rot === 90 || rot === 270) ? IW : IH;
+    const slot = Math.max(20, onH), n = Math.max(1, Math.round(wH / slot));
     let t = "";
     for (let i = 0; i < n; i++) {
         const cy = WEBY0 + slot * (i + 0.5);
