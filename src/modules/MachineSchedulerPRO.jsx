@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
-import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan, metriZaMasinu, imaPerforaciju } from '../utils/nalogMetrika.js';
+import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, opKljuc, autoRasporedPlan, metriZaMasinu, imaPerforaciju } from '../utils/nalogMetrika.js';
 // v59: „Izvezi izveštaj (Excel)" — profi izveštaj (pregled + analize) iz plana.
 import { izveziPlanExcel } from '../utils/planIzvestaj.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
@@ -394,6 +394,15 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             if (t.includes("mater")) return { k: "materijal", l: "MATERIJAL", ikona: "📦" };
             return { k: "ostalo", l: "OPERACIJA", ikona: "⚙️" };
         };
+        // v60: operacije koje je OPERATER označio „Završeno" žive u tabeli `nalozi` (db.nalozi),
+        // a plan čita `operativni_nalozi` — pa ih ovde UNAKRSNO mapiramo. Ključ = master broj
+        // (bez sufiksa operacije) + tip operacije (opKljuc). Čim je operacija tako gotova,
+        // taj nalog dobija status „zavrseno" → NESTAJE iz reda čekanja, kalendara i izveštaja.
+        const gotoveOp = new Set();
+        [].concat(Array.isArray(db.nalozi) ? db.nalozi : [], Array.isArray(db.master_nalozi) ? db.master_nalozi : []).forEach((r) => {
+            const s = String((r && r.status) || "").toLowerCase();
+            if (s.indexOf("zavr") === 0 || s.indexOf("stiglo") >= 0) gotoveOp.add(canonRef(r.broj_naloga || r.broj || r.id) + "|" + opKljuc(r));
+        });
         const out = [];
         (izvor || []).forEach((n) => {
             const op = tipOperacije(n);
@@ -402,7 +411,8 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
             // "stiglo iz štamparije" = štampa je gotova (materijal se vratio) → tretira se kao ZAVRŠENO,
             // pa se štampa ne prikazuje kao "čeka" i ne blokira kaширanje/rezanje.
             // "poslato u štampariju" = radi se eksterno (u toku), ne "čeka".
-            const status = (st.indexOf("zavr") === 0 || st.indexOf("stiglo") >= 0) ? "zavrseno"
+            const gotovKodOperatera = gotoveOp.has(canonRef(n.broj_naloga || n.broj || n.id) + "|" + opKljuc(n));
+            const status = (gotovKodOperatera || st.indexOf("zavr") === 0 || st.indexOf("stiglo") >= 0) ? "zavrseno"
                 : (st.indexOf("radi") === 0 || st.indexOf("toku") >= 0 || st.indexOf("poslato") >= 0) ? "u_radu"
                     : "ceka";
             const ex = extraktNalog(n);
@@ -550,15 +560,24 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         setTrace(getTraceLog());
         msg?.(`✅ ${selId} dodeljen na ${machine.name}`);
     };
-    // v52: pomeri nalog gore/dole u redu čekanja iste mašine
-    const moveInQueue = async (machineId, index, dir) => {
+    // v52: pomeri nalog gore/dole u redu čekanja iste mašine.
+    // v60 FIX: radi po ID-u naloga (ne po indeksu prikaza). Red čekanja (assigned)
+    // filtrira završene/nepostojeće naloge, pa se indeks prikaza razilazi sa sirovim
+    // plan[machineId] kad mašina ima završene naloge — ranije su ▲▼ menjali POGREŠNU
+    // (ili skrivenu) stavku i izgledalo je da se ne pomera. Sad nalazimo poziciju po ID-u
+    // i zamenjujemo sa najbližim VIDLJIVIM susedom u datom smeru.
+    const moveInQueue = async (machineId, orderId, dir) => {
         const lista = [...(plan[machineId] || [])];
-        const j = index + dir;
-        if (j < 0 || j >= lista.length) return;
-        [lista[index], lista[j]] = [lista[j], lista[index]];
+        const pos = lista.indexOf(orderId);
+        if (pos < 0) return;
+        const vidljiv = (id) => { const o = orderMap[id]; return o && o.status !== 'zavrseno'; };
+        let j = pos + dir;
+        while (j >= 0 && j < lista.length && !vidljiv(lista[j])) j += dir;   // preskoči skrivene/završene
+        if (j < 0 || j >= lista.length) return;                             // nema vidljivog suseda u tom smeru
+        [lista[pos], lista[j]] = [lista[j], lista[pos]];
         const next = { ...plan, [machineId]: lista };
         setPlan(next); await snimiPlan(next);
-        await logTrace('queue_reordered', { machineId, orderId: lista[j], from: index + 1, to: j + 1 });
+        await logTrace('queue_reordered', { machineId, orderId, from: pos + 1, to: j + 1 });
         setTrace(getTraceLog());
     };
     const removeFromMachine = async (orderId) => {
@@ -793,8 +812,8 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                                                     <Plocica order={o} durMin={dur} celoNalog={'ceo nalog ≈ ' + uk.min.toLocaleString('sr-RS') + ' min · gotov ' + fmtD(gotovD)} />
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'center' }}>
-                                                    <button onClick={() => moveInQueue(machine.id, i, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
-                                                    <button onClick={() => moveInQueue(machine.id, i, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
+                                                    <button onClick={() => moveInQueue(machine.id, o.id, -1)} disabled={i === 0} style={{ ...qb, opacity: i === 0 ? .35 : 1 }}>▲</button>
+                                                    <button onClick={() => moveInQueue(machine.id, o.id, 1)} disabled={i === assigned.length - 1} style={{ ...qb, opacity: i === assigned.length - 1 ? .35 : 1 }}>▼</button>
                                                     <button onClick={() => removeFromMachine(o.id)} style={{ ...qb, color: '#b91c1c', borderColor: '#fecaca', background: '#fee2e2' }}>×</button>
                                                 </div>
                                                 {(probijaRok || blokada) && <div style={{ position: 'absolute', right: 8, bottom: -7, display: 'flex', gap: 4 }}>
