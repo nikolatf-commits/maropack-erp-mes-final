@@ -1,0 +1,923 @@
+import React, { useMemo } from "react";
+import { translate, useLang } from "./LanguageProvider.jsx";
+
+// =====================================================================
+// CrtezKese — realističan (HD) tehnički prikaz kese za naloge/templejte.
+// Render: providna zapreminska folija + sjaj + odraz, prave KOTE,
+// i dva prikaza dna (bočni presek + pogled odozdo). Pokriva ceo asortiman.
+//
+// Upotreba:
+//   import CrtezKese, { presetTip, TIPOVI } from "./CrtezKese.jsx";
+//   <CrtezKese config={{ ...presetTip("bodenfalten"), sirina:95, duzina:175, klMm:30 }} />
+//
+// Props: config, width, showKote, showBottomViews, showInfo, style
+// config polja: tip, vrh("otvor"|"klapna"|"header"), klTip("rect"|"schrag"),
+//   dno("ravno"|"faltna"|"naht"|"kreuz"), adh, euroloch, luft, stampa,
+//   perf("none"|"easy"|"abreiss"|"heiss"), komore(1|2|3),
+//   sirina, duzina, klMm, extraMm  (mm)
+// =====================================================================
+
+export const TIPOVI = {
+    flach: { n: "Flachbeutel", vrh: "otvor", klTip: "rect", dno: "ravno", adh: 0, euroloch: 0, perf: "none", komore: 1 },
+    klappen: { n: "Klappenbeutel", vrh: "klapna", klTip: "rect", dno: "ravno", adh: 1, euroloch: 0, perf: "none", komore: 1 },
+    bodenfalten: { n: "Bodenfaltenbeutel", vrh: "klapna", klTip: "rect", dno: "faltna", adh: 1, euroloch: 0, perf: "none", komore: 1 },
+    bodennaht: { n: "Bodennahtbeutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 1, perf: "none", komore: 1 },
+    header: { n: "Headerbeutel", vrh: "header", klTip: "rect", dno: "naht", adh: 1, euroloch: 1, perf: "none", komore: 1 },
+    banderole: { n: "Banderole", vrh: "otvor", klTip: "rect", dno: "ravno", adh: 1, euroloch: 0, perf: "none", komore: 1 },
+    rolle: { n: "Beutel auf Rolle", vrh: "otvor", klTip: "rect", dno: "ravno", adh: 0, euroloch: 0, perf: "abreiss", komore: 1 },
+    brief: { n: "Briefhülle", vrh: "klapna", klTip: "schrag", dno: "ravno", adh: 1, euroloch: 0, perf: "none", komore: 1 },
+    doppel: { n: "Doppeltasche", vrh: "otvor", klTip: "rect", dno: "ravno", adh: 0, euroloch: 0, perf: "none", komore: 2 },
+    easy: { n: "Easy-Opening Beutel", vrh: "klapna", klTip: "rect", dno: "naht", adh: 1, euroloch: 0, perf: "easy", komore: 1 },
+    flaschen: { n: "Flaschenbeutel", vrh: "klapna", klTip: "rect", dno: "ravno", adh: 1, euroloch: 0, perf: "none", komore: 1 },
+    heiss: { n: "Heißgenadelte Beutel", vrh: "otvor", klTip: "rect", dno: "ravno", adh: 0, euroloch: 0, perf: "heiss", komore: 1 },
+    kreuz: { n: "Kreuzbodenbeutel", vrh: "otvor", klTip: "rect", dno: "kreuz", adh: 0, euroloch: 0, perf: "none", komore: 1 },
+    mehr: { n: "Mehrkammerbeutel", vrh: "klapna", klTip: "rect", dno: "naht", adh: 1, euroloch: 0, perf: "none", komore: 3 },
+    zweifarbig: { n: "Zweifarbige Beutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1 },
+    zweikammer: { n: "Zweikammerbeutel", vrh: "klapna", klTip: "rect", dno: "naht", adh: 1, euroloch: 0, perf: "none", komore: 2 },
+    doypack: { n: "Doypack", vrh: "otvor", klTip: "rect", dno: "doypack", adh: 0, euroloch: 1, perf: "none", komore: 1 },
+    seitenfalten: { n: "Seitenfaltenbeutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1, bocna: 1 },
+    vakuum: { n: "Vakuumbeutel", vrh: "otvor", klTip: "rect", dno: "naht", adh: 0, euroloch: 0, perf: "none", komore: 1, vac: 1 },
+};
+
+export function presetTip(tip) {
+    const t = TIPOVI[tip] || TIPOVI.flach;
+    return { tip, vrh: t.vrh, klTip: t.klTip, dno: t.dno, adh: !!t.adh, euroloch: !!t.euroloch, perf: t.perf, komore: t.komore, bocna: !!t.bocna, vac: !!t.vac };
+}
+
+// Adapter: kesa objekat iz templejta/naloga -> config za CrtezKese.
+// Tip kese (maropack ključ) postavlja OBLIK (vrh, dno-osnova, broj komora);
+// sve DEKORACIJE/OPCIJE (štampa, ADH, eurozumba, perforacija…) se crtaju SAMO
+// ako su ČEKIRANE opcije. Kad korisnik odčekira opciju — nestaje sa skice.
+export function kesaToConfig(kesa = {}) {
+    const o = kesa.options || {};
+    const base = presetTip(kesa.tipKese);
+    const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const klapnaMm = num(kesa.klapna);
+    const faltaMm = num(kesa.falta);
+    const vrh = base.vrh;                                   // oblik vrha = tip kese
+    const dno = o.falta_dno ? "faltna" : (o.var_dno ? "naht" : base.dno);  // dno: tip + opcije
+    return {
+        tip: kesa.tipKese || "",
+        vrh,
+        klTip: o.kosa_klapna ? "schrag" : base.klTip,
+        dno,
+        // ── OPCIJE: crtaju se SAMO ako su čekirane (više se ne forsiraju iz tipa) ──
+        adh: !!o.adh_traka,          // ADH lepljiva traka — samo ako je čekirana opcija
+        euroloch: !!o.eurozumba,     // eurozumba — samo ako je čekirana
+        luft: !!(o.okrugla_zumba || o.busene_rupe),
+        stampa: !!o.stampa,          // ŠTAMPA — samo ako je čekirana (ranije: podrazumevano DA → curilo na skicu)
+        perf: o.mikroperforacija ? "heiss" : (o.poprecna_perf ? "easy" : (o.abreiss ? "abreiss" : "none")),
+        // Nezavisne zastavice — da se SVE perforacije iscrtaju kad ih ima više.
+        mikroPerf: !!o.mikroperforacija,   // perforacija vrućim iglama
+        poprecnaPerf: !!o.poprecna_perf,   // poprečna perforacija
+        abreiss: !!o.abreiss,              // perforirana za otkinuti NA ROLNI
+        komore: base.komore || 1,    // broj komora = tip kese
+        duplofan: !!o.duplofan,
+        anleger: !!o.anleger,
+        falznut: !!o.utor,
+        bocniVar: !!o.bocni_var,
+        poprecniVar: !!(o.poprecni_var || o.kontinualni_var || o.toplotni_var),
+        perfTelo: !!o.perf_telo,        // perforacija za otkinuti NA TELU (pozicija u positions.perf_telo)
+        unakrsnaPerf: !!o.unakrsna_perf, // unakrsna perforacija (pozicija u positions.unakrsna_perf: odVrha/odDna)
+        otvorDno: !!o.otvor_dno,
+        ojacanje: !!o.ojacanje,
+        pakovanjeTrn: !!o.pakovanje_trn,
+        reciklaznaIzjava: !!o.reciklazna_izjava,   // univerzalni znak za reciklažu + slobodan tekst
+        positions: kesa.positions || {},
+        sirina: num(kesa.sirina) || 95,
+        duzina: num(kesa.duzina) || 175,
+        klMm: klapnaMm || 30,
+        // Mera NIJE uneta → skica koristi podrazumevanu vrednost samo za oblik, a kota pokazuje „?“.
+        bezSirine: !num(kesa.sirina), bezDuzine: !num(kesa.duzina), bezKlapne: !klapnaMm,
+        extraMm: (dno === "faltna" || dno === "doypack") ? (faltaMm || 30) : 30,
+        // Novi tipovi: bočna falta (seitenfalten) i vakuum — oblik, ne opcija
+        bocnaFalta: !!base.bocna,
+        bocnaMm: faltaMm,
+        vakuum: !!base.vac,
+        stampaText: kesa.stampaText || "",
+        stampaDizajn: kesa.stampaDizajn || null,   // uploadovana slika dizajna štampe
+        legend: kesa.legend || [],
+    };
+}
+
+const DEFAULTS = {
+    tip: "", vrh: "otvor", klTip: "rect", dno: "ravno",
+    adh: false, euroloch: false, luft: false, stampa: false,
+    duplofan: false, anleger: false, falznut: false, bocniVar: false,
+    poprecniVar: false, perfTelo: false, unakrsnaPerf: false, mikroPerf: false, poprecnaPerf: false, abreiss: false, otvorDno: false, ojacanje: false, pakovanjeTrn: false,
+    bocnaFalta: false, bocnaMm: 0, vakuum: false,
+    reciklaznaIzjava: false,
+    positions: {},
+    stampaText: "",
+    stampaDizajn: null,
+    perf: "none", komore: 1, sirina: 95, duzina: 175, klMm: 30, extraMm: 30,
+};
+
+const pillow = (x, y, w, h, b) => { const x2 = x + w, y2 = y + h, mx = x + w / 2, my = y + h / 2; return `M${x} ${y} Q${mx} ${y - b} ${x2} ${y} Q${x2 + b} ${my} ${x2} ${y2} Q${mx} ${y2 + b} ${x} ${y2} Q${x - b} ${my} ${x} ${y} Z`; };
+const rr = (x, y, w, h, r) => `M${x + r} ${y} h${w - 2 * r} a${r} ${r} 0 0 1 ${r} ${r} v${h - 2 * r} a${r} ${r} 0 0 1 -${r} ${r} h-${w - 2 * r} a${r} ${r} 0 0 1 -${r} -${r} v-${h - 2 * r} a${r} ${r} 0 0 1 ${r} -${r} Z`;
+const arw = (x, y, d) => { const a = 5; if (d === 'l') return `<path d="M${x} ${y} l${a} -3 l0 6 Z" fill="#94a3b8"/>`; if (d === 'r') return `<path d="M${x} ${y} l-${a} -3 l0 6 Z" fill="#94a3b8"/>`; if (d === 'u') return `<path d="M${x} ${y} l-3 ${a} l6 0 Z" fill="#94a3b8"/>`; return `<path d="M${x} ${y} l-3 -${a} l6 0 Z" fill="#94a3b8"/>`; };
+const kotaH = (y, x1, x2, oy, t) => { let q = `<line x1="${x1}" y1="${oy}" x2="${x1}" y2="${y + 4}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x2}" y1="${oy}" x2="${x2}" y2="${y + 4}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#94a3b8" stroke-width="0.9"/>` + arw(x1, y, 'l') + arw(x2, y, 'r'); const mx = (x1 + x2) / 2; q += `<rect x="${mx - 25}" y="${y - 8}" width="50" height="14" fill="#eef2f6" opacity="0.9"/><text x="${mx}" y="${y + 3}" font-size="10.5" fill="#334155" text-anchor="middle" font-weight="600">${t}</text>`; return q; };
+const kotaV = (x, y1, y2, ox, t) => { let q = `<line x1="${ox}" y1="${y1}" x2="${x - 4}" y2="${y1}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${ox}" y1="${y2}" x2="${x - 4}" y2="${y2}" stroke="#cbd5e1" stroke-width="0.8"/><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#94a3b8" stroke-width="0.9"/>` + arw(x, y1, 'u') + arw(x, y2, 'd'); const my = (y1 + y2) / 2; q += `<g transform="rotate(-90 ${x} ${my})"><rect x="${x - 26}" y="${my - 8}" width="52" height="14" fill="#eef2f6" opacity="0.9"/><text x="${x}" y="${my + 3}" font-size="10.5" fill="#334155" text-anchor="middle" font-weight="600">${t}</text></g>`; return q; };
+
+// Reciklažni znak (Möbius loop) — trougao sa 3 strelice u krug, zaobljena temena,
+// broj u sredini i kod ispod. cx,cy = centar trougla; s = veličina.
+function reciklazaSvg(cx, cy, s, broj, kod, color, rot) {
+    const q = (n) => Math.round(n * 100) / 100;
+    const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    color = color || "#0f172a";
+    const R = s * 0.50, w = s * 0.125;
+    const P = (a, r) => [r * Math.cos(a * Math.PI / 180), -r * Math.sin(a * Math.PI / 180)];
+    const T = P(90, R), L = P(210, R), Rp = P(330, R);
+    const lerp = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    // Ceo znak (trougao + broj + kod) se rotira zajedno (npr. 180°).
+    let g = `<g transform="translate(${q(cx)} ${q(cy)})"><g transform="rotate(${q(Number(rot) || 0)})">`;
+    for (let i = 0; i < 3; i++) {
+        g += `<g transform="rotate(${-i * 120})">`;
+        const pStart = lerp(L, T, 0.30), inApex = lerp(L, T, 0.82), outApex = lerp(T, Rp, 0.18);
+        const base = lerp(T, Rp, 0.52), tip = lerp(T, Rp, 0.74), ctrl = [T[0] * 1.06, T[1] * 1.06];
+        g += `<path d="M ${q(pStart[0])} ${q(pStart[1])} L ${q(inApex[0])} ${q(inApex[1])} Q ${q(ctrl[0])} ${q(ctrl[1])} ${q(outApex[0])} ${q(outApex[1])} L ${q(base[0])} ${q(base[1])}" fill="none" stroke="${color}" stroke-width="${q(w)}" stroke-linejoin="round" stroke-linecap="butt"/>`;
+        const dir = [Rp[0] - T[0], Rp[1] - T[1]], dl = Math.hypot(dir[0], dir[1]) || 1, u = [dir[0] / dl, dir[1] / dl], n = [-u[1], u[0]], hw = w * 1.25;
+        g += `<polygon points="${q(tip[0])},${q(tip[1])} ${q(base[0] + n[0] * hw)},${q(base[1] + n[1] * hw)} ${q(base[0] - n[0] * hw)},${q(base[1] - n[1] * hw)}" fill="${color}"/>`;
+        g += `</g>`;
+    }
+    g += `<text x="0" y="${q(s * 0.10)}" font-size="${q(s * 0.30)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(broj)}</text>`;
+    if (kod) g += `<text x="0" y="${q(s * 0.82)}" font-size="${q(s * 0.26)}" font-weight="700" text-anchor="middle" fill="${color}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc(kod)}</text>`;
+    g += `</g>`;   // kraj rotirane celine (trougao + tekst)
+    return g + `</g>`;
+}
+
+// Prelom slobodnog teksta u redove po raspoloživoj širini (procena širine znaka ≈ fontPx×0.52).
+// Vrlo duge reči se tvrdo prelome da ne „iscure" van bloka.
+function wrapLines(text, fontPx, availW, cwf) {
+    const cw = fontPx * (cwf || 0.52);
+    const maxChars = Math.max(4, Math.floor(availW / cw));
+    const words = String(text).trim().split(/\s+/).filter(Boolean);
+    const lines = []; let cur = "";
+    const push = (s) => { if (s) lines.push(s); };
+    for (let wd of words) {
+        // tvrdi prelom predugačke reči
+        while (wd.length > maxChars) { if (cur) { push(cur); cur = ""; } push(wd.slice(0, maxChars)); wd = wd.slice(maxChars); }
+        if (!cur) cur = wd;
+        else if ((cur.length + 1 + wd.length) <= maxChars) cur += " " + wd;
+        else { push(cur); cur = wd; }
+    }
+    push(cur);
+    return lines;
+}
+
+// Auto-fit: nađi NAJVEĆI font tako da se prelomljen tekst uklopi u okvir boxW×boxH.
+// Ako treba više redova, font se smanjuje dok sve ne stane (do minFs).
+function fitText(text, boxW, boxH, maxFs, minFs, cwf) {
+    maxFs = maxFs || 13; minFs = minFs || 5;
+    let best = { fs: minFs, lines: wrapLines(text, minFs, boxW, cwf), lh: minFs * 1.25 };
+    for (let fs = maxFs; fs >= minFs; fs -= 0.5) {
+        const lines = wrapLines(text, fs, boxW, cwf);
+        const lh = fs * 1.25;
+        if (lines.length * lh <= boxH) { best = { fs, lines, lh }; break; }
+        best = { fs, lines, lh };   // pamti poslednji (najmanji) ako ništa ne stane
+    }
+    return best;
+}
+
+function buildSvgPro(c, u, lang = "sr") {
+    const T = (k, f) => translate(lang, k, f, lang);
+    const q = (n) => Math.round(n * 10) / 10;
+    const INK = "#0f172a", SUB = "#475569", LINE = "#9aa7b8", ACC = "#b91c1c", TEAL = "#0d9488", BLUE = "#2563eb", AMB = "#d97706";
+    const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+    const sirina = num(c.sirina) || 95, duzina = num(c.duzina) || 175, klMm = num(c.klMm) || 0, extraMm = num(c.extraMm) || 30;
+    const vrh = c.vrh, klTip = c.klTip, dno = c.dno, P = c.positions || {};
+    const bocna = !!c.bocnaFalta, vakuum = !!c.vakuum, bocnaMm = num(c.bocnaMm);
+    const legend = (c.legend || []).filter((l) => l && l.n);
+    const W = 520;
+    // Legenda „POZICIJE / IZABRANE OPCIJE": vrednost (it.v) se PRELAMA u više redova da
+    // ne „iscuri" vodoravno. Raspored u 2 balansirane kolone sa promenljivom visinom.
+    const LEG_TOP = 945;                                   // y gde počinje prvi red legende
+    const LEG_AVAILW = ((W - 30) - 30) / 2 - 32;           // širina za tekst vrednosti u koloni
+    const legItems = legend.map((it) => ({ it, tl: wrapLines(String(it.n), 13.5, LEG_AVAILW), lines: it.v ? wrapLines(String(it.v), 10.5, LEG_AVAILW) : [] }));
+    const legItemH = (li) => Math.max(1, li.tl.length) * 14 + Math.max(1, li.lines.length) * 13 + 11;   // naslov (prelomljen) + redovi + razmak
+    const _legColY = [0, 0], legPos = [];
+    legItems.forEach((li, idx) => {
+        const cc = _legColY[0] <= _legColY[1] ? 0 : 1;     // u nižu kolonu
+        legPos.push({ li, idx, col: cc, y: _legColY[cc] });
+        _legColY[cc] += legItemH(li);
+    });
+    const legHeight = Math.max(_legColY[0], _legColY[1]);
+    const H = Math.max(1075, LEG_TOP + legHeight + 24);
+    // RAZMERA: klapna/header ulaze u razmeru (ranije je klapna bila „skraćena" na max 64px,
+    // pa su mere „od vrha" na većim klapnama padale na pogrešno mesto — npr. na telo umesto na klapnu).
+    const flapMm = vrh === "klapna" ? klMm : (vrh === "header" ? (klMm || extraMm) : 0);
+    const s = Math.min(240 / sirina, 384 / (duzina + flapMm));
+    const bw = sirina * s, bh = duzina * s;
+    const kl = flapMm > 0 ? Math.max(flapMm * s, 6) : 0;
+    // Tekst kota: neuneta mera = „?“ (ne izmišljamo broj).
+    const tSir = c.bezSirine ? "?" : `${sirina}`, tDuz = c.bezDuzine ? "?" : `${duzina}`, tKl = c.bezKlapne ? "?" : `${klMm}`;
+    const cx = 250, y0 = 150 + kl, x0 = cx - bw / 2, x1 = cx + bw / 2, y1 = y0 + bh, bulge = Math.min(7, bw * 0.05);
+    const kx0 = x0 + 3.5, kx1 = x1 - 3.5, ky = y0 - kl;
+    // UKOŠENA KLAPNA: zasečeni gornji uglovi. kBevX/kBevY = veličina zaseka; flapX(y) = leva i desna
+    // IVICA klapne na visini y (u zoni zaseka klapna je uža) — trake i linije se crtaju samo DO te ivice.
+    const jeKosa = vrh === "klapna" && klTip === "schrag";
+    const kBevX = jeKosa ? Math.min((kx1 - kx0) * 0.14, kl * 1.1) : 0;
+    const kBevY = jeKosa ? Math.min(kl * 0.5, (kx1 - kx0) * 0.14) : 0;
+    const flapX = (y) => {
+        if (!jeKosa || y >= ky + kBevY) return [kx0, kx1];
+        const dd = kBevX * (1 - Math.max(0, Math.min(1, (y - ky) / kBevY)));
+        return [kx0 + dd, kx1 - dd];
+    };
+    // Traka (ADH, duplofan, anleger) od yT do yB: na telu = pravougaonik; na klapni prati ivicu klapne,
+    // pa se u zoni zaseka krajevi trake ZASEKU ukoso zajedno sa klapnom (ne prelaze preko zaseka).
+    const traka = (yT, yB, insKl, insTelo, fill, stroke, sw, extra) => {
+        const ex2 = extra || "";
+        const naKl = kl > 0 && (yT + yB) / 2 < y0;
+        if (!naKl) return `<rect x="${q(x0 + insTelo)}" y="${q(yT)}" width="${q(bw - 2 * insTelo)}" height="${q(yB - yT)}" rx="1.5" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${ex2}/>`;
+        const yM = ky + kBevY;
+        if (!jeKosa || yT >= yM) return `<rect x="${q(kx0 + insKl)}" y="${q(yT)}" width="${q(kx1 - kx0 - 2 * insKl)}" height="${q(yB - yT)}" rx="1.5" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${ex2}/>`;
+        const L = (y) => flapX(y)[0] + insKl, R = (y) => flapX(y)[1] - insKl;
+        const pts = [[L(yT), yT], [R(yT), yT]];
+        if (yB > yM) pts.push([R(yM), yM]);
+        pts.push([R(yB), yB], [L(yB), yB]);
+        if (yB > yM) pts.push([L(yM), yM]);
+        return `<polygon points="${pts.map((p) => q(p[0]) + "," + q(p[1])).join(" ")}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" ${ex2}/>`;
+    };
+    // Vodoravna linija (perforacija) preko cele širine: na ukošenoj klapni ide samo do ivice zaseka.
+    const linijaX = (y) => (jeKosa && y < y0) ? [flapX(y)[0] - 4, flapX(y)[1] + 4] : [x0 - 6, x1 + 6];
+    const arr = (x, y, d) => { const a = 4; return d === 'l' ? `M ${q(x)} ${q(y)} l ${a} ${-a / 2} v ${a} z` : d === 'r' ? `M ${q(x)} ${q(y)} l ${-a} ${-a / 2} v ${a} z` : d === 'u' ? `M ${q(x)} ${q(y)} l ${-a / 2} ${a} h ${a} z` : `M ${q(x)} ${q(y)} l ${-a / 2} ${-a} h ${a} z`; };
+    const dH = (xa, xb, y, t) => `<line x1="${q(xa)}" y1="${q(y)}" x2="${q(xb)}" y2="${q(y)}" stroke="${INK}" stroke-width=".8"/><path d="${arr(xa, y, 'l')}" fill="${INK}"/><path d="${arr(xb, y, 'r')}" fill="${INK}"/><rect x="${q((xa + xb) / 2 - 17)}" y="${q(y - 8)}" width="34" height="12" fill="#fff"/><text x="${q((xa + xb) / 2)}" y="${q(y + 1.5)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700">${t}</text>`;
+    const dV = (ya, yb, x, t) => (Math.abs(yb - ya) < 40)
+        ? `<line x1="${q(x)}" y1="${q(ya)}" x2="${q(x)}" y2="${q(yb)}" stroke="${INK}" stroke-width=".8"/><path d="${arr(x, ya, 'u')}" fill="${INK}"/><path d="${arr(x, yb, 'd')}" fill="${INK}"/><text x="${q(x - 6)}" y="${q((ya + yb) / 2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke" transform="rotate(-90 ${q(x - 6)} ${q((ya + yb) / 2)})">${t}</text>`
+        : `<line x1="${q(x)}" y1="${q(ya)}" x2="${q(x)}" y2="${q(yb)}" stroke="${INK}" stroke-width=".8"/><path d="${arr(x, ya, 'u')}" fill="${INK}"/><path d="${arr(x, yb, 'd')}" fill="${INK}"/><rect x="${q(x - 8)}" y="${q((ya + yb) / 2 - 14)}" width="16" height="28" fill="#fff"/><text x="${q(x)}" y="${q((ya + yb) / 2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" transform="rotate(-90 ${q(x)} ${q((ya + yb) / 2)})">${t}</text>`;
+    const ext = (a, b, cc, dd) => `<line x1="${q(a)}" y1="${q(b)}" x2="${q(cc)}" y2="${q(dd)}" stroke="${INK}" stroke-width=".4" opacity=".55"/>`;
+    const euroPath = (ecx, ecy, WW) => { const HH = Math.max(WW * 0.34, 5), Rb = Math.max(WW * 0.16, 3), r = Math.min(HH / 2, 4), left = ecx - WW / 2, right = ecx + WW / 2, top = ecy - HH / 2, bot = ecy + HH / 2; return `<path d="M ${q(left)} ${q(top + r)} Q ${q(left)} ${q(top)} ${q(left + r)} ${q(top)} L ${q(ecx - Rb)} ${q(top)} A ${q(Rb)} ${q(Rb)} 0 0 1 ${q(ecx + Rb)} ${q(top)} L ${q(right - r)} ${q(top)} Q ${q(right)} ${q(top)} ${q(right)} ${q(top + r)} L ${q(right)} ${q(bot - r)} Q ${q(right)} ${q(bot)} ${q(right - r)} ${q(bot)} L ${q(left + r)} ${q(bot)} Q ${q(left)} ${q(bot)} ${q(left)} ${q(bot - r)} Z" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`; };
+
+    let d = `<linearGradient id="pf${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e9eff6"/></linearGradient><linearGradient id="sd${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbd6e3"/><stop offset=".5" stop-color="#eef3f8"/><stop offset="1" stop-color="#cbd6e3"/></linearGradient><pattern id="grid${u}" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#f1f4f8" stroke-width="1"/></pattern><pattern id="seal${u}" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="${SUB}" stroke-width=".9"/></pattern><pattern id="vac${u}" width="7" height="7" patternUnits="userSpaceOnUse"><line x1="3.5" y1="0" x2="3.5" y2="7" stroke="${LINE}" stroke-width=".7"/></pattern>`;
+    let g = `<rect width="${W}" height="${H}" fill="#fff"/><rect width="${W}" height="770" fill="url(#grid${u})"/>`;
+    g += `<text x="${cx}" y="80" font-size="12" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1.5" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${T("crtez.prednji")}</text>`;
+    g += `<ellipse cx="${cx}" cy="${q(y1 + 11)}" rx="${q(bw * 0.5)}" ry="7" fill="${INK}" opacity=".1"/>`;
+    const body = `M ${q(x0)} ${q(y0)} C ${q(x0 - bulge)} ${q(y0 + bh * .3)} ${q(x0 - bulge)} ${q(y0 + bh * .7)} ${q(x0)} ${q(y1)} L ${q(x1)} ${q(y1)} C ${q(x1 + bulge)} ${q(y0 + bh * .7)} ${q(x1 + bulge)} ${q(y0 + bh * .3)} ${q(x1)} ${q(y0)} Z`;
+    g += `<path d="${body}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.8"/>`;
+    g += `<line x1="${q(cx)}" y1="${q(y0 - 4)}" x2="${q(cx)}" y2="${q(y1 + 6)}" stroke="${LINE}" stroke-width=".5" stroke-dasharray="9 3 2 3"/>`;
+    g += `<line x1="${q(x0 + 3.5)}" y1="${q(y0)}" x2="${q(x0 + 3.5)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1"/><line x1="${q(x1 - 3.5)}" y1="${q(y0)}" x2="${q(x1 - 3.5)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1"/>`;
+    const kom = +c.komore || 1;
+    for (let k = 1; k < kom; k++) { const kxx = x0 + bw * k / kom; g += `<line x1="${q(kxx)}" y1="${q(y0)}" x2="${q(kxx)}" y2="${q(y1)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="6 3"/>`; }
+    if (dno === "naht" || dno === "faltna" || dno === "kreuz" || dno === "doypack") g += `<line x1="${q(x0 + 2)}" y1="${q(y1 - 3)}" x2="${q(x1 - 2)}" y2="${q(y1 - 3)}" stroke="${INK}" stroke-width="1.3"/>`;
+    const f = Math.min(extraMm * s, bh * .13);
+    if (dno === "faltna" || dno === "doypack") g += `<path d="M ${q(x0 + 5)} ${q(y1 - 3)} L ${q(cx)} ${q(y1 - 3 - f)} L ${q(x1 - 5)} ${q(y1 - 3)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3" fill="none"/>`;
+    // DOYPACK — zaobljeno stojeće dno + linija poda (da se vidi da kesa stoji)
+    if (dno === "doypack") {
+        g += `<path d="M ${q(x0 + 3)} ${q(y1 - 3)} Q ${q(cx)} ${q(y1 + 9)} ${q(x1 - 3)} ${q(y1 - 3)}" fill="none" stroke="${INK}" stroke-width="1.3"/>`;
+        g += `<line x1="${q(x0 - 12)}" y1="${q(y1 + 14)}" x2="${q(x1 + 12)}" y2="${q(y1 + 14)}" stroke="${LINE}" stroke-width="1" stroke-dasharray="3 3"/>`;
+    }
+    // SEITENFALTEN — bočne falte (senčeni pojas + linija pregiba sa obe strane)
+    if (bocna) {
+        const gw = Math.min((bocnaMm / 2) * s, bw * 0.24);
+        g += `<rect x="${q(x0)}" y="${q(y0)}" width="${q(gw)}" height="${q(bh)}" fill="#0f172a" opacity=".05"/><rect x="${q(x1 - gw)}" y="${q(y0)}" width="${q(gw)}" height="${q(bh)}" fill="#0f172a" opacity=".05"/>`;
+        g += `<line x1="${q(x0 + gw)}" y1="${q(y0)}" x2="${q(x0 + gw)}" y2="${q(y1)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3"/><line x1="${q(x1 - gw)}" y1="${q(y0)}" x2="${q(x1 - gw)}" y2="${q(y1)}" stroke="${AMB}" stroke-width="1" stroke-dasharray="5 3"/>`;
+    }
+    // VAKUUM — zaptivni ram sa 4 strane + emboss kanali (tekstura)
+    if (vakuum) {
+        g += `<rect x="${q(x0 + 8)}" y="${q(y0 + 8)}" width="${q(bw - 16)}" height="${q(bh - 16)}" fill="url(#vac${u})" opacity=".5"/>`;
+        g += `<rect x="${q(x0 + 4)}" y="${q(y0 + 4)}" width="${q(bw - 8)}" height="${q(bh - 8)}" fill="none" stroke="${SUB}" stroke-width="2.4" stroke-dasharray="2 2" opacity=".6"/>`;
+    }
+    if (vrh === "klapna") {
+        // „schrag" (ukošena klapna) = RAVAN vrh sa blago ZASEČENIM gornjim uglovima (oba),
+        // ne cela kosa linija. bevX = horizontalni zasek, bevY = koliko se spušta niz ivicu.
+        const bevX = Math.min((kx1 - kx0) * 0.14, kl * 1.1);
+        const bevY = Math.min(kl * 0.5, (kx1 - kx0) * 0.14);
+        const kp = klTip === "schrag"
+            ? `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky + bevY)} L ${q(kx0 + bevX)} ${q(ky)} L ${q(kx1 - bevX)} ${q(ky)} L ${q(kx1)} ${q(ky + bevY)} L ${q(kx1)} ${q(y0)}`
+            : `M ${q(kx0)} ${q(y0)} L ${q(kx0)} ${q(ky)} L ${q(kx1)} ${q(ky)} L ${q(kx1)} ${q(y0)}`;
+        g += `<path d="${kp}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
+    } else if (vrh === "header") {
+        g += `<rect x="${q(kx0)}" y="${q(ky)}" width="${q(kx1 - kx0)}" height="${q(kl)}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.5"/><line x1="${q(kx0)}" y1="${q(y0)}" x2="${q(kx1)}" y2="${q(y0)}" stroke="${SUB}" stroke-width="1" stroke-dasharray="4 2"/>`;
+    }
+    const mm = (v) => num(v) * s;
+    const has = (o, ff) => o && o[ff] !== "" && o[ff] != null && !isNaN(num(o[ff]));
+    const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
+    const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
+    const eHH = Math.max(eW * 0.34, 5), eRb = Math.max(eW * 0.16, 3);   // visina tela zumbe + „kapica" na vrhu
+    // Horizontalno: „centrirano na klapni" (prednost) → sredina širine (uz opcioni pomak), pa „levo"/„desno".
+    const ex = eV.centriranoKlapna ? cx + (has(eV, "pomakH") ? mm(eV.pomakH) : 0)
+        : has(eV, "levo") ? cx + mm(eV.levo)
+            : has(eV, "desno") ? x1 - eW / 2 - mm(eV.desno)
+                : cx;
+    // REFERENCA euro zumbe = VRH POLUKRUGA (kapica), ne centar rupe. Mera „od vrha/od otvora/od dna"
+    // se meri do polukruga. eApexOff = razmak od centra do vrha polukruga; polukrug je gore (−),
+    // odnosno dole kad je zumba okrenuta (+).
+    const eApexOff = eHH / 2 + eRb;
+    const eApexDir = eV.okrenuto ? 1 : -1;
+    // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa „od dna", pa default.
+    // „centrirano na klapni" → vertikalno na sredinu klapne/header-a (uz opcioni pomak); ima prednost.
+    let eyRef = eV.centriranoKlapna ? ((((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12) + eApexDir * eApexOff) + (has(eV, "pomakV") ? mm(eV.pomakV) : 0))
+        : has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
+        : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
+            : has(eV, "odDna") ? y1 - mm(eV.odDna)
+                : (((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12) + eApexDir * eApexOff);   // default: zadrži raniji centar
+    // Centar rupe iz reference polukruga, pa clamp da rupa ostane u kesi, pa uskladi referencu.
+    let ey = Math.max(eTop + eHH / 2 + eRb + 2, Math.min(y1 - eHH / 2 - eRb - 2, eyRef - eApexDir * eApexOff));
+    eyRef = ey + eApexDir * eApexOff;
+    const psx = (P.stampa || {});
+    // Podrazumevano polje štampe ide od VRHA tela (do klapne) skoro do dna i preko
+    // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
+    // vrednosti (širina/visina/levo/odVrha), one imaju prednost.
+    const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .88;
+    const px = has(psx, "levo") ? x0 + mm(psx.levo) : has(psx, "desno") ? x1 - pw - mm(psx.desno) : cx - pw / 2;
+    // Pozicija po visini: „od vrha" (default) ILI „od dna" (donja ivica polja na y1 − odDna).
+    let py, ph;
+    if (!has(psx, "odVrha") && has(psx, "odDna")) {
+        ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, bh * .4);
+        py = Math.max(y0 + 4, (y1 - mm(psx.odDna)) - ph);
+    } else {
+        py = has(psx, "odVrha") ? y0 + mm(psx.odVrha) : y0 + 4;
+        ph = has(psx, "visina") ? mm(psx.visina) : Math.max(bh * .3, (y1 - py) - 6);
+    }
+    // ── Perforacija za otkinuti NA TELU KESE ──────────────────────────────
+    // Pozicija iz liste (vrh/sredina/dno klapne, telo) ili tačna mera „od vrha" (mm).
+    // „Od vrha" se meri od samog vrha (vrha klapne ako je ima, inače vrha tela).
+    const topY = (vrh === "klapna" || vrh === "header") ? ky : y0;
+    const hasFlap = kl > 0;
+    // Pozicija (vrh/sredina/dno klapne, telo kese) + opciona mera „od vrha" (mm) → Y na skici.
+    // Zajedničko za perforaciju za otkinuti, ADH i duplofan. null = nije zadata pozicija.
+    const posToY = (p) => {
+        if (!p) return null;
+        if (has(p, "odOtvora")) {
+            // „Od otvora X mm" se meri od linije otvora kese (gde klapna prelazi u telo), naniže.
+            return Math.max(y0 + 2, Math.min(y1 - 3, y0 + mm(p.odOtvora)));
+        }
+        if (has(p, "odVrha")) {
+            // „Od vrha X mm" se meri od samog vrha klapne; mali minimalni razmak da bude vidljiv.
+            const minY = hasFlap ? ky + 4 : y0 + 5;
+            return Math.max(minY, Math.min(y1 - 3, topY + mm(p.odVrha)));
+        }
+        let yy;
+        switch (String(p.pozicija || "")) {
+            case "Na vrhu klapne": yy = hasFlap ? ky + 4 : y0 + 5; break;   // BAŠ na vrhu klapne
+            case "Na sredini klapne": yy = hasFlap ? ky + kl * 0.5 : y0 + bh * 0.08; break;
+            case "Na dnu klapne": yy = y0; break;
+            case "Na telu kese": yy = y0 + bh * 0.18; break;
+            default: return null;
+        }
+        return Math.max(topY + 2, Math.min(y1 - 3, yy));
+    };
+    const perfTeloY = c.perfTelo ? (posToY(P.perf_telo) != null ? posToY(P.perf_telo) : (hasFlap ? ky + Math.max(4, kl * 0.22) : y0 + 6)) : null;
+    // Unakrsna perforacija — Y iz pozicije (od vrha od vrha tela, ili od dna).
+    const unakrsnaY = c.unakrsnaPerf ? (() => {
+        const uv = P.unakrsna_perf || {};
+        const uy = has(uv, "odVrha") ? topY + mm(uv.odVrha) : (has(uv, "odDna") ? y1 - mm(uv.odDna) : y0 + bh * .5);
+        return Math.max(y0 + 4, Math.min(y1 - 4, uy));
+    })() : null;
+    // POPREČNI VAR — pozicija: od otvora (y0) > od vrha klapne (topY) > od dna (y1);
+    // crta se kao tanka „merdevina" (dve bliske linije + crtice). „Iskoristiva dubina"
+    // je samo PODATAK na nalogu — NE crta se kao debljina trake (fiksno tanka).
+    const pvarV = P.poprecni_var || {};
+    const poprecniVarY = c.poprecniVar ? (() => {
+        const yy = has(pvarV, "odOtvora") ? y0 + mm(pvarV.odOtvora)
+            : has(pvarV, "odVrha") ? topY + mm(pvarV.odVrha)
+                : has(pvarV, "odDna") ? y1 - mm(pvarV.odDna)
+                    : y0 + bh * 0.62;                 // default: kao ranije
+        return Math.max(y0 + 4, Math.min(y1 - 8, yy));
+    })() : null;
+    // Iskoristiva dubina vara — ako je uneta, var se crta u toj stvarnoj dubini (u razmeri), inače tanak prikaz.
+    // Poprečni var se UVEK crta tanak (fiksno ~3 mm). Iskoristiva dubina NIJE debljina vara —
+    // crta se kao ZASEBNA kota OD vara naviše (dole), i var se NE uvećava za nju.
+    const poprecniVarDub = Math.max(3, Math.min(6, 3 * s));
+    // POPREČNA PERFORACIJA — jedna linija, ali na zadatoj poziciji (od otvora/od vrha/od dna).
+    const ppV = P.poprecna_perf || {};
+    const poprecnaY = c.poprecnaPerf ? (() => {
+        const yy = has(ppV, "odOtvora") ? y0 + mm(ppV.odOtvora)
+            : has(ppV, "odVrha") ? topY + mm(ppV.odVrha)
+                : has(ppV, "odDna") ? y1 - mm(ppV.odDna)
+                    : y0 + bh * 0.16;                 // default: kao ranije
+        return Math.max(y0 + 4, Math.min(y1 - 4, yy));
+    })() : null;
+    let reklSidro = null;      // gde je nacrtan reciklažni znak (za strelicu legende)
+    let stampaSamoZnak = false;
+    if (c.stampa) {
+        const dz = c.stampaDizajn || null;
+        const dzUrl = dz && (dz.url || dz.src || "");
+        const motivTxt = (c.stampaText && String(c.stampaText).trim()) ? String(c.stampaText).trim() : "";
+        // Ako je uneta SAMO reciklaža (bez dizajna i bez motiva) → NE crta se zeleno polje štampe,
+        // prikazuje se samo znak sa kotama.
+        const samoZnak = !!psx.reciklaza && !dzUrl && !motivTxt;
+        stampaSamoZnak = samoZnak;
+        if (!samoZnak) {
+            g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="#0d948810" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
+            if (dzUrl) {
+                // UPLOADOVANA SLIKA DIZAJNA — rotacija / skala / zrcalo, isečena na polje štampe (kao kod folije)
+                const rot = Number(dz.rotacija) || 0;
+                const zr = (Number(dz.zrcalo) === -1) ? -1 : 1;
+                const spct = (Number(dz.sirinaPct) || 100) / 100;
+                const vpct = (Number(dz.visinaPct) || 100) / 100;
+                // na 90°/270° zamena širine i visine da slika i dalje "leži" u polju
+                const rotated = (rot % 180) === 90;
+                const boxW = rotated ? ph : pw, boxH = rotated ? pw : ph;
+                const iw = boxW * spct, ih = boxH * vpct;
+                const cxR = px + pw / 2, cyR = py + ph / 2;
+                const ix = cxR - iw / 2, iy = cyR - ih / 2;
+                const clipId = "stclip" + u;
+                d += `<clipPath id="${clipId}"><rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2"/></clipPath>`;
+                let tf = `rotate(${rot} ${q(cxR)} ${q(cyR)})`;
+                if (zr === -1) tf += ` translate(${q(2 * cxR)} 0) scale(-1 1)`;
+                const safeUrl = String(dzUrl).replace(/"/g, "&quot;");
+                g += `<g clip-path="url(#${clipId})"><image href="${safeUrl}" x="${q(ix)}" y="${q(iy)}" width="${q(iw)}" height="${q(ih)}" transform="${tf}" preserveAspectRatio="xMidYMid meet"/></g>`;
+                g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="none" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
+            } else {
+                // Tekst UVEK staje u okvir štampe: prelom po širini + smanjenje fonta do visine (fitText).
+                const fitS = fitText(String(motivTxt || "ŠTAMPA"), pw - 6, ph - 4, 11, 4, 0.70);
+                let ty = py + ph / 2 - (fitS.lines.length * fitS.lh) / 2 + fitS.fs * 0.82;
+                for (const l of fitS.lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fitS.fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fitS.lh; }
+            }
+        }
+        // Reciklažni znak (trougao). Ako je zadata pozicija → kotira se od IVICA KESE
+        // (leva/desna ivica + od dna). Bez pozicije → donji-desni ugao polja štampe.
+        if (psx.reciklaza) {
+            const mch = String(psx.reciklaza).trim().match(/^(\S+)\s*(.*)$/);
+            const broj = mch ? mch[1] : "", kod = mch ? (mch[2] || "").trim() : "";
+            const poz = has(psx, "reklOdIvice") || has(psx, "reklOdDna") || has(psx, "reklOdOtvora") || has(psx, "reklOdVrha");
+            if (poz) {
+                const desna = /desn/i.test(String(psx.reklStrana || ""));
+                const rs = Math.max(13, Math.min(bw * 0.17, 30));
+                // Rotacija (180° — teme nadole). Trougao ima ŠILJAK (jedan vrh) i RAVNU bazu (dva ćoška).
+                const okrenut = /180/.test(String(psx.reklOkrenut || ""));
+                const apexOff = rs * 0.53;   // centar → ŠILJAK (teme)
+                const baseOff = rs * 0.30;   // centar → RAVNA baza
+                const halfW = rs * 0.47;     // centar → bočni ćošak baze
+                const tipGore = !okrenut;    // šiljak je GORE kad znak nije okrenut
+                const topOff = tipGore ? apexOff : baseOff;   // centar → gornja krajnja tačka
+                const botOff = tipGore ? baseOff : apexOff;   // centar → donja krajnja tačka
+                const odIv = has(psx, "reklOdIvice") ? mm(psx.reklOdIvice) : 0;
+                // Uspravno: „od otvora" (od usta, gornja krajnja tačka) ima prednost, inače „od dna".
+                const fromTop = has(psx, "reklOdOtvora");
+                let rcy;
+                if (fromTop) rcy = (y0 + mm(psx.reklOdOtvora)) + topOff;
+                else { const odDn = has(psx, "reklOdDna") ? mm(psx.reklOdDna) : 0; rcy = (y1 - odDn) - botOff; }
+                const symTop = rcy - topOff, boxB = rcy + botOff;   // gornja / donja krajnja tačka znaka
+                let rcx;
+                if (desna) rcx = (x1 - odIv) - halfW; else rcx = (x0 + odIv) + halfW;
+                const nearX = desna ? (rcx + halfW) : (rcx - halfW);   // bočni ćošak baze ka ivici kese
+                const baseY = tipGore ? boxB : symTop;                 // visina RAVNE baze (nasuprot šiljku)
+                const vEndY = fromTop ? symTop : boxB;                 // krajnja tačka znaka ka meri
+                const vref = fromTop ? y0 : y1;                        // od usta (y0) / od dna (y1)
+                // Da li uspravna mera gleda ka ŠILJKU? (gornja mera + šiljak gore, ili donja mera + šiljak dole)
+                const kaSiljku = fromTop ? tipGore : !tipGore;
+                const vx = kaSiljku ? rcx : nearX;                     // ka šiljku → sredina; ka bazi → bočni ćošak
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK, okrenut ? 180 : 0);
+                reklSidro = [desna ? rcx - halfW : rcx + halfW, rcy];
+                // Pomoćne linije: bočna ivica baze (uspravna) + sama baza (vodoravna).
+                g += `<line x1="${q(nearX)}" y1="${q(baseY)}" x2="${q(nearX)}" y2="${q(kaSiljku ? vEndY : baseY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                g += `<line x1="${q(rcx - halfW)}" y1="${q(baseY)}" x2="${q(rcx + halfW)}" y2="${q(baseY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                if (kaSiljku) g += `<line x1="${q(rcx)}" y1="${q(baseY)}" x2="${q(rcx)}" y2="${q(vEndY)}" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+                // KOTE — tanke linije + broj sa belim OREOLOM (bez belog pravougaonika),
+                // jer je kota nad telom kese (folijom), pa kutija ne sme da iskače.
+                const haloH = (xa, xb, yy, tt) => {
+                    const mx2 = (xa + xb) / 2;
+                    const kratka = Math.abs(xb - xa) < 24;   // broj ne staje između strelica → iznad linije
+                    return `<line x1="${q(xa)}" y1="${q(yy)}" x2="${q(xb)}" y2="${q(yy)}" stroke="${INK}" stroke-width=".8"/>`
+                        + `<path d="${arr(xa, yy, 'l')}" fill="${INK}"/><path d="${arr(xb, yy, 'r')}" fill="${INK}"/>`
+                        + `<text x="${q(mx2)}" y="${q(kratka ? yy - 4 : yy + 3.2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
+                };
+                const haloV = (ya2, yb2, xx, tt) => {
+                    const my2 = (ya2 + yb2) / 2;
+                    return `<line x1="${q(xx)}" y1="${q(ya2)}" x2="${q(xx)}" y2="${q(yb2)}" stroke="${INK}" stroke-width=".8"/>`
+                        + `<path d="${arr(xx, ya2, 'u')}" fill="${INK}"/><path d="${arr(xx, yb2, 'd')}" fill="${INK}"/>`
+                        + `<text x="${q(xx)}" y="${q(my2)}" font-size="10" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" transform="rotate(-90 ${q(xx)} ${q(my2)})" stroke="#fff" stroke-width="3" paint-order="stroke" style="paint-order:stroke">${tt}</text>`;
+                };
+                // VODORAVNA (od ivice) — do bočnog ćoška BAZE, na visini baze (uvek stvaran ćošak trougla).
+                if (has(psx, "reklOdIvice")) {
+                    if (desna) g += haloH(nearX, x1, baseY, String(num(psx.reklOdIvice) || 0));
+                    else g += haloH(x0, nearX, baseY, String(num(psx.reklOdIvice) || 0));
+                }
+                // USPRAVNA — ka ŠILJKU (po sredini znaka) kad je teme na toj strani, inače ka bočnom ćošku baze.
+                const vval = fromTop ? psx.reklOdOtvora : psx.reklOdDna;
+                if (vval !== undefined && vval !== "" && vval !== null) {
+                    g += haloV(Math.min(vref, vEndY), Math.max(vref, vEndY), vx, String(num(vval) || 0));
+                }
+            } else {
+                const rs = Math.max(12, Math.min(pw, ph, 30) * 0.9);
+                const rcx = px + pw - rs * 0.60 - 3, rcy = py + ph - rs * 0.72 - 3;
+                g += reciklazaSvg(rcx, rcy, rs, broj, kod, INK, /180/.test(String(psx.reklOkrenut || "")) ? 180 : 0);
+                reklSidro = [rcx + rs * 0.5, rcy];
+            }
+        }
+    }
+    // ── RECIKLAŽNA IZJAVA: ISTI (prazan) znak kao za PP + slobodan tekst.
+    // Korisnik unosi ŠIRINU i VISINU dela za tekst; font se SAM smanji da stane.
+    let rizj = null;
+    if (c.reciklaznaIzjava) {
+        const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        const rv = P.reciklazna_izjava || {};
+        const tekst = String(rv.tekst || "").trim();
+        // Okvir za TEKST (mm → px). Korisnikove vrednosti imaju prednost; inače razuman default.
+        const boxW = has(rv, "sirina") ? mm(rv.sirina) : bw * 0.52;
+        const boxH = has(rv, "visina") ? mm(rv.visina) : Math.max(bh * 0.14, 26);
+        // Znak — ISTI kao PP (tanki Möbius trougao), samo PRAZAN (bez broja/koda).
+        // Veličina znaka prati visinu okvira, u razumnim granicama.
+        const sym = Math.max(16, Math.min(boxH, bw * 0.30, 52));
+        const gap = Math.max(5, sym * 0.20);
+        // Horizontalno: „levo" = leva ivica bloka (znaka) od leve ivice kese.
+        const blkL = has(rv, "levo") ? x0 + mm(rv.levo) : x0 + 8;
+        const txX = blkL + sym + gap;                  // leva ivica teksta
+        // Vertikalno: „od dna" (donja ivica okvira) > „od vrha" (gornja ivica) > sredina tela.
+        const cyB = has(rv, "odDna") ? (y1 - mm(rv.odDna) - boxH / 2)
+            : has(rv, "odVrha") ? (y0 + mm(rv.odVrha) + boxH / 2)
+                : y0 + bh * 0.52;
+        // PP znak — centar znaka = centar okvira; prazan.
+        g += reciklazaSvg(blkL + sym / 2, cyB, sym, "", "", INK);
+        { const hh = Math.max(boxH, sym) / 2; rizj = { left: blkL, right: blkL + sym, top: cyB - hh, bot: cyB + hh, okvT: cyB - boxH / 2, okvB: cyB + boxH / 2, cy: cyB, rv }; }
+        // Tekst — auto-fit u (boxW × boxH), vertikalno centriran uz znak.
+        if (tekst) {
+            const maxFs = Math.max(6, Math.min(13, boxH * 0.9));
+            const fit = fitText(tekst, boxW, boxH, maxFs, 5);
+            const txtH = fit.lines.length * fit.lh;
+            let ty = cyB - txtH / 2 + fit.fs * 0.82;
+            for (const ln of fit.lines) {
+                g += `<text x="${q(txX)}" y="${q(ty)}" font-size="${q(fit.fs)}" fill="${INK}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif" font-weight="600">${esc(ln)}</text>`;
+                ty += fit.lh;
+            }
+        }
+    }
+    // OPCIJE (adh traka, eurozumba, ...) se crtaju POSLE slike štampe, da je "pregaze"
+    // i ostanu vidljive — ranije su išle pre slike pa ih je slika prekrivala.
+    // ADH traka — na izabranoj poziciji (vrh/sredina/dno klapne, telo); default = sredina klapne.
+    // Podrazumevano mesto ADH trake (kad pozicija nije zadata): sredina klapne; ako je tu
+    // već eurozumba (npr. header kesa), traka se spušta ISPOD zumbe (ili iznad, ako dole nema mesta).
+    const adhY = (() => {
+        let ay = posToY(P.adh_traka);
+        if (ay != null) return ay;
+        if (!(vrh === "klapna" || vrh === "header")) return null;
+        ay = ky + Math.max(kl * .5, 6);
+        if (c.euroloch && ey < y0 && Math.abs(ay - ey) < eHH / 2 + eRb + 5) {
+            const ispod = ey + eHH / 2 + 6, iznad = ey - eHH / 2 - eRb - 6;
+            ay = (ispod <= y0 - 4) ? ispod : (iznad >= ky + 4 ? iznad : ay);
+        }
+        return ay;
+    })();
+    if (c.adh) {
+        const ay = adhY;
+        if (ay != null) {
+            g += traka(ay - 2, ay + 2, 7, 7, "#fde2e2", ACC, ".9");
+        }
+    }
+    // Duplofan traka — na izabranoj poziciji; default = malo ispod sredine klapne (da ne gazi ADH).
+    if (c.duplofan) {
+        const dy = posToY(P.duplofan) != null ? posToY(P.duplofan) : (hasFlap ? ky + Math.max(8, kl * .65) : y0 + 12);
+        const onFlap = dy < y0;
+        g += traka(dy - 3, dy + 3, 7, 7, "#e0e7ff", "#6366f1", "1");
+        [dy - 1, dy + 1].forEach((yy) => {
+            const xA = onFlap ? flapX(yy)[0] + 7 : x0 + 7, xB = onFlap ? flapX(yy)[1] - 7 : x1 - 7;
+            g += `<line x1="${q(xA)}" y1="${q(yy)}" x2="${q(xB)}" y2="${q(yy)}" stroke="#6366f1" stroke-width=".5"/>`;
+        });
+    }
+    // Perforacije — svaka svoja linija (mogu koegzistirati):
+    //  • za otkinuti NA ROLNI (abreiss) — pri vrhu, crvena
+    //  • perforacija vrućim iglama (mikro) — ispod klapne, ljubičasta (sitan dash)
+    //  • poprečna perforacija — malo niže, ljubičasta
+    if (c.abreiss) g += `<line x1="${q(linijaX(topY + 2)[0])}" y1="${q(topY + 2)}" x2="${q(linijaX(topY + 2)[1])}" y2="${q(topY + 2)}" stroke="${ACC}" stroke-width="1" stroke-dasharray="2 3"/>`;
+    if (c.mikroPerf) g += `<line x1="${q(x0 - 6)}" y1="${q(y0 + bh * .10)}" x2="${q(x1 + 6)}" y2="${q(y0 + bh * .10)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="1 2"/>`;
+    // Poprečna perforacija — jedna ljubičasta isprekidana linija na zadatoj poziciji.
+    if (c.poprecnaPerf && poprecnaY != null) g += `<line x1="${q(x0 - 6)}" y1="${q(poprecnaY)}" x2="${q(x1 + 6)}" y2="${q(poprecnaY)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 3"/>`;
+    // UTOR (žleb) — kratka isprekidana vertikala na desnoj strani.
+    if (c.falznut) { const uy = y0 + bh * .38; g += `<line x1="${q(x1 - 10)}" y1="${q(uy - 10)}" x2="${q(x1 - 10)}" y2="${q(uy + 10)}" stroke="${SUB}" stroke-width="1.2" stroke-dasharray="3 2"/>`; }
+    // Otvor na dnu kese — mali krug pri dnu.
+    if (c.otvorDno) g += `<circle cx="${q(cx)}" cy="${q(y1 - 8)}" r="3.5" fill="#fff" stroke="${INK}" stroke-width="1.4"/>`;
+    // Ojačanje — traka uz levu ivicu.
+    if (c.ojacanje) g += `<rect x="${q(x0 + 2)}" y="${q(y0 + 6)}" width="4" height="${q(bh - 12)}" fill="#fed7aa" stroke="${AMB}" stroke-width=".8"/>`;
+    // Bočni var — zaptivne trake uz obe bočne ivice.
+    if (c.bocniVar) g += `<rect x="${q(x0)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/><rect x="${q(x1 - 4)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/>`;
+    // (Euro zumba se crta NIŽE — POSLE anlegera — da ima PREDNOST i bude PREKO anleger trake.)
+    // Poprečni var — PRIKAZ: dve paralelne linije sa crticama između (merdevina), na zadatoj poziciji.
+    const pvY = poprecniVarY != null ? poprecniVarY : (y0 + bh * .62);
+    if (c.poprecniVar && poprecniVarY != null) {
+        const PVC = SUB;
+        const yT2 = pvY, yB2 = pvY + poprecniVarDub, xa = x0, xb = x1;
+        g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
+        g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
+        const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width=".7"/>`;
+        // KOTA ISKORISTIVE DUBINE (desno od kese): meri se OD vara NAVIŠE (iskoristiva dubina kese),
+        // kao zasebna mera — var ostaje tanak 3 mm i NE uvećava se za nju.
+        if (has(pvarV, "dubina")) {
+            const dx = xb + 16;
+            const dubTop = Math.max(y0 + 4, yT2 - mm(pvarV.dubina));
+            g += ext(xb, dubTop, dx + 3, dubTop) + ext(xb, yT2, dx + 3, yT2);
+            g += `<line x1="${q(dx)}" y1="${q(dubTop)}" x2="${q(dx)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
+            g += `<path d="${arr(dx, dubTop, 'u')}" fill="${PVC}"/><path d="${arr(dx, yT2, 'd')}" fill="${PVC}"/>`;
+            const my = (dubTop + yT2) / 2;
+            g += `<rect x="${q(dx - 9)}" y="${q(my - 9)}" width="18" height="18" rx="2.5" fill="#fff" stroke="${PVC}" stroke-width=".6"/><text x="${q(dx)}" y="${q(my + 3)}" font-size="9" fill="${PVC}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" transform="rotate(-90 ${q(dx)} ${q(my)})">${num(pvarV.dubina)}</text>`;
+        }
+    }
+    // Perforacija za otkinuti na telu — crvena isprekidana linija preko cele širine.
+    if (c.perfTelo && perfTeloY != null) g += `<line x1="${q(linijaX(perfTeloY)[0])}" y1="${q(perfTeloY)}" x2="${q(linijaX(perfTeloY)[1])}" y2="${q(perfTeloY)}" stroke="${ACC}" stroke-width="1.3" stroke-dasharray="3 3"/>`;
+    // Unakrsna perforacija — linija sa X-markerima preko cele širine na zadatoj visini.
+    if (c.unakrsnaPerf && unakrsnaY != null) {
+        const UC = "#0ea5e9";
+        g += `<line x1="${q(x0 - 6)}" y1="${q(unakrsnaY)}" x2="${q(x1 + 6)}" y2="${q(unakrsnaY)}" stroke="${UC}" stroke-width="1.1" stroke-dasharray="2 3"/>`;
+        const nX = 8; for (let i = 0; i <= nX; i++) { const xx = x0 + (x1 - x0) * i / nX; g += `<path d="M ${q(xx - 2)} ${q(unakrsnaY - 2)} L ${q(xx + 2)} ${q(unakrsnaY + 2)} M ${q(xx - 2)} ${q(unakrsnaY + 2)} L ${q(xx + 2)} ${q(unakrsnaY - 2)}" stroke="${UC}" stroke-width=".9"/>`; }
+    }
+    // ANLEGER — traka stvarne širine (iz izbora, npr. „…/30mm/…") na zadatoj meri „od vrha" ili „od dna".
+    const anV = P.anleger || {};
+    const anTrakaMm = num(anV.traka);                      // širina trake iz izbora (mm), 0 ako nije izabrana
+    const anH = anTrakaMm > 0 ? mm(anTrakaMm) : Math.max(mm(20), 14);  // bez izbora → vidljiv podrazumevani prikaz (~20 mm)
+    // „Od vrha" meri do GORNJE ivice trake; „od dna" meri od DONJE ivice trake do dna kese.
+    const anY = has(anV, "odVrha") ? Math.max(topY + 1, Math.min(y1 - anH - 2, topY + mm(anV.odVrha)))
+        : has(anV, "odDna") ? Math.max(topY + 1, Math.min(y1 - anH - 2, y1 - mm(anV.odDna) - anH))
+            : y0 + 5;
+    if (c.anleger) {
+        let anT = anY, anB = anY + anH;
+        // Anleger ne sme da ide PREKO poprečnog vara — staje na var (do njega).
+        if (c.poprecniVar && poprecniVarY != null) {
+            const vT = poprecniVarY, vB = poprecniVarY + poprecniVarDub;
+            if (anT < vB && anB > vT) {                 // traka se preklapa sa varom
+                const anC = (anT + anB) / 2, vC = (vT + vB) / 2;
+                if (anC <= vC) anB = vT;                 // Anleger je iznad → staje na gornju ivicu vara
+                else anT = vB;                           // Anleger je ispod → kreće od donje ivice vara
+            }
+        }
+        if (anB - anT > 1) {
+            g += traka(anT, anB, 6, 8, "#dbeafe", BLUE, ".9", 'fill-opacity=".6"');
+            // Labela na traci: „ANLEGER" (+ širina trake ako je izabrana) — da operater identifikuje traku na crtežu.
+            if (anB - anT >= 9) {
+                const anMid = (anT + anB) / 2;
+                const anLbl = "ANLEGER" + (anTrakaMm > 0 ? " · " + anTrakaMm + " mm" : "");
+                g += `<text x="${q(cx)}" y="${q(anMid + 3)}" text-anchor="middle" font-size="8" font-weight="800" fill="${BLUE}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif" stroke="#fff" stroke-width="2.4" paint-order="stroke" style="paint-order:stroke">${anLbl}</text>`;
+            }
+        }
+    }
+    // EURO ZUMBA — crta se POSLE anlegera (prednost): rupa za kačenje ide PREKO anleger trake.
+    if (c.euroloch) { const ep = euroPath(ex, ey, eW); g += (eV.okrenuto ? `<g transform="rotate(180 ${q(ex)} ${q(ey)})">${ep}</g>` : ep); }
+    // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno/otvor) + prečnikom.
+    let ozOtvorKote = [];
+    {
+        const ozRupe = Array.isArray((P.okrugla_zumba || {}).rupe)
+            ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odOtvora") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne")))
+            : [];
+        const topRef = (vrh === "klapna" || vrh === "header") ? ky : y0;
+        if (ozRupe.length) {
+            // 1) izračunaj poziciju svake rupe („od otvora" = od usta kese = y0, ima prednost nad „od vrha")
+            const pts = ozRupe.map((r, ri) => {
+                const rad = Math.max(2.5, (has(r, "precnik") ? mm(r.precnik) : 9) / 2);
+                let hx = has(r, "odLeve") ? x0 + mm(r.odLeve) : (has(r, "odDesne") ? x1 - mm(r.odDesne) : cx);
+                let hy = has(r, "odOtvora") ? y0 + mm(r.odOtvora)
+                    : has(r, "odVrha") ? topRef + mm(r.odVrha)
+                        : (has(r, "odDna") ? y1 - mm(r.odDna) : topRef + 16);
+                hx = Math.max(x0 + rad, Math.min(x1 - rad, hx));
+                hy = Math.max(topRef + rad, Math.min(y1 - rad, hy));
+                return { r, ri, rad, hx, hy };
+            });
+            // Zapamti rupe sa „od otvora" merom — da se iskotiraju u sekciji KOTE (od usta kese do rupe)
+            ozOtvorKote = pts.filter((p) => has(p.r, "odOtvora")).map((p) => ({ hy: p.hy, hx: p.hx, val: num(p.r.odOtvora) }));
+            // 2) KOTE RAZMAKA između susednih rupa (centar–centar), pre crtanja rupa da ostanu ispod
+            if (pts.length >= 2) {
+                const sortd = [...pts].sort((a, b) => (a.hx - b.hx) || (a.hy - b.hy));
+                for (let i = 1; i < sortd.length; i++) {
+                    const a = sortd[i - 1], b = sortd[i];
+                    const dmm = Math.round(Math.hypot(b.hx - a.hx, b.hy - a.hy) / s);
+                    if (dmm <= 0) continue;
+                    const mx = (a.hx + b.hx) / 2, my = (a.hy + b.hy) / 2;
+                    g += `<line x1="${q(a.hx)}" y1="${q(a.hy)}" x2="${q(b.hx)}" y2="${q(b.hy)}" stroke="${SUB}" stroke-width=".7" stroke-dasharray="3 2"/>`;
+                    g += `<path d="${arr(a.hx, a.hy, a.hx <= b.hx ? 'r' : 'l')}" fill="${SUB}"/><path d="${arr(b.hx, b.hy, a.hx <= b.hx ? 'l' : 'r')}" fill="${SUB}"/>`;
+                    g += `<rect x="${q(mx - 13)}" y="${q(my - 7)}" width="26" height="12" rx="2" fill="#fff" stroke="${SUB}" stroke-width=".5"/>`;
+                    g += `<text x="${q(mx)}" y="${q(my + 2.3)}" font-size="8.5" fill="${INK}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace">${dmm}</text>`;
+                }
+            }
+            // 3) crtaj rupe + kote (Ø + pozicija od ivica)
+            pts.forEach(({ r, ri, rad, hx, hy }) => {
+                g += `<circle cx="${q(hx)}" cy="${q(hy)}" r="${q(rad)}" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
+                g += `<text x="${q(hx)}" y="${q(hy + 2.6)}" font-size="7" fill="${SUB}" text-anchor="middle" font-weight="800" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${ri + 1}</text>`;
+                // Natpisi centrirani na rupu; uz samu ivicu kese se „odlepe" ka unutra da ne izađu van.
+                const lx = Math.max(x0 + 20, Math.min(x1 - 20, hx));
+                const anc = "middle";
+                const posTxt = [
+                    has(r, "odOtvora") ? num(r.odOtvora) + "↧" : (has(r, "odVrha") ? num(r.odVrha) + "↓" : (has(r, "odDna") ? num(r.odDna) + "↑" : "")),
+                    has(r, "odLeve") ? num(r.odLeve) + "←" : (has(r, "odDesne") ? num(r.odDesne) + "→" : ""),
+                ].filter(Boolean).join(" ");
+                g += `<text x="${q(lx)}" y="${q(hy - rad - 2)}" font-size="8" fill="${INK}" text-anchor="${anc}" font-weight="800" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">Ø${has(r, "precnik") ? num(r.precnik) : "?"}</text>`;
+                if (posTxt) g += `<text x="${q(lx)}" y="${q(hy + rad + 8)}" font-size="7.5" fill="${SUB}" text-anchor="${anc}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${posTxt}</text>`;
+            });
+        } else if (c.luft) {
+            g += `<circle cx="${q(cx)}" cy="${q(y0 + 16)}" r="4.5" fill="#fff" stroke="${INK}" stroke-width="1.6"/>`;
+        }
+    }
+    g += ext(x0, y1, x0, y1 + 36) + ext(x1, y1, x1, y1 + 36) + dH(x0, x1, y1 + 30, tSir);
+    g += ext(x0, y0, x0 - 42, y0) + ext(x0, y1, x0 - 42, y1) + dV(y0, y1, x0 - 36, tDuz);
+    if (kl > 0) g += ext(kx0, ky, x0 - 70, ky) + ext(x0, y0, x0 - 70, y0) + dV(ky, y0, x0 - 64, tKl);
+    // ── KOTE TEHNIČKIH OPCIJA ─────────────────────────────────────────────
+    // Svaka opcija kod koje je uneta vrednost pozicije dobija kotu na skici:
+    //  • vertikalne kote (od vrha / od dna) idu desno od kese, u „trakama" da se
+    //    ne preklapaju; horizontalne (levo / od centra) idu iznad elementa.
+    {
+        const KC = { adh: ACC, duplofan: "#6366f1", perf_telo: ACC, unakrsna: "#0ea5e9", poprecna: "#7c3aed", euro: SUB, stampa: TEAL };
+        // Vertikalne kote idu LEVO od kese (brojevi/legenda su desno → nema preklapanja).
+        // „Trake" (lanes) se slažu dalje ulevo tek kad bi se dve kote preklopile po visini.
+        const leftBase = x0 - (kl > 0 ? 92 : 68);
+        const lanes = [];
+        const pickLane = (a, b) => {
+            const lo = Math.min(a, b) - 15, hi = Math.max(a, b) + 15;
+            for (let i = 0; i < lanes.length; i++) { if (lanes[i].every(([lx, ly]) => hi < lx || lo > ly)) { lanes[i].push([lo, hi]); return i; } }
+            lanes.push([[lo, hi]]); return lanes.length - 1;
+        };
+        const vidjene = new Set();
+        const vKota = (refY, yEl, val, col) => {
+            if (yEl == null || refY == null || Math.abs(refY - yEl) < 2) return "";
+            const kljuc = Math.round(refY) + "|" + Math.round(yEl) + "|" + val;
+            if (vidjene.has(kljuc)) return "";       // npr. dve zumbe na istoj visini → jedna kota
+            vidjene.add(kljuc);
+            const lane = pickLane(refY, yEl);
+            const x = Math.max(16, leftBase - lane * 20);
+            let o = ext(x0 + 3.5, refY, x - 3, refY) + ext(x0 + 3.5, yEl, x - 3, yEl);
+            o += `<line x1="${q(x)}" y1="${q(refY)}" x2="${q(x)}" y2="${q(yEl)}" stroke="${col}" stroke-width="1"/>`;
+            o += `<path d="${arr(x, refY, refY < yEl ? 'u' : 'd')}" fill="${col}"/><path d="${arr(x, yEl, refY < yEl ? 'd' : 'u')}" fill="${col}"/>`;
+            const my = (refY + yEl) / 2;
+            o += `<rect x="${q(x - 8)}" y="${q(my - 9)}" width="16" height="18" rx="2.5" fill="#fff" stroke="${col}" stroke-width=".6"/><text x="${q(x)}" y="${q(my + 3)}" font-size="9.5" fill="${col}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" transform="rotate(-90 ${q(x)} ${q(my)})">${val}</text>`;
+            return o;
+        };
+        const hKota = (refX, xEl, atY, val, col) => {
+            if (xEl == null || refX == null || Math.abs(refX - xEl) < 2) return "";
+            let o = `<line x1="${q(refX)}" y1="${q(atY)}" x2="${q(xEl)}" y2="${q(atY)}" stroke="${col}" stroke-width=".9"/>`;
+            o += `<path d="${arr(refX, atY, refX < xEl ? 'l' : 'r')}" fill="${col}"/><path d="${arr(xEl, atY, refX < xEl ? 'r' : 'l')}" fill="${col}"/>`;
+            const mx = (refX + xEl) / 2;
+            o += `<rect x="${q(mx - 10)}" y="${q(atY - 7)}" width="20" height="12" fill="#fff"/><text x="${q(mx)}" y="${q(atY + 2.5)}" font-size="8.5" fill="${col}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace">${val}</text>`;
+            return o;
+        };
+        let ok = "";
+        // ADH lepljiva traka — mera „od otvora" (prioritet) ili „od vrha"
+        if (c.adh && has(P.adh_traka, "odOtvora")) ok += vKota(y0, adhY, num(P.adh_traka.odOtvora), KC.adh);
+        else if (c.adh && has(P.adh_traka, "odVrha")) ok += vKota(topY, adhY, num(P.adh_traka.odVrha), KC.adh);
+        // Duplofan traka — mera „od otvora" (prioritet) ili „od vrha"
+        if (c.duplofan && has(P.duplofan, "odOtvora")) ok += vKota(y0, posToY(P.duplofan), num(P.duplofan.odOtvora), KC.duplofan);
+        else if (c.duplofan && has(P.duplofan, "odVrha")) ok += vKota(topY, posToY(P.duplofan), num(P.duplofan.odVrha), KC.duplofan);
+        // Perforacija za otkinuti na telu — mera „od vrha"
+        if (c.perfTelo && has(P.perf_telo, "odVrha")) ok += vKota(topY, perfTeloY, num(P.perf_telo.odVrha), KC.perf_telo);
+        // Unakrsna perforacija — „od vrha" ILI „od dna"
+        if (c.unakrsnaPerf) { const uv = P.unakrsna_perf || {}; if (has(uv, "odVrha")) ok += vKota(topY, unakrsnaY, num(uv.odVrha), KC.unakrsna); else if (has(uv, "odDna")) ok += vKota(y1, unakrsnaY, num(uv.odDna), KC.unakrsna); }
+        // Poprečni var — kota od otvora/vrha klapne (do gornje ivice trake) ili od dna (do donje ivice).
+        if (c.poprecniVar && poprecniVarY != null) {
+            if (has(pvarV, "odOtvora")) ok += vKota(y0, poprecniVarY, num(pvarV.odOtvora), KC.poprecna);
+            else if (has(pvarV, "odVrha")) ok += vKota(topY, poprecniVarY, num(pvarV.odVrha), KC.poprecna);
+            else if (has(pvarV, "odDna")) ok += vKota(y1, poprecniVarY + poprecniVarDub, num(pvarV.odDna), KC.poprecna);
+        }
+        // Poprečna perforacija — kota od otvora/vrha/dna do linije.
+        if (c.poprecnaPerf && poprecnaY != null) {
+            if (has(ppV, "odOtvora")) ok += vKota(y0, poprecnaY, num(ppV.odOtvora), KC.poprecna);
+            else if (has(ppV, "odVrha")) ok += vKota(topY, poprecnaY, num(ppV.odVrha), KC.poprecna);
+            else if (has(ppV, "odDna")) ok += vKota(y1, poprecnaY, num(ppV.odDna), KC.poprecna);
+        }
+        // Eurozumba — vertikalno: „od otvora" (od usta kese) ILI „od vrha"; „levo" od centra (horizontalno)
+        if (c.euroloch) {
+            // Kota se meri do VRHA POLUKRUGA (eyRef), ne do centra rupe.
+            if (has(eV, "odOtvora")) ok += vKota(y0, eyRef, num(eV.odOtvora), KC.euro);
+            else if (has(eV, "odVrha")) ok += vKota(eTop, eyRef, num(eV.odVrha), KC.euro);
+            else if (has(eV, "odDna")) ok += vKota(y1, eyRef, num(eV.odDna), KC.euro);
+            if (has(eV, "levo")) ok += hKota(cx, ex, ey - eHH / 2 - eRb - 8, num(eV.levo), KC.euro);
+        }
+        // Okrugla zumba — kota „od otvora" (od usta kese do svake rupe koja je ima)
+        if (ozOtvorKote && ozOtvorKote.length) ozOtvorKote.forEach((k) => { ok += vKota(y0, k.hy, k.val, SUB); });
+        // Štampa — „od vrha", „levo" i dimenzije polja (širina×visina)
+        if (c.stampa) {
+            if (!stampaSamoZnak) {
+                if (has(psx, "odVrha")) ok += vKota(y0, py, num(psx.odVrha), KC.stampa);
+                else if (has(psx, "odDna")) ok += vKota(y1, py + ph, num(psx.odDna), KC.stampa);   // donja ivica polja od dna kese
+                if (has(psx, "levo")) ok += hKota(x0, px, py + Math.min(11, ph / 2), num(psx.levo), KC.stampa);
+                // Dimenzije polja — UNUTAR polja (dole), da ne gaze elemente ispod polja.
+                if (has(psx, "sirina") && has(psx, "visina")) { const dimY = Math.min(py + ph + 11, y1 - 3); ok += `<text x="${q(px + pw / 2)}" y="${q(dimY)}" font-size="8.5" fill="${TEAL}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" stroke="#fff" stroke-width="2.5" paint-order="stroke" style="paint-order:stroke">${num(psx.sirina)}×${num(psx.visina)} mm</text>`; }
+            }
+        }
+        // Anleger — mera „od vrha" do gornje ivice trake, ILI „od dna" od donje ivice trake do dna kese
+        if (c.anleger && has(anV, "odVrha")) ok += vKota(topY, anY, num(anV.odVrha), BLUE);
+        else if (c.anleger && has(anV, "odDna")) ok += vKota(anY + anH, y1, num(anV.odDna), BLUE);
+        // Reciklažna izjava — „od dna" (donja ivica okvira) ILI „od vrha" (gornja ivica), i „levo" od leve ivice kese
+        if (rizj) {
+            const rv = rizj.rv;
+            if (has(rv, "odDna")) ok += vKota(y1, rizj.okvB, num(rv.odDna), SUB);
+            else if (has(rv, "odVrha")) ok += vKota(y0, rizj.okvT, num(rv.odVrha), SUB);
+            if (has(rv, "levo")) ok += hKota(x0, rizj.left, rizj.top - 6, num(rv.levo), SUB);
+        }
+        g += ok;
+    }
+    const anchor = (key) => {
+        switch (key) {
+            case "euroloch": case "eurozumba": return [ex + eW / 2, ey];
+            case "adh": case "adh_traka": { const ay = adhY != null ? adhY : ky + Math.max(kl * .5, 6); return [(ay < y0 ? flapX(ay - 2)[1] : x1) - 9, ay]; }
+            case "stampa": return (stampaSamoZnak && reklSidro) ? reklSidro : [px + pw, py + ph * .4];
+            case "reciklazna_izjava": return rizj ? [rizj.right, rizj.cy] : [x1 - 4, y0 + bh * .5];
+            case "poprecniVar": case "poprecni_var": return [x1 - 3.5, pvY];
+            case "bocniVar": case "bocni_var": return [x1 - 3.5, y0 + bh * .82];
+            case "faltna": case "falta_dno": return [cx + 30, y1 - 3 - f];
+            case "anleger": { const am = anY + anH / 2; return [(am < y0 ? flapX(am)[1] : x1) - 12, am]; }
+            case "duplofan": { const dy0 = posToY(P.duplofan); const dy = dy0 != null ? dy0 : (hasFlap ? ky + Math.max(8, kl * .65) : y0 + 12); return [(dy < y0 ? flapX(dy - 3)[0] : x0) + 12, dy]; }
+            case "abreiss": return [cx, topY + 2];
+            case "falznut": case "utor": return [x1 - 10, y0 + bh * .38];
+            case "luft": case "okrugla_zumba": {
+                const rr = Array.isArray((P.okrugla_zumba || {}).rupe) ? P.okrugla_zumba.rupe.filter((r) => r && (has(r, "precnik") || has(r, "odVrha") || has(r, "odDna") || has(r, "odLeve") || has(r, "odDesne"))) : [];
+                if (rr.length) { const r0 = rr[0], tr = (vrh === "klapna" || vrh === "header") ? ky : y0; const hx = has(r0, "odLeve") ? x0 + mm(r0.odLeve) : (has(r0, "odDesne") ? x1 - mm(r0.odDesne) : cx); const hy = has(r0, "odVrha") ? tr + mm(r0.odVrha) : (has(r0, "odDna") ? y1 - mm(r0.odDna) : tr + 16); return [hx, hy]; }
+                return [cx, y0 + 16];
+            }
+            case "kosa_klapna": case "ukosena_klapna": case "klapna": {
+                // tačka NA zasečenom uglu klapne (ranije je „visila" u vazduhu pored klapne)
+                if (klTip !== "schrag") return [kx1 - 12, ky + 4];
+                const bX = Math.min((kx1 - kx0) * 0.14, kl * 1.1), bY = Math.min(kl * 0.5, (kx1 - kx0) * 0.14);
+                return [kx1 - bX / 2, ky + bY / 2];
+            }
+            case "perf_igle": case "mikroperforacija": return [cx, y0 + bh * .10];
+            case "poprecna_perf": return [cx, poprecnaY != null ? poprecnaY : y0 + bh * .16];
+            case "perf_telo": return [cx, perfTeloY != null ? perfTeloY : (ky + kl + 6)];
+            case "unakrsna_perf": return [cx, unakrsnaY != null ? unakrsnaY : (y0 + bh * .5)];
+            case "otvor_dno": return [cx, y1 - 8];
+            case "var_dno": case "toplotni_var": case "kontinualni_var": return [cx + 20, y1 - 6];
+            case "ojacanje": return [x0 + 4, y0 + bh * .5];
+            case "busene_rupe": return [cx, y0 + 20];
+            default: return [x1 - 4, y0 + bh * .5];
+        }
+    };
+    const BX = 440;
+    const anchored = legend.map((it, i) => { const a = anchor(it.key); return { it, i, ax: a[0], ay: a[1] }; });
+    const sortByY = [...anchored].sort((p, r) => p.ay - r.ay);
+    let by = 100;
+    sortByY.forEach((entry) => {
+        const { it, i, ax, ay } = entry;
+        const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba", "perf_telo"].includes(it.key) ? ACC : SUB)));
+        g += `<line x1="${q(ax)}" y1="${q(ay)}" x2="${q(BX - 11)}" y2="${q(by)}" stroke="${col}" stroke-width=".7" stroke-dasharray="3 2.5" opacity=".75"/><circle cx="${q(ax)}" cy="${q(ay)}" r="2" fill="${col}"/><circle cx="${q(BX)}" cy="${q(by)}" r="11" fill="#fff" stroke="${col}" stroke-width="1.6"/><text x="${q(BX)}" y="${q(by + 3.8)}" font-size="11.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${i + 1}</text>`;
+        by += 34;
+    });
+    const sx = 90, syT = 600, sD = (dno === "faltna" || dno === "kreuz" || dno === "doypack") ? 52 : 26, sH = 150, sby = syT + sH, topW = 10;
+    g += `<text x="${sx + sD / 2}" y="${syT - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${T("crtez.presek")}</text>`;
+    if (dno === "faltna" || dno === "kreuz" || dno === "doypack") {
+        g += `<path d="M ${sx} ${sby} L ${sx} ${sby - 14} C ${sx} ${sby - sH * .5} ${sx + sD / 2 - topW / 2} ${syT + 18} ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 + topW / 2} ${syT + 10} C ${sx + sD / 2 + topW / 2} ${syT + 18} ${sx + sD} ${sby - sH * .5} ${sx + sD} ${sby - 14} L ${sx + sD} ${sby} Z" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
+        g += `<path d="M ${sx + sD / 2 - topW / 2} ${syT + 10} L ${sx + sD / 2 - topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT} L ${sx + sD / 2 + topW / 2} ${syT + 10}" fill="#f4f7fb" stroke="${INK}" stroke-width="1.2"/>`;
+        g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/><path d="M ${sx + 3} ${sby} L ${sx + sD / 2} ${sby - 16} L ${sx + sD - 3} ${sby}" stroke="${AMB}" stroke-width="1.1" stroke-dasharray="4 3" fill="none"/>`;
+        g += ext(sx, sby, sx, sby + 28) + ext(sx + sD, sby, sx + sD, sby + 28) + dH(sx, sx + sD, sby + 22, `${(dno === "faltna" || dno === "doypack") ? extraMm : ""}`);
+    } else {
+        g += `<rect x="${sx}" y="${syT + 8}" width="${sD}" height="${sH - 8}" fill="url(#sd${u})" stroke="${INK}" stroke-width="1.7"/>`;
+        if (dno === "naht") { g += `<rect x="${sx}" y="${sby - 8}" width="${sD}" height="8" fill="url(#seal${u})"/><line x1="${sx}" y1="${sby - 8}" x2="${sx + sD}" y2="${sby - 8}" stroke="${INK}" stroke-width="1.2"/>`; }
+        else g += `<line x1="${sx}" y1="${sby}" x2="${sx + sD}" y2="${sby}" stroke="${INK}" stroke-width="1.6"/>`;
+    }
+    const bocnaKota = bocna && bocnaMm > 0;      // seitenfalten: dubina kese = bočna falta
+    const bx = 320, bY = 615, bW = 170, bDp = (dno === "faltna" || dno === "kreuz" || dno === "doypack" || bocnaKota) ? 92 : 26;
+    g += `<text x="${bx + bW / 2}" y="${bY - 16}" font-size="11" fill="${SUB}" text-anchor="middle" font-weight="800" letter-spacing="1" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${T("crtez.odozdo")}</text>`;
+    g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#pf${u})" stroke="${INK}" stroke-width="1.6"/>`;
+    if (dno === "faltna" || dno === "doypack") {
+        g += `<rect x="${bx}" y="${bY + bDp / 2 - 5}" width="${bW}" height="10" fill="url(#seal${u})"/><line x1="${bx}" y1="${bY + bDp / 2}" x2="${bx + bW}" y2="${bY + bDp / 2}" stroke="${INK}" stroke-width="1.1"/>`;
+        g += `<path d="M ${bx} ${bY} L ${bx + bDp / 2} ${bY + bDp / 2} L ${bx} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/><path d="M ${bx + bW} ${bY} L ${bx + bW - bDp / 2} ${bY + bDp / 2} L ${bx + bW} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/>`;
+    } else if (dno === "kreuz") {
+        g += `<line x1="${bx}" y1="${bY}" x2="${bx + bW}" y2="${bY + bDp}" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/><line x1="${bx + bW}" y1="${bY}" x2="${bx}" y2="${bY + bDp}" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/><rect x="${bx}" y="${bY + bDp / 2 - 4}" width="${bW}" height="8" fill="url(#seal${u})"/>`;
+    } else if (bocnaKota) {
+        // bočne falte: „V" pregib sa leve i desne strane + var po sredini dna
+        g += `<rect x="${bx}" y="${bY + bDp / 2 - 4}" width="${bW}" height="8" fill="url(#seal${u})"/>`;
+        g += `<path d="M ${bx} ${bY} L ${bx + bDp / 4} ${bY + bDp / 2} L ${bx} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/><path d="M ${bx + bW} ${bY} L ${bx + bW - bDp / 4} ${bY + bDp / 2} L ${bx + bW} ${bY + bDp}" fill="none" stroke="${AMB}" stroke-width="1" stroke-dasharray="4 3"/>`;
+    } else if (dno === "naht") {
+        g += `<rect x="${bx}" y="${bY}" width="${bW}" height="${bDp}" fill="url(#seal${u})" opacity=".5"/>`;
+    }
+    g += ext(bx, bY + bDp, bx, bY + bDp + 28) + ext(bx + bW, bY + bDp, bx + bW, bY + bDp + 28) + dH(bx, bx + bW, bY + bDp + 22, tSir);
+    if (bDp > 30) g += ext(bx + bW, bY, bx + bW + 26, bY) + ext(bx + bW, bY + bDp, bx + bW + 26, bY + bDp) + dV(bY, bY + bDp, bx + bW + 20, bocnaKota ? `${Math.round(bocnaMm)}` : (dno === "kreuz" ? "" : `${extraMm}`));
+    const PADX = 30, RXX = W - 30, BTY = 785;
+    g += `<line x1="${PADX}" y1="${BTY}" x2="${RXX}" y2="${BTY}" stroke="#111827" stroke-width="1"/>`;
+    g += `<text x="${PADX}" y="${BTY + 22}" font-size="10" fill="${SUB}" font-weight="800" letter-spacing="2" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">MAROPACK D.O.O.</text>`;
+    g += `<text x="${PADX}" y="${BTY + 44}" font-size="16" fill="${INK}" font-weight="900" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${T("crtez.naslov")}</text>`;
+    const tn = (TIPOVI[c.tip] && TIPOVI[c.tip].n) || "Kesa";
+    const meta = [["Tip", tn], ["Dimenzije", tSir + " × " + tDuz + " mm"], [vrh === "klapna" ? "Klapna" : "Vrh", vrh === "klapna" ? (tKl + " mm" + (klTip === "schrag" ? " (kosa)" : "")) : (vrh === "header" ? ("Header " + tKl + " mm") : "Otvoren")], ["Dno", dno === "faltna" ? ("Faltna " + extraMm + " mm") : (dno === "doypack" ? ("Stojeće " + extraMm + " mm") : (dno === "naht" ? (bocna ? ("Var + bočna falta " + Math.round(bocnaMm) + " mm") : (vakuum ? "Vakuum var" : "Var na dnu")) : (dno === "kreuz" ? "Ukršteno" : "Ravno")))]];
+    const colW = (RXX - PADX) / meta.length, mY = BTY + 76;
+    meta.forEach((m, i) => {
+        const mx = PADX + colW * i;
+        g += `<text x="${q(mx)}" y="${q(mY)}" font-size="10" fill="${SUB}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${m[0]}</text><text x="${q(mx)}" y="${q(mY + 18)}" font-size="${q(Math.max(8, Math.min(13, (colW - 8) / (Math.max(1, String(m[1]).length) * 0.62))))}" fill="${INK}" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace">${m[1]}</text>`;
+    });
+    g += `<line x1="${PADX}" y1="${q(mY + 32)}" x2="${RXX}" y2="${q(mY + 32)}" stroke="#eef2f7" stroke-width="1"/>`;
+    g += `<text x="${PADX}" y="${q(mY + 56)}" font-size="11" fill="${SUB}" font-weight="800" letter-spacing="1" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${T("crtez.pozicije")}</text>`;
+    if (!legend.length) {
+        g += `<text x="${PADX}" y="${q(mY + 80)}" font-size="11" fill="${LINE}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">— nema dodatnih opcija —</text>`;
+    } else {
+        const esc2 = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        const colX = [PADX, PADX + (RXX - PADX) / 2 + 8];
+        legPos.forEach(({ li, idx, col: ci, y }) => {
+            const it = li.it;
+            const col = it.key === "stampa" ? TEAL : (it.key === "faltna" || it.key === "falta_dno" ? AMB : (it.key === "anleger" ? BLUE : (["adh", "adh_traka", "euroloch", "eurozumba", "perf_telo", "duplofan"].includes(it.key) ? ACC : SUB)));
+            const lx = colX[ci], ly = mY + 84 + y;
+            g += `<circle cx="${q(lx + 9)}" cy="${q(ly - 4)}" r="9" fill="#fff" stroke="${col}" stroke-width="1.5"/><text x="${q(lx + 9)}" y="${q(ly - 0.3)}" font-size="10.5" fill="${col}" text-anchor="middle" font-weight="900" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${idx + 1}</text>`;
+            li.tl.forEach((tln, j) => { g += `<text x="${q(lx + 26)}" y="${q(ly - 6 + j * 14)}" font-size="12" fill="${INK}" font-weight="800" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc2(tln)}</text>`; });
+            let vy = ly + 8 + (Math.max(1, li.tl.length) - 1) * 14;
+            for (const ln of li.lines) { g += `<text x="${q(lx + 26)}" y="${q(vy)}" font-size="10.5" fill="${SUB}" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${esc2(ln)}</text>`; vy += 13; }
+        });
+    }
+    return { inner: d + g, vbW: W, vbH: H };
+}
+
+// SVG kao string (za HTML-string renderere, npr. NalogLayoutPRO)
+export function kesaSvgString(config = {}, opts = {}) {
+    const c = { ...DEFAULTS, ...config };
+    const u = "k" + Math.random().toString(36).slice(2, 8);
+    const { inner, vbW, vbH } = buildSvgPro(c, u, opts.lang || "sr");
+    return `<svg viewBox="0 0 ${vbW} ${vbH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">${inner}</svg>`;
+}
+
+// Vrati crtež kao SVG string (za HTML-string kontekste, npr. NalogLayoutPRO).
+export default function CrtezKese({ config = {}, width = "100%", showKote = true, showBottomViews = true, showInfo = true, style }) {
+    const { lang } = useLang();
+    const u = useMemo(() => "k" + Math.random().toString(36).slice(2, 8), []);
+    const c = { ...DEFAULTS, ...config };
+    const { inner, vbW, vbH } = buildSvgPro(c, u, lang);
+    return (
+        <svg
+            viewBox={`0 0 ${vbW} ${vbH}`}
+            width={width}
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ maxWidth: "100%", height: "auto", ...style }}
+            dangerouslySetInnerHTML={{ __html: inner }}
+        />
+    );
+}

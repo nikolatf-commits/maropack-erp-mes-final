@@ -57,7 +57,7 @@ export const KESA_OPCIJE = [
         vals: ["Termotransfer", "Štampa vrućim pečatom", "Flexo štampa",
             "Štampa vrućim pečatom crna boja", "Štampa vrućim pečatom zelena boja",
             "Štampa vrućim pečatom zlatna boja", "Štampa vrućim pečatom srebrna boja"],
-        pos: ["sirina", "visina", "odVrha", "odDna", "levo"],
+        pos: ["sirina", "visina", "odVrha", "odDna", "levo", "desno"],
         selPolja: [
             {
                 k: "reciklaza", l: "Reciklažni znak", vals: RECIKLAZNI_ZNACI, prazno: "— bez znaka —",
@@ -83,7 +83,7 @@ export const KESA_OPCIJE = [
     {
         k: "eurozumba", l: "Eurozumba", tip: "lista",
         vals: ["MALA(30x10x5)", "SREDNJA(32x10x5)", "VELIKA(35x12x5)", "SPECIJALNA"],
-        pos: ["odVrha", "odOtvora", "odDna", "levo"], rot: true, crtez: "eurozumba"
+        pos: ["odVrha", "odOtvora", "odDna", "levo", "desno"], rot: true, centr: true, crtez: "eurozumba"
     },
 
     { k: "utor", l: "UTOR", tip: "lista", vals: ["205"], crtez: "utor" },
@@ -137,7 +137,7 @@ export const KESA_OPCIJE = [
             "150µm/20mm/TRANSPARENTNI", "150µm/25mm/TRANSPARENTNI", "150µm/30mm/TRANSPARENTNI", "150µm/35mm/TRANSPARENTNI", "150µm/40mm/TRANSPARENTNI",
             "140µm/30mm/PLAVI",
         ],
-        pos: ["odVrha"], crtez: "anleger"
+        pos: ["odVrha", "odDna"], crtez: "anleger"
     },
 
     {
@@ -201,6 +201,7 @@ export const POS_LBL = {
     sirina: "Širina (mm)", visina: "Visina (mm)", odstojanje: "Odstojanje (mm/tekst)",
     odIvice: "Od ivice (mm)", strana: "Referentna ivica", odOtvora: "Od otvora (mm)",
     dubina: "Iskoristiva dubina (mm)",
+    pomakH: "Pomak ← → (mm)", pomakV: "Pomak ↑ ↓ (mm)",
 };
 
 // Grupisanje opcija po celinama (za templejt i nalog)

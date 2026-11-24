@@ -9,6 +9,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_MACHINES, ORDER_STATUSES, canMachineRun, getTraceLog, loadMachines, loadProductionPlan, saveMachines, saveProductionPlan, subscribeProductionPlan, statusByKey, logTrace } from '../services/erpMesCore.js';
 // v53: zajednička logika naloga (količina/matična rolna/vreme/redosled operacija) — jedan izvor istine
 import { extraktNalog, procenaMinNaMasini, mapaOperacija, nadjiBlokadu, OP_LABELE, canonRef, autoRasporedPlan, metriZaMasinu, imaPerforaciju } from '../utils/nalogMetrika.js';
+// v59: „Izvezi izveštaj (Excel)" — profi izveštaj (pregled + analize) iz plana.
+import { izveziPlanExcel } from '../utils/planIzvestaj.js';
 // v54: tab "Kalendar" — Gantt po mašinama sa datumima (isti plan, ista drag/drop logika)
 import GanttPlanPRO from './GanttPlanPRO.jsx';
 // v54.1: živo osvežavanje naloga — kad radnik preko QR-a startuje/završi operaciju
@@ -598,6 +600,20 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
         msg?.(`🤖 AI plan: raspoređeno ${postavljeno} naloga po roku${dodatak}. Proveri „⚠️ probija rok" i koriguj ▲▼.`);
     };
 
+    // v59: izvoz profi izveštaja u Excel (pregled + analize + detaljni listovi).
+    const [izvozRadi, setIzvozRadi] = useState(false);
+    const izveziExcel = async () => {
+        if (izvozRadi) return;
+        setIzvozRadi(true);
+        try {
+            msg?.('⏳ Pravim Excel izveštaj…');
+            const r = await izveziPlanExcel({ machines, plan, orderMap, opStatusi });
+            msg?.(`✅ Izveštaj preuzet (${r.naloga} naloga). Pogledaj Preuzimanja.`);
+        } catch (e) {
+            msg?.('⚠️ Izvoz nije uspeo: ' + (e && e.message ? e.message : 'greška'), 'err');
+        } finally { setIzvozRadi(false); }
+    };
+
     return <div style={styles.page}>
         <div style={styles.hero}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
@@ -607,6 +623,7 @@ export default function MachineSchedulerPRO({ db = {}, msg }) {
                     <button style={{ ...styles.btn, background: 'rgba(255,255,255,.15)', color: 'white', border: '1px solid rgba(255,255,255,.4)' }} onClick={ocistiPlan} title="Skloni sve naloge sa mašina">🧹 Očisti plan</button>
                     <button style={{ ...styles.btn, background: 'white', color: '#0f172a' }} onClick={resetMachines}>Reset mašina</button>
                     <button style={{ ...styles.btn, background: '#2563eb', color: 'white' }} onClick={() => msg?.('Plan je sačuvan')}>Sačuvaj plan</button>
+                    <button style={{ ...styles.btn, background: '#15803d', color: 'white', fontWeight: 900, opacity: izvozRadi ? .7 : 1 }} disabled={izvozRadi} onClick={izveziExcel} title="Profi izveštaj plana (pregled + analize) u Excel .xlsx">{izvozRadi ? '⏳ Pravim…' : '⬇ Izvezi izveštaj (Excel)'}</button>
                 </div>
             </div>
         </div>

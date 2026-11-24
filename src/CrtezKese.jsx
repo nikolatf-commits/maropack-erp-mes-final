@@ -148,8 +148,8 @@ function reciklazaSvg(cx, cy, s, broj, kod, color, rot) {
 
 // Prelom slobodnog teksta u redove po raspoloživoj širini (procena širine znaka ≈ fontPx×0.52).
 // Vrlo duge reči se tvrdo prelome da ne „iscure" van bloka.
-function wrapLines(text, fontPx, availW) {
-    const cw = fontPx * 0.52;
+function wrapLines(text, fontPx, availW, cwf) {
+    const cw = fontPx * (cwf || 0.52);
     const maxChars = Math.max(4, Math.floor(availW / cw));
     const words = String(text).trim().split(/\s+/).filter(Boolean);
     const lines = []; let cur = "";
@@ -167,11 +167,11 @@ function wrapLines(text, fontPx, availW) {
 
 // Auto-fit: nađi NAJVEĆI font tako da se prelomljen tekst uklopi u okvir boxW×boxH.
 // Ako treba više redova, font se smanjuje dok sve ne stane (do minFs).
-function fitText(text, boxW, boxH, maxFs, minFs) {
+function fitText(text, boxW, boxH, maxFs, minFs, cwf) {
     maxFs = maxFs || 13; minFs = minFs || 5;
-    let best = { fs: minFs, lines: wrapLines(text, minFs, boxW), lh: minFs * 1.25 };
+    let best = { fs: minFs, lines: wrapLines(text, minFs, boxW, cwf), lh: minFs * 1.25 };
     for (let fs = maxFs; fs >= minFs; fs -= 0.5) {
-        const lines = wrapLines(text, fs, boxW);
+        const lines = wrapLines(text, fs, boxW, cwf);
         const lh = fs * 1.25;
         if (lines.length * lh <= boxH) { best = { fs, lines, lh }; break; }
         best = { fs, lines, lh };   // pamti poslednji (najmanji) ako ništa ne stane
@@ -294,14 +294,20 @@ function buildSvgPro(c, u, lang = "sr") {
     const eV = (P.eurozumba || {}); const eW = (num(eV.sirina) || 32) * s;
     const eTop = (vrh === "klapna" || vrh === "header") ? ky : y0;
     const eHH = Math.max(eW * 0.34, 5), eRb = Math.max(eW * 0.16, 3);   // visina tela zumbe + „kapica" na vrhu
-    const ex = has(eV, "levo") ? cx + mm(eV.levo) : cx;
+    // Horizontalno: „centrirano na klapni" (prednost) → sredina širine (uz opcioni pomak), pa „levo"/„desno".
+    const ex = eV.centriranoKlapna ? cx + (has(eV, "pomakH") ? mm(eV.pomakH) : 0)
+        : has(eV, "levo") ? cx + mm(eV.levo)
+            : has(eV, "desno") ? x1 - eW / 2 - mm(eV.desno)
+                : cx;
     // REFERENCA euro zumbe = VRH POLUKRUGA (kapica), ne centar rupe. Mera „od vrha/od otvora/od dna"
     // se meri do polukruga. eApexOff = razmak od centra do vrha polukruga; polukrug je gore (−),
     // odnosno dole kad je zumba okrenuta (+).
     const eApexOff = eHH / 2 + eRb;
     const eApexDir = eV.okrenuto ? 1 : -1;
     // Vertikalna pozicija: „od otvora" (od usta kese = y0) ima prednost, pa „od vrha", pa „od dna", pa default.
-    let eyRef = has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
+    // „centrirano na klapni" → vertikalno na sredinu klapne/header-a (uz opcioni pomak); ima prednost.
+    let eyRef = eV.centriranoKlapna ? ((((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12) + eApexDir * eApexOff) + (has(eV, "pomakV") ? mm(eV.pomakV) : 0))
+        : has(eV, "odOtvora") ? y0 + mm(eV.odOtvora)
         : has(eV, "odVrha") ? eTop + mm(eV.odVrha)
             : has(eV, "odDna") ? y1 - mm(eV.odDna)
                 : (((vrh === "klapna" || vrh === "header") ? ky + kl * .5 : y0 + 12) + eApexDir * eApexOff);   // default: zadrži raniji centar
@@ -313,7 +319,7 @@ function buildSvgPro(c, u, lang = "sr") {
     // skoro cele širine — tako dizajn „ide do kraja klapne". Ako su unete tačne
     // vrednosti (širina/visina/levo/odVrha), one imaju prednost.
     const pw = has(psx, "sirina") ? mm(psx.sirina) : bw * .88;
-    const px = has(psx, "levo") ? x0 + mm(psx.levo) : cx - pw / 2;
+    const px = has(psx, "levo") ? x0 + mm(psx.levo) : has(psx, "desno") ? x1 - pw - mm(psx.desno) : cx - pw / 2;
     // Pozicija po visini: „od vrha" (default) ILI „od dna" (donja ivica polja na y1 − odDna).
     let py, ph;
     if (!has(psx, "odVrha") && has(psx, "odDna")) {
@@ -370,9 +376,9 @@ function buildSvgPro(c, u, lang = "sr") {
         return Math.max(y0 + 4, Math.min(y1 - 8, yy));
     })() : null;
     // Iskoristiva dubina vara — ako je uneta, var se crta u toj stvarnoj dubini (u razmeri), inače tanak prikaz.
-    const poprecniVarDub = (c.poprecniVar && poprecniVarY != null && has(pvarV, "dubina"))
-        ? Math.max(4, Math.min(mm(pvarV.dubina), (y1 - 6) - poprecniVarY))
-        : 5;
+    // Poprečni var se UVEK crta tanak (fiksno ~3 mm). Iskoristiva dubina NIJE debljina vara —
+    // crta se kao ZASEBNA kota OD vara naviše (dole), i var se NE uvećava za nju.
+    const poprecniVarDub = Math.max(3, Math.min(6, 3 * s));
     // POPREČNA PERFORACIJA — jedna linija, ali na zadatoj poziciji (od otvora/od vrha/od dna).
     const ppV = P.poprecna_perf || {};
     const poprecnaY = c.poprecnaPerf ? (() => {
@@ -414,8 +420,10 @@ function buildSvgPro(c, u, lang = "sr") {
                 g += `<g clip-path="url(#${clipId})"><image href="${safeUrl}" x="${q(ix)}" y="${q(iy)}" width="${q(iw)}" height="${q(ih)}" transform="${tf}" preserveAspectRatio="xMidYMid meet"/></g>`;
                 g += `<rect x="${q(px)}" y="${q(py)}" width="${q(pw)}" height="${q(ph)}" rx="2" fill="none" stroke="${TEAL}" stroke-width="1" stroke-dasharray="4 3"/>`;
             } else {
-                const lines = String(motivTxt || "ŠTAMPA").split(/\n/); const fs = Math.min(11, ph / (lines.length + 1)); let ty = py + ph / 2 - (lines.length - 1) * fs * .6 + fs * .3;
-                for (const l of lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fs * 1.25; }
+                // Tekst UVEK staje u okvir štampe: prelom po širini + smanjenje fonta do visine (fitText).
+                const fitS = fitText(String(motivTxt || "ŠTAMPA"), pw - 6, ph - 4, 11, 4, 0.70);
+                let ty = py + ph / 2 - (fitS.lines.length * fitS.lh) / 2 + fitS.fs * 0.82;
+                for (const l of fitS.lines) { g += `<text x="${q(px + pw / 2)}" y="${q(ty)}" font-size="${q(fitS.fs)}" fill="${TEAL}" text-anchor="middle" font-weight="700" font-family="Inter,system-ui,Segoe UI,Arial,sans-serif">${String(l).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`; ty += fitS.lh; }
             }
         }
         // Reciklažni znak (trougao). Ako je zadata pozicija → kotira se od IVICA KESE
@@ -574,7 +582,7 @@ function buildSvgPro(c, u, lang = "sr") {
     if (c.ojacanje) g += `<rect x="${q(x0 + 2)}" y="${q(y0 + 6)}" width="4" height="${q(bh - 12)}" fill="#fed7aa" stroke="${AMB}" stroke-width=".8"/>`;
     // Bočni var — zaptivne trake uz obe bočne ivice.
     if (c.bocniVar) g += `<rect x="${q(x0)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/><rect x="${q(x1 - 4)}" y="${q(y0)}" width="4" height="${q(bh)}" fill="url(#seal${u})" opacity=".6"/>`;
-    if (c.euroloch) { const ep = euroPath(ex, ey, eW); g += (eV.okrenuto ? `<g transform="rotate(180 ${q(ex)} ${q(ey)})">${ep}</g>` : ep); }
+    // (Euro zumba se crta NIŽE — POSLE anlegera — da ima PREDNOST i bude PREKO anleger trake.)
     // Poprečni var — PRIKAZ: dve paralelne linije sa crticama između (merdevina), na zadatoj poziciji.
     const pvY = poprecniVarY != null ? poprecniVarY : (y0 + bh * .62);
     if (c.poprecniVar && poprecniVarY != null) {
@@ -583,13 +591,15 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(xa)}" y1="${q(yT2)}" x2="${q(xb)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
         g += `<line x1="${q(xa)}" y1="${q(yB2)}" x2="${q(xb)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
         const step = 6; for (let xx = xa + 3; xx <= xb - 2; xx += step) g += `<line x1="${q(xx)}" y1="${q(yT2)}" x2="${q(xx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width=".7"/>`;
-        // KOTA iskoristive dubine (desno od kese): meri od gornje do donje ivice vara.
+        // KOTA ISKORISTIVE DUBINE (desno od kese): meri se OD vara NAVIŠE (iskoristiva dubina kese),
+        // kao zasebna mera — var ostaje tanak 3 mm i NE uvećava se za nju.
         if (has(pvarV, "dubina")) {
             const dx = xb + 16;
-            g += ext(xb, yT2, dx + 3, yT2) + ext(xb, yB2, dx + 3, yB2);
-            g += `<line x1="${q(dx)}" y1="${q(yT2)}" x2="${q(dx)}" y2="${q(yB2)}" stroke="${PVC}" stroke-width="1"/>`;
-            g += `<path d="${arr(dx, yT2, 'u')}" fill="${PVC}"/><path d="${arr(dx, yB2, 'd')}" fill="${PVC}"/>`;
-            const my = (yT2 + yB2) / 2;
+            const dubTop = Math.max(y0 + 4, yT2 - mm(pvarV.dubina));
+            g += ext(xb, dubTop, dx + 3, dubTop) + ext(xb, yT2, dx + 3, yT2);
+            g += `<line x1="${q(dx)}" y1="${q(dubTop)}" x2="${q(dx)}" y2="${q(yT2)}" stroke="${PVC}" stroke-width="1"/>`;
+            g += `<path d="${arr(dx, dubTop, 'u')}" fill="${PVC}"/><path d="${arr(dx, yT2, 'd')}" fill="${PVC}"/>`;
+            const my = (dubTop + yT2) / 2;
             g += `<rect x="${q(dx - 9)}" y="${q(my - 9)}" width="18" height="18" rx="2.5" fill="#fff" stroke="${PVC}" stroke-width=".6"/><text x="${q(dx)}" y="${q(my + 3)}" font-size="9" fill="${PVC}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" transform="rotate(-90 ${q(dx)} ${q(my)})">${num(pvarV.dubina)}</text>`;
         }
     }
@@ -601,11 +611,14 @@ function buildSvgPro(c, u, lang = "sr") {
         g += `<line x1="${q(x0 - 6)}" y1="${q(unakrsnaY)}" x2="${q(x1 + 6)}" y2="${q(unakrsnaY)}" stroke="${UC}" stroke-width="1.1" stroke-dasharray="2 3"/>`;
         const nX = 8; for (let i = 0; i <= nX; i++) { const xx = x0 + (x1 - x0) * i / nX; g += `<path d="M ${q(xx - 2)} ${q(unakrsnaY - 2)} L ${q(xx + 2)} ${q(unakrsnaY + 2)} M ${q(xx - 2)} ${q(unakrsnaY + 2)} L ${q(xx + 2)} ${q(unakrsnaY - 2)}" stroke="${UC}" stroke-width=".9"/>`; }
     }
-    // ANLEGER — traka stvarne širine (iz izbora, npr. „…/30mm/…") na zadatoj meri „od vrha".
+    // ANLEGER — traka stvarne širine (iz izbora, npr. „…/30mm/…") na zadatoj meri „od vrha" ili „od dna".
     const anV = P.anleger || {};
     const anTrakaMm = num(anV.traka);                      // širina trake iz izbora (mm), 0 ako nije izabrana
     const anH = anTrakaMm > 0 ? mm(anTrakaMm) : Math.max(mm(20), 14);  // bez izbora → vidljiv podrazumevani prikaz (~20 mm)
-    const anY = has(anV, "odVrha") ? Math.max(topY + 1, Math.min(y1 - anH - 2, topY + mm(anV.odVrha))) : y0 + 5;
+    // „Od vrha" meri do GORNJE ivice trake; „od dna" meri od DONJE ivice trake do dna kese.
+    const anY = has(anV, "odVrha") ? Math.max(topY + 1, Math.min(y1 - anH - 2, topY + mm(anV.odVrha)))
+        : has(anV, "odDna") ? Math.max(topY + 1, Math.min(y1 - anH - 2, y1 - mm(anV.odDna) - anH))
+            : y0 + 5;
     if (c.anleger) {
         let anT = anY, anB = anY + anH;
         // Anleger ne sme da ide PREKO poprečnog vara — staje na var (do njega).
@@ -627,6 +640,8 @@ function buildSvgPro(c, u, lang = "sr") {
             }
         }
     }
+    // EURO ZUMBA — crta se POSLE anlegera (prednost): rupa za kačenje ide PREKO anleger trake.
+    if (c.euroloch) { const ep = euroPath(ex, ey, eW); g += (eV.okrenuto ? `<g transform="rotate(180 ${q(ex)} ${q(ey)})">${ep}</g>` : ep); }
     // OKRUGLE ZUMBE — više rupa, svaka sa pozicijom od ivica (leva/desna, vrh/dno/otvor) + prečnikom.
     let ozOtvorKote = [];
     {
@@ -761,11 +776,12 @@ function buildSvgPro(c, u, lang = "sr") {
                 else if (has(psx, "odDna")) ok += vKota(y1, py + ph, num(psx.odDna), KC.stampa);   // donja ivica polja od dna kese
                 if (has(psx, "levo")) ok += hKota(x0, px, py + Math.min(11, ph / 2), num(psx.levo), KC.stampa);
                 // Dimenzije polja — UNUTAR polja (dole), da ne gaze elemente ispod polja.
-                if (has(psx, "sirina") && has(psx, "visina")) ok += `<text x="${q(px + pw / 2)}" y="${q(ph > 26 ? py + ph - 5 : py + ph + 11)}" font-size="8.5" fill="${TEAL}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" stroke="#fff" stroke-width="2.5" paint-order="stroke" style="paint-order:stroke">${num(psx.sirina)}×${num(psx.visina)} mm</text>`;
+                if (has(psx, "sirina") && has(psx, "visina")) { const dimY = Math.min(py + ph + 11, y1 - 3); ok += `<text x="${q(px + pw / 2)}" y="${q(dimY)}" font-size="8.5" fill="${TEAL}" text-anchor="middle" font-weight="800" font-family="ui-monospace,Menlo,Consolas,monospace" stroke="#fff" stroke-width="2.5" paint-order="stroke" style="paint-order:stroke">${num(psx.sirina)}×${num(psx.visina)} mm</text>`; }
             }
         }
-        // Anleger — mera „od vrha" do gornje ivice trake
+        // Anleger — mera „od vrha" do gornje ivice trake, ILI „od dna" od donje ivice trake do dna kese
         if (c.anleger && has(anV, "odVrha")) ok += vKota(topY, anY, num(anV.odVrha), BLUE);
+        else if (c.anleger && has(anV, "odDna")) ok += vKota(anY + anH, y1, num(anV.odDna), BLUE);
         // Reciklažna izjava — „od dna" (donja ivica okvira) ILI „od vrha" (gornja ivica), i „levo" od leve ivice kese
         if (rizj) {
             const rv = rizj.rv;

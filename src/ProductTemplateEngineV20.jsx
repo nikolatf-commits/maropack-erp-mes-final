@@ -4578,6 +4578,25 @@ function ProductTemplateEngineV20({ db, setDb, msg, setPage, kreiraoIme, dopunaN
                                                             <input type="checkbox" checked={!!pos.okrenuto} onChange={e => setOpt({ pos: { okrenuto: e.target.checked } })} /> ↻ Okreni 180°
                                                         </label>
                                                     )}
+                                                    {op.centr && (
+                                                        <>
+                                                            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: "#334155", cursor: "pointer" }}>
+                                                                <input type="checkbox" checked={!!pos.centriranoKlapna} onChange={e => setOpt({ pos: { centriranoKlapna: e.target.checked } })} /> ⊕ Centrirano na klapni
+                                                            </label>
+                                                            {pos.centriranoKlapna && (
+                                                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                                                    <div>
+                                                                        <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{POS_LBL.pomakH}</label>
+                                                                        <input value={pos.pomakH || ""} placeholder="0" onChange={e => setOpt({ pos: { pomakH: e.target.value } })} style={fieldStyle()} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{POS_LBL.pomakV}</label>
+                                                                        <input value={pos.pomakV || ""} placeholder="0" onChange={e => setOpt({ pos: { pomakV: e.target.value } })} style={fieldStyle()} />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
                                                     {(op.selPolja || []).map(sp => (
                                                         <div key={sp.k}>
                                                             <label style={{ fontSize: 9.5, color: "#64748b", fontWeight: 700, display: "block" }}>{sp.l}</label>
