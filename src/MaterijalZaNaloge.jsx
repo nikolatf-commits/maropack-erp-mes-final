@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase.js";
 import QRScannerModal from "../QRScannerModal.jsx";
-import { nadjiZamenske, zameniRolnu } from "../zamenaRolne.js";
+import { nadjiZamenske, zameniRolnu, zamenaDijag } from "../zamenaRolne.js";
 
 /* Magacioner: vidi naloge koji čekaju materijal i ROLNE KOJE SU VEĆ DODELJENE nalogu.
    NE bira materijal. Čekira svaku rolnu SKENIRANJEM QR koda.
@@ -113,6 +113,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [zamBusy, setZamBusy] = useState(false);
     const [zamLoad, setZamLoad] = useState(false);
     const [zamBlokiraj, setZamBlokiraj] = useState(true);   // stara rolna: true → blokirana (oštećena); false → vrati na stanje
+    const [zamDijag, setZamDijag] = useState("");           // dijagnostika kad nema kandidata
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -491,13 +492,14 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             redni_rolne: 1,
             materijali_nalog_id: st.materijali_nalog_id || null,
         };
-        setZamR(r); setZamStara(staraStavka); setZamSel(null); setZamKand([]); setZamLoad(true); setZamBlokiraj(true);
+        setZamR(r); setZamStara(staraStavka); setZamSel(null); setZamKand([]); setZamLoad(true); setZamBlokiraj(true); setZamDijag("");
         try {
             const { data } = await supabase.from("magacin")
                 .select("*").limit(3000);
             const kand = nadjiZamenske(data || [], staraStavka, { ideal: num(staraStavka.format_ciljna) || 0, trebaM: staraStavka.alocirano_m });
             setZamKand(kand);
             setZamSel(kand.length ? kand[0].id : null);
+            setZamDijag(kand.length ? "" : (zamenaDijag(data || [], staraStavka, { ideal: num(staraStavka.format_ciljna) || 0 }).tekst));
         } catch (e) { msg && msg("Ne mogu da učitam zamenske rolne: " + (e?.message || e), "err"); }
         setZamLoad(false);
     }
@@ -763,7 +765,8 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                                 <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontWeight: 800 }}>⏳ Tražim zamenske rolne…</div>
                             ) : zamKand.length === 0 ? (
                                 <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "12px 14px", fontWeight: 800, fontSize: 13 }}>
-                                    Nema odgovarajuće zamenske rolne na stanju (isti materijal, širina ≥ idealna, dovoljno metara). Ništa nije promenjeno.
+                                    Nema odgovarajuće zamenske rolne na stanju. Ništa nije promenjeno.
+                                    {zamDijag ? <div style={{ fontWeight: 700, fontSize: 11.5, color: "#7f1d1d", marginTop: 6 }}>{zamDijag}</div> : null}
                                 </div>
                             ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>

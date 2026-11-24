@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import MaterialSelectorPRO, { MaterialText } from './components/MaterialSelectorPRO.jsx';
 import { supabase } from "./supabase";
-import { nadjiZamenske, zameniRolnu } from "./zamenaRolne.js";
+import { nadjiZamenske, zameniRolnu, zamenaDijag } from "./zamenaRolne.js";
 import NalogLayoutPRO from "./NalogLayoutPRO.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { enrichNalogForPrint } from "./utils/nalogDataLink";
@@ -127,6 +127,7 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     const [zamLoad, setZamLoad] = useState(false);
     const [zamOpen, setZamOpen] = useState(false);
     const [zamBlokiraj, setZamBlokiraj] = useState(true);   // stara rolna: true → blokirana (oštećena); false → vrati na stanje
+    const [zamDijag, setZamDijag] = useState("");           // dijagnostika kad nema kandidata
     const _znum = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
     const _zfmt = (n) => { const x = Number(n || 0); return Number.isFinite(x) ? x.toLocaleString("sr-RS", { maximumFractionDigits: 0 }) : "—"; };
 
@@ -624,13 +625,14 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
     }, [matOp]);
 
     async function otvoriZamenu(stavka) {
-        setZamStara(stavka); setZamSel(null); setZamKand([]); setZamOpen(true); setZamLoad(true); setZamBlokiraj(true);
+        setZamStara(stavka); setZamSel(null); setZamKand([]); setZamOpen(true); setZamLoad(true); setZamBlokiraj(true); setZamDijag("");
         try {
             const { data } = await supabase.from("magacin")
                 .select("*").limit(3000);
             const kand = nadjiZamenske(data || [], stavka, { ideal: _znum(stavka.format_ciljna) || 0, trebaM: _znum(stavka.alocirano_m) });
             setZamKand(kand);
             setZamSel(kand.length ? kand[0].id : null);
+            setZamDijag(kand.length ? "" : (zamenaDijag(data || [], stavka, { ideal: _znum(stavka.format_ciljna) || 0 }).tekst));
         } catch (e) { alert("Ne mogu da učitam zamenske rolne: " + (e?.message || e)); }
         setZamLoad(false);
     }
@@ -746,7 +748,8 @@ export default function PregledNalogaPRO({ brojNaloga, kalkulacijaId, nalozi: na
                             <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontWeight: 800 }}>⏳ Tražim zamenske rolne…</div>
                         ) : zamKand.length === 0 ? (
                             <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "12px 14px", fontWeight: 800, fontSize: 13 }}>
-                                Nema odgovarajuće zamenske rolne na stanju (isti materijal, širina ≥ idealna, dovoljno metara). Ništa nije promenjeno.
+                                Nema odgovarajuće zamenske rolne na stanju. Ništa nije promenjeno.
+                                {zamDijag ? <div style={{ fontWeight: 700, fontSize: 11.5, color: "#7f1d1d", marginTop: 6 }}>{zamDijag}</div> : null}
                             </div>
                         ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>

@@ -17,6 +17,8 @@ function pj(v) { if (!v) return null; if (typeof v === "object") return v; try {
 
 function rolnaMetraza(r) { return num(r.metraza_ost ?? r.metraza); }
 function slobodnoM(r) { return Math.max(0, rolnaMetraza(r) - num(r.rezervisano)); }
+// Širina rolne — čita iz više mogućih polja (kao rezervacija: sirina/sir/width).
+function sirRolne(r) { return num(r && (r.sirina ?? r.sir ?? r.width ?? r.snap_sirina)); }
 function rolnaDatum(r) { const t = Date.parse(r.datum_proizvodnje || r.datum || ""); return isNaN(t) ? Infinity : t; }
 function formatTrake(w, ideal) { w = num(w); ideal = num(ideal); if (!ideal || w < ideal) return 1; return Math.max(1, Math.floor(w / ideal)); }
 
@@ -49,21 +51,39 @@ export function nadjiZamenske(sveRolne, stara, opts = {}) {
         if (String(r.id) === String(stara.rolna_id)) return false;          // ne sama stara
         if (ZAUZETO.test(String(r.status || ""))) return false;             // ne tvrdo zauzete/blokirane/oštećene
         if (slobodnoM(r) <= 1) return false;                                // mora imati SLOBODNIH metara (ukupno − rezervisano)
-        if (ideal && num(r.sirina) + 1 < ideal) return false;               // dovoljno široka (samo ako znamo idealnu)
+        if (ideal && sirRolne(r) + 1 < ideal) return false;                 // dovoljno široka (samo ako znamo idealnu)
         if (!istiMaterijal(r, stara)) return false;                         // isti materijal
         return true;
     });
-    const refW = ideal || num(stara.sirina) || 0;
+    const refW = ideal || sirRolne(stara) || num(stara.sirina) || 0;
     return list.sort((a, b) => {
         // 1) prvo rolne sa DOVOLJNO metara, 2) najbliža (idealnoj/staroj) širina, 3) FIFO, 4) više slobodnih
         const am = (!trebaM || slobodnoM(a) >= trebaM - 1) ? 0 : 1;
         const bm = (!trebaM || slobodnoM(b) >= trebaM - 1) ? 0 : 1;
         if (am !== bm) return am - bm;
-        if (refW) { const wa = Math.abs(num(a.sirina) - refW), wb = Math.abs(num(b.sirina) - refW); if (wa !== wb) return wa - wb; }
+        if (refW) { const wa = Math.abs(sirRolne(a) - refW), wb = Math.abs(sirRolne(b) - refW); if (wa !== wb) return wa - wb; }
         const da = rolnaDatum(a), db = rolnaDatum(b);
         if (da !== db) return da - db;
         return slobodnoM(b) - slobodnoM(a);
     });
+}
+
+// ── DIJAGNOSTIKA: zašto nema kandidata (gde filter otpada) ──
+// Vraća brojeve na svakom koraku + kratak tekst za prikaz u poruci „nema rolni".
+export function zamenaDijag(sveRolne, stara, opts = {}) {
+    const ideal = num(opts.ideal) || num(stara.format_ciljna) || 0;
+    const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen|proizvodnj|u proizv|blokir|oštećen|ostecen|u štampar|u stampar|zamenjen/i;
+    let ukupno = 0, slobodne = 0, istiMat = 0, dovoljnoSir = 0;
+    (sveRolne || []).forEach((r) => {
+        if (!r || r.id == null || String(r.id) === String(stara.rolna_id)) return;
+        if (ZAUZETO.test(String(r.status || ""))) return;
+        ukupno++;                                   // nije tvrdo zauzeta
+        if (slobodnoM(r) <= 1) return; slobodne++;  // ima slobodnih metara
+        if (!istiMaterijal(r, stara)) return; istiMat++;   // isti materijal
+        if (ideal && sirRolne(r) + 1 < ideal) return; dovoljnoSir++;  // dovoljno široka
+    });
+    const tekst = `Od ${ukupno} slobodnih rolni: ${slobodne} sa slobodnim metrima, ${istiMat} istog materijala (${stara.snap_vrsta || stara.materijal || '?'}${stara.snap_debljina ? ' ' + stara.snap_debljina + 'µ' : ''}), ${dovoljnoSir} dovoljno širokih${ideal ? ' (idealna ' + ideal + ' mm)' : ''}.`;
+    return { ukupno, slobodne, istiMat, dovoljnoSir, ideal, tekst };
 }
 
 // ── dodeljeno_nalogu: string „MP-2026-0008 · NAZIV, MP-2026-0009 · NAZIV2" ──
