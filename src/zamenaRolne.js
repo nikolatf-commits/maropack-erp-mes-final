@@ -22,13 +22,26 @@ function sirRolne(r) { return num(r && (r.sirina ?? r.sir ?? r.width ?? r.snap_s
 function rolnaDatum(r) { const t = Date.parse(r.datum_proizvodnje || r.datum || ""); return isNaN(t) ? Infinity : t; }
 function formatTrake(w, ideal) { w = num(w); ideal = num(ideal); if (!ideal || w < ideal) return 1; return Math.max(1, Math.floor(w / ideal)); }
 
-// Ista vrsta materijala kao stara stavka. Toleriše razlike u opisu („BOPP" vs „BOPP Transparent")
-// i radi samo kad su OBA podatka poznata (da ne iskljuci legitimnu rolnu zbog praznog polja).
+// ── Pomoćne — ISTO kao izbor materijala (ProductTemplateEngineV20.rangirajRolne) ──
+const txtEq = (a, b) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
+const rolnaPodVrsta = (r) => r.pod_vrsta ?? r.podvrsta ?? r.pod_vrsta_materijala ?? r.snap_pod_vrsta ?? "";
+const rolnaOznaka = (r) => r.oznaka_materijala ?? r.oznaka ?? r.grade ?? r.snap_oznaka ?? "";
+
+// Isti materijal kao stara stavka — ISTI KRITERIJUM KAO IZBOR MATERIJALA ZA NALOGE:
+//   • VRSTA   — vrsta rolne počinje istom osnovom (prva reč, npr. „MOPP")
+//   • DEBLJINA— ako je stavka traži, rolna mora imati debljinu u toleranciji ±3µ
+//   • POD-VRSTA — ako je stavka traži, rolna mora imati TAČNO tu pod-vrstu
+//   • OZNAKA  — ako je stavka traži, rolna mora imati TAČNO tu oznaku
+// (Svaki uslov se primenjuje SAMO kad stara stavka ima tu vrednost — kao u rezervaciji.)
 function istiMaterijal(r, stara) {
-    const rv = normMat(r.vrsta || r.tip), sv = normMat(stara.snap_vrsta || stara.materijal);
-    if (rv && sv && rv !== sv && !rv.startsWith(sv) && !sv.startsWith(rv)) return false;
-    const rd = num(r.deb || r.debljina), sd = num(stara.snap_debljina || stara.debljina);
-    if (rd && sd && Math.abs(rd - sd) > 5) return false;   // tolerancija debljine 5µ
+    const base = String(stara.snap_vrsta || stara.materijal || stara.vrsta || "").trim().split(" ")[0].toUpperCase();
+    if (base && !String(r.vrsta || r.tip || "").toUpperCase().startsWith(base)) return false;   // VRSTA
+    const deb = num(stara.snap_debljina || stara.debljina);
+    if (deb) { const rd = num(r.deb || r.debljina); if (!(rd > 0 && Math.abs(rd - deb) <= 3)) return false; }   // DEBLJINA ±3µ
+    const podv = String(stara.snap_pod_vrsta || "").trim();
+    if (podv && !txtEq(rolnaPodVrsta(r), podv)) return false;                                    // POD-VRSTA (tačno)
+    const ozn = String(stara.snap_oznaka || "").trim();
+    if (ozn && !(String(rolnaOznaka(r)).trim() !== "" && txtEq(rolnaOznaka(r), ozn))) return false;  // OZNAKA (tačno)
     return true;
 }
 
@@ -82,7 +95,8 @@ export function zamenaDijag(sveRolne, stara, opts = {}) {
         if (!istiMaterijal(r, stara)) return; istiMat++;   // isti materijal
         if (ideal && sirRolne(r) + 1 < ideal) return; dovoljnoSir++;  // dovoljno široka
     });
-    const tekst = `Od ${ukupno} slobodnih rolni: ${slobodne} sa slobodnim metrima, ${istiMat} istog materijala (${stara.snap_vrsta || stara.materijal || '?'}${stara.snap_debljina ? ' ' + stara.snap_debljina + 'µ' : ''}), ${dovoljnoSir} dovoljno širokih${ideal ? ' (idealna ' + ideal + ' mm)' : ''}.`;
+    const kriterijum = [stara.snap_vrsta || stara.materijal || '?', stara.snap_pod_vrsta, stara.snap_oznaka, (stara.snap_debljina ? stara.snap_debljina + 'µ' : '')].filter(Boolean).join(' · ');
+    const tekst = `Tražim: ${kriterijum}${ideal ? ' · širina ≥ ' + ideal + ' mm' : ''}. Od ${ukupno} slobodnih rolni: ${slobodne} sa slobodnim metrima, ${istiMat} istog materijala (vrsta/pod-vrsta/oznaka/debljina), ${dovoljnoSir} dovoljno širokih.`;
     return { ukupno, slobodne, istiMat, dovoljnoSir, ideal, tekst };
 }
 
