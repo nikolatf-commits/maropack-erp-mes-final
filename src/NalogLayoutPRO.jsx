@@ -248,7 +248,14 @@ function buildD(nalog) {
     // + dodatak (škart): matična rolna i kilaža koje se stvarno skidaju iz magacina
     const metriMatPlus = Math.ceil(metriMat * (1 + skartPct / 100));
     const kgPlus = kgUkupno * (1 + skartPct / 100);
-    const imaPerforaciju = !!pf && pf.nema !== true && (pf.enabled === true || num(pf.kolone || pf.brojKolona) > 0 || (!!pf.tip && !/nema|bez/i.test(String(pf.tip))) || !!pf.poprecna_perf || !!pf.mikroperforacija);
+    // Perforacija se crta na nalogu SAMO kad STVARNO postoji — isto kao u editoru (RolnaPerfViews):
+    // bar jedna linija sa POZICIJOM (poz nije prazno i numeričko je), ili zona sa sadržajem,
+    // ili makro/kolone/kesa-flag. Sam izbor TIPA (npr. „linija") bez ijedne unete linije NE znači
+    // da ima perforacije — ranije je to pogrešno crtalo perforaciju kad nije uneta.
+    const _perfLin = Array.isArray(pf && pf.linije) && pf.linije.some(function (l) { return l && String(l.poz) !== "" && !isNaN(parseFloat(l.poz)); });
+    const _perfZona = /zona/i.test(String((pf && pf.tip) || "")) && Array.isArray(pf && pf.zone) && pf.zone.some(function (z) { return z && (num(z.odLeve) > 0 || num(z.sirina) > 0); });
+    const _perfLegacy = !!pf && (String(pf.pozLeve != null ? pf.pozLeve : "") !== "" || String(pf.pozDesne != null ? pf.pozDesne : "") !== "");
+    const imaPerforaciju = !!pf && pf.nema !== true && (pf.enabled === true || num(pf.kolone || pf.brojKolona) > 0 || _perfLin || _perfZona || _perfLegacy || !!pf.poprecna_perf || !!pf.mikroperforacija);
     // Prečnik ↔ dužina rolne: uneseš jedno, drugo se računa iz ukupne debljine (µm) + hilzne
     const nHilzna = num(rz.precnikHilzne) || num(fr.hilzna) || num(st.precnikHilzne) || 76;
     const debUm = TOTu;
