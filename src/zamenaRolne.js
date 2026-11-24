@@ -24,24 +24,35 @@ function formatTrake(w, ideal) { w = num(w); ideal = num(ideal); if (!ideal || w
 
 // ── Pomoćne — ISTO kao izbor materijala (ProductTemplateEngineV20.rangirajRolne) ──
 const txtEq = (a, b) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
-const rolnaPodVrsta = (r) => r.pod_vrsta ?? r.podvrsta ?? r.pod_vrsta_materijala ?? r.snap_pod_vrsta ?? "";
-const rolnaOznaka = (r) => r.oznaka_materijala ?? r.oznaka ?? r.grade ?? r.snap_oznaka ?? "";
+// Prva NEprazna vrednost — VAŽNO: `??` ne preskače prazan string (""), pa je rolna sa
+// oznaka_materijala="" vraćala "" umesto prave oznake iz polja `oznaka` → sve rolne su padale
+// na poklapanju oznake. `prvi()` uzima prvu stvarno popunjenu vrednost.
+const prvi = (...xs) => { for (const x of xs) { const s = String(x == null ? "" : x).trim(); if (s) return s; } return ""; };
+const rolnaPodVrsta = (r) => prvi(r.pod_vrsta, r.podvrsta, r.pod_vrsta_materijala, r.snap_pod_vrsta);
+const rolnaOznaka = (r) => prvi(r.oznaka_materijala, r.oznaka, r.grade, r.snap_oznaka);
 
-// Isti materijal kao stara stavka — ISTI KRITERIJUM KAO IZBOR MATERIJALA ZA NALOGE:
-//   • VRSTA   — vrsta rolne počinje istom osnovom (prva reč, npr. „MOPP")
-//   • DEBLJINA— ako je stavka traži, rolna mora imati debljinu u toleranciji ±3µ
-//   • POD-VRSTA — ako je stavka traži, rolna mora imati TAČNO tu pod-vrstu
-//   • OZNAKA  — ako je stavka traži, rolna mora imati TAČNO tu oznaku
-// (Svaki uslov se primenjuje SAMO kad stara stavka ima tu vrednost — kao u rezervaciji.)
+// Kriterijum materijala — isti kao izbor materijala za naloge (vrsta/pod-vrsta/oznaka/debljina),
+// ali poravnat sa REALNIM podacima u magacinu:
+//   • VRSTA    — vrsta rolne počinje istom osnovom sloja (prva reč, npr. „MOPP"); OBAVEZNO.
+//   • DEBLJINA — kad je poznata na obe strane, mora u toleranciji ±3µ.
+//   • OZNAKA   — kad stavka traži oznaku I rolna ima svoju → moraju se poklopiti; rolnu BEZ
+//                oznake NE izbacujemo (kao kod izbora materijala kad sloj to ne zahteva).
+//   • POD-VRSTA— ISTO tako: poklapanje samo kad obe strane imaju vrednost. Pod-vrsta sloja se
+//                NE čuva na stavci (postoji samo snapshot oštećene rolne), a rolne na stanju to
+//                polje često nemaju — zato se rolna BEZ pod-vrste NE izbacuje (inače „nema rolni"
+//                iako ih ima). Prednost imaju SLOJ-vrednosti (materijal/oznaka/debljina) nad snapshot-om.
 function istiMaterijal(r, stara) {
-    const base = String(stara.snap_vrsta || stara.materijal || stara.vrsta || "").trim().split(" ")[0].toUpperCase();
-    if (base && !String(r.vrsta || r.tip || "").toUpperCase().startsWith(base)) return false;   // VRSTA
-    const deb = num(stara.snap_debljina || stara.debljina);
-    if (deb) { const rd = num(r.deb || r.debljina); if (!(rd > 0 && Math.abs(rd - deb) <= 3)) return false; }   // DEBLJINA ±3µ
-    const podv = String(stara.snap_pod_vrsta || "").trim();
-    if (podv && !txtEq(rolnaPodVrsta(r), podv)) return false;                                    // POD-VRSTA (tačno)
-    const ozn = String(stara.snap_oznaka || "").trim();
-    if (ozn && !(String(rolnaOznaka(r)).trim() !== "" && txtEq(rolnaOznaka(r), ozn))) return false;  // OZNAKA (tačno)
+    const base = String(stara.materijal || stara.snap_vrsta || stara.vrsta || "").trim().split(" ")[0].toUpperCase();
+    if (base && !String(r.vrsta || r.tip || "").toUpperCase().startsWith(base)) return false;   // VRSTA (obavezno)
+    const deb = num(stara.debljina || stara.snap_debljina);
+    const rd = num(r.deb || r.debljina);
+    if (deb && rd && Math.abs(rd - deb) > 3) return false;                                       // DEBLJINA ±3µ (kad obe postoje)
+    const ozn = String(stara.oznaka || stara.snap_oznaka || "").trim();
+    const ro = String(rolnaOznaka(r)).trim();
+    if (ozn && ro && !txtEq(ro, ozn)) return false;                                             // OZNAKA (kad obe postoje)
+    const podv = String(stara.pod_vrsta || stara.snap_pod_vrsta || "").trim();
+    const rp = String(rolnaPodVrsta(r)).trim();
+    if (podv && rp && !txtEq(rp, podv)) return false;                                            // POD-VRSTA (kad obe postoje)
     return true;
 }
 
@@ -86,18 +97,26 @@ export function nadjiZamenske(sveRolne, stara, opts = {}) {
 export function zamenaDijag(sveRolne, stara, opts = {}) {
     const ideal = num(opts.ideal) || num(stara.format_ciljna) || 0;
     const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen|proizvodnj|u proizv|blokir|oštećen|ostecen|u štampar|u stampar|zamenjen/i;
-    let ukupno = 0, slobodne = 0, istiMat = 0, dovoljnoSir = 0;
+    // Kumulativni lijevak po kriterijumu — da se vidi tačno gde lista „otpada".
+    const base = String(stara.materijal || stara.snap_vrsta || stara.vrsta || "").trim().split(" ")[0].toUpperCase();
+    const deb = num(stara.debljina || stara.snap_debljina);
+    const ozn = String(stara.oznaka || stara.snap_oznaka || "").trim();
+    const podv = String(stara.pod_vrsta || stara.snap_pod_vrsta || "").trim();
+    let ukupno = 0, slobodne = 0, okVrsta = 0, okDeb = 0, okOzn = 0, okPodv = 0, dovoljnoSir = 0;
     (sveRolne || []).forEach((r) => {
         if (!r || r.id == null || String(r.id) === String(stara.rolna_id)) return;
         if (ZAUZETO.test(String(r.status || ""))) return;
-        ukupno++;                                   // nije tvrdo zauzeta
-        if (slobodnoM(r) <= 1) return; slobodne++;  // ima slobodnih metara
-        if (!istiMaterijal(r, stara)) return; istiMat++;   // isti materijal
-        if (ideal && sirRolne(r) + 1 < ideal) return; dovoljnoSir++;  // dovoljno široka
+        ukupno++;                                                     // nije tvrdo zauzeta
+        if (slobodnoM(r) <= 1) return; slobodne++;                    // ima slobodnih metara
+        if (base && !String(r.vrsta || r.tip || "").toUpperCase().startsWith(base)) return; okVrsta++;   // vrsta
+        const rd = num(r.deb || r.debljina); if (deb && rd && Math.abs(rd - deb) > 3) return; okDeb++;   // + debljina
+        const ro = String(rolnaOznaka(r)).trim(); if (ozn && ro && !txtEq(ro, ozn)) return; okOzn++;     // + oznaka
+        const rp = String(rolnaPodVrsta(r)).trim(); if (podv && rp && !txtEq(rp, podv)) return; okPodv++; // + pod-vrsta
+        if (ideal && sirRolne(r) + 1 < ideal) return; dovoljnoSir++;  // + širina
     });
-    const kriterijum = [stara.snap_vrsta || stara.materijal || '?', stara.snap_pod_vrsta, stara.snap_oznaka, (stara.snap_debljina ? stara.snap_debljina + 'µ' : '')].filter(Boolean).join(' · ');
-    const tekst = `Tražim: ${kriterijum}${ideal ? ' · širina ≥ ' + ideal + ' mm' : ''}. Od ${ukupno} slobodnih rolni: ${slobodne} sa slobodnim metrima, ${istiMat} istog materijala (vrsta/pod-vrsta/oznaka/debljina), ${dovoljnoSir} dovoljno širokih.`;
-    return { ukupno, slobodne, istiMat, dovoljnoSir, ideal, tekst };
+    const kriterijum = [base, podv, ozn, (deb ? deb + 'µ' : '')].filter(Boolean).join(' · ');
+    const tekst = `Tražim: ${kriterijum}${ideal ? ' · širina ≥ ' + ideal + ' mm' : ''}. Od ${ukupno} rolni: ${slobodne} slobodnih → ${okVrsta} vrsta → ${okDeb} +debljina → ${okOzn} +oznaka → ${okPodv} +pod-vrsta → ${dovoljnoSir} +širina.`;
+    return { ukupno, slobodne, okVrsta, okDeb, okOzn, okPodv, dovoljnoSir, ideal, tekst };
 }
 
 // ── dodeljeno_nalogu: string „MP-2026-0008 · NAZIV, MP-2026-0009 · NAZIV2" ──
