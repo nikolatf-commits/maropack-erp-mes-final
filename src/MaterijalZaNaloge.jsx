@@ -112,6 +112,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
     const [zamSel, setZamSel] = useState(null);     // izabrana zamenska rolna (id)
     const [zamBusy, setZamBusy] = useState(false);
     const [zamLoad, setZamLoad] = useState(false);
+    const [zamBlokiraj, setZamBlokiraj] = useState(true);   // stara rolna: true → blokirana (oštećena); false → vrati na stanje
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -490,7 +491,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
             redni_rolne: 1,
             materijali_nalog_id: st.materijali_nalog_id || null,
         };
-        setZamR(r); setZamStara(staraStavka); setZamSel(null); setZamKand([]); setZamLoad(true);
+        setZamR(r); setZamStara(staraStavka); setZamSel(null); setZamKand([]); setZamLoad(true); setZamBlokiraj(true);
         try {
             const { data } = await supabase.from("magacin")
                 .select("*").limit(3000);
@@ -515,7 +516,7 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                 ideal: zamStara.format_ciljna || zamStara.sirina || 0,
                 staraStavka: zamStara,
                 nova,
-                blokiraj: true,
+                blokiraj: zamBlokiraj,
             });
             msg && msg("✓ Rolna zamenjena: " + (zamStara.br_rolne || "") + " → " + (nova.br_rolne || ""), "ok");
             setZamR(null); setZamStara(null); setZamKand([]); setZamSel(null);
@@ -750,7 +751,12 @@ export default function MaterijalZaNaloge({ operater, onBack, msg }) {
                             <div style={{ fontWeight: 950, fontSize: 17, color: "#b91c1c" }}>🔁 Zameni oštećenu rolnu</div>
                             <div style={{ fontSize: 13, color: "#475569", marginTop: 4, marginBottom: 10 }}>
                                 Stara: <b>{(zamStara && zamStara.br_rolne) || "—"}</b> · {(zamStara && zamStara.snap_vrsta) || ""}{zamStara && zamStara.snap_debljina ? " · " + zamStara.snap_debljina + "µ" : ""} · š {(zamStara && zamStara.sirina) || "—"} mm · planirano <b style={{ color: "#0f766e" }}>{fmt((zamStara && zamStara.alocirano_m) || 0)} m</b>
-                                <div style={{ color: "#94a3b8", marginTop: 2 }}>Stara ide „blokirana — oštećena"; nova preuzima iste metre.</div>
+                                <div style={{ color: "#94a3b8", marginTop: 2 }}>Nova rolna preuzima iste metre. Za staru rolnu izaberi gde ide:</div>
+                            </div>
+                            {/* IZBOR: gde ide STARA rolna (blokirana vs nazad na stanje) */}
+                            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                                <button onClick={() => setZamBlokiraj(true)} style={{ flex: 1, padding: "9px 10px", borderRadius: 10, border: "2px solid " + (zamBlokiraj ? "#dc2626" : "#e2e8f0"), background: zamBlokiraj ? "#fef2f2" : "#fff", color: zamBlokiraj ? "#b91c1c" : "#64748b", fontWeight: 900, fontSize: 12.5, cursor: "pointer" }}>{zamBlokiraj ? "● " : "○ "}🚫 Blokiraj (oštećena)</button>
+                                <button onClick={() => setZamBlokiraj(false)} style={{ flex: 1, padding: "9px 10px", borderRadius: 10, border: "2px solid " + (!zamBlokiraj ? "#16a34a" : "#e2e8f0"), background: !zamBlokiraj ? "#f0fdf4" : "#fff", color: !zamBlokiraj ? "#15803d" : "#64748b", fontWeight: 900, fontSize: 12.5, cursor: "pointer" }}>{!zamBlokiraj ? "● " : "○ "}✓ Vrati na stanje</button>
                             </div>
 
                             {zamLoad ? (

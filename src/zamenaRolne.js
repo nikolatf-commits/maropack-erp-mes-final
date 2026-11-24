@@ -38,17 +38,17 @@ export function nadjiZamenske(sveRolne, stara, opts = {}) {
     // npr. 600 za idealnih 440) — to bi pogrešno izbacilo sve uže-ali-dovoljne rolne.
     const ideal = num(opts.ideal) || num(stara.format_ciljna) || 0;
     const trebaM = num(opts.trebaM) || num(stara.alocirano_m) || 0;
-    const blok = ["blokiran", "iskorišć", "iskorisc", "u štampar", "u stampar"];
+    // ISTI KRITERIJUM KAO REZERVACIJA (ProductTemplateEngineV20.rangirajRolne):
+    // rolna se nudi dok NIJE „tvrdo zauzeta" (utrošena/prodata/otpisana/u proizvodnji/
+    // blokirana/oštećena/u štampariji/zamenjena) I ima SLOBODNIH metara. „Rezervisano" i
+    // „Delimično rezervisano" (za druge naloge) se I DALJE nude — za svoje SLOBODNE metre —
+    // tako da rolne koje POSTOJE na stanju više ne „nestaju" iz zamene.
+    const ZAUZETO = /utros|utroš|iskoris|iskorišć|prodat|isporu|otpis|storn|obrisan|arhiv|zavrsen|završen|proizvodnj|u proizv|blokir|oštećen|ostecen|u štampar|u stampar|zamenjen/i;
     const list = (sveRolne || []).filter((r) => {
         if (!r || r.id == null) return false;
         if (String(r.id) === String(stara.rolna_id)) return false;          // ne sama stara
-        const st = String(r.status || "").toLowerCase();
-        if (blok.some((b) => st.includes(b))) return false;                 // ne blokirana/iskorišćena
-        // SAMO SLOBODNE ROLNE NA STANJU — ne nudi rolne rezervisane za druge naloge.
-        if (num(r.rezervisano) > 0) return false;                           // ima rezervisanih metara → preskoči
-        if (String(r.dodeljeno_nalogu || "").trim() !== "") return false;   // dodeljena nekom nalogu → preskoči
-        if (st.includes("rezervis") || st.includes("delimičn") || st.includes("delimicn")) return false; // status rezervacije → preskoči
-        if (slobodnoM(r) <= 1) return false;                                // mora imati metara
+        if (ZAUZETO.test(String(r.status || ""))) return false;             // ne tvrdo zauzete/blokirane/oštećene
+        if (slobodnoM(r) <= 1) return false;                                // mora imati SLOBODNIH metara (ukupno − rezervisano)
         if (ideal && num(r.sirina) + 1 < ideal) return false;               // dovoljno široka (samo ako znamo idealnu)
         if (!istiMaterijal(r, stara)) return false;                         // isti materijal
         return true;
